@@ -1,0 +1,58 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pyc
+*.pdb
+*.egg-info/
+*.egg
+*.log
+
+# Virtual environments
+env/
+venv/
+.ddp_env/
+.ddp_env*/
+.ddp_env\*
+ddp_env/
+dp_env/
+
+# FastAPI/Starlette
+instance/
+
+# VSCode
+.vscode/
+
+# macOS
+.DS_Store
+
+# Node/React
+node_modules/
+build/
+dist/
+*.lock
+
+# Environment variables
+.env
+.env.*
+
+# Misc
+*.sqlite3
+*.db
+*.bak
+*.swp
+*.swo
+
+# Test/coverage
+htmlcov/
+.coverage
+.tox/
+.nox/
+.pytest_cache/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# System
+Thumbs.db 
