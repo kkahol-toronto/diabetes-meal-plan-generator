@@ -202,6 +202,7 @@ def send_registration_code(phone: str, code: str):
             from_=os.getenv("TWILIO_PHONE_NUMBER"),
             to=phone
         )
+        print(f"Twilio message sent successfully: {message.sid}")
         return message.sid
     except Exception as e:
         print(f"Failed to send SMS: {str(e)}")
@@ -824,7 +825,7 @@ async def send_chat_message(
 ):
     # Save user message
     user_message = await save_chat_message(
-        current_user.id,
+        current_user["id"],
         message.message,
         is_user=True,
         session_id=message.session_id
@@ -832,25 +833,37 @@ async def send_chat_message(
     
     # Get chat history for context
     chat_history = await format_chat_history_for_prompt(
-        current_user.id,
+        current_user["id"],
         message.session_id or user_message["session_id"]
     )
     
+    # Ensure chat history is a list of message objects
+    formatted_chat_history = []
+    for msg in chat_history:
+        if isinstance(msg, tuple) and len(msg) == 2:
+            content, is_user = msg
+            formatted_chat_history.append(
+                {"role": "user", "content": content} if is_user else {"role": "assistant", "content": content}
+            )
+    
     # Generate response using OpenAI
-    response = await client.chat.completions.create(
-        model=os.getenv("AZURE_OPENAI_MODEL"),
+    response = client.chat.completions.create(
+        model=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
         messages=[
             {"role": "system", "content": "You are a helpful diet assistant for diabetes patients. Provide clear, concise, and accurate information about diet management, meal planning, and general diabetes care."},
-            *chat_history,
+            *formatted_chat_history,
             {"role": "user", "content": message.message}
         ],
-        temperature=0.7,
-        max_tokens=500
+        max_completion_tokens=800,
+        temperature=1.0,
+        top_p=1.0,
+        frequency_penalty=0.0,
+        presence_penalty=0.0
     )
     
     # Save assistant response
     assistant_message = await save_chat_message(
-        current_user.id,
+        current_user["id"],
         response.choices[0].message.content,
         is_user=False,
         session_id=user_message["session_id"]
@@ -867,12 +880,12 @@ async def get_chat_history(
     session_id: Optional[str] = None,
     current_user: User = Depends(get_current_user)
 ):
-    messages = await get_recent_chat_history(current_user.id, session_id)
+    messages = await get_recent_chat_history(current_user["id"], session_id)
     return messages
 
 @app.get("/chat/sessions")
 async def get_chat_sessions(current_user: User = Depends(get_current_user)):
-    sessions = await get_user_sessions(current_user.id)
+    sessions = await get_user_sessions(current_user["id"])
     return sessions
 
 @app.delete("/chat/history")
@@ -880,7 +893,7 @@ async def delete_chat_history(
     session_id: Optional[str] = None,
     current_user: User = Depends(get_current_user)
 ):
-    await clear_chat_history(current_user.id, session_id)
+    await clear_chat_history(current_user["id"], session_id)
     return {"message": "Chat history cleared successfully"}
 
 @app.get("/users/me")

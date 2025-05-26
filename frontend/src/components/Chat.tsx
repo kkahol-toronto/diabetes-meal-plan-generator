@@ -19,6 +19,7 @@ import {
 } from '@mui/material';
 import SendIcon from '@mui/icons-material/Send';
 import { useNavigate } from 'react-router-dom';
+import ReactMarkdown from 'react-markdown';
 
 interface Message {
   id: string;
@@ -35,11 +36,11 @@ interface Session {
 }
 
 const Chat = () => {
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [messages, setMessages] = useState<Array<{ role: string; content: string }>>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [currentSession, setCurrentSession] = useState<string>('');
-  const [newMessage, setNewMessage] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [input, setInput] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<null | HTMLDivElement>(null);
 
   useEffect(() => {
@@ -90,18 +91,21 @@ const Chat = () => {
 
       if (response.ok) {
         const data = await response.json();
-        setMessages(data);
+        setMessages(data.map((msg: Message) => ({ role: msg.is_user ? 'user' : 'assistant', content: msg.message })));
       }
     } catch (error) {
       console.error('Failed to fetch chat history:', error);
     }
   };
 
-  const handleSendMessage = async (event: React.FormEvent) => {
-    event.preventDefault();
-    if (!newMessage.trim()) return;
+  const handleSendMessage = async () => {
+    if (!input.trim()) return;
 
-    setLoading(true);
+    const userMessage = { role: 'user', content: input };
+    setMessages((prev) => [...prev, userMessage]);
+    setInput('');
+    setIsLoading(true);
+
     try {
       const response = await fetch('http://localhost:8000/chat/message', {
         method: 'POST',
@@ -109,25 +113,22 @@ const Chat = () => {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${localStorage.getItem('token')}`,
         },
-        body: JSON.stringify({ 
-          message: newMessage,
-          session_id: currentSession || undefined
-        }),
+        body: JSON.stringify({ message: input }),
       });
 
       if (response.ok) {
         const data = await response.json();
-        setMessages(prev => [...prev, data.user_message, data.assistant_message]);
-        if (!currentSession) {
-          setCurrentSession(data.session_id);
-          await fetchSessions();
-        }
-        setNewMessage('');
+        setMessages((prev) => [
+          ...prev,
+          { role: 'assistant', content: data.assistant_message.message }
+        ]);
+      } else {
+        console.error('Failed to send message');
       }
     } catch (error) {
-      console.error('Failed to send message:', error);
+      console.error('Error sending message:', error);
     } finally {
-      setLoading(false);
+      setIsLoading(false);
     }
   };
 
@@ -190,11 +191,11 @@ const Chat = () => {
 
         <Box sx={{ flexGrow: 1, overflow: 'auto', mb: 2 }}>
           <List>
-            {messages.map((message, index) => (
-              <React.Fragment key={message.id || index}>
+            {messages.map((msg, index) => (
+              <React.Fragment key={index}>
                 <ListItem
                   sx={{
-                    justifyContent: message.is_user ? 'flex-end' : 'flex-start',
+                    justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start',
                   }}
                 >
                   <Paper
@@ -202,17 +203,14 @@ const Chat = () => {
                     sx={{
                       p: 2,
                       maxWidth: '70%',
-                      backgroundColor: message.is_user ? 'primary.light' : 'grey.100',
-                      color: message.is_user ? 'white' : 'text.primary',
+                      backgroundColor: msg.role === 'user' ? 'primary.light' : 'grey.100',
+                      color: msg.role === 'user' ? 'white' : 'text.primary',
                     }}
                   >
-                    <ListItemText
-                      primary={message.message}
-                      secondary={new Date(message.timestamp).toLocaleTimeString()}
-                      secondaryTypographyProps={{
-                        color: message.is_user ? 'white' : 'text.secondary',
-                      }}
-                    />
+                    <Typography variant="subtitle2" color="textSecondary">
+                      {msg.role === 'user' ? 'You' : 'Assistant'}:
+                    </Typography>
+                    <ReactMarkdown>{msg.content}</ReactMarkdown>
                   </Paper>
                 </ListItem>
                 <Divider />
@@ -222,21 +220,22 @@ const Chat = () => {
           </List>
         </Box>
 
-        <Box component="form" onSubmit={handleSendMessage} sx={{ display: 'flex', gap: 1 }}>
+        <Box component="form" onSubmit={(e) => { e.preventDefault(); handleSendMessage(); }} sx={{ display: 'flex', gap: 1 }}>
           <TextField
             fullWidth
             variant="outlined"
-            placeholder="Type your message..."
-            value={newMessage}
-            onChange={(e) => setNewMessage(e.target.value)}
-            disabled={loading}
+            placeholder="Type a message..."
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
+            disabled={isLoading}
           />
           <Button
             type="submit"
             variant="contained"
             color="primary"
-            disabled={loading || !newMessage.trim()}
-            endIcon={loading ? <CircularProgress size={20} color="inherit" /> : <SendIcon />}
+            disabled={isLoading || !input.trim()}
+            endIcon={isLoading ? <CircularProgress size={20} color="inherit" /> : <SendIcon />}
           >
             Send
           </Button>
