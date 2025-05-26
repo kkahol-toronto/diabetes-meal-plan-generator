@@ -117,11 +117,32 @@ const Chat = () => {
       });
 
       if (response.ok) {
-        const data = await response.json();
-        setMessages((prev) => [
-          ...prev,
-          { role: 'assistant', content: data.assistant_message.message }
-        ]);
+        const reader = response.body?.getReader();
+        if (reader) {
+          const decoder = new TextDecoder();
+          let assistantMessage = '';
+
+          // Add initial empty assistant message
+          setMessages((prev) => [...prev, { role: 'assistant', content: '' }]);
+
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            const chunk = decoder.decode(value, { stream: true });
+            assistantMessage += chunk;
+            
+            // Update the last message (assistant's message) with the new content
+            setMessages((prev) => {
+              const newMessages = [...prev];
+              const lastMessage = newMessages[newMessages.length - 1];
+              if (lastMessage && lastMessage.role === 'assistant') {
+                lastMessage.content = assistantMessage;
+              }
+              return newMessages;
+            });
+          }
+        }
       } else {
         console.error('Failed to send message');
       }

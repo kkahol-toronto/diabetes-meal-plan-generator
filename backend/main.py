@@ -858,22 +858,46 @@ async def send_chat_message(
         temperature=1.0,
         top_p=1.0,
         frequency_penalty=0.0,
-        presence_penalty=0.0
+        presence_penalty=0.0,
+        stream=True
     )
     
-    # Save assistant response
-    assistant_message = await save_chat_message(
-        current_user["id"],
-        response.choices[0].message.content,
-        is_user=False,
-        session_id=user_message["session_id"]
-    )
+    # Stream the response and collect the full message
+    full_message = ""
+    async def generate():
+        nonlocal full_message
+        try:
+            for chunk in response:
+                if not chunk.choices:
+                    continue
+                if not chunk.choices[0].delta:
+                    continue
+                content = chunk.choices[0].delta.content
+                if content:
+                    full_message += content
+                    yield content
+        except Exception as e:
+            print(f"Error in streaming response: {str(e)}")
+            if full_message:
+                yield full_message
     
-    return {
-        "user_message": user_message,
-        "assistant_message": assistant_message,
-        "session_id": user_message["session_id"]
-    }
+    # Create a streaming response
+    streaming_response = StreamingResponse(generate(), media_type="text/plain")
+    
+    # Save the complete assistant message after streaming is done
+    async def save_message():
+        if full_message:
+            await save_chat_message(
+                current_user["id"],
+                full_message,
+                is_user=False,
+                session_id=user_message["session_id"]
+            )
+    
+    # Add a callback to save the message after streaming
+    streaming_response.background = save_message
+    
+    return streaming_response
 
 @app.get("/chat/history")
 async def get_chat_history(
