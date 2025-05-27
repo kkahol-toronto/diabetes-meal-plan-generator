@@ -31,17 +31,6 @@ export interface MealPlanData {
     carbs: number;
     fats: number;
   };
-  meals: {
-    [key: string]: {
-      name: string;
-      calories: number;
-      macronutrients: {
-        protein: number;
-        carbs: number;
-        fats: number;
-      };
-    }[];
-  };
 }
 
 export interface Recipe {

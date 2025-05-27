@@ -146,33 +146,120 @@ const allergiesOptions = [
 
 interface UserProfileFormProps {
   onSubmit: (profile: UserProfile) => void;
+  initialProfile?: UserProfile;
 }
 
-const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit }) => {
-  const [formData, setFormData] = useState<Partial<UserProfile>>({
-    name: '',
-    age: undefined,
-    gender: '',
-    weight: undefined,
-    height: undefined,
-    waistCircumference: undefined,
-    systolicBP: undefined,
-    diastolicBP: undefined,
-    heartRate: undefined,
-    ethnicity: '',
-    dietType: '',
-    calorieTarget: '',
-    dietFeatures: [],
-    medicalConditions: [],
-    wantsWeightLoss: false,
-    dietaryRestrictions: [],
-    healthConditions: [],
-    foodPreferences: [],
-    allergies: [],
+const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProfile }) => {
+  const [formData, setFormData] = useState<Partial<UserProfile>>(() => {
+    if (initialProfile) {
+      return initialProfile;
+    }
+    return {
+      name: '',
+      age: undefined,
+      gender: '',
+      weight: undefined,
+      height: undefined,
+      waistCircumference: undefined,
+      systolicBP: undefined,
+      diastolicBP: undefined,
+      heartRate: undefined,
+      ethnicity: '',
+      dietType: '',
+      calorieTarget: '',
+      dietFeatures: [],
+      medicalConditions: [],
+      wantsWeightLoss: false,
+      dietaryRestrictions: [],
+      healthConditions: [],
+      foodPreferences: [],
+      allergies: [],
+    };
   });
 
+  const [heightUnit, setHeightUnit] = useState<'cm' | 'ft-in'>('cm');
+  const [weightUnit, setWeightUnit] = useState<'kg' | 'lbs'>('kg');
+  const [waistUnit, setWaistUnit] = useState<'cm' | 'in'>('cm');
+  const [heightFeet, setHeightFeet] = useState<number | ''>('');
+  const [heightInches, setHeightInches] = useState<number | ''>('');
   const [errors, setErrors] = useState<Partial<Record<keyof UserProfile, string>>>({});
   const [loadingProfile, setLoadingProfile] = useState(false);
+
+  // Convert height from feet/inches to cm
+  const convertHeightToCm = (feet: number, inches: number) => {
+    return Math.round((feet * 30.48) + (inches * 2.54));
+  };
+
+  // Convert height from cm to feet/inches
+  const convertHeightToFtIn = (cm: number) => {
+    const totalInches = cm / 2.54;
+    const feet = Math.floor(totalInches / 12);
+    const inches = Math.round(totalInches % 12);
+    return { feet, inches };
+  };
+
+  // Convert weight between kg and lbs
+  const convertWeight = (value: number, from: 'kg' | 'lbs', to: 'kg' | 'lbs') => {
+    if (from === to) return value;
+    return from === 'kg' ? Math.round(value * 2.20462) : Math.round(value / 2.20462);
+  };
+
+  // Convert waist circumference between cm and inches
+  const convertWaist = (value: number, from: 'cm' | 'in', to: 'cm' | 'in') => {
+    if (from === to) return value;
+    return from === 'cm' ? Math.round(value / 2.54) : Math.round(value * 2.54);
+  };
+
+  const handleHeightUnitChange = (event: SelectChangeEvent<'cm' | 'ft-in'>) => {
+    const newUnit = event.target.value as 'cm' | 'ft-in';
+    setHeightUnit(newUnit);
+    
+    if (formData.height) {
+      if (newUnit === 'ft-in') {
+        const { feet, inches } = convertHeightToFtIn(formData.height);
+        setHeightFeet(feet);
+        setHeightInches(inches);
+      }
+    }
+  };
+
+  const handleWeightUnitChange = (event: SelectChangeEvent<'kg' | 'lbs'>) => {
+    const newUnit = event.target.value as 'kg' | 'lbs';
+    setWeightUnit(newUnit);
+    
+    if (formData.weight) {
+      const newWeight = convertWeight(formData.weight, weightUnit, newUnit);
+      setFormData(prev => ({ ...prev, weight: newWeight }));
+    }
+  };
+
+  const handleHeightChange = (type: 'feet' | 'inches' | 'cm', value: string) => {
+    if (heightUnit === 'cm') {
+      setFormData(prev => ({ ...prev, height: value === '' ? undefined : Number(value) }));
+    } else {
+      const numValue = value === '' ? '' : Number(value);
+      if (type === 'feet') {
+        setHeightFeet(numValue);
+      } else {
+        setHeightInches(numValue);
+      }
+      
+      if (typeof heightFeet === 'number' && typeof heightInches === 'number') {
+        const heightInCm = convertHeightToCm(heightFeet, heightInches);
+        setFormData(prev => ({ ...prev, height: heightInCm }));
+      }
+    }
+  };
+
+  const handleWaistUnitChange = (event: SelectChangeEvent<'cm' | 'in'>) => {
+    const newUnit = event.target.value as 'cm' | 'in';
+    setWaistUnit(newUnit);
+    
+    if (formData.waistCircumference) {
+      const newWaist = convertWaist(formData.waistCircumference, waistUnit, newUnit);
+      setFormData(prev => ({ ...prev, waistCircumference: newWaist }));
+    }
+  };
 
   useEffect(() => {
     const fetchProfile = async () => {
@@ -242,8 +329,10 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit }) => {
 
   const calculateBMI = () => {
     if (formData.height && formData.weight) {
+      // Height should always be in cm and weight in kg in formData
       const heightInMeters = formData.height / 100;
-      return (formData.weight / (heightInMeters * heightInMeters)).toFixed(1);
+      const weightInKg = weightUnit === 'lbs' ? formData.weight / 2.20462 : formData.weight;
+      return (weightInKg / (heightInMeters * heightInMeters)).toFixed(1);
     }
     return '';
   };
@@ -493,31 +582,81 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit }) => {
             </Grid>
 
             <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                required
-                label="Height (cm)"
-                type="number"
-                value={formData.height || ''}
-                onChange={handleInputChange('height')}
-                error={!!errors.height}
-                helperText={errors.height}
-                InputProps={{ inputProps: { min: 100, max: 250 } }}
-              />
+              <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-start' }}>
+                <FormControl fullWidth>
+                  <InputLabel>Height Unit</InputLabel>
+                  <Select
+                    value={heightUnit}
+                    onChange={handleHeightUnitChange}
+                    label="Height Unit"
+                  >
+                    <MenuItem value="cm">Centimeters (cm)</MenuItem>
+                    <MenuItem value="ft-in">Feet & Inches</MenuItem>
+                  </Select>
+                </FormControl>
+                
+                {heightUnit === 'cm' ? (
+                  <TextField
+                    fullWidth
+                    label="Height"
+                    type="number"
+                    value={formData.height || ''}
+                    onChange={(e) => handleHeightChange('cm', e.target.value)}
+                    error={!!errors.height}
+                    helperText={errors.height}
+                    InputProps={{ endAdornment: 'cm' }}
+                  />
+                ) : (
+                  <Box sx={{ display: 'flex', gap: 1 }}>
+                    <TextField
+                      label="Feet"
+                      type="number"
+                      value={heightFeet}
+                      onChange={(e) => handleHeightChange('feet', e.target.value)}
+                      error={!!errors.height}
+                      sx={{ width: '100px' }}
+                    />
+                    <TextField
+                      label="Inches"
+                      type="number"
+                      value={heightInches}
+                      onChange={(e) => handleHeightChange('inches', e.target.value)}
+                      error={!!errors.height}
+                      sx={{ width: '100px' }}
+                    />
+                  </Box>
+                )}
+              </Box>
             </Grid>
 
             <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                required
-                label="Weight (kg)"
-                type="number"
-                value={formData.weight || ''}
-                onChange={handleInputChange('weight')}
-                error={!!errors.weight}
-                helperText={errors.weight}
-                InputProps={{ inputProps: { min: 20, max: 300 } }}
-              />
+              <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-start' }}>
+                <FormControl fullWidth>
+                  <InputLabel>Weight Unit</InputLabel>
+                  <Select
+                    value={weightUnit}
+                    onChange={handleWeightUnitChange}
+                    label="Weight Unit"
+                  >
+                    <MenuItem value="kg">Kilograms (kg)</MenuItem>
+                    <MenuItem value="lbs">Pounds (lbs)</MenuItem>
+                  </Select>
+                </FormControl>
+                
+                <TextField
+                  fullWidth
+                  label="Weight"
+                  type="number"
+                  value={formData.weight || ''}
+                  onChange={(e) => {
+                    const value = e.target.value === '' ? undefined : Number(e.target.value);
+                    setFormData(prev => ({ ...prev, weight: value }));
+                  }}
+                  error={!!errors.weight}
+                  helperText={errors.weight}
+                  InputProps={{ endAdornment: weightUnit }}
+                />
+              </Box>
             </Grid>
 
             <Grid item xs={12} sm={6}>
@@ -525,19 +664,45 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit }) => {
                 fullWidth
                 label="BMI"
                 value={calculateBMI()}
-                InputProps={{ readOnly: true }}
+                InputProps={{ 
+                  readOnly: true,
+                  endAdornment: 'kg/m²'
+                }}
               />
             </Grid>
 
             <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                label="Waist Circumference (cm)"
-                type="number"
-                value={formData.waistCircumference || ''}
-                onChange={handleInputChange('waistCircumference')}
-                InputProps={{ inputProps: { min: 50, max: 200 } }}
-              />
+              <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-start' }}>
+                <FormControl fullWidth>
+                  <InputLabel>Waist Unit</InputLabel>
+                  <Select
+                    value={waistUnit}
+                    onChange={handleWaistUnitChange}
+                    label="Waist Unit"
+                  >
+                    <MenuItem value="cm">Centimeters (cm)</MenuItem>
+                    <MenuItem value="in">Inches (in)</MenuItem>
+                  </Select>
+                </FormControl>
+                
+                <TextField
+                  fullWidth
+                  label="Waist Circumference"
+                  type="number"
+                  value={formData.waistCircumference || ''}
+                  onChange={(e) => {
+                    const value = e.target.value === '' ? undefined : Number(e.target.value);
+                    setFormData(prev => ({ ...prev, waistCircumference: value }));
+                  }}
+                  InputProps={{ 
+                    endAdornment: waistUnit,
+                    inputProps: { 
+                      min: waistUnit === 'cm' ? 50 : 20,
+                      max: waistUnit === 'cm' ? 200 : 80 
+                    }
+                  }}
+                />
+              </Box>
             </Grid>
 
             <Grid item xs={12} sm={4}>

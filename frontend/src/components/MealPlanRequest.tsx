@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Container,
   Paper,
@@ -36,32 +36,106 @@ const MealPlanRequest: React.FC = () => {
   const [generatingRecipes, setGeneratingRecipes] = useState(false);
   const navigate = useNavigate();
 
+  useEffect(() => {
+    const loadSavedProfile = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        if (!token) return;
+        
+        const response = await fetch('http://localhost:8000/user/profile', {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+          },
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          if (data && data.profile) {
+            setUserProfile(data.profile);
+          }
+        }
+      } catch (error) {
+        console.error('Error loading profile:', error);
+      }
+    };
+
+    loadSavedProfile();
+  }, []);
+
   const handleProfileSubmit = async (profile: UserProfile) => {
     setUserProfile(profile);
     setActiveStep(1);
   };
 
   const handleMealPlanGenerate = async () => {
-    if (!userProfile) return;
+    if (!userProfile) {
+      setError('User profile is required');
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        navigate('/login');
+        return;
+      }
+
       const response = await fetch('http://localhost:8000/generate-meal-plan', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+          'Authorization': `Bearer ${token}`,
         },
         body: JSON.stringify({ user_profile: userProfile }),
       });
-      if (!response.ok) {
-        throw new Error('Failed to generate meal plan');
+
+      if (response.status === 401) {
+        // Token expired or invalid
+        localStorage.removeItem('token');
+        navigate('/login');
+        return;
       }
+
       const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.detail || 'Failed to generate meal plan');
+      }
+
+      // Validate the meal plan data structure
+      const requiredKeys = ['breakfast', 'lunch', 'dinner', 'snacks', 'dailyCalories', 'macronutrients'];
+      const missingKeys = requiredKeys.filter(key => !(key in data));
+      
+      if (missingKeys.length > 0) {
+        throw new Error(`Invalid meal plan data. Missing: ${missingKeys.join(', ')}`);
+      }
+
+      // Validate array lengths
+      const mealTypes = ['breakfast', 'lunch', 'dinner', 'snacks'];
+      for (const type of mealTypes) {
+        if (!Array.isArray(data[type])) {
+          throw new Error(`Invalid meal plan data. ${type} should be an array`);
+        }
+      }
+
+      // Validate macronutrients
+      const macroKeys = ['protein', 'carbs', 'fats'];
+      for (const key of macroKeys) {
+        if (typeof data.macronutrients[key] !== 'number') {
+          throw new Error(`Invalid meal plan data. macronutrients.${key} should be a number`);
+        }
+      }
+
+      if (typeof data.dailyCalories !== 'number') {
+        throw new Error('Invalid meal plan data. dailyCalories should be a number');
+      }
+
       setMealPlan(data);
       setEditableMealPlan(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred');
+      console.error('Meal plan generation error:', err);
+      setError(err instanceof Error ? err.message : 'An error occurred while generating the meal plan');
     } finally {
       setLoading(false);
     }
@@ -289,14 +363,6 @@ const MealPlanRequest: React.FC = () => {
             ))}
           </Box>
         ))}
-        <Button
-          variant="contained"
-          color="primary"
-          onClick={handleConfirmMealPlan}
-          sx={{ mt: 2 }}
-        >
-          Proceed to Recipe Generation
-        </Button>
       </Box>
     );
   };
@@ -304,28 +370,41 @@ const MealPlanRequest: React.FC = () => {
   const renderStepContent = (step: number) => {
     switch (step) {
       case 0:
-        return <UserProfileForm onSubmit={handleProfileSubmit} />;
+        return <UserProfileForm onSubmit={handleProfileSubmit} initialProfile={userProfile || undefined} />;
       case 1:
         return (
           <Box>
             {editableMealPlan && renderEditableMealPlan()}
-            <Box sx={{ mt: 2, display: 'flex', gap: 2, justifyContent: 'center' }}>
-              <Button
-                variant="contained"
-                onClick={handleMealPlanGenerate}
-                disabled={loading}
-              >
-                {loading ? <CircularProgress size={24} /> : 'Generate Meal Plan'}
-              </Button>
-              {mealPlan && (
+            <Box sx={{ mt: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <Box sx={{ display: 'flex', gap: 2, justifyContent: 'center' }}>
                 <Button
-                  variant="outlined"
-                  onClick={() => handleExport('meal-plan')}
+                  variant="contained"
+                  onClick={handleMealPlanGenerate}
                   disabled={loading}
                 >
-                  Export PDF
+                  {loading ? <CircularProgress size={24} /> : 'Generate Meal Plan'}
                 </Button>
-              )}
+                {mealPlan && (
+                  <Button
+                    variant="contained"
+                    onClick={() => handleExport('meal-plan')}
+                    disabled={loading}
+                  >
+                    Export PDF
+                  </Button>
+                )}
+              </Box>
+              <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+                {editableMealPlan && (
+                  <Button
+                    variant="contained"
+                    color="primary"
+                    onClick={handleConfirmMealPlan}
+                  >
+                    Proceed to Recipe Generation
+                  </Button>
+                )}
+              </Box>
             </Box>
           </Box>
         );
@@ -339,23 +418,36 @@ const MealPlanRequest: React.FC = () => {
               </Box>
             )}
             {recipes && <RecipeList recipes={recipes} />}
-            <Box sx={{ mt: 2, display: 'flex', gap: 2, justifyContent: 'center' }}>
-              <Button
-                variant="contained"
-                onClick={handleRecipeGenerate}
-                disabled={generatingRecipes}
-              >
-                {generatingRecipes ? <CircularProgress size={24} /> : 'Generate Recipes'}
-              </Button>
-              {recipes && (
+            <Box sx={{ mt: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <Box sx={{ display: 'flex', gap: 2, justifyContent: 'center' }}>
                 <Button
-                  variant="outlined"
-                  onClick={() => handleExport('recipes')}
+                  variant="contained"
+                  onClick={handleRecipeGenerate}
                   disabled={generatingRecipes}
                 >
-                  Export PDF
+                  {generatingRecipes ? <CircularProgress size={24} /> : 'Generate Recipes'}
                 </Button>
-              )}
+                {recipes && (
+                  <Button
+                    variant="contained"
+                    onClick={() => handleExport('recipes')}
+                    disabled={generatingRecipes}
+                  >
+                    Export PDF
+                  </Button>
+                )}
+              </Box>
+              <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+                {recipes && (
+                  <Button
+                    variant="contained"
+                    color="primary"
+                    onClick={() => setActiveStep(3)}
+                  >
+                    Proceed to Shopping List Creation
+                  </Button>
+                )}
+              </Box>
             </Box>
           </Box>
         );
@@ -403,13 +495,15 @@ const MealPlanRequest: React.FC = () => {
           Create Your Meal Plan
         </Typography>
 
-        <Stepper activeStep={activeStep} sx={{ mb: 4 }}>
-          {steps.map((label) => (
-            <Step key={label}>
-              <StepLabel>{label}</StepLabel>
-            </Step>
-          ))}
-        </Stepper>
+        <Box sx={{ width: '100%', mb: 4 }}>
+          <Stepper activeStep={activeStep}>
+            {steps.map((label) => (
+              <Step key={label}>
+                <StepLabel>{label}</StepLabel>
+              </Step>
+            ))}
+          </Stepper>
+        </Box>
 
         {error && (
           <Alert severity="error" sx={{ mb: 2 }}>
@@ -419,6 +513,8 @@ const MealPlanRequest: React.FC = () => {
 
         <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 2 }}>
           <Button
+            variant="contained"
+            color="primary"
             disabled={activeStep === 0}
             onClick={handleBack}
           >
@@ -426,8 +522,9 @@ const MealPlanRequest: React.FC = () => {
           </Button>
           <Button
             variant="contained"
-            onClick={handleNext}
-            disabled={activeStep === steps.length - 1}
+            color="primary"
+            onClick={activeStep === steps.length - 1 ? () => navigate('/thank-you') : handleNext}
+            disabled={activeStep === steps.length - 1 && !shoppingList}
           >
             {activeStep === steps.length - 1 ? 'Finish' : 'Next'}
           </Button>

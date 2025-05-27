@@ -51,6 +51,7 @@ const Login = () => {
           localStorage.setItem('isAdmin', 'true');
         }
         navigate('/');
+        window.location.reload();
       } else {
         const errorData = await response.json();
         // Handle FastAPI validation errors
