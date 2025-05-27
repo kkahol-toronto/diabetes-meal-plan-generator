@@ -25,6 +25,8 @@ from database import (
     get_user_sessions,
     get_patient_by_id,
     user_container,
+    get_context_history,
+    generate_session_id,
 )
 import uuid
 from io import BytesIO
@@ -202,6 +204,7 @@ def send_registration_code(phone: str, code: str):
             from_=os.getenv("TWILIO_PHONE_NUMBER"),
             to=phone
         )
+        print(f"Twilio message sent successfully: {message.sid}")
         return message.sid
     except Exception as e:
         print(f"Failed to send SMS: {str(e)}")
@@ -936,7 +939,7 @@ async def send_chat_message(
 ):
     # Save user message
     user_message = await save_chat_message(
-        current_user.id,
+        current_user["id"],
         message.message,
         is_user=True,
         session_id=message.session_id
@@ -944,47 +947,105 @@ async def send_chat_message(
     
     # Get chat history for context
     chat_history = await format_chat_history_for_prompt(
-        current_user.id,
+        current_user["id"],
         message.session_id or user_message["session_id"]
     )
     
+    # Format user profile information for the system prompt
+    profile = current_user.get("profile", {})
+    system_prompt = f"""You are a helpful diet assistant for diabetes patients. The user has the following profile:
+- Name: {profile.get('name', 'Not specified')}
+- Age: {profile.get('age', 'Not specified')}
+- Gender: {profile.get('gender', 'Not specified')}
+- Weight: {profile.get('weight', 'Not specified')} kg
+- Height: {profile.get('height', 'Not specified')} cm
+- Waist Circumference: {profile.get('waistCircumference', 'Not specified')} cm
+- Blood Pressure: {profile.get('systolicBP', 'Not specified')}/{profile.get('diastolicBP', 'Not specified')} mmHg
+- Heart Rate: {profile.get('heartRate', 'Not specified')} bpm
+- Ethnicity: {profile.get('ethnicity', 'Not specified')}
+- Diet Type: {profile.get('dietType', 'Not specified')}
+- Calorie Target: {profile.get('calorieTarget', 'Not specified')} calories
+- Diet Features: {', '.join(profile.get('dietFeatures', []))}
+- Medical Conditions: {', '.join(profile.get('medicalConditions', []))}
+- Allergies: {', '.join(profile.get('allergies', []))}
+- Dietary Restrictions: {', '.join(profile.get('dietaryRestrictions', []))}
+- Food Preferences: {', '.join(profile.get('foodPreferences', []))}
+
+Provide clear, concise, and accurate information about diet management, meal planning, and general diabetes care, taking into account the user's specific profile and preferences. Focus on recipe, nutrition and exercise queries only. When asking for a recipe ensure you always give a calorie count and nutritional information for the recipe."""
+    
+    # Ensure chat history is a list of message objects
+    formatted_chat_history = []
+    for msg in chat_history:
+        if isinstance(msg, tuple) and len(msg) == 2:
+            content, is_user = msg
+            formatted_chat_history.append(
+                {"role": "user", "content": content} if is_user else {"role": "assistant", "content": content}
+            )
+    
     # Generate response using OpenAI
-    response = await client.chat.completions.create(
-        model=os.getenv("AZURE_OPENAI_MODEL"),
+    response = client.chat.completions.create(
+        model=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
         messages=[
-            {"role": "system", "content": "You are a helpful diet assistant for diabetes patients. Provide clear, concise, and accurate information about diet management, meal planning, and general diabetes care."},
-            *chat_history,
+            {"role": "system", "content": system_prompt},
+            *formatted_chat_history,
             {"role": "user", "content": message.message}
         ],
-        temperature=0.7,
-        max_tokens=500
+        max_completion_tokens=800,
+        temperature=1.0,
+        top_p=1.0,
+        frequency_penalty=0.0,
+        presence_penalty=0.0,
+        stream=True
     )
     
-    # Save assistant response
-    assistant_message = await save_chat_message(
-        current_user.id,
-        response.choices[0].message.content,
-        is_user=False,
-        session_id=user_message["session_id"]
-    )
+    # Stream the response and collect the full message
+    full_message = ""
+    async def generate():
+        nonlocal full_message
+        try:
+            for chunk in response:
+                if not chunk.choices:
+                    continue
+                if not chunk.choices[0].delta:
+                    continue
+                content = chunk.choices[0].delta.content
+                if content:
+                    full_message += content
+                    yield content
+        except Exception as e:
+            print(f"Error in streaming response: {str(e)}")
+            if full_message:
+                yield full_message
     
-    return {
-        "user_message": user_message,
-        "assistant_message": assistant_message,
-        "session_id": user_message["session_id"]
-    }
+    # Create a streaming response
+    streaming_response = StreamingResponse(generate(), media_type="text/plain")
+    
+    # Save the complete assistant message after streaming is done
+    async def save_message():
+        if full_message:
+            await save_chat_message(
+                current_user["id"],
+                full_message,
+                is_user=False,
+                session_id=user_message["session_id"]
+            )
+    
+    # Add a callback to save the message after streaming
+    streaming_response.background = save_message
+    
+    return streaming_response
 
 @app.get("/chat/history")
 async def get_chat_history(
     session_id: Optional[str] = None,
     current_user: User = Depends(get_current_user)
 ):
-    messages = await get_recent_chat_history(current_user.id, session_id)
+    messages = await get_recent_chat_history(current_user["id"], session_id)
     return messages
 
 @app.get("/chat/sessions")
 async def get_chat_sessions(current_user: User = Depends(get_current_user)):
-    sessions = await get_user_sessions(current_user.id)
+    sessions = await get_user_sessions(current_user["id"])
     return sessions
 
 @app.delete("/chat/history")
@@ -992,7 +1053,7 @@ async def delete_chat_history(
     session_id: Optional[str] = None,
     current_user: User = Depends(get_current_user)
 ):
-    await clear_chat_history(current_user.id, session_id)
+    await clear_chat_history(current_user["id"], session_id)
     return {"message": "Chat history cleared successfully"}
 
 @app.get("/users/me")
