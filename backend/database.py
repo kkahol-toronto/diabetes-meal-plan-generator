@@ -4,6 +4,7 @@ from azure.cosmos.exceptions import CosmosResourceNotFoundError
 from dotenv import load_dotenv
 from datetime import datetime
 import uuid
+import tiktoken
 
 # Load environment variables
 load_dotenv()
@@ -131,7 +132,7 @@ async def save_chat_message(user_id: str, message: str, is_user: bool, session_i
         chat_data = {
             "type": "chat_message",
             "user_id": user_id,
-            "message": message,
+            "message_content": message,
             "is_user": is_user,
             "timestamp": datetime.utcnow().isoformat(),
             "session_id": session_id,
@@ -181,7 +182,7 @@ async def format_chat_history_for_prompt(user_id: str, session_id: str = None):
         formatted_history = "Previous conversation:\n"
         for msg in messages:
             role = "User" if msg["is_user"] else "Assistant"
-            formatted_history += f"{role}: {msg['message']}\n"
+            formatted_history += f"{role}: {msg['message_content']}\n"
         
         return formatted_history
     except Exception as e:
@@ -259,4 +260,80 @@ async def get_user_recipes(user_id: str):
         query = f"SELECT * FROM c WHERE c.type = 'recipes' AND c.user_id = '{user_id}'"
         return list(interactions_container.query_items(query=query, enable_cross_partition_query=True))
     except Exception as e:
-        raise Exception(f"Failed to get recipes: {str(e)}") 
+        raise Exception(f"Failed to get recipes: {str(e)}")
+
+def count_tokens(text, model="gpt-3.5-turbo"):
+    try:
+        enc = tiktoken.encoding_for_model(model)
+        return len(enc.encode(text))
+    except Exception:
+        # Fallback: rough word count
+        return len(text.split())
+
+async def get_context_history(
+    user_id: str,
+    session_id: str,
+    max_pairs: int = 10, # Max historical pairs to consider from DB initially
+    max_tokens: int = 2048,
+    model: str = "gpt-3.5-turbo"
+):
+    """
+    Fetch chat history from DB and trim to meet token limits.
+    Assumes the latest user message has already been saved to the DB
+    and will be part of the fetched history.
+    Prioritizes keeping the newest messages.
+    Trims by removing the oldest messages first.
+    """
+    if not session_id:
+        print("Warning: get_context_history called without a session_id. Returning empty context.")
+        return []
+
+    try:
+        # 1. Fetch historical messages from DB for the given session_id
+        #    Order by timestamp ASC to get them chronologically (oldest first).
+        #    This will include the latest user message which was saved just before this call.
+        query = (
+            "SELECT c.is_user, c.message_content, c.timestamp FROM c "
+            "WHERE c.type = 'chat_message' "
+            f"AND c.user_id = '{user_id}' "
+            f"AND c.session_id = '{session_id}' "
+            "ORDER BY c.timestamp ASC"
+        )
+        db_docs = list(interactions_container.query_items(query=query, enable_cross_partition_query=True))
+
+        current_messages_for_llm = []
+        for doc in db_docs:
+            role = "user" if doc.get("is_user") else "assistant"
+            content = doc.get("message_content")
+            if content is not None:
+                current_messages_for_llm.append({"role": role, "content": content})
+        
+        # Optional: Limit to the last N pairs (max_pairs * 2 messages) from history if too many raw messages fetched
+        # This is a preliminary cut before token counting.
+        if len(current_messages_for_llm) > max_pairs * 2 and max_pairs > 0:
+            current_messages_for_llm = current_messages_for_llm[-(max_pairs * 2):]
+        
+        if not current_messages_for_llm:
+            return []
+
+        # 2. Trim from the OLDEST messages to fit token limit.
+        total_tokens = sum(count_tokens(msg["content"], model) for msg in current_messages_for_llm)
+
+        while total_tokens > max_tokens and len(current_messages_for_llm) > 0:
+            if len(current_messages_for_llm) == 1:
+                if total_tokens > max_tokens:
+                     print(f"Warning: Single remaining message ({total_tokens} tokens) exceeds max_tokens ({max_tokens}). Sending as is.")
+                break 
+            
+            removed_message = current_messages_for_llm.pop(0) # Remove the oldest
+            total_tokens -= count_tokens(removed_message["content"], model)
+
+        if not current_messages_for_llm:
+            print("Warning: Message list became empty after trimming. This is unusual unless max_tokens is very restrictive.")
+            return []
+            
+        return current_messages_for_llm
+
+    except Exception as e:
+        print(f"ERROR in get_context_history for session {session_id}, user {user_id}: {e}")
+        return [] # Fallback to empty list on error 

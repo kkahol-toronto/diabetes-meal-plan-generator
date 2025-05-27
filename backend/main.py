@@ -25,6 +25,8 @@ from database import (
     get_user_sessions,
     get_patient_by_id,
     user_container,
+    get_context_history,
+    generate_session_id,
 )
 import uuid
 from io import BytesIO
@@ -823,36 +825,41 @@ async def send_chat_message(
     message: ChatMessage,
     current_user: User = Depends(get_current_user)
 ):
-    # Save user message
-    user_message = await save_chat_message(
+    # Save user message first
+    # Ensure session_id from the incoming message is used, or generate one if not present
+    # This assumes your Pydantic ChatMessage model has an optional session_id field
+    session_id_to_use = message.session_id
+    if not session_id_to_use:
+        session_id_to_use = generate_session_id()
+        print(f"No session_id in request, generated new one: {session_id_to_use}")
+    
+    user_message_doc = await save_chat_message(
         current_user["id"],
-        message.message,
+        message.message, # This is the actual text content
         is_user=True,
-        session_id=message.session_id
+        session_id=session_id_to_use
     )
-    
-    # Get chat history for context
-    chat_history = await format_chat_history_for_prompt(
+
+    # Now that the user message is saved, fetch the context for this session.
+    # get_context_history will retrieve all messages for this session, including the one just saved.
+    print(f"Using session_id for context retrieval: {session_id_to_use}")
+
+    context = await get_context_history(
         current_user["id"],
-        message.session_id or user_message["session_id"]
+        session_id=session_id_to_use,
+        max_pairs=10,
+        max_tokens=2048,
+        model="gpt-3.5-turbo" # No longer passing new_user_message_content
     )
-    
-    # Ensure chat history is a list of message objects
-    formatted_chat_history = []
-    for msg in chat_history:
-        if isinstance(msg, tuple) and len(msg) == 2:
-            content, is_user = msg
-            formatted_chat_history.append(
-                {"role": "user", "content": content} if is_user else {"role": "assistant", "content": content}
-            )
-    
+
+    print(f"Context being sent to LLM (session: {session_id_to_use}): {context}")
+
     # Generate response using OpenAI
     response = client.chat.completions.create(
         model=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
         messages=[
             {"role": "system", "content": "You are a helpful diet assistant for diabetes patients. Provide clear, concise, and accurate information about diet management, meal planning, and general diabetes care."},
-            *formatted_chat_history,
-            {"role": "user", "content": message.message}
+            *context
         ],
         max_completion_tokens=800,
         temperature=1.0,
@@ -861,7 +868,7 @@ async def send_chat_message(
         presence_penalty=0.0,
         stream=True
     )
-    
+
     # Stream the response and collect the full message
     full_message = ""
     async def generate():
@@ -880,10 +887,10 @@ async def send_chat_message(
             print(f"Error in streaming response: {str(e)}")
             if full_message:
                 yield full_message
-    
+
     # Create a streaming response
     streaming_response = StreamingResponse(generate(), media_type="text/plain")
-    
+
     # Save the complete assistant message after streaming is done
     async def save_message():
         if full_message:
@@ -891,12 +898,12 @@ async def send_chat_message(
                 current_user["id"],
                 full_message,
                 is_user=False,
-                session_id=user_message["session_id"]
+                session_id=user_message_doc["session_id"]
             )
-    
+
     # Add a callback to save the message after streaming
     streaming_response.background = save_message
-    
+
     return streaming_response
 
 @app.get("/chat/history")
