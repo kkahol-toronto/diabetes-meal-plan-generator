@@ -97,6 +97,27 @@ const AdminPanel = () => {
     }
   };
 
+  const handleResendCode = async (patientId: string) => {
+    try {
+      const response = await fetch(`http://localhost:8000/admin/resend-code/${patientId}`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setSuccess(data.message);
+      } else {
+        const errorData = await response.json();
+        setError(errorData.detail || 'Failed to resend code');
+      }
+    } catch (err) {
+      setError('Failed to resend code');
+    }
+  };
+
   const handleChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = event.target;
     setNewPatient(prev => ({
@@ -136,6 +157,7 @@ const AdminPanel = () => {
                 <TableCell>Condition</TableCell>
                 <TableCell>Registration Code</TableCell>
                 <TableCell>Created At</TableCell>
+                <TableCell>Actions</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -147,6 +169,15 @@ const AdminPanel = () => {
                   <TableCell>{patient.registration_code}</TableCell>
                   <TableCell>
                     {new Date(patient.created_at).toLocaleString()}
+                  </TableCell>
+                  <TableCell>
+                    <Button
+                      variant="outlined"
+                      color="primary"
+                      onClick={() => handleResendCode(patient.id)}
+                    >
+                      Resend Code
+                    </Button>
                   </TableCell>
                 </TableRow>
               ))}
