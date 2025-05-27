@@ -171,7 +171,20 @@ const MealPlanRequest: React.FC = () => {
         throw new Error('Failed to generate shopping list');
       }
       const data = await response.json();
-      setShoppingList(data);
+      
+      // Convert grams to kilograms if >= 500g
+      const convertedShoppingList = data.map((item: ShoppingItem) => {
+        if (item.amount && typeof item.amount === 'string' && item.amount.toLowerCase().endsWith('g')) {
+          const amountValue = parseFloat(item.amount);
+          if (!isNaN(amountValue) && amountValue >= 500) {
+            const amountInKg = amountValue / 1000;
+            return { ...item, amount: `${amountInKg.toFixed(2)} kg` };
+          }
+        }
+        return item;
+      });
+
+      setShoppingList(convertedShoppingList);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
     } finally {

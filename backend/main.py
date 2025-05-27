@@ -38,6 +38,7 @@ import re
 import traceback
 import sys
 from fastapi import Request as FastAPIRequest
+import math # Import math for rounding
 
 # Load environment variables
 load_dotenv()
@@ -77,9 +78,46 @@ pwd_context = CryptContext(
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
 
+def format_shopping_quantity(amount_str: str) -> str:
+    """Formats shopping list quantity string with rounding and dual units."""
+    if not isinstance(amount_str, str):
+        return str(amount_str) # Return as string if not already
+
+    lower_amount = amount_str.lower().strip()
+
+    # Handle weight units (kg and g)
+    if lower_amount.endswith('kg'):
+        try:
+            value_kg = float(lower_amount.replace('kg', '').strip())
+            # Round kg to nearest 0.005 (5 grams)
+            rounded_value_kg = round(value_kg * 200) / 200
+            value_lbs = rounded_value_kg * 2.20462
+            return f"{rounded_value_kg:.2f} kg ({value_lbs:.2f} lbs)"
+        except ValueError:
+            pass # Fall through if parsing fails
+    elif lower_amount.endswith('g'):
+        try:
+            value_grams = float(lower_amount.replace('g', '').strip())
+            # Round grams to nearest 5 grams
+            rounded_value_grams = round(value_grams / 5) * 5
+            value_kg = rounded_value_grams / 1000
+            value_lbs = value_kg * 2.20462
+            
+            # Display in kg if >= 500g, otherwise in g
+            if rounded_value_grams >= 500:
+                 return f"{value_kg:.2f} kg ({value_lbs:.2f} lbs)"
+            else:
+                 return f"{rounded_value_grams:.0f} g ({value_lbs:.2f} lbs)"
+        except ValueError:
+            pass # Fall through if parsing fails
+
+    # Handle other units like ml, l, pieces, bunches, etc.
+    # For now, just return the original string for simplicity
+    # You can add more specific logic here if needed later
+    return amount_str
+
 class Token(BaseModel):
     access_token: str
-    token_type: str
 
 class TokenData(BaseModel):
     username: Optional[str] = None
@@ -534,7 +572,7 @@ async def generate_shopping_list(
         print("/generate-shopping-list endpoint called")
         print("Received recipes:")
         print(recipes)
-        prompt = f"""Generate a shopping list based on the following recipes:\n{json.dumps(recipes, indent=2)}\n\nGroup items by category (e.g., Produce, Dairy, Meat, etc.) and combine quantities for the same items.\nFormat the response as a JSON array of shopping items with the following structure:\n[\n    {{\n        \"name\": \"Item Name\",\n        \"amount\": \"Quantity\",\n        \"category\": \"Category Name\"\n    }},\n    ...\n]"""
+        prompt = f"""Generate a shopping list based on the following recipes:\n{json.dumps(recipes, indent=2)}\n\nGroup items by category (e.g., Produce, Dairy, Meat, etc.) and combine quantities for the same items. Provide quantities for most items using appropriate standard units: grams (g), kilograms (kg), milliliters (ml), or liters (l). For spices, use teaspoons (tsp). Avoid including descriptive counts like 'medium' or 'large'. Only use other count-based units (like 'pieces' or 'bunches') if a weight, volume, or teaspoon unit is truly not suitable for the item or quantity. Prioritize weight/volume/teaspoon units.\nFormat the response as a JSON array of shopping items with the following structure:\n[\n    {{\n        \"name\": \"Item Name\",\n        \"amount\": \"Quantity with Standard Unit\",\n        \"category\": \"Category Name\"\n    }}\n]\n"""
         print("Prompt for OpenAI:")
         print(prompt)
         # Call Azure OpenAI (synchronous call)
@@ -678,7 +716,7 @@ async def export_consolidated_meal_plan(current_user: User = Depends(get_current
             elements.append(Paragraph(category, styles['Heading2']))
             elements.append(Spacer(1, 12))
             for item in items:
-                elements.append(Paragraph(f"• {item['name']} - {item['amount']}", styles['Normal']))
+                elements.append(Paragraph(f"• {item['name']} - {format_shopping_quantity(item['amount'])}", styles['Normal']))
             elements.append(Spacer(1, 24))
         doc.build(elements)
         buffer.seek(0)
@@ -801,7 +839,7 @@ async def export_document(
                 elements.append(Paragraph(category, styles['Heading1']))
                 elements.append(Spacer(1, 12))
                 for item in items:
-                    elements.append(Paragraph(f"• {item['name']} - {item['amount']}", styles['Normal']))
+                    elements.append(Paragraph(f"• {item['name']} - {format_shopping_quantity(item['amount'])}", styles['Normal']))
                 elements.append(Spacer(1, 24))
 
         # Build PDF

@@ -159,7 +159,43 @@ const ShoppingList: React.FC<ShoppingListProps> = ({ shoppingList }) => {
                         </ListItemIcon>
                         <ListItemText
                           primary={item.name}
-                          secondary={item.amount}
+                          secondary={
+                            (() => {
+                              const amount = item.amount;
+                              if (typeof amount === 'string') {
+                                const lowerAmount = amount.toLowerCase();
+                                
+                                if (lowerAmount.endsWith('kg')) {
+                                  const valueKg = parseFloat(lowerAmount);
+                                  if (!isNaN(valueKg)) {
+                                    // Round kg value to the nearest 0.005 (equivalent to 5 grams)
+                                    const roundedValueKg = Math.round(valueKg * 200) / 200; // 1000g / 5g = 200
+                                    const valueLbs = roundedValueKg * 2.20462;
+                                    return `${roundedValueKg.toFixed(2)} kg (${valueLbs.toFixed(2)} lbs)`;
+                                  }
+                                } else if (lowerAmount.endsWith('g')) {
+                                  const valueGrams = parseFloat(lowerAmount);
+                                  if (!isNaN(valueGrams)) {
+                                    // Round gram value to the nearest 5 grams
+                                    const roundedValueGrams = Math.round(valueGrams / 5) * 5;
+                                    const valueKg = roundedValueGrams / 1000;
+                                    const valueLbs = valueKg * 2.20462;
+                                    
+                                    // Display in kg if >= 500g (0.5kg), otherwise in g
+                                    if (roundedValueGrams >= 500) {
+                                        return `${valueKg.toFixed(2)} kg (${valueLbs.toFixed(2)} lbs)`;
+                                    } else {
+                                        return `${roundedValueGrams.toFixed(0)} g (${valueLbs.toFixed(2)} lbs)`;
+                                    }
+                                  }
+                                }
+                                // Add similar logic for ml/l to fluid ounces/gallons if needed later
+                                // For now, just return original amount for other units
+                                return amount;
+                              }
+                              return amount; // Return original amount if not a string
+                            })()
+                          }
                           sx={{
                             textDecoration: item.checked ? 'line-through' : 'none',
                             color: item.checked ? 'text.secondary' : 'text.primary',
