@@ -123,7 +123,7 @@ async def get_user_shopping_lists(user_id: str):
     except Exception as e:
         raise Exception(f"Failed to get shopping lists: {str(e)}")
 
-async def save_chat_message(user_id: str, message: str, is_user: bool, session_id: str = None):
+async def save_chat_message(user_id: str, message: str, is_user: bool, session_id: str = None, image_url: str = None):
     """Save a chat message to the database"""
     try:
         if not session_id:
@@ -136,7 +136,8 @@ async def save_chat_message(user_id: str, message: str, is_user: bool, session_i
             "is_user": is_user,
             "timestamp": datetime.utcnow().isoformat(),
             "session_id": session_id,
-            "id": f"chat_{session_id}_{datetime.utcnow().timestamp()}"
+            "id": f"chat_{session_id}_{datetime.utcnow().timestamp()}",
+            "image_url": image_url
         }
         return interactions_container.create_item(body=chat_data)
     except Exception as e:

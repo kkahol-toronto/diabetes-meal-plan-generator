@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends, status, Request, Body
+from fastapi import FastAPI, HTTPException, Depends, status, Request, Body, File, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel, EmailStr, Field
@@ -40,6 +40,8 @@ import re
 import traceback
 import sys
 from fastapi import Request as FastAPIRequest
+from PIL import Image
+import base64
 
 # Load environment variables
 load_dotenv()
@@ -139,6 +141,9 @@ class RegistrationData(BaseModel):
     registration_code: str
     email: EmailStr
     password: str
+
+class ImageAnalysisRequest(BaseModel):
+    prompt: str
 
 def get_password_hash(password: str) -> str:
     """Hash a password using bcrypt"""
@@ -678,12 +683,12 @@ async def generate_shopping_list(
                         *Example 1 → 2.82 lb ⇒ 3 lb  (≈ 1.36 kg)*
 
                     • Mid-volume produce often pre-bagged (spinach, baby carrots, kale, salad mix, frozen peas, frozen beans):
-                    – Use the next-larger multiple of **454 g = 1 lb** (or mention the closest bag size if that’s clearer).
+                    – Use the next-larger multiple of **454 g = 1 lb** (or mention the closest bag size if that's clearer).
                         *Example 510 g ⇒ 908 g (2 × 454 g bags).*
 
                     • Bulky vegetables normally sold by unit (cauliflower, cabbage, squash, bottle gourd, cucumber, eggplant):
                     – Convert to **whole pieces/heads** and give an *≈ weight* in parentheses if helpful.
-                        *Example 1.43 lb cauliflower ⇒ “1 head (≈1.5 lb)”.*
+                        *Example 1.43 lb cauliflower ⇒ "1 head (≈1.5 lb)".*
 
                     • Herbs with stems (cilantro/coriander, parsley, dill, mint, etc.):
                     – Use **bunches**. 1 bunch ≈ 30 g.  
@@ -1268,6 +1273,94 @@ async def test_echo(current_user: User = Depends(get_current_user)):
 async def export_test_minimal():
     print(">>>> Entered /export/test-minimal endpoint")
     return {"ok": True}
+
+@app.post("/chat/analyze-image")
+async def analyze_image(
+    image: UploadFile = File(...),
+    prompt: str = Form(...),
+    current_user: User = Depends(get_current_user)
+):
+    try:
+        # Read and validate image
+        contents = await image.read()
+        img = Image.open(BytesIO(contents))
+        
+        # Convert image to base64
+        buffered = BytesIO()
+        img.save(buffered, format="JPEG")
+        img_str = base64.b64encode(buffered.getvalue()).decode()
+        
+        # Save user message with image
+        user_message = await save_chat_message(
+            current_user["id"],
+            "Analyzing food image...",
+            is_user=True,
+            session_id=None,  # You might want to handle session_id differently
+            image_url=img_str
+        )
+        
+        # Generate response using OpenAI with image
+        response = client.chat.completions.create(
+            model=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are a helpful diet assistant for diabetes patients. Analyze the food image and provide detailed nutritional information, including estimated calories, macronutrients, and any relevant dietary considerations for diabetes patients."
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": prompt
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/jpeg;base64,{img_str}"
+                            }
+                        }
+                    ]
+                }
+            ],
+            max_tokens=500,
+            temperature=0.7,
+            stream=True
+        )
+        
+        # Stream the response
+        async def generate():
+            full_message = ""
+            try:
+                for chunk in response:
+                    if not chunk.choices:
+                        continue
+                    if not chunk.choices[0].delta:
+                        continue
+                    content = chunk.choices[0].delta.content
+                    if content:
+                        full_message += content
+                        yield content
+            except Exception as e:
+                print(f"Error in streaming response: {str(e)}")
+                if full_message:
+                    yield full_message
+            
+            # Save the complete assistant message after streaming
+            if full_message:
+                await save_chat_message(
+                    current_user["id"],
+                    full_message,
+                    is_user=False,
+                    session_id=user_message["session_id"],
+                    image_url=img_str
+                )
+        
+        return StreamingResponse(generate(), media_type="text/plain")
+        
+    except Exception as e:
+        print(f"Error in image analysis: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
     import uvicorn
