@@ -9,6 +9,7 @@ import Chat from './components/Chat';
 import AdminLogin from './components/AdminLogin';
 import AdminPanel from './components/AdminPanel';
 import Navigation from './components/Navigation';
+import ThankYou from './components/ThankYou';
 
 // Create a theme instance
 const theme = createTheme({
@@ -61,6 +62,7 @@ function App() {
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
           <Route path="/admin/login" element={<AdminLogin />} />
+          <Route path="/thank-you" element={<ThankYou />} />
           <Route
             path="/admin"
             element={

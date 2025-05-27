@@ -435,61 +435,173 @@ async def generate_meal_plan(
     request: FastAPIRequest,
     current_user: User = Depends(get_current_user)
 ):
-    data = await request.json()
-    user_profile = data.get('user_profile', {})
-    print('user_profile received:', user_profile)
-    print("/generate-meal-plan endpoint called")
-    print(f"Current user: {current_user}")
-    print(f"User profile received: {user_profile}")
-    print("Model:", os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"))
-    print("Endpoint:", os.getenv("AZURE_OPENAI_ENDPOINT"))
-    print("API Version:", os.getenv("AZURE_OPENAI_API_VERSION"))
     try:
-        prompt = f"""Generate a personalized meal plan for a patient with the following profile:
-        Name: {user_profile.get('name')}
-        Age: {user_profile.get('age')}
-        Gender: {user_profile.get('gender')}
-        Weight: {user_profile.get('weight')} kg
-        Height: {user_profile.get('height')} cm
-        Activity Level: {user_profile.get('activity_level')}
-        Dietary Restrictions: {', '.join(user_profile.get('dietaryRestrictions', []))}
-        Health Conditions: {', '.join(user_profile.get('healthConditions', []))}
-        Food Preferences: {', '.join(user_profile.get('foodPreferences', []))}
-        Allergies: {', '.join(user_profile.get('allergies', []))}
+        # Check required environment variables
+        required_env_vars = [
+            "AZURE_OPENAI_KEY",
+            "AZURE_OPENAI_ENDPOINT",
+            "AZURE_OPENAI_API_VERSION",
+            "AZURE_OPENAI_DEPLOYMENT_NAME"
+        ]
+        missing_vars = [var for var in required_env_vars if not os.getenv(var)]
+        if missing_vars:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Missing required environment variables: {', '.join(missing_vars)}"
+            )
 
-        Please provide a weekly meal plan with breakfast, lunch, dinner, and snacks for each day.
-        The plan should be diabetes-friendly and consider the patient's preferences and restrictions.
-        Format the response as a JSON object with the following structure:
-        {{
-            "breakfast": ["meal1", "meal2", ...],
-            "lunch": ["meal1", "meal2", ...],
-            "dinner": ["meal1", "meal2", ...],
-            "snacks": ["snack1", "snack2", ...]
-        }}"""
+        data = await request.json()
+        user_profile = data.get('user_profile', {})
+        
+        # Validate required user profile fields
+        required_fields = ['name', 'age', 'gender', 'weight', 'height']
+        missing_fields = [field for field in required_fields if not user_profile.get(field)]
+        if missing_fields:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Missing required user profile fields: {', '.join(missing_fields)}"
+            )
+
+        print('user_profile received:', user_profile)
+        print("/generate-meal-plan endpoint called")
+        print(f"Current user: {current_user}")
+        print(f"User profile received: {user_profile}")
+        print("Model:", os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"))
+        print("Endpoint:", os.getenv("AZURE_OPENAI_ENDPOINT"))
+        print("API Version:", os.getenv("AZURE_OPENAI_API_VERSION"))
+
+        # Define a simpler JSON structure
+        json_structure = """
+{
+    "breakfast": ["Oatmeal with berries", "Whole grain toast with eggs"],
+    "lunch": ["Grilled chicken salad", "Quinoa bowl"],
+    "dinner": ["Baked salmon", "Steamed vegetables"],
+    "snacks": ["Apple with almonds", "Greek yogurt"],
+    "dailyCalories": 2000,
+    "macronutrients": {
+        "protein": 100,
+        "carbs": 250,
+        "fats": 70
+    }
+}"""
+
+        # Format the prompt with proper error handling for optional fields
+        prompt = f"""Create a diabetes-friendly meal plan based on this profile:
+Name: {user_profile.get('name', 'Not provided')}
+Age: {user_profile.get('age', 'Not provided')}
+Gender: {user_profile.get('gender', 'Not provided')}
+Weight: {user_profile.get('weight', 'Not provided')} kg
+Height: {user_profile.get('height', 'Not provided')} cm
+Dietary Restrictions: {', '.join(user_profile.get('dietaryRestrictions', []) or ['None'])}
+Health Conditions: {', '.join(user_profile.get('healthConditions', []) or ['None'])}
+Food Preferences: {', '.join(user_profile.get('foodPreferences', []) or ['None'])}
+Allergies: {', '.join(user_profile.get('allergies', []) or ['None'])}
+
+Return a JSON object with exactly this structure (replace the example values with appropriate ones):
+{json_structure}
+
+Important:
+1. Ensure all meal arrays have exactly 7 items (one for each day of the week)
+2. Keep meal names concise
+3. Ensure calorie and macronutrient values are numbers, not strings
+4. Do not include any explanations or markdown, just the JSON object"""
+
         print("Prompt for OpenAI:")
         print(prompt)
-        response = client.chat.completions.create(
-            model=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
-            messages=[
-                {"role": "system", "content": "You are a diabetes diet planning assistant."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.7,
-            max_completion_tokens=1000,
-        )
-        print("OpenAI response received")
-        meal_plan = json.loads(response.choices[0].message.content)
-        print("Meal plan parsed:")
-        print(meal_plan)
-        await save_meal_plan(
-            user_id=current_user["email"],
-            meal_plan=meal_plan
-        )
-        print("Meal plan saved to database")
-        return meal_plan
+
+        try:
+            response = client.chat.completions.create(
+                model=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are a meal planning assistant. Always respond with valid JSON matching the exact structure requested. No explanations or markdown."
+                    },
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.7,
+                max_tokens=2000,
+                response_format={"type": "json_object"}
+            )
+            print("OpenAI response received")
+            
+            if not response.choices or not response.choices[0].message:
+                raise HTTPException(
+                    status_code=500,
+                    detail="No response received from OpenAI"
+                )
+
+            raw_content = response.choices[0].message.content.strip()
+            print("Raw OpenAI response:")
+            print(raw_content)
+
+            try:
+                meal_plan = json.loads(raw_content)
+                print("Meal plan parsed successfully:")
+                print(json.dumps(meal_plan, indent=2))
+                
+                # Validate meal plan structure
+                required_keys = ['breakfast', 'lunch', 'dinner', 'snacks', 'dailyCalories', 'macronutrients']
+                missing_keys = [key for key in required_keys if key not in meal_plan]
+                if missing_keys:
+                    print(f"Missing required keys in meal plan: {missing_keys}")
+                    raise HTTPException(
+                        status_code=500,
+                        detail=f"Invalid meal plan format. Missing keys: {', '.join(missing_keys)}"
+                    )
+
+                # Ensure arrays have 7 items
+                for meal_type in ['breakfast', 'lunch', 'dinner', 'snacks']:
+                    if not isinstance(meal_plan[meal_type], list):
+                        meal_plan[meal_type] = ["Not specified"] * 7
+                    while len(meal_plan[meal_type]) < 7:
+                        meal_plan[meal_type].append("Not specified")
+                    meal_plan[meal_type] = meal_plan[meal_type][:7]  # Trim if too long
+
+                # Ensure macronutrients are numbers
+                macro_keys = ['protein', 'carbs', 'fats']
+                for key in macro_keys:
+                    if not isinstance(meal_plan['macronutrients'].get(key), (int, float)):
+                        meal_plan['macronutrients'][key] = 0
+
+                if not isinstance(meal_plan.get('dailyCalories'), (int, float)):
+                    meal_plan['dailyCalories'] = 2000
+
+                await save_meal_plan(
+                    user_id=current_user["email"],
+                    meal_plan=meal_plan
+                )
+                print("Meal plan saved to database")
+                return meal_plan
+
+            except json.JSONDecodeError as e:
+                print("Failed to parse OpenAI response as JSON:")
+                print(f"Error message: {str(e)}")
+                print(f"Error location: line {e.lineno}, column {e.colno}")
+                print(f"Error context: {e.doc[max(0, e.pos-50):e.pos+50]}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Failed to parse meal plan response: {str(e)}"
+                )
+
+        except Exception as openai_error:
+            print("OpenAI API error:", str(openai_error))
+            print("Full error details:", openai_error.__dict__)
+            raise HTTPException(
+                status_code=500,
+                detail=f"OpenAI API error: {str(openai_error)}"
+            )
+
+    except HTTPException as he:
+        print(f"HTTP Exception in /generate-meal-plan: {str(he.detail)}")
+        raise he
     except Exception as e:
-        print(f"Error in /generate-meal-plan: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"Unexpected error in /generate-meal-plan: {str(e)}")
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500,
+            detail=f"An unexpected error occurred: {str(e)}"
+        )
 
 @app.post("/generate-recipes")
 async def generate_recipes(
