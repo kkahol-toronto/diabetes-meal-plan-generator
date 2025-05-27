@@ -649,7 +649,70 @@ async def generate_shopping_list(
         print("/generate-shopping-list endpoint called")
         print("Received recipes:")
         print(recipes)
-        prompt = f"""Generate a shopping list based on the following recipes:\n{json.dumps(recipes, indent=2)}\n\nGroup items by category (e.g., Produce, Dairy, Meat, etc.) and combine quantities for the same items.\nFormat the response as a JSON array of shopping items with the following structure:\n[\n    {{\n        \"name\": \"Item Name\",\n        \"amount\": \"Quantity\",\n        \"category\": \"Category Name\"\n    }},\n    ...\n]"""
+        prompt = f"""Generate a shopping list based on the following recipes:
+                    {json.dumps(recipes, indent=2)}
+
+                    Group items by category (e.g., Produce, Dairy, Meat, etc.) and combine quantities for the same items.
+
+                    ––––– UNIT RULES –––––
+                    • Express quantities in units a Canadian grocery shopper can actually buy (“purchasable quantity”).
+                    – **Fresh herbs** (cilantro/coriander, parsley, mint, dill, etc.): use whole bunches.  
+                        *Assume 1 bunch ≈ 30 g; round ⭡ to the nearest whole bunch.*
+                    – **Loose fruit & veg** commonly weighed at checkout (apples, oranges, onions, potatoes, carrots, etc.): use pounds (lb).  
+                        *Round ⭡ to the nearest 1 lb, minimum 1 lb.*
+                    – **Packaged produce** (bags of spinach, baby carrots, etc.): round ⭡ to the nearest 250 g (≈ ½ lb) or to the nearest package size you specify in the item name (e.g., “1 × 250 g bag baby spinach”).
+                    – **Liquids**: keep ml/l, but round ⭡ to the nearest 100 ml (or common bottle size) if <1 l; use whole litres if ≥1 l.
+                    – **Dry pantry staples** (rice, flour, sugar, pasta, beans, nuts, etc.): use grams/kilograms, rounded ⭡ to the nearest 100 g for ≤1 kg or to the nearest 0.5 kg for >1 kg.
+                    – If an item is only sold by count (e.g., eggs, garlic bulbs, lemons), use “pieces”.
+                    – Avoid descriptors like “large” or “medium”; only use count-based units when weight/volume makes no sense.
+
+                    ––––– SANITY CHECK –––––
+                    After calculating totals, scan the list for obviously implausible amounts (e.g., >2 bunches of coriander for ≤8 servings, >5 lb of garlic, etc.).  
+                    If an amount seems unrealistic, recompute or cap it to a reasonable upper bound and add a “_note” field explaining the adjustment.
+
+                    ––––– ROUNDING GRID (CANADIAN GROCERY) –––––
+                    When you finish aggregating all recipes, convert each total to the **next-larger** purchasable size:
+
+                    • Loose produce sold by weight (onions, apples, tomatoes, carrots, potatoes, peppers, etc.):
+                    – Express in **pounds (lb)** and round **up** to the nearest 1 lb.
+                        *Example 1 → 2.82 lb ⇒ 3 lb  (≈ 1.36 kg)*
+
+                    • Mid-volume produce often pre-bagged (spinach, baby carrots, kale, salad mix, frozen peas, frozen beans):
+                    – Use the next-larger multiple of **454 g = 1 lb** (or mention the closest bag size if that’s clearer).
+                        *Example 510 g ⇒ 908 g (2 × 454 g bags).*
+
+                    • Bulky vegetables normally sold by unit (cauliflower, cabbage, squash, bottle gourd, cucumber, eggplant):
+                    – Convert to **whole pieces/heads** and give an *≈ weight* in parentheses if helpful.
+                        *Example 1.43 lb cauliflower ⇒ “1 head (≈1.5 lb)”.*
+
+                    • Herbs with stems (cilantro/coriander, parsley, dill, mint, etc.):
+                    – Use **bunches**. 1 bunch ≈ 30 g.  
+                        Round up to the nearest whole bunch **but also sanity-cap at 3 bunches unless recipe count clearly justifies more**.
+
+                    • Ginger, garlic bulbs, green chilli, curry leaves:
+                    – Sell by weight or count in small amounts.  
+                        ➜ Round ginger/garlic/chilli up to **0.25 lb** increments.  
+                        ➜ For garlic bulbs or curry leaves sold by unit, keep **pieces** but sanity-cap at 1 bulb per 2 cloves required (e.g., 38 cloves ⇒ 19 bulbs max, but prefer 4 bulbs and note the assumption).
+
+                    • Liquids (milk, oil, stock, etc.):
+                    – Round up to the next **100 ml** below 1 l or whole **lite**rs if ≥ 1 l.
+
+                    • Dry pantry staples (flour, rice, sugar, lentils, pasta, etc.):
+                    – Round up to the next **100 g** below 1 kg, else the next **0.5 kg**.
+
+                    After rounding, perform a **sanity sweep**.  
+                    Flag anything that still looks extreme (e.g., >3 lb chilli, >3 bunches cilantro for ≤8 servings) and reduce to a realistic maximum, adding `"note"` to explain.
+
+                    ––––– OUTPUT FORMAT –––––
+                    Return **only** a JSON array with each element:
+                    {{
+                    "name": "Item Name",
+                    "amount": "Quantity with Purchasable Unit",
+                    "category": "Category Name",
+                    "note": "Optional brief note about rounding or sanity adjustment"
+                    }}
+                    Omit the "note" key if no comment is needed.
+                    """
         print("Prompt for OpenAI:")
         print(prompt)
         # Call Azure OpenAI (synchronous call)
