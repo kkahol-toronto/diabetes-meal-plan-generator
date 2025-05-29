@@ -9,15 +9,20 @@ export interface UserProfile {
   diastolicBP?: number;
   heartRate?: number;
   ethnicity?: string;
-  dietType?: string;
+  dietTypes?: string[];
   calorieTarget?: string;
   dietFeatures?: string[];
   medicalConditions?: string[];
+  otherMedicalCondition?: string;
   wantsWeightLoss: boolean;
   dietaryRestrictions?: string[];
+  otherDietaryRestriction?: string;
   healthConditions?: string[];
+  otherHealthCondition?: string;
   foodPreferences?: string[];
+  otherFoodPreference?: string;
   allergies?: string[];
+  otherAllergy?: string;
 }
 
 export interface MealPlanData {
@@ -31,6 +36,13 @@ export interface MealPlanData {
     carbs: number;
     fats: number;
   };
+}
+
+export interface SavedMealPlan extends MealPlanData {
+  id: string;
+  session_id: string;
+  created_at: string;
+  user_id: string;
 }
 
 export interface Recipe {

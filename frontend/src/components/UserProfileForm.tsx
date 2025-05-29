@@ -149,11 +149,30 @@ interface UserProfileFormProps {
   initialProfile?: UserProfile;
 }
 
+function toSnakeCase(obj: any): any {
+  if (Array.isArray(obj)) {
+    return obj.map(toSnakeCase);
+  } else if (obj !== null && typeof obj === 'object') {
+    return Object.fromEntries(
+      Object.entries(obj).map(([key, value]) => [
+        key.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`),
+        toSnakeCase(value)
+      ])
+    );
+  }
+  return obj;
+}
+
 const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProfile }) => {
+  console.log('UserProfileForm rendered with initialProfile:', initialProfile);
+  
   const [formData, setFormData] = useState<Partial<UserProfile>>(() => {
+    console.log('Initializing form data with:', initialProfile);
     if (initialProfile) {
+      console.log('Using provided initial profile');
       return initialProfile;
     }
+    console.log('Using default empty profile');
     return {
       name: '',
       age: undefined,
@@ -165,17 +184,31 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
       diastolicBP: undefined,
       heartRate: undefined,
       ethnicity: '',
-      dietType: '',
-      calorieTarget: '',
+      dietTypes: [],
+      calorieTarget: '2000',
       dietFeatures: [],
       medicalConditions: [],
+      otherMedicalCondition: '',
       wantsWeightLoss: false,
       dietaryRestrictions: [],
+      otherDietaryRestriction: '',
       healthConditions: [],
+      otherHealthCondition: '',
       foodPreferences: [],
+      otherFoodPreference: '',
       allergies: [],
+      otherAllergy: '',
     };
   });
+
+  // Add effect to update form data when initialProfile changes
+  useEffect(() => {
+    console.log('initialProfile changed:', initialProfile);
+    if (initialProfile) {
+      console.log('Updating form data with new initial profile');
+      setFormData(initialProfile);
+    }
+  }, [initialProfile]);
 
   const [heightUnit, setHeightUnit] = useState<'cm' | 'ft-in'>('cm');
   const [weightUnit, setWeightUnit] = useState<'kg' | 'lbs'>('kg');
@@ -345,6 +378,9 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
     if (!formData.name?.trim()) {
       newErrors.name = 'Name is required';
     }
+    if (!formData.dietTypes || formData.dietTypes.length === 0) {
+      newErrors.dietTypes = 'At least one diet type is required';
+    }
     if (!formData.height || formData.height <= 0) {
       newErrors.height = 'Height is required and must be greater than 0';
     }
@@ -363,6 +399,7 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
     try {
       // Save profile to backend
       const token = localStorage.getItem('token');
+      const snakeCaseProfile = toSnakeCase(formData);
       if (token) {
         await fetch('http://localhost:8000/user/profile', {
           method: 'POST',
@@ -370,10 +407,10 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${token}`,
           },
-          body: JSON.stringify({ profile: formData }),
+          body: JSON.stringify({ profile: snakeCaseProfile }),
         });
       }
-      onSubmit(formData as UserProfile);
+      onSubmit(snakeCaseProfile as UserProfile);
     } catch (error) {
       console.error('Error creating profile:', error);
       setErrors({
@@ -461,6 +498,20 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
                   ))}
                 </Select>
               </FormControl>
+              {formData.medicalConditions?.includes('Other') && (
+                <TextField
+                  fullWidth
+                  label="Please specify other medical condition"
+                  value={formData.otherMedicalCondition || ''}
+                  onChange={(e) => {
+                    setFormData(prev => ({
+                      ...prev,
+                      otherMedicalCondition: e.target.value
+                    }));
+                  }}
+                  sx={{ mt: 2 }}
+                />
+              )}
             </Grid>
 
             <Grid item xs={12}>
@@ -489,6 +540,20 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
                   ))}
                 </Select>
               </FormControl>
+              {formData.dietaryRestrictions?.includes('Other') && (
+                <TextField
+                  fullWidth
+                  label="Please specify other dietary restriction"
+                  value={formData.otherDietaryRestriction || ''}
+                  onChange={(e) => {
+                    setFormData(prev => ({
+                      ...prev,
+                      otherDietaryRestriction: e.target.value
+                    }));
+                  }}
+                  sx={{ mt: 2 }}
+                />
+              )}
             </Grid>
 
             <Grid item xs={12}>
@@ -517,6 +582,20 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
                   ))}
                 </Select>
               </FormControl>
+              {formData.healthConditions?.includes('Other') && (
+                <TextField
+                  fullWidth
+                  label="Please specify other health condition"
+                  value={formData.otherHealthCondition || ''}
+                  onChange={(e) => {
+                    setFormData(prev => ({
+                      ...prev,
+                      otherHealthCondition: e.target.value
+                    }));
+                  }}
+                  sx={{ mt: 2 }}
+                />
+              )}
             </Grid>
 
             <Grid item xs={12}>
@@ -545,6 +624,20 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
                   ))}
                 </Select>
               </FormControl>
+              {formData.foodPreferences?.includes('Other') && (
+                <TextField
+                  fullWidth
+                  label="Please specify other food preference"
+                  value={formData.otherFoodPreference || ''}
+                  onChange={(e) => {
+                    setFormData(prev => ({
+                      ...prev,
+                      otherFoodPreference: e.target.value
+                    }));
+                  }}
+                  sx={{ mt: 2 }}
+                />
+              )}
             </Grid>
 
             <Grid item xs={12}>
@@ -573,6 +666,20 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
                   ))}
                 </Select>
               </FormControl>
+              {formData.allergies?.includes('Other') && (
+                <TextField
+                  fullWidth
+                  label="Please specify other allergy"
+                  value={formData.otherAllergy || ''}
+                  onChange={(e) => {
+                    setFormData(prev => ({
+                      ...prev,
+                      otherAllergy: e.target.value
+                    }));
+                  }}
+                  sx={{ mt: 2 }}
+                />
+              )}
             </Grid>
 
             <Grid item xs={12}>
@@ -757,11 +864,20 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
 
             <Grid item xs={12} sm={6}>
               <FormControl fullWidth>
-                <InputLabel>Type of Diet</InputLabel>
+                <InputLabel id="diet-types-label">Type of Diet</InputLabel>
                 <Select
-                  value={formData.dietType}
-                  onChange={handleSelectChange('dietType')}
-                  label="Type of Diet"
+                  labelId="diet-types-label"
+                  multiple
+                  value={formData.dietTypes || []}
+                  onChange={handleMultiSelectChange('dietTypes')}
+                  input={<OutlinedInput label="Type of Diet" />}
+                  renderValue={(selected) => (
+                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                      {selected.map((value) => (
+                        <Chip key={value} label={value} />
+                      ))}
+                    </Box>
+                  )}
                 >
                   {dietTypes.map((type) => (
                     <MenuItem key={type} value={type}>
@@ -769,6 +885,7 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
                     </MenuItem>
                   ))}
                 </Select>
+                {errors.dietTypes && <FormHelperText error>{errors.dietTypes}</FormHelperText>}
               </FormControl>
             </Grid>
 
