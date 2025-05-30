@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Container,
   Paper,
@@ -144,9 +144,19 @@ const allergiesOptions = [
   'Other',
 ];
 
+// Helper to safely parse optional numeric fields from various input types
+const parseOptionalNumber = (value: any): number | undefined => {
+  if (value === null || value === undefined || value === '') {
+    return undefined;
+  }
+  const num = Number(value);
+  return isNaN(num) ? undefined : num;
+};
+
 interface UserProfileFormProps {
   onSubmit: (profile: UserProfile) => void;
   initialProfile?: UserProfile;
+  onProfileChange: (profile: Partial<UserProfile>) => void;
 }
 
 function toSnakeCase(obj: any): any {
@@ -163,72 +173,205 @@ function toSnakeCase(obj: any): any {
   return obj;
 }
 
-const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProfile }) => {
-  console.log('UserProfileForm rendered with initialProfile:', initialProfile);
-  
-  const [formData, setFormData] = useState<Partial<UserProfile>>(() => {
-    console.log('Initializing form data with:', initialProfile);
-    if (initialProfile) {
-      console.log('Using provided initial profile');
-      return initialProfile;
-    }
-    console.log('Using default empty profile');
-    return {
-      name: '',
-      age: undefined,
-      gender: '',
-      weight: undefined,
-      height: undefined,
-      waistCircumference: undefined,
-      systolicBP: undefined,
-      diastolicBP: undefined,
-      heartRate: undefined,
-      ethnicity: '',
-      dietTypes: [],
-      calorieTarget: '2000',
-      dietFeatures: [],
-      medicalConditions: [],
-      otherMedicalCondition: '',
-      wantsWeightLoss: false,
-      dietaryRestrictions: [],
-      otherDietaryRestriction: '',
-      healthConditions: [],
-      otherHealthCondition: '',
-      foodPreferences: [],
-      otherFoodPreference: '',
-      allergies: [],
-      otherAllergy: '',
-    };
-  });
+// Convert height from cm to feet/inches, ensuring correct return types
+const convertHeightToFtIn = (cm: number | undefined | null): { feet: number | ''; inches: number | '' } => {
+  if (typeof cm !== 'number' || isNaN(cm)) return { feet: '', inches: '' };
+  const totalInches = cm / 2.54;
+  const feet = Math.floor(totalInches / 12);
+  const inches = Math.round(totalInches % 12);
+  return { feet, inches };
+};
 
-  // Add effect to update form data when initialProfile changes
-  useEffect(() => {
-    console.log('initialProfile changed:', initialProfile);
+// Ensure createDefaultProfile provides valid numbers for non-optional fields
+const createDefaultProfile = (): UserProfile => ({
+  name: '',
+  age: 0, // Default to 0 for non-optional number
+  gender: '',
+  weight: 0, // Default to 0 for non-optional number
+  height: 0, // Default to 0 for non-optional number
+  waistCircumference: undefined,
+  systolicBP: undefined,
+  diastolicBP: undefined,
+  heartRate: undefined,
+  ethnicity: '',
+  dietTypes: [],
+  calorieTarget: '2000',
+  dietFeatures: [],
+  medicalConditions: [],
+  otherMedicalCondition: '',
+  wantsWeightLoss: false,
+  dietaryRestrictions: [],
+  otherDietaryRestriction: '',
+  healthConditions: [],
+  otherHealthCondition: '',
+  foodPreferences: [],
+  otherFoodPreference: '',
+  allergies: [],
+  otherAllergy: '',
+});
+
+const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProfile, onProfileChange }) => {
+  const [formData, setFormData] = useState<Partial<UserProfile>>(() => {
+    const defaultP = createDefaultProfile();
     if (initialProfile) {
-      console.log('Updating form data with new initial profile');
-      setFormData(initialProfile);
+      return { 
+        ...defaultP, 
+        ...initialProfile,
+        // Ensure non-optional numbers default to a number if parsing fails
+        age: parseOptionalNumber(initialProfile.age) ?? defaultP.age, 
+        weight: parseOptionalNumber(initialProfile.weight) ?? defaultP.weight,
+        height: parseOptionalNumber(initialProfile.height) ?? defaultP.height,
+        // Optional numbers are fine with undefined
+        waistCircumference: parseOptionalNumber(initialProfile.waistCircumference),
+        systolicBP: parseOptionalNumber(initialProfile.systolicBP),
+        diastolicBP: parseOptionalNumber(initialProfile.diastolicBP),
+        heartRate: parseOptionalNumber(initialProfile.heartRate),
+        // Arrays and booleans
+        medicalConditions: initialProfile.medicalConditions || [],
+        dietaryRestrictions: initialProfile.dietaryRestrictions || [],
+        healthConditions: initialProfile.healthConditions || [],
+        foodPreferences: initialProfile.foodPreferences || [],
+        allergies: initialProfile.allergies || [],
+        dietTypes: initialProfile.dietTypes || [],
+        dietFeatures: initialProfile.dietFeatures || [],
+        wantsWeightLoss: typeof initialProfile.wantsWeightLoss === 'boolean' ? initialProfile.wantsWeightLoss : false,
+        // Strings
+        name: initialProfile.name || defaultP.name,
+        gender: initialProfile.gender || defaultP.gender,
+        ethnicity: initialProfile.ethnicity || defaultP.ethnicity,
+        calorieTarget: initialProfile.calorieTarget || defaultP.calorieTarget,
+        otherMedicalCondition: initialProfile.otherMedicalCondition || defaultP.otherMedicalCondition,
+        otherDietaryRestriction: initialProfile.otherDietaryRestriction || defaultP.otherDietaryRestriction,
+        otherHealthCondition: initialProfile.otherHealthCondition || defaultP.otherHealthCondition,
+        otherFoodPreference: initialProfile.otherFoodPreference || defaultP.otherFoodPreference,
+        otherAllergy: initialProfile.otherAllergy || defaultP.otherAllergy,
+      };
     }
-  }, [initialProfile]);
+    return defaultP;
+  });
 
   const [heightUnit, setHeightUnit] = useState<'cm' | 'ft-in'>('cm');
   const [weightUnit, setWeightUnit] = useState<'kg' | 'lbs'>('kg');
   const [waistUnit, setWaistUnit] = useState<'cm' | 'in'>('cm');
-  const [heightFeet, setHeightFeet] = useState<number | ''>('');
-  const [heightInches, setHeightInches] = useState<number | ''>('');
+  
+  // Correctly initialize heightFeet and heightInches with type guards
+  const getInitialHeightFeet = () => {
+    if (initialProfile?.height && heightUnit === 'ft-in') {
+      const converted = convertHeightToFtIn(initialProfile.height);
+      return typeof converted.feet === 'number' ? converted.feet : '';
+    }
+    return '';
+  };
+  const getInitialHeightInches = () => {
+    if (initialProfile?.height && heightUnit === 'ft-in') {
+      const converted = convertHeightToFtIn(initialProfile.height);
+      return typeof converted.inches === 'number' ? converted.inches : '';
+    }
+    return '';
+  };
+
+  const [heightFeet, setHeightFeet] = useState<number | ''>(getInitialHeightFeet());
+  const [heightInches, setHeightInches] = useState<number | ''>(getInitialHeightInches());
   const [errors, setErrors] = useState<Partial<Record<keyof UserProfile, string>>>({});
-  const [loadingProfile, setLoadingProfile] = useState(false);
+
+  // Effect to synchronize formData with initialProfile changes from parent
+  useEffect(() => {
+    const defaultP = createDefaultProfile();
+    let profileToSet: UserProfile = defaultP;
+
+    if (initialProfile) {
+      profileToSet = {
+        ...defaultP, 
+        ...initialProfile,
+        // Ensure non-optional numbers default to a number if parsing fails
+        age: parseOptionalNumber(initialProfile.age) ?? defaultP.age,
+        weight: parseOptionalNumber(initialProfile.weight) ?? defaultP.weight,
+        height: parseOptionalNumber(initialProfile.height) ?? defaultP.height,
+        // Optional numbers are fine with undefined
+        waistCircumference: parseOptionalNumber(initialProfile.waistCircumference),
+        systolicBP: parseOptionalNumber(initialProfile.systolicBP),
+        diastolicBP: parseOptionalNumber(initialProfile.diastolicBP),
+        heartRate: parseOptionalNumber(initialProfile.heartRate),
+        // Arrays and booleans
+        medicalConditions: initialProfile.medicalConditions || [],
+        dietaryRestrictions: initialProfile.dietaryRestrictions || [],
+        healthConditions: initialProfile.healthConditions || [],
+        foodPreferences: initialProfile.foodPreferences || [],
+        allergies: initialProfile.allergies || [],
+        dietTypes: initialProfile.dietTypes || [],
+        dietFeatures: initialProfile.dietFeatures || [],
+        wantsWeightLoss: typeof initialProfile.wantsWeightLoss === 'boolean' ? initialProfile.wantsWeightLoss : false,
+        // Strings
+        name: initialProfile.name || defaultP.name,
+        gender: initialProfile.gender || defaultP.gender,
+        ethnicity: initialProfile.ethnicity || defaultP.ethnicity,
+        calorieTarget: initialProfile.calorieTarget || defaultP.calorieTarget,
+        otherMedicalCondition: initialProfile.otherMedicalCondition || defaultP.otherMedicalCondition,
+        otherDietaryRestriction: initialProfile.otherDietaryRestriction || defaultP.otherDietaryRestriction,
+        otherHealthCondition: initialProfile.otherHealthCondition || defaultP.otherHealthCondition,
+        otherFoodPreference: initialProfile.otherFoodPreference || defaultP.otherFoodPreference,
+        otherAllergy: initialProfile.otherAllergy || defaultP.otherAllergy,
+      };
+    }
+
+    if (JSON.stringify(formData) !== JSON.stringify(profileToSet)) {
+      setFormData(profileToSet as Partial<UserProfile>); // Cast to Partial as formData is Partial
+    }
+  }, [initialProfile]);
+
+  // Effect to update UI states like heightFeet, heightInches when formData.height or heightUnit changes
+  useEffect(() => {
+    const { feet, inches } = convertHeightToFtIn(formData.height);
+    if (heightUnit === 'ft-in') {
+      setHeightFeet(feet);
+      setHeightInches(inches);
+    } else {
+      setHeightFeet(''); 
+      setHeightInches('');
+    }
+  }, [formData.height, heightUnit]);
+  
+  // Centralized change handler
+  const handleChange = useCallback((field: keyof UserProfile, value: any) => {
+    setFormData(prevFormData => {
+      const updatedFormData = { ...prevFormData, [field]: value };
+      onProfileChange(updatedFormData); // Notify parent (MealPlanRequest)
+      return updatedFormData;
+    });
+  }, [onProfileChange]);
+
+  const handleInputChange = (field: keyof UserProfile) => (
+    event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
+  ) => {
+    const value = event.target.type === 'checkbox' ? (event.target as HTMLInputElement).checked : event.target.value;
+    handleChange(field, value);
+    if (errors[field]) {
+      setErrors((prev) => ({ ...prev, [field]: undefined }));
+    }
+  };
+
+  const handleSelectChange = (field: keyof UserProfile) => (
+    event: SelectChangeEvent<string | string[]>
+  ) => {
+    handleChange(field, event.target.value);
+  };
+  
+  const handleMultiSelectChange = (field: keyof UserProfile) => (
+    event: SelectChangeEvent<string[]>
+  ) => {
+    const value = event.target.value as string[];
+    handleChange(field, value || []);
+  };
+  
+  const handleSwitchChange = (field: keyof UserProfile) => (
+    event: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    handleChange(field, event.target.checked);
+  };
 
   // Convert height from feet/inches to cm
   const convertHeightToCm = (feet: number, inches: number) => {
     return Math.round((feet * 30.48) + (inches * 2.54));
-  };
-
-  // Convert height from cm to feet/inches
-  const convertHeightToFtIn = (cm: number) => {
-    const totalInches = cm / 2.54;
-    const feet = Math.floor(totalInches / 12);
-    const inches = Math.round(totalInches % 12);
-    return { feet, inches };
   };
 
   // Convert weight between kg and lbs
@@ -262,24 +405,29 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
     
     if (formData.weight) {
       const newWeight = convertWeight(formData.weight, weightUnit, newUnit);
-      setFormData(prev => ({ ...prev, weight: newWeight }));
+      handleChange('weight', newWeight);
     }
   };
 
   const handleHeightChange = (type: 'feet' | 'inches' | 'cm', value: string) => {
+    let newHeightCm: number | undefined;
     if (heightUnit === 'cm') {
-      setFormData(prev => ({ ...prev, height: value === '' ? undefined : Number(value) }));
+      newHeightCm = value === '' ? undefined : Number(value);
+      handleChange('height', newHeightCm);
     } else {
       const numValue = value === '' ? '' : Number(value);
+      let currentFeet = heightFeet;
+      let currentInches = heightInches;
       if (type === 'feet') {
         setHeightFeet(numValue);
+        currentFeet = numValue;
       } else {
         setHeightInches(numValue);
+        currentInches = numValue;
       }
-      
-      if (typeof heightFeet === 'number' && typeof heightInches === 'number') {
-        const heightInCm = convertHeightToCm(heightFeet, heightInches);
-        setFormData(prev => ({ ...prev, height: heightInCm }));
+      if (typeof currentFeet === 'number' && typeof currentInches === 'number') {
+        newHeightCm = convertHeightToCm(currentFeet, currentInches);
+        handleChange('height', newHeightCm);
       }
     }
   };
@@ -290,79 +438,13 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
     
     if (formData.waistCircumference) {
       const newWaist = convertWaist(formData.waistCircumference, waistUnit, newUnit);
-      setFormData(prev => ({ ...prev, waistCircumference: newWaist }));
+      handleChange('waistCircumference', newWaist);
     }
-  };
-
-  useEffect(() => {
-    const fetchProfile = async () => {
-      setLoadingProfile(true);
-      try {
-        const token = localStorage.getItem('token');
-        if (!token) return;
-        const response = await fetch('http://localhost:8000/user/profile', {
-          headers: { 'Authorization': `Bearer ${token}` },
-        });
-        if (response.ok) {
-          const data = await response.json();
-          if (data && Object.keys(data).length > 0) {
-            setFormData(data);
-          }
-        }
-      } catch (err) {
-        // ignore
-      } finally {
-        setLoadingProfile(false);
-      }
-    };
-    fetchProfile();
-  }, []);
-
-  const handleInputChange = (field: keyof UserProfile) => (
-    event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
-  ) => {
-    const value = event.target.value;
-    setFormData((prev) => ({
-      ...prev,
-      [field]: value,
-    }));
-    if (errors[field]) {
-      setErrors((prev) => ({
-        ...prev,
-        [field]: undefined,
-      }));
-    }
-  };
-
-  const handleSelectChange = (field: keyof UserProfile) => (
-    event: SelectChangeEvent<string>
-  ) => {
-    const value = event.target.value;
-    setFormData((prev) => ({
-      ...prev,
-      [field]: value,
-    }));
-    if (errors[field]) {
-      setErrors((prev) => ({
-        ...prev,
-        [field]: undefined,
-      }));
-    }
-  };
-
-  const handleMultiSelectChange = (field: keyof UserProfile) => (
-    event: SelectChangeEvent<string[]>
-  ) => {
-    const value = event.target.value as string[];
-    setFormData((prev) => ({
-      ...prev,
-      [field]: value,
-    }));
   };
 
   const calculateBMI = () => {
-    if (formData.height && formData.weight) {
-      // Height should always be in cm and weight in kg in formData
+    // Guard against undefined or 0 for height/weight before calculation
+    if (formData.height && formData.weight && formData.height > 0 && formData.weight > 0) {
       const heightInMeters = formData.height / 100;
       const weightInKg = weightUnit === 'lbs' ? formData.weight / 2.20462 : formData.weight;
       return (weightInKg / (heightInMeters * heightInMeters)).toFixed(1);
@@ -397,11 +479,14 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
     }
 
     try {
-      // Save profile to backend
+      // Always save to localStorage before submitting
+      localStorage.setItem('userProfile', JSON.stringify(formData));
+      
+      // Save to backend
       const token = localStorage.getItem('token');
       const snakeCaseProfile = toSnakeCase(formData);
       if (token) {
-        await fetch('http://localhost:8000/user/profile', {
+        const response = await fetch('http://localhost:8000/user/profile', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -409,12 +494,18 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
           },
           body: JSON.stringify({ profile: snakeCaseProfile }),
         });
+
+        if (!response.ok) {
+          throw new Error('Failed to save profile to backend');
+        }
       }
+
+      // Call onSubmit with the profile data
       onSubmit(snakeCaseProfile as UserProfile);
     } catch (error) {
-      console.error('Error creating profile:', error);
+      console.error('Error saving profile:', error);
       setErrors({
-        name: 'Failed to generate meal plan. Please check your inputs and try again.'
+        name: 'Failed to save profile. Please try again.'
       });
     }
   };
@@ -504,10 +595,7 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
                   label="Please specify other medical condition"
                   value={formData.otherMedicalCondition || ''}
                   onChange={(e) => {
-                    setFormData(prev => ({
-                      ...prev,
-                      otherMedicalCondition: e.target.value
-                    }));
+                    handleChange('otherMedicalCondition', e.target.value);
                   }}
                   sx={{ mt: 2 }}
                 />
@@ -546,10 +634,7 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
                   label="Please specify other dietary restriction"
                   value={formData.otherDietaryRestriction || ''}
                   onChange={(e) => {
-                    setFormData(prev => ({
-                      ...prev,
-                      otherDietaryRestriction: e.target.value
-                    }));
+                    handleChange('otherDietaryRestriction', e.target.value);
                   }}
                   sx={{ mt: 2 }}
                 />
@@ -588,10 +673,7 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
                   label="Please specify other health condition"
                   value={formData.otherHealthCondition || ''}
                   onChange={(e) => {
-                    setFormData(prev => ({
-                      ...prev,
-                      otherHealthCondition: e.target.value
-                    }));
+                    handleChange('otherHealthCondition', e.target.value);
                   }}
                   sx={{ mt: 2 }}
                 />
@@ -630,10 +712,7 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
                   label="Please specify other food preference"
                   value={formData.otherFoodPreference || ''}
                   onChange={(e) => {
-                    setFormData(prev => ({
-                      ...prev,
-                      otherFoodPreference: e.target.value
-                    }));
+                    handleChange('otherFoodPreference', e.target.value);
                   }}
                   sx={{ mt: 2 }}
                 />
@@ -672,10 +751,7 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
                   label="Please specify other allergy"
                   value={formData.otherAllergy || ''}
                   onChange={(e) => {
-                    setFormData(prev => ({
-                      ...prev,
-                      otherAllergy: e.target.value
-                    }));
+                    handleChange('otherAllergy', e.target.value);
                   }}
                   sx={{ mt: 2 }}
                 />
@@ -757,7 +833,7 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
                   value={formData.weight || ''}
                   onChange={(e) => {
                     const value = e.target.value === '' ? undefined : Number(e.target.value);
-                    setFormData(prev => ({ ...prev, weight: value }));
+                    handleChange('weight', value);
                   }}
                   error={!!errors.weight}
                   helperText={errors.weight}
@@ -799,7 +875,7 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
                   value={formData.waistCircumference || ''}
                   onChange={(e) => {
                     const value = e.target.value === '' ? undefined : Number(e.target.value);
-                    setFormData(prev => ({ ...prev, waistCircumference: value }));
+                    handleChange('waistCircumference', value);
                   }}
                   InputProps={{ 
                     endAdornment: waistUnit,
@@ -936,7 +1012,7 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
                 control={
                   <Switch
                     checked={formData.wantsWeightLoss}
-                    onChange={(e) => setFormData(prev => ({ ...prev, wantsWeightLoss: e.target.checked }))}
+                    onChange={handleSwitchChange('wantsWeightLoss')}
                   />
                 }
                 label="Patient wants weight loss"
