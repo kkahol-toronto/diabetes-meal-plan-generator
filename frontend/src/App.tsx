@@ -10,12 +10,9 @@ import AdminLogin from './components/AdminLogin';
 import AdminPanel from './components/AdminPanel';
 import Navigation from './components/Navigation';
 import ThankYou from './components/ThankYou';
-<<<<<<< HEAD
 import AllRecipesPage from './pages/AllRecipesPage';
 import AllShoppingListsPage from './pages/AllShoppingListsPage';
-=======
 import MealPlanHistory from './components/MealPlanHistory';
->>>>>>> origin/changed_ui_backend_ram
 
 // Create a theme instance
 const theme = createTheme({
@@ -98,7 +95,6 @@ function App() {
             }
           />
           <Route
-<<<<<<< HEAD
             path="/my-recipes"
             element={
               <ProtectedRoute>
@@ -114,7 +110,7 @@ function App() {
               </ProtectedRoute>
             }
           />
-=======
+          <Route
             path="/meal_plans"
             element={
               <ProtectedRoute>
@@ -125,7 +121,6 @@ function App() {
 
           {/* Catch-all route for debugging - Renders a simple message if no other route matches */}
           <Route path="*" element={<div>404 - Page Not Found or Route Not Matched</div>} />
->>>>>>> origin/changed_ui_backend_ram
         </Routes>
       </Router>
     </ThemeProvider>

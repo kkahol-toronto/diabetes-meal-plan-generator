@@ -639,7 +639,6 @@ const MealPlanRequest: React.FC = () => {
                 >
                   Export Shopping List
                 </Button>
-<<<<<<< HEAD
                 <Button
                   variant="contained"
                   color="primary"
@@ -650,29 +649,17 @@ const MealPlanRequest: React.FC = () => {
                 >
                   Download Consolidated PDF
                 </Button>
+                <Button
+                  variant="contained"
+                  color="primary"
+                  onClick={handleSaveFullMealPlan}
+                  disabled={loading || !mealPlan || !recipes || !shoppingList}
+                  sx={{ borderRadius: '20px', px: 3 }}
+                >
+                  {loading ? <CircularProgress size={24} /> : 'Save Meal Plan'}
+                </Button>
               </>
             )}
-=======
-              )}
-              <Button
-                variant="contained"
-                color="secondary"
-                onClick={handleDownloadConsolidatedPDF}
-                disabled={loading}
-              >
-                {loading ? <CircularProgress size={24} /> : 'Download Consolidated PDF'}
-              </Button>
-              {/* Add Save Full Meal Plan button */}
-              <Button
-                variant="contained"
-                color="primary"
-                onClick={handleSaveFullMealPlan}
-                disabled={loading || !mealPlan || !recipes || !shoppingList}
-              >
-                {loading ? <CircularProgress size={24} /> : 'Save Meal Plan'}
-              </Button>
-            </Box>
->>>>>>> origin/changed_ui_backend_ram
           </Box>
         );
       default:

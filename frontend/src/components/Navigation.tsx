@@ -26,6 +26,7 @@ import ChatIcon from '@mui/icons-material/Chat';
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
 import AccountCircleIcon from '@mui/icons-material/AccountCircle';
 import { isTokenExpired } from '../utils/auth';
+import ShoppingCartIcon from '@mui/icons-material/ShoppingCart';
 
 const Navigation = () => {
   const navigate = useNavigate();
@@ -93,11 +94,8 @@ const Navigation = () => {
   const menuItems = [
     { text: 'Home', icon: <HomeIcon />, path: '/' },
     { text: 'Meal Plan', icon: <RestaurantIcon />, path: '/meal-plan' },
-<<<<<<< HEAD
     { text: 'Recipes', icon: <BookIcon />, path: '/my-recipes' },
     { text: 'Shopping List', icon: <ShoppingCartIcon />, path: '/my-shopping-lists' },
-=======
->>>>>>> origin/changed_ui_backend_ram
     { text: 'Chat', icon: <ChatIcon />, path: '/chat' },
     { text: 'History', icon: <BookIcon />, path: '/meal-plan/history' },
   ];
