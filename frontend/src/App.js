@@ -3,6 +3,8 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import { ThemeProvider, createTheme, CssBaseline } from '@mui/material';
 import HomePage from './components/HomePage';
 import MealPlanRequest from './components/MealPlanRequest';
+import MealPlanHistory from './components/MealPlanHistory';
+import MealPlanDetails from './components/MealPlanDetails';
 import Login from './components/Login';
 import Register from './components/Register';
 import Chat from './components/Chat';
@@ -62,6 +64,14 @@ function App() {
           <Route path="/register" element={<Register />} />
           <Route path="/admin/login" element={<AdminLogin />} />
           <Route
+            path="/doctor-admin-page"
+            element={
+              <AdminRoute>
+                <AdminPanel />
+              </AdminRoute>
+            }
+          />
+          <Route
             path="/admin"
             element={
               <AdminRoute>
@@ -70,11 +80,19 @@ function App() {
             }
           />
           <Route
-            path="/doctor-admin-page"
+            path="/meal-plan/history"
             element={
-              <AdminRoute>
-                <AdminPanel />
-              </AdminRoute>
+              <ProtectedRoute>
+                <MealPlanHistory />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/meal-plan/:id"
+            element={
+              <ProtectedRoute>
+                <MealPlanDetails />
+              </ProtectedRoute>
             }
           />
           <Route

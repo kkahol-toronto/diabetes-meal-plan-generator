@@ -21,6 +21,8 @@ export interface UserProfile {
 }
 
 export interface MealPlanData {
+  id?: string;
+  created_at?: string;
   breakfast: string[];
   lunch: string[];
   dinner: string[];

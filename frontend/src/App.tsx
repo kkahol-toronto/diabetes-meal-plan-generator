@@ -10,6 +10,7 @@ import AdminLogin from './components/AdminLogin';
 import AdminPanel from './components/AdminPanel';
 import Navigation from './components/Navigation';
 import ThankYou from './components/ThankYou';
+import MealPlanHistory from './components/MealPlanHistory';
 
 // Create a theme instance
 const theme = createTheme({
@@ -63,6 +64,8 @@ function App() {
           <Route path="/register" element={<Register />} />
           <Route path="/admin/login" element={<AdminLogin />} />
           <Route path="/thank-you" element={<ThankYou />} />
+          
+          {/* Admin Protected Route */}
           <Route
             path="/admin"
             element={
@@ -71,6 +74,8 @@ function App() {
               </AdminRoute>
             }
           />
+          
+          {/* User Protected Routes */}
           <Route
             path="/meal-plan"
             element={
@@ -87,6 +92,17 @@ function App() {
               </ProtectedRoute>
             }
           />
+          <Route
+            path="/meal_plans"
+            element={
+              <ProtectedRoute>
+                <MealPlanHistory />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* Catch-all route for debugging - Renders a simple message if no other route matches */}
+          <Route path="*" element={<div>404 - Page Not Found or Route Not Matched</div>} />
         </Routes>
       </Router>
     </ThemeProvider>

@@ -16,7 +16,7 @@ import string
 from database import (
     create_user, get_user_by_email, create_patient,
     get_patient_by_registration_code, get_all_patients,
-    save_meal_plan, get_user_meal_plans,
+    save_meal_plan, get_user_meal_plans, get_meal_plan_by_id,
     save_shopping_list, get_user_shopping_lists,
     save_chat_message, save_recipes, get_user_recipes,
     get_recent_chat_history,
@@ -27,6 +27,10 @@ from database import (
     user_container,
     get_context_history,
     generate_session_id,
+    interactions_container,
+    view_meal_plans,
+    delete_meal_plan_by_id,
+    delete_all_user_meal_plans,
 )
 import uuid
 from io import BytesIO
@@ -572,10 +576,20 @@ Important:
 
                 await save_meal_plan(
                     user_id=current_user["email"],
-                    meal_plan=meal_plan
+                    meal_plan_data=meal_plan
                 )
                 print("Meal plan saved to database")
-                return meal_plan
+                
+                # Explicitly convert the returned meal_plan to a plain dictionary
+                try:
+                    # import json # Removed local import
+                    plain_meal_plan = json.loads(json.dumps(meal_plan))
+                    print("[/generate-meal-plan] Converted returned meal_plan to plain dict")
+                    return plain_meal_plan
+                except Exception as e:
+                    print(f"[/generate-meal-plan] Failed to convert returned meal_plan to plain dict: {e}")
+                    # Return the original meal_plan if conversion fails, error might occur again
+                    return meal_plan
 
             except json.JSONDecodeError as e:
                 print("Failed to parse OpenAI response as JSON:")
@@ -678,12 +692,12 @@ async def generate_shopping_list(
                         *Example 1 → 2.82 lb ⇒ 3 lb  (≈ 1.36 kg)*
 
                     • Mid-volume produce often pre-bagged (spinach, baby carrots, kale, salad mix, frozen peas, frozen beans):
-                    – Use the next-larger multiple of **454 g = 1 lb** (or mention the closest bag size if that’s clearer).
+                    – Use the next-larger multiple of **454 g = 1 lb** (or mention the closest bag size if that's clearer).
                         *Example 510 g ⇒ 908 g (2 × 454 g bags).*
 
                     • Bulky vegetables normally sold by unit (cauliflower, cabbage, squash, bottle gourd, cucumber, eggplant):
                     – Convert to **whole pieces/heads** and give an *≈ weight* in parentheses if helpful.
-                        *Example 1.43 lb cauliflower ⇒ “1 head (≈1.5 lb)”.*
+                        *Example 1.43 lb cauliflower ⇒ "1 head (≈1.5 lb)".*
 
                     • Herbs with stems (cilantro/coriander, parsley, dill, mint, etc.):
                     – Use **bunches**. 1 bunch ≈ 30 g.  
@@ -1268,6 +1282,244 @@ async def test_echo(current_user: User = Depends(get_current_user)):
 async def export_test_minimal():
     print(">>>> Entered /export/test-minimal endpoint")
     return {"ok": True}
+
+@app.post("/generate_plan")
+async def generate_plan(
+    request: Request,
+    current_user: User = Depends(get_current_user)
+):
+    """Save a generated meal plan to history"""
+    try:
+        data = await request.json()
+        
+        # Validate required fields
+        required_fields = ["user_profile", "recipes", "shopping_list"]
+        for field in required_fields:
+            if field not in data:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Missing required field: {field}"
+                )
+        
+        # Save the meal plan using Cosmos DB
+        meal_plan = await save_meal_plan(current_user["email"], data)
+        
+        return {
+            "status": "success",
+            "message": "Meal plan saved successfully",
+            "meal_plan": meal_plan
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+
+@app.get("/meal_plans")
+async def get_meal_plans(
+    current_user: User = Depends(get_current_user)
+):
+    """Get all meal plans for the current user"""
+    try:
+        meal_plans = await get_user_meal_plans(current_user["email"])
+        return {"meal_plans": meal_plans}
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to retrieve meal plans: {str(e)}"
+        )
+
+@app.get("/meal_plans/{plan_id}")
+async def get_meal_plan(
+    plan_id: str,
+    current_user: User = Depends(get_current_user)
+):
+    """Get a specific meal plan by ID"""
+    try:
+        # Query Cosmos DB for the specific meal plan
+        query = f"SELECT * FROM c WHERE c.type = 'meal_plan' AND c.id = '{plan_id}' AND c.user_id = '{current_user['id']}'"
+        items = list(interactions_container.query_items(query=query, enable_cross_partition_query=True))
+        
+        if not items:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Meal plan not found"
+            )
+            
+        return {"meal_plan": items[0]}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to retrieve meal plan: {str(e)}"
+        )
+
+@app.delete("/meal_plans/{plan_id}")
+async def delete_meal_plan(
+    plan_id: str,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Deletes a specific meal plan by ID for the current user."""
+    try:
+        # Use "email" consistently with how save_meal_plan uses it
+        user_id = current_user.get("email")
+        if not user_id:
+             raise HTTPException(status_code=400, detail="User ID not found in token.")
+             
+        deleted = await delete_meal_plan_by_id(plan_id, user_id)
+        
+        if not deleted:
+             # Return 404 if the plan wasn't found for *this* user
+             raise HTTPException(status_code=404, detail="Meal plan not found or does not belong to user.")
+             
+        return {"message": f"Meal plan '{plan_id}' deleted successfully"}
+        
+    except Exception as e:
+        print(f"Error in DELETE /meal_plans/{{plan_id}}: {e}")
+        # Log the full traceback for better debugging
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Failed to delete meal plan: {str(e)}")
+
+@app.post("/meal_plans/bulk_delete")
+async def bulk_delete_meal_plans(
+    plan_ids: List[str] = Body(..., embed=True),
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Deletes a list of specific meal plans by ID for the current user."""
+    if not plan_ids:
+        raise HTTPException(status_code=400, detail="No meal plan IDs provided for deletion.")
+        
+    user_id = current_user.get("email")
+    if not user_id:
+        raise HTTPException(status_code=400, detail="User ID not found in token.")
+
+    deleted_count = 0
+    failed_deletions = []
+    corrupted_plans = []
+    
+    for plan_id in plan_ids:
+        try:
+            if not plan_id:
+                failed_deletions.append("Empty ID provided")
+                continue
+
+            # Ensure plan_id has the correct prefix
+            if not plan_id.startswith('meal_plan_'):
+                plan_id = f'meal_plan_{plan_id}'
+
+            deleted = await delete_meal_plan_by_id(plan_id, user_id)
+            
+            if deleted:
+                deleted_count += 1
+            else:
+                # Check if the plan exists but is corrupted
+                query = f"SELECT c.id, c.created_at, c.dailyCalories, c.macronutrients FROM c WHERE c.type = 'meal_plan' AND c.id = '{plan_id}' AND c.user_id = '{user_id}'"
+                items = list(interactions_container.query_items(
+                    query=query,
+                    enable_cross_partition_query=True
+                ))
+                
+                if items:
+                    # Plan exists but might be corrupted
+                    plan = items[0]
+                    required_fields = ['created_at', 'dailyCalories', 'macronutrients']
+                    missing_fields = [field for field in required_fields if field not in plan]
+                    if missing_fields:
+                        corrupted_plans.append(f"{plan_id} (missing: {', '.join(missing_fields)})")
+                    else:
+                        failed_deletions.append(f"{plan_id} (not found or access denied)")
+                else:
+                    failed_deletions.append(f"{plan_id} (not found or access denied)")
+
+        except Exception as e:
+            print(f"Error deleting meal plan {plan_id} during bulk delete: {e}")
+            failed_deletions.append(f"{plan_id} (error: {str(e)})")
+
+    if deleted_count == 0 and not failed_deletions and not corrupted_plans:
+        raise HTTPException(status_code=404, detail="No meal plans were found to delete.")
+    
+    response = {
+        "message": f"Successfully deleted {deleted_count} meal plan(s).",
+        "deleted_count": deleted_count
+    }
+    
+    if failed_deletions:
+        response["failed_deletions"] = failed_deletions
+    
+    if corrupted_plans:
+        response["corrupted_plans"] = corrupted_plans
+    
+    return response
+
+@app.delete("/meal_plans/all") # Use DELETE with a specific path for clarity
+async def delete_all_meal_plans_endpoint(
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Deletes all meal plans for the current user."""
+    try:
+        # Use "email" consistently with how save_meal_plan uses it
+        user_id = current_user.get("email")
+        if not user_id:
+             raise HTTPException(status_code=400, detail="User ID not found in token.")
+
+        deleted_count = await delete_all_user_meal_plans(user_id)
+
+        return {"message": f"Successfully deleted all {deleted_count} meal plans for user {user_id}"}
+
+    except Exception as e:
+        print(f"Error in DELETE /meal_plans/all: {e}")
+        # Log the full traceback for better debugging
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Failed to delete all meal plans: {str(e)}")
+
+@app.get("/view-meal-plans")
+async def view_meal_plans_endpoint(current_user: Dict[str, Any] = Depends(get_current_user)):
+    """View all meal plans for the current user"""
+    try:
+        meal_plans = await view_meal_plans(current_user["email"])
+        return {"meal_plans": meal_plans}
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+
+@app.post("/save-full-meal-plan")
+async def save_full_meal_plan_endpoint(
+    full_meal_plan_data: Dict[str, Any] = Body(...),
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Saves the full meal plan data including recipes and shopping list."""
+    try:
+        user_id = current_user.get("email") # Or use "id" depending on how you identify users
+        if not user_id:
+             raise HTTPException(status_code=400, detail="User ID not found in token.")
+             
+        # The save_meal_plan function in database.py is designed to accept
+        # the meal_plan dictionary and use **meal_plan, so we can pass the
+        # full_meal_plan_data directly if it contains the required base fields
+        # (breakfast, lunch, etc.) plus recipes and shopping_list.
+        
+        # It might be a good idea to add validation here or in save_meal_plan
+        # to ensure the basic meal plan fields are present.
+
+        saved_plan = await save_meal_plan(user_id, full_meal_plan_data)
+        
+        # You might want to return the saved_plan data or just a success message
+        return {"message": "Meal plan saved successfully", "plan_id": saved_plan.get("id")}
+        
+    except ValueError as e:
+        # Handle validation errors from save_meal_plan
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        # Handle other potential errors during saving
+        print(f"Error saving full meal plan: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail="An error occurred while saving the meal plan.")
 
 if __name__ == "__main__":
     import uvicorn

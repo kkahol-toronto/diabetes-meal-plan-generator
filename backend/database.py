@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 from datetime import datetime
 import uuid
 import tiktoken
+import json
 
 # Load environment variables
 load_dotenv()
@@ -81,27 +82,221 @@ async def get_patient_by_id(patient_id: str):
     except Exception as e:
         raise Exception(f"Failed to get patient: {str(e)}")
 
-async def save_meal_plan(user_id: str, meal_plan: dict):
-    """Save a meal plan for a user"""
+async def save_meal_plan(user_id: str, meal_plan_data: dict):
+    """Saves a user's meal plan to Cosmos DB."""
+    
+    # Rebuild the item dictionary explicitly to avoid potential CosmosDict issues
+    item = {}
+    for key, value in meal_plan_data.items():
+        item[key] = value
+        
+    # Ensure partition key and required fields are included
+    item['user_id'] = user_id  # Ensure user_id is set from the authenticated user
+    item['id'] = meal_plan_data.get('id', str(uuid.uuid4())) # Use existing ID or generate new one
+    item['type'] = 'meal_plan' # Add a type discriminator
+    item['_partitionKey'] = user_id # Explicitly set the partition key
+    item['created_at'] = datetime.utcnow().isoformat() # Add timestamp
+    
+    print(f"[save_meal_plan] Attempting to save item: {item.get('id')}, type: {item.get('type')}, user_id: {item.get('user_id')}")
+    print(f"[save_meal_plan] Full item data (partial): {list(item.keys())}")
+    
     try:
-        session_id = generate_session_id()
-        meal_plan["type"] = "meal_plan"
-        meal_plan["user_id"] = user_id
-        meal_plan["session_id"] = session_id
-        meal_plan["id"] = f"meal_plan_{session_id}"
-        print("Saving to container:", interactions_container.container_link)
-        print("Meal plan session_id:", meal_plan["session_id"])
-        return interactions_container.create_item(body=meal_plan)
+        # Use upsert_item to create or replace the item
+        print(f"[save_meal_plan] Type of interactions_container: {type(interactions_container)}")
+        print(f"[save_meal_plan] Type of item: {type(item)}")
+        
+        # Capture the result of upsert_item and convert it
+        saved_item = interactions_container.upsert_item(body=item)
+        print(f"[save_meal_plan] Successfully saved item: {saved_item.get('id')}")
+
+        # Explicitly convert the saved item returned by upsert_item to a plain dictionary
+        try:
+            # json is already imported at the top of database.py
+            plain_saved_item = json.loads(json.dumps(saved_item))
+            print("[save_meal_plan] Converted saved_item returned by SDK to plain dict before returning")
+            return plain_saved_item # Return the converted item
+        except Exception as convert_error:
+            print(f"[save_meal_plan] Failed to convert saved_item returned by SDK to plain dict: {convert_error}")
+            # If conversion fails, return the original saved_item - the error might occur again
+            return saved_item
+
     except Exception as e:
-        raise Exception(f"Failed to save meal plan: {str(e)}")
+        print(f"[save_meal_plan] Error saving item {item.get('id')}: {e}")
+        raise
 
 async def get_user_meal_plans(user_id: str):
     """Get all meal plans for a user"""
     try:
-        query = f"SELECT * FROM c WHERE c.type = 'meal_plan' AND c.user_id = '{user_id}'"
-        return list(interactions_container.query_items(query=query, enable_cross_partition_query=True))
+        if not user_id:
+            raise ValueError("User ID is required")
+
+        query = f"SELECT * FROM c WHERE c.type = 'meal_plan' AND c.user_id = '{user_id}' ORDER BY c.created_at DESC"
+        meal_plans = list(interactions_container.query_items(
+            query=query,
+            enable_cross_partition_query=True
+        ))
+
+        # Validate each meal plan has required fields
+        for plan in meal_plans:
+            required_fields = ['breakfast', 'lunch', 'dinner', 'snacks', 'dailyCalories', 'macronutrients']
+            missing_fields = [field for field in required_fields if field not in plan]
+            if missing_fields:
+                print(f"Warning: Meal plan {plan['id']} is missing fields: {', '.join(missing_fields)}")
+
+        return meal_plans
+    except ValueError as e:
+        raise ValueError(f"Invalid request: {str(e)}")
     except Exception as e:
         raise Exception(f"Failed to get meal plans: {str(e)}")
+
+async def get_meal_plan_by_id(plan_id: str, user_id: str):
+    """Get a specific meal plan by ID"""
+    try:
+        if not plan_id:
+            raise ValueError("Plan ID is required")
+        if not user_id:
+            raise ValueError("User ID is required")
+
+        query = f"SELECT * FROM c WHERE c.type = 'meal_plan' AND c.id = '{plan_id}' AND c.user_id = '{user_id}'"
+        items = list(interactions_container.query_items(
+            query=query,
+            enable_cross_partition_query=True
+        ))
+
+        if not items:
+            return None
+
+        meal_plan = items[0]
+        
+        # Validate meal plan has required fields
+        required_fields = ['breakfast', 'lunch', 'dinner', 'snacks', 'dailyCalories', 'macronutrients']
+        missing_fields = [field for field in required_fields if field not in meal_plan]
+        if missing_fields:
+            print(f"Warning: Meal plan {plan_id} is missing fields: {', '.join(missing_fields)}")
+
+        return meal_plan
+    except ValueError as e:
+        raise ValueError(f"Invalid request: {str(e)}")
+    except Exception as e:
+        raise Exception(f"Failed to get meal plan: {str(e)}")
+
+async def delete_meal_plan_by_id(plan_id: str, user_id: str):
+    """Deletes a meal plan by its ID and user ID."""
+    print(f"[delete_meal_plan_by_id] Attempting to delete plan_id: {plan_id} for user_id: {user_id}")
+    try:
+        if not plan_id:
+            raise ValueError("Plan ID is required")
+        if not user_id:
+            raise ValueError("User ID is required")
+
+        # Ensure plan_id has the correct prefix
+        if not plan_id.startswith('meal_plan_'):
+            plan_id = f'meal_plan_{plan_id}'
+
+        # First, verify the meal plan belongs to the user and get its partition key
+        query = f"SELECT c.id, c.user_id, c.created_at, c.dailyCalories, c.macronutrients FROM c WHERE c.type = 'meal_plan' AND c.id = '{plan_id}' AND c.user_id = '{user_id}'"
+        print(f"[delete_meal_plan_by_id] Verification query: {query}")
+        items = list(interactions_container.query_items(
+            query=query,
+            enable_cross_partition_query=True
+        ))
+
+        if not items:
+            print(f"[delete_meal_plan_by_id] Plan {plan_id} not found for user {user_id}")
+            return False
+
+        # Validate the meal plan has required fields
+        meal_plan = items[0]
+        required_fields = ['created_at', 'dailyCalories', 'macronutrients']
+        missing_fields = [field for field in required_fields if field not in meal_plan]
+        
+        if missing_fields:
+            print(f"[delete_meal_plan_by_id] Plan {plan_id} is missing required fields: {', '.join(missing_fields)}")
+            # Still delete the corrupted plan
+            partition_key = meal_plan.get('user_id')
+            if partition_key:
+                interactions_container.delete_item(item=plan_id, partition_key=partition_key)
+                print(f"[delete_meal_plan_by_id] Deleted corrupted plan {plan_id}")
+                return True
+            return False
+
+        # Get partition key from the fetched item
+        partition_key = meal_plan.get('user_id')
+        if not partition_key:
+            print(f"[delete_meal_plan_by_id] Fetched item for {plan_id} is missing user_id (partition key)")
+            return False
+
+        print(f"[delete_meal_plan_by_id] Found valid plan with id: {plan_id}. Attempting deletion.")
+        interactions_container.delete_item(item=plan_id, partition_key=partition_key)
+        print(f"[delete_meal_plan_by_id] Deletion successful for plan_id: {plan_id}")
+        return True
+
+    except CosmosResourceNotFoundError:
+        print(f"[delete_meal_plan_by_id] CosmosResourceNotFoundError for plan_id: {plan_id}")
+        return False
+    except Exception as e:
+        print(f"[delete_meal_plan_by_id] Error deleting meal plan {plan_id} for user {user_id}: {e}")
+        import traceback
+        traceback.print_exc()
+        raise Exception(f"Failed to delete meal plan: {str(e)}")
+
+async def delete_all_user_meal_plans(user_id: str):
+    """Deletes all meal plans for a specific user."""
+    print(f"[delete_all_user_meal_plans] Attempting to delete all plans for user_id: {user_id}")
+    try:
+        if not user_id:
+             print("[delete_all_user_meal_plans] User ID is missing.")
+             return 0 # Or raise an error, depending on desired behavior
+
+        # Find all meal plans for the user, including their partition key (user_id)
+        query = f"SELECT c.id, c.user_id FROM c WHERE c.type = 'meal_plan' AND c.user_id = '{user_id}'"
+        print(f"[delete_all_user_meal_plans] Query for items: {query}")
+        items = interactions_container.query_items(
+            query=query,
+            enable_cross_partition_query=True
+        )
+
+        deleted_count = 0
+        failed_deletions = []
+
+        # Assuming user_id is the partition key
+        # partition_key = user_id # We will now get partition key from each item
+        
+        for item in items:
+            item_id = item.get('id')
+            item_partition_key = item.get('user_id') # Assuming user_id is the partition key
+
+            if not item_id or not item_partition_key:
+                 print(f"[delete_all_user_meal_plans] Skipping item due to missing id or partition key: {item}")
+                 continue # Skip items that don't have necessary info
+
+            try:
+                print(f"[delete_all_user_meal_plans] Attempting to delete item id: {item_id} with partition key: {item_partition_key}")
+                interactions_container.delete_item(item=item_id, partition_key=item_partition_key)
+                print(f"[delete_all_user_meal_plans] Successfully deleted item id: {item_id}")
+                deleted_count += 1
+            except CosmosResourceNotFoundError:
+                print(f"[delete_all_user_meal_plans] Item id {item_id} not found during deletion (might be already deleted).")
+                # Item already deleted, continue
+                pass
+            except Exception as delete_error:
+                print(f"[delete_all_user_meal_plans] Error deleting item {item_id} for user {user_id}: {delete_error}")
+                failed_deletions.append(item_id)
+                # Decide if you want to stop on error or continue
+                pass # Continue deleting other items
+        
+        if failed_deletions:
+             print(f"[delete_all_user_meal_plans] Finished deletion with failed items: {failed_deletions}")
+
+        print(f"[delete_all_user_meal_plans] Total deleted count: {deleted_count}")
+        return deleted_count
+
+    except Exception as e:
+        print(f"[delete_all_user_meal_plans] Error deleting all meal plans for user {user_id}: {e}")
+        # Log the full traceback for better debugging
+        import traceback
+        traceback.print_exc()
+        raise Exception(f"Failed to delete all meal plans: {str(e)}")
 
 async def save_shopping_list(user_id: str, shopping_list: dict):
     """Save a shopping list for a user"""
@@ -337,3 +532,21 @@ async def get_context_history(
     except Exception as e:
         print(f"ERROR in get_context_history for session {session_id}, user {user_id}: {e}")
         return [] # Fallback to empty list on error 
+
+async def view_meal_plans(user_id: str):
+    """View all meal plans for a user directly from Cosmos DB"""
+    try:
+        query = f"""
+        SELECT c.id, c.created_at, c.breakfast, c.lunch, c.dinner, c.snacks, 
+               c.dailyCalories, c.macronutrients
+        FROM c
+        WHERE c.type = 'meal_plan'
+        AND c.user_id = '{user_id}'
+        ORDER BY c.created_at DESC
+        """
+        return list(interactions_container.query_items(
+            query=query,
+            enable_cross_partition_query=True
+        ))
+    except Exception as e:
+        raise Exception(f"Failed to view meal plans: {str(e)}") 
