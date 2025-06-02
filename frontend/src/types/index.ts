@@ -9,13 +9,12 @@ export interface UserProfile {
   diastolicBP?: number;
   heartRate?: number;
   ethnicity?: string;
-  dietType?: string;
+  dietType?: string[];
   calorieTarget?: string;
   dietFeatures?: string[];
   medicalConditions?: string[];
   wantsWeightLoss: boolean;
   dietaryRestrictions?: string[];
-  healthConditions?: string[];
   foodPreferences?: string[];
   allergies?: string[];
 }

@@ -10,6 +10,8 @@ import AdminLogin from './components/AdminLogin';
 import AdminPanel from './components/AdminPanel';
 import Navigation from './components/Navigation';
 import ThankYou from './components/ThankYou';
+import AllRecipesPage from './pages/AllRecipesPage';
+import AllShoppingListsPage from './pages/AllShoppingListsPage';
 
 // Create a theme instance
 const theme = createTheme({
@@ -84,6 +86,22 @@ function App() {
             element={
               <ProtectedRoute>
                 <Chat />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/my-recipes"
+            element={
+              <ProtectedRoute>
+                <AllRecipesPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/my-shopping-lists"
+            element={
+              <ProtectedRoute>
+                <AllShoppingListsPage />
               </ProtectedRoute>
             }
           />

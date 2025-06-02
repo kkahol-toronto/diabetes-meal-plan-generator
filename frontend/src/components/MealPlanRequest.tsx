@@ -10,6 +10,9 @@ import {
   Stepper,
   Step,
   StepLabel,
+  Grid,
+  Icon,
+  LinearProgress,
 } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 import UserProfileForm from './UserProfileForm';
@@ -17,6 +20,16 @@ import MealPlan from './MealPlan';
 import RecipeList from './RecipeList';
 import ShoppingList from './ShoppingList';
 import { UserProfile, MealPlanData, Recipe, ShoppingItem } from '../types';
+
+// Import icons
+import NavigateNextIcon from '@mui/icons-material/NavigateNext';
+import NavigateBeforeIcon from '@mui/icons-material/NavigateBefore';
+import DownloadIcon from '@mui/icons-material/Download';
+import RestaurantMenuIcon from '@mui/icons-material/RestaurantMenu';
+import ShoppingCartIcon from '@mui/icons-material/ShoppingCart';
+import ReplayIcon from '@mui/icons-material/Replay';
+import PlaylistAddCheckIcon from '@mui/icons-material/PlaylistAddCheck';
+import SendIcon from '@mui/icons-material/Send';
 
 const steps = ['Profile', 'Meal Plan', 'Recipes', 'Shopping List'];
 
@@ -34,6 +47,7 @@ const MealPlanRequest: React.FC = () => {
   const [editableMealPlan, setEditableMealPlan] = useState<MealPlanData | null>(null);
   const [recipeProgress, setRecipeProgress] = useState<number>(0);
   const [generatingRecipes, setGeneratingRecipes] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<{ message: string; severity: 'success' | 'error' | 'info' } | null>(null);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -65,15 +79,24 @@ const MealPlanRequest: React.FC = () => {
   const handleProfileSubmit = async (profile: UserProfile) => {
     setUserProfile(profile);
     setActiveStep(1);
+    // Immediately trigger meal plan generation
+    await handleMealPlanGenerate(profile);
   };
 
-  const handleMealPlanGenerate = async () => {
-    if (!userProfile) {
+  const handleMealPlanGenerate = async (currentProfile?: UserProfile) => {
+    setError(null);
+    setLoading(true);
+    setRecipeProgress(0);
+    setGeneratingRecipes(false);
+
+    const profileToUse = currentProfile || userProfile;
+
+    if (!profileToUse) {
       setError('User profile is required');
+      setLoading(false);
       return;
     }
-    setLoading(true);
-    setError(null);
+
     try {
       const token = localStorage.getItem('token');
       if (!token) {
@@ -87,7 +110,7 @@ const MealPlanRequest: React.FC = () => {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`,
         },
-        body: JSON.stringify({ user_profile: userProfile }),
+        body: JSON.stringify({ user_profile: profileToUse }),
       });
 
       if (response.status === 401) {
@@ -153,9 +176,10 @@ const MealPlanRequest: React.FC = () => {
     });
   };
 
-  const handleConfirmMealPlan = () => {
+  const handleConfirmMealPlan = async () => {
     setMealPlan(editableMealPlan);
     setActiveStep(2);
+    // await handleRecipeGenerate(); // Temporarily commented out due to backend error - User to click button
   };
 
   const handleRecipeGenerate = async () => {
@@ -163,10 +187,18 @@ const MealPlanRequest: React.FC = () => {
     setLoading(false);
     setGeneratingRecipes(true);
     setError(null);
+    setSaveStatus(null);
     setRecipes([]);
     setRecipeProgress(0);
+    const token = localStorage.getItem('token');
+    if (!token) {
+      setSaveStatus({ message: 'Authentication token not found. Please log in.', severity: 'error' });
+      navigate('/login');
+      setGeneratingRecipes(false);
+      return;
+    }
+
     try {
-      const token = localStorage.getItem('token');
       console.log('Token used for /generate-recipe:', token);
       const mealItems: { mealType: EditableMealType; name: string }[] = [];
       editableMealTypes.forEach((mealType) => {
@@ -216,40 +248,93 @@ const MealPlanRequest: React.FC = () => {
           const errorText = await saveResponse.text();
           throw new Error(`Failed to save recipes: ${errorText}`);
         }
+        setSaveStatus({ message: 'Recipes generated and saved successfully!', severity: 'success' });
       } catch (saveErr) {
-        setError(saveErr instanceof Error ? saveErr.message : 'Failed to save recipes');
+        const errorMessage = saveErr instanceof Error ? saveErr.message : 'Failed to save recipes';
+        setError(errorMessage);
+        setSaveStatus({ message: `Error saving recipes: ${errorMessage}`, severity: 'error' });
       }
       // Do NOT advance to next step automatically
       // setActiveStep(3);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred');
+      const errorMessage = err instanceof Error ? err.message : 'An error occurred during recipe generation';
+      setError(errorMessage);
+      setSaveStatus({ message: errorMessage, severity: 'error' });
     } finally {
       setGeneratingRecipes(false);
+      setTimeout(() => setSaveStatus(null), 7000);
     }
   };
 
   const handleShoppingListGenerate = async () => {
-    if (!recipes) return;
+    if (!recipes || recipes.length === 0) {
+      setError('No recipes available to generate a shopping list.');
+      setSaveStatus({ message: 'Please generate recipes first.', severity: 'info' });
+      setTimeout(() => setSaveStatus(null), 7000);
+      return;
+    }
     setLoading(true);
     setError(null);
+    setSaveStatus(null);
+
+    const token = localStorage.getItem('token');
+    if (!token) {
+      setSaveStatus({ message: 'Authentication token not found. Please log in.', severity: 'error' });
+      navigate('/login');
+      setLoading(false);
+      return;
+    }
+
     try {
-      const response = await fetch('http://localhost:8000/generate-shopping-list', {
+      // Step 1: Generate the shopping list
+      const generateResponse = await fetch('http://localhost:8000/generate-shopping-list', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+          'Authorization': `Bearer ${token}`,
         },
         body: JSON.stringify(recipes),
       });
-      if (!response.ok) {
-        throw new Error('Failed to generate shopping list');
+
+      if (!generateResponse.ok) {
+        const errorText = await generateResponse.text().catch(() => 'Failed to parse error from shopping list generation');
+        throw new Error(`Failed to generate shopping list: ${errorText}`);
       }
-      const data = await response.json();
-      setShoppingList(data);
+      const shoppingListData: ShoppingItem[] = await generateResponse.json();
+      setShoppingList(shoppingListData);
+
+      // Step 2: Save the generated shopping list
+      if (shoppingListData && shoppingListData.length > 0) {
+        try {
+          const saveResponse = await fetch('http://localhost:8000/user/shopping-list', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`,
+            },
+            body: JSON.stringify({ items: shoppingListData }), 
+          });
+          if (!saveResponse.ok) {
+            const errorText = await saveResponse.text().catch(() => 'Failed to parse error from saving shopping list');
+            throw new Error(`Failed to save shopping list: ${errorText}`);
+          }
+          setSaveStatus({ message: 'Shopping list generated and saved successfully!', severity: 'success' });
+        } catch (saveErr) {
+          const errorMessage = saveErr instanceof Error ? saveErr.message : 'Failed to save shopping list';
+          setSaveStatus({ message: `Error saving shopping list: ${errorMessage}`, severity: 'error' });
+        }
+      } else {
+         // If list is generated but empty, it's not an error, but inform the user.
+        setSaveStatus({ message: 'Shopping list generated, but it was empty. Nothing to save.', severity: 'info' });
+      }
+
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred');
+      const errorMessage = err instanceof Error ? err.message : 'An error occurred while processing the shopping list';
+      setError(errorMessage);
+      setSaveStatus({ message: errorMessage, severity: 'error' });
     } finally {
       setLoading(false);
+      setTimeout(() => setSaveStatus(null), 7000);
     }
   };
 
@@ -295,38 +380,37 @@ const MealPlanRequest: React.FC = () => {
     setError(null);
     try {
       const token = localStorage.getItem('token');
-      const endpoint = 'http://localhost:8000/export/consolidated-meal-plan';
-      // Use the real session_id from the mealPlan if available
-      const session_id = mealPlan && (mealPlan as any).session_id ? (mealPlan as any).session_id : 'dummy-session-id';
-      console.log('Download Consolidated PDF: token =', token);
-      console.log('Download Consolidated PDF: endpoint =', endpoint);
-      console.log('Download Consolidated PDF: session_id =', session_id);
-      const response = await fetch(endpoint, {
+      const response = await fetch('http://localhost:8000/export/consolidated-meal-plan', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`,
         },
-        body: JSON.stringify({ session_id }),
       });
-      console.log('Download Consolidated PDF: response status =', response.status);
+
       if (!response.ok) {
-        const errorText = await response.text();
-        console.error('Failed to export consolidated meal plan:', errorText);
-        throw new Error('Failed to export consolidated meal plan');
+        const errorData = await response.json().catch(() => ({ detail: 'Failed to download PDF' }));
+        throw new Error(errorData.detail || 'Failed to download PDF');
       }
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `consolidated_meal_plan_${new Date().toISOString().slice(0,10)}.pdf`;
+      // Extract filename from content-disposition header if available
+      const contentDisposition = response.headers.get('content-disposition');
+      let filename = 'consolidated-meal-plan.pdf';
+      if (contentDisposition) {
+        const filenameMatch = contentDisposition.match(/filename="?([^"]+)"?/);
+        if (filenameMatch && filenameMatch.length > 1) {
+          filename = filenameMatch[1];
+        }
+      }
+      a.download = filename;
       document.body.appendChild(a);
       a.click();
+      a.remove();
       window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred');
-      console.error('Download Consolidated PDF: error =', err);
+      setError(err instanceof Error ? err.message : 'An error occurred while downloading the PDF.');
     } finally {
       setLoading(false);
     }
@@ -375,37 +459,6 @@ const MealPlanRequest: React.FC = () => {
         return (
           <Box>
             {editableMealPlan && renderEditableMealPlan()}
-            <Box sx={{ mt: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
-              <Box sx={{ display: 'flex', gap: 2, justifyContent: 'center' }}>
-                <Button
-                  variant="contained"
-                  onClick={handleMealPlanGenerate}
-                  disabled={loading}
-                >
-                  {loading ? <CircularProgress size={24} /> : 'Generate Meal Plan'}
-                </Button>
-                {mealPlan && (
-                  <Button
-                    variant="contained"
-                    onClick={() => handleExport('meal-plan')}
-                    disabled={loading}
-                  >
-                    Export PDF
-                  </Button>
-                )}
-              </Box>
-              <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
-                {editableMealPlan && (
-                  <Button
-                    variant="contained"
-                    color="primary"
-                    onClick={handleConfirmMealPlan}
-                  >
-                    Proceed to Recipe Generation
-                  </Button>
-                )}
-              </Box>
-            </Box>
           </Box>
         );
       case 2:
@@ -418,69 +471,134 @@ const MealPlanRequest: React.FC = () => {
               </Box>
             )}
             {recipes && <RecipeList recipes={recipes} />}
-            <Box sx={{ mt: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
-              <Box sx={{ display: 'flex', gap: 2, justifyContent: 'center' }}>
-                <Button
-                  variant="contained"
-                  onClick={handleRecipeGenerate}
-                  disabled={generatingRecipes}
-                >
-                  {generatingRecipes ? <CircularProgress size={24} /> : 'Generate Recipes'}
-                </Button>
-                {recipes && (
-                  <Button
-                    variant="contained"
-                    onClick={() => handleExport('recipes')}
-                    disabled={generatingRecipes}
-                  >
-                    Export PDF
-                  </Button>
-                )}
-              </Box>
-              <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
-                {recipes && (
-                  <Button
-                    variant="contained"
-                    color="primary"
-                    onClick={() => setActiveStep(3)}
-                  >
-                    Proceed to Shopping List Creation
-                  </Button>
-                )}
-              </Box>
-            </Box>
           </Box>
         );
       case 3:
         return (
           <Box>
             {shoppingList && <ShoppingList shoppingList={shoppingList} />}
-            <Box sx={{ mt: 2, display: 'flex', gap: 2, justifyContent: 'center' }}>
-              <Button
-                variant="contained"
-                onClick={handleShoppingListGenerate}
-                disabled={loading}
-              >
-                {loading ? <CircularProgress size={24} /> : 'Generate Shopping List'}
-              </Button>
-              {shoppingList && (
+          </Box>
+        );
+      default:
+        return null;
+    }
+  };
+
+  const renderActionButtons = () => {
+    switch (activeStep) {
+      case 0: // Profile Step
+        // The UserProfileForm itself should handle its submission and enable navigation.
+        // The main "Next" button in the footer will be used after profile is submitted.
+        return null; // No specific action buttons here, handled by form + main nav
+      case 1: // Meal Plan Step
+        return (
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, justifyContent: 'center', mb: 2 }}>
+            <Button
+              variant="outlined"
+              onClick={() => handleMealPlanGenerate()}
+              disabled={loading}
+              startIcon={loading && activeStep === 1 ? <CircularProgress size={20} color="inherit" /> : <ReplayIcon />}
+              sx={{ borderRadius: '20px', px: 3 }}
+            >
+              {loading && activeStep === 1 ? 'Generating...' : 'Re-generate Meal Plan'}
+            </Button>
+            <Button
+              variant="contained"
+              onClick={handleConfirmMealPlan}
+              disabled={!editableMealPlan || loading}
+              endIcon={<PlaylistAddCheckIcon />}
+              sx={{ borderRadius: '20px', px: 3 }}
+            >
+              Proceed to Recipe Generation
+            </Button>
+            <Button
+              variant="text"
+              onClick={() => handleExport('meal-plan')}
+              disabled={!mealPlan || loading}
+              startIcon={<DownloadIcon />}
+              sx={{ borderRadius: '20px', px: 3 }}
+            >
+              Export Meal Plan
+            </Button>
+          </Box>
+        );
+      case 2: // Recipes Step
+        return (
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, justifyContent: 'center', mb: 2 }}>
+            <Button
+              variant="contained"
+              color="primary"
+              onClick={handleRecipeGenerate}
+              disabled={generatingRecipes || !mealPlan}
+              startIcon={generatingRecipes ? <CircularProgress size={20} color="inherit" /> : <RestaurantMenuIcon />}
+              sx={{ borderRadius: '20px', px: 3 }}
+            >
+              {generatingRecipes
+                ? 'Generating Recipes...'
+                : recipes && recipes.length > 0
+                  ? 'Re-generate Recipes'
+                  : 'Try Generating Recipes'}
+            </Button>
+            {recipes && recipes.length > 0 && (
+              <>
                 <Button
-                  variant="outlined"
+                  variant="text"
+                  onClick={() => handleExport('recipes')}
+                  disabled={loading}
+                  startIcon={<DownloadIcon />}
+                  sx={{ borderRadius: '20px', px: 3 }}
+                >
+                  Export Recipes
+                </Button>
+                <Button
+                  variant="contained"
+                  color="secondary"
+                  onClick={handleNext}
+                  disabled={loading || generatingRecipes}
+                  endIcon={<NavigateNextIcon />}
+                  sx={{ borderRadius: '20px', px: 3 }}
+                >
+                  Proceed to Shopping List
+                </Button>
+              </>
+            )}
+          </Box>
+        );
+      case 3: // Shopping List Step
+        return (
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, justifyContent: 'center', mb: 2 }}>
+            <Button
+              variant="contained"
+              onClick={handleShoppingListGenerate}
+              disabled={loading || !recipes || recipes.length === 0}
+              startIcon={loading ? <CircularProgress size={20} color="inherit" /> : <ShoppingCartIcon />}
+              sx={{ borderRadius: '20px', px: 3 }}
+            >
+              {loading ? 'Generating...' : 'Generate Shopping List'}
+            </Button>
+            {shoppingList && shoppingList.length > 0 && (
+              <>
+                <Button
+                  variant="text"
                   onClick={() => handleExport('shopping-list')}
                   disabled={loading}
+                  startIcon={<DownloadIcon />}
+                  sx={{ borderRadius: '20px', px: 3 }}
                 >
-                  Export PDF
+                  Export Shopping List
                 </Button>
-              )}
-              <Button
-                variant="contained"
-                color="secondary"
-                onClick={handleDownloadConsolidatedPDF}
-                disabled={loading}
-              >
-                {loading ? <CircularProgress size={24} /> : 'Download Consolidated PDF'}
-              </Button>
-            </Box>
+                <Button
+                  variant="contained"
+                  color="primary"
+                  onClick={handleDownloadConsolidatedPDF}
+                  disabled={loading || !mealPlan || !recipes || !shoppingList}
+                  startIcon={loading ? <CircularProgress size={20} color="inherit" /> : <DownloadIcon />}
+                  sx={{ borderRadius: '20px', px: 3 }}
+                >
+                  Download Consolidated PDF
+                </Button>
+              </>
+            )}
           </Box>
         );
       default:
@@ -489,48 +607,74 @@ const MealPlanRequest: React.FC = () => {
   };
 
   return (
-    <Container maxWidth="md" sx={{ py: 4 }}>
-      <Paper elevation={3} sx={{ p: 4 }}>
-        <Typography variant="h4" component="h1" gutterBottom align="center">
-          Create Your Meal Plan
+    <Container maxWidth="lg" sx={{ py: 4 }}>
+      <Paper elevation={3} sx={{ p: { xs: 2, sm: 3, md: 4 }, borderRadius: '16px' }}>
+        <Typography variant="h4" component="h1" gutterBottom align="center" sx={{ fontWeight: 'bold', mb: 4 }}>
+          Personalized Meal Plan Generator
         </Typography>
-
-        <Box sx={{ width: '100%', mb: 4 }}>
-          <Stepper activeStep={activeStep}>
-            {steps.map((label) => (
-              <Step key={label}>
-                <StepLabel>{label}</StepLabel>
-              </Step>
-            ))}
-          </Stepper>
-        </Box>
+        <Stepper activeStep={activeStep} alternativeLabel sx={{ mb: 4 }}>
+          {steps.map((label) => (
+            <Step key={label}>
+              <StepLabel>{label}</StepLabel>
+            </Step>
+          ))}
+        </Stepper>
 
         {error && (
-          <Alert severity="error" sx={{ mb: 2 }}>
+          <Alert severity="error" sx={{ mb: 2, borderRadius: '8px' }} onClose={() => setError(null)}>
             {error}
           </Alert>
         )}
+        {saveStatus && (
+          <Alert severity={saveStatus.severity} sx={{ mt: 2, mb: 2, borderRadius: '8px' }} onClose={() => setSaveStatus(null)}>
+            {saveStatus.message}
+          </Alert>
+        )}
 
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 2 }}>
+        <Box sx={{ mt: 3, mb: 3, p: 2, border: '1px dashed grey', borderRadius: '8px', minHeight: '300px' }}>
+          {renderStepContent(activeStep)}
+        </Box>
+        
+        {generatingRecipes && activeStep === 2 && (
+          <Box sx={{ width: '100%', my: 2 }}>
+            <Typography variant="caption" display="block" gutterBottom align="center">
+              Generating recipes... {recipeProgress.toFixed(0)}%
+            </Typography>
+            <LinearProgress variant="determinate" value={recipeProgress} />
+          </Box>
+        )}
+
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 3, p: 2, backgroundColor: 'action.hover', borderRadius: '8px' }}>
           <Button
-            variant="contained"
-            color="primary"
-            disabled={activeStep === 0}
+            color="inherit"
+            disabled={activeStep === 0 || loading || generatingRecipes}
             onClick={handleBack}
+            variant="outlined"
+            startIcon={<NavigateBeforeIcon />}
+            sx={{ borderRadius: '20px', px: 3 }}
           >
             Back
           </Button>
-          <Button
-            variant="contained"
-            color="primary"
-            onClick={activeStep === steps.length - 1 ? () => navigate('/thank-you') : handleNext}
-            disabled={activeStep === steps.length - 1 && !shoppingList}
-          >
-            {activeStep === steps.length - 1 ? 'Finish' : 'Next'}
-          </Button>
+          <Box>
+            {renderActionButtons()}
+          </Box>
+          {/* Show Next button only if not on Profile step (handled by form) and not on the last step */}
+          {activeStep !== 0 && activeStep < steps.length - 1 && ( 
+             <Button
+                variant="contained"
+                onClick={handleNext}
+                disabled={loading || generatingRecipes || 
+                    (activeStep === 0 && !userProfile) || // Ensure profile is set before allowing next from step 0 if it were shown
+                    (activeStep === 1 && (!editableMealPlan || !mealPlan)) || // Disable if on meal plan step and no meal plan confirmed
+                    (activeStep === 2 && (!recipes || recipes.length === 0)) // Disable if on recipe step and no recipes
+                }
+                endIcon={<NavigateNextIcon />}
+                sx={{ borderRadius: '20px', px: 3 }}
+             >
+                Next
+             </Button>
+          )}
         </Box>
-
-        {renderStepContent(activeStep)}
       </Paper>
     </Container>
   );

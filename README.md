@@ -35,28 +35,70 @@ A comprehensive web application for diabetes patients to manage their diet, trac
   - OpenAI service
 - Twilio account (for SMS features)
 
+## Backend Dependencies
+
+All backend dependencies are listed in `backend/requirements.txt`:
+
+- fastapi>=0.109.0
+- uvicorn>=0.27.0
+- python-dotenv>=1.0.0
+- openai>=1.3.0
+- pydantic>=2.6.0
+- python-multipart>=0.0.6
+- sqlalchemy>=2.0.25
+- pydantic-settings>=2.1.0
+- python-jose[cryptography]>=3.3.0
+- passlib[bcrypt]>=1.7.4
+- twilio>=8.10.0
+- email-validator>=2.1.0.post1
+- alembic>=1.13.1
+- azure-cosmos>=4.5.1
+- reportlab>=4.0.8
+- tiktoken==0.9.0
+
+## Frontend Dependencies
+
+All frontend dependencies are listed in `frontend/package.json`:
+
+- @emotion/react
+- @emotion/styled
+- @mui/icons-material
+- @mui/material
+- @types/node
+- @types/react
+- @types/react-dom
+- axios
+- react
+- react-dom
+- react-markdown
+- react-router-dom
+- react-scripts
+- typescript
+- uuid
+- web-vitals
+- @types/uuid (dev)
+
 ## Environment Variables
 
-Create a `.env` file in the backend directory:
+Create a `.env` file in the `backend` directory with the following (update values as needed):
 
 ```env
 # Azure Cosmos DB
-AZURE_COSMOS_ENDPOINT=your_cosmos_endpoint
-AZURE_COSMOS_KEY=your_cosmos_key
-AZURE_COSMOS_DATABASE_NAME=diabetes_diet_manager
+COSMO_DB_CONNECTION_STRING=your_cosmos_connection_string
+INTERACTIONS_CONTAINER=interactions
+USER_INFORMATION_CONTAINER=user_information
 
 # Azure OpenAI
-AZURE_OPENAI_API_KEY=your_openai_key
+AZURE_OPENAI_KEY=your_openai_key
 AZURE_OPENAI_ENDPOINT=your_openai_endpoint
-AZURE_OPENAI_DEPLOYMENT_NAME=your_deployment_name
+AZURE_OPENAI_API_VERSION=2023-05-15
 
 # JWT
-JWT_SECRET=your_jwt_secret
-JWT_ALGORITHM=HS256
+SECRET_KEY=your_jwt_secret
 
 # Twilio (Optional)
-TWILIO_ACCOUNT_SID=your_twilio_sid
-TWILIO_AUTH_TOKEN=your_twilio_token
+SMS_API_SID=your_twilio_sid
+SMS_KEY=your_twilio_token
 TWILIO_PHONE_NUMBER=your_twilio_phone
 ```
 

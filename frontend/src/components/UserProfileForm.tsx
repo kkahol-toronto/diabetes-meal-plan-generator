@@ -112,15 +112,6 @@ const dietaryRestrictionsOptions = [
   'Kosher',
   'Other',
 ];
-const healthConditionsOptions = [
-  'Diabetes',
-  'Hypertension',
-  'Celiac Disease',
-  'Heart Disease',
-  'Kidney Disease',
-  'High Cholesterol',
-  'Other',
-];
 const foodPreferencesOptions = [
   'Spicy',
   'Mild',
@@ -165,13 +156,12 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
       diastolicBP: undefined,
       heartRate: undefined,
       ethnicity: '',
-      dietType: '',
+      dietType: [],
       calorieTarget: '',
       dietFeatures: [],
       medicalConditions: [],
       wantsWeightLoss: false,
       dietaryRestrictions: [],
-      healthConditions: [],
       foodPreferences: [],
       allergies: [],
     };
@@ -184,6 +174,73 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
   const [heightInches, setHeightInches] = useState<number | ''>('');
   const [errors, setErrors] = useState<Partial<Record<keyof UserProfile, string>>>({});
   const [loadingProfile, setLoadingProfile] = useState(false);
+
+  useEffect(() => {
+    const savedProfile = localStorage.getItem('userProfile');
+    if (savedProfile) {
+      const profile = JSON.parse(savedProfile);
+      // Ensure dietType is an array
+      if (profile.dietType && typeof profile.dietType === 'string') {
+        profile.dietType = [profile.dietType];
+      }
+      setFormData(profile);
+      if (profile.height) {
+        if (profile.heightUnit === 'ft-in') {
+          const { feet, inches } = convertHeightToFtIn(profile.height);
+          setHeightFeet(feet);
+          setHeightInches(inches);
+          setHeightUnit('ft-in');
+        } else {
+          setHeightUnit('cm');
+        }
+      }
+      if (profile.weightUnit) {
+        setWeightUnit(profile.weightUnit);
+      }
+      if (profile.waistUnit) {
+        setWaistUnit(profile.waistUnit);
+      }
+    } else {
+      // If no local profile, fetch from API
+      const fetchProfile = async () => {
+        setLoadingProfile(true);
+        try {
+          const token = localStorage.getItem('token');
+          if (!token) return;
+          const response = await fetch('http://localhost:8000/user/profile', {
+            headers: { 'Authorization': `Bearer ${token}` },
+          });
+          if (response.ok) {
+            const data = await response.json();
+            if (data && Object.keys(data).length > 0) {
+              // Ensure dietType is an array
+              if (data.dietType && typeof data.dietType === 'string') {
+                data.dietType = [data.dietType];
+              }
+              setFormData(data);
+              // Potentially set units here too if API provides them
+            }
+          }
+        } catch (err) {
+          // ignore
+        } finally {
+          setLoadingProfile(false);
+        }
+      };
+      fetchProfile();
+    }
+  }, []);
+
+  useEffect(() => {
+    // Save formData along with unit preferences
+    const profileToSave = {
+      ...formData,
+      heightUnit,
+      weightUnit,
+      waistUnit,
+    };
+    localStorage.setItem('userProfile', JSON.stringify(profileToSave));
+  }, [formData, heightUnit, weightUnit, waistUnit]);
 
   // Convert height from feet/inches to cm
   const convertHeightToCm = (feet: number, inches: number) => {
@@ -260,30 +317,6 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
       setFormData(prev => ({ ...prev, waistCircumference: newWaist }));
     }
   };
-
-  useEffect(() => {
-    const fetchProfile = async () => {
-      setLoadingProfile(true);
-      try {
-        const token = localStorage.getItem('token');
-        if (!token) return;
-        const response = await fetch('http://localhost:8000/user/profile', {
-          headers: { 'Authorization': `Bearer ${token}` },
-        });
-        if (response.ok) {
-          const data = await response.json();
-          if (data && Object.keys(data).length > 0) {
-            setFormData(data);
-          }
-        }
-      } catch (err) {
-        // ignore
-      } finally {
-        setLoadingProfile(false);
-      }
-    };
-    fetchProfile();
-  }, []);
 
   const handleInputChange = (field: keyof UserProfile) => (
     event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
@@ -485,34 +518,6 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
                   {dietaryRestrictionsOptions.map((restriction) => (
                     <MenuItem key={restriction} value={restriction}>
                       {restriction}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Grid>
-
-            <Grid item xs={12}>
-              <Typography variant="h6" gutterBottom>
-                Health Conditions
-              </Typography>
-              <FormControl fullWidth>
-                <InputLabel>Select Health Conditions</InputLabel>
-                <Select
-                  multiple
-                  value={formData.healthConditions || []}
-                  onChange={handleMultiSelectChange('healthConditions')}
-                  input={<OutlinedInput label="Select Health Conditions" />}
-                  renderValue={(selected) => (
-                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                      {selected.map((value) => (
-                        <Chip key={value} label={value} />
-                      ))}
-                    </Box>
-                  )}
-                >
-                  {healthConditionsOptions.map((condition) => (
-                    <MenuItem key={condition} value={condition}>
-                      {condition}
                     </MenuItem>
                   ))}
                 </Select>
@@ -759,8 +764,17 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
               <FormControl fullWidth>
                 <InputLabel>Type of Diet</InputLabel>
                 <Select
-                  value={formData.dietType}
-                  onChange={handleSelectChange('dietType')}
+                  multiple
+                  value={formData.dietType || []}
+                  onChange={handleMultiSelectChange('dietType')}
+                  input={<OutlinedInput label="Type of Diet" />}
+                  renderValue={(selected) => (
+                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                      {(selected as string[]).map((value) => (
+                        <Chip key={value} label={value} />
+                      ))}
+                    </Box>
+                  )}
                   label="Type of Diet"
                 >
                   {dietTypes.map((type) => (

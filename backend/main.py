@@ -627,7 +627,7 @@ async def generate_recipes(
                 {"role": "user", "content": prompt}
             ],
             temperature=0.7,
-            max_completion_tokens=2000,
+            max_tokens=2000,
         )
         print("OpenAI response received")
         recipes = json.loads(response.choices[0].message.content)
@@ -678,7 +678,7 @@ async def generate_shopping_list(
                         *Example 1 → 2.82 lb ⇒ 3 lb  (≈ 1.36 kg)*
 
                     • Mid-volume produce often pre-bagged (spinach, baby carrots, kale, salad mix, frozen peas, frozen beans):
-                    – Use the next-larger multiple of **454 g = 1 lb** (or mention the closest bag size if that’s clearer).
+                    – Use the next-larger multiple of **454 g = 1 lb** (or mention the closest bag size if that's clearer).
                         *Example 510 g ⇒ 908 g (2 × 454 g bags).*
 
                     • Bulky vegetables normally sold by unit (cauliflower, cabbage, squash, bottle gourd, cucumber, eggplant):
@@ -1053,7 +1053,7 @@ Provide clear, concise, and accurate information about diet management, meal pla
             *formatted_chat_history,
             {"role": "user", "content": message.message}
         ],
-        max_completion_tokens=800,
+        max_tokens=800,
         temperature=1.0,
         top_p=1.0,
         frequency_penalty=0.0,
@@ -1188,7 +1188,7 @@ async def generate_recipe(
                 {"role": "user", "content": prompt}
             ],
             temperature=0.7,
-            max_completion_tokens=2000,
+            max_tokens=2000,
         )
         print("OpenAI response received")
         raw_content = response.choices[0].message.content
