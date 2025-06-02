@@ -1238,6 +1238,19 @@ async def get_user_shopping_list(current_user: User = Depends(get_current_user))
         print(f"Error fetching shopping list: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/user/shopping-list")
+async def save_user_shopping_list(request: FastAPIRequest, current_user: User = Depends(get_current_user)):
+    data = await request.json()
+    items = data.get("items")
+    if not items or not isinstance(items, list):
+        raise HTTPException(status_code=400, detail="No items provided or invalid format")
+    try:
+        await save_shopping_list(current_user["email"], {"items": items})
+        return {"message": "Shopping list saved successfully"}
+    except Exception as e:
+        print(f"Error saving shopping list: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/user/recipes")
 async def get_user_recipes_endpoint(current_user: User = Depends(get_current_user)):
     """Get the most recent recipes for the current user"""

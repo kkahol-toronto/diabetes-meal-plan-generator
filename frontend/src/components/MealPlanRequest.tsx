@@ -223,6 +223,15 @@ const MealPlanRequest: React.FC = () => {
           body: JSON.stringify({ meal_name: name, user_profile: userProfile }),
         });
         console.log(`Response status for ${name}:`, response.status);
+        if (response.status === 401) {
+          // Token expired or invalid
+          localStorage.removeItem('token');
+          setError('Your session has expired. Please log in again.');
+          setSaveStatus({ message: 'Session expired. Please log in again to continue generating recipes.', severity: 'error' });
+          setGeneratingRecipes(false);
+          navigate('/login');
+          return;
+        }
         if (!response.ok) {
           const errorText = await response.text();
           console.error(`Failed to generate recipe for ${name}:`, errorText);
