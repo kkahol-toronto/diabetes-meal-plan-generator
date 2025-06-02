@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Container, Paper, Typography, Box, CircularProgress, Alert, Card, CardContent, Grid, Chip, Stack, Button } from '@mui/material';
-import { MealPlanData } from '../types';
+import { Container, Paper, Typography, Box, CircularProgress, Alert, Card, CardContent, Grid, Chip, Stack, Button, Accordion, AccordionSummary, AccordionDetails, List, ListItem, ListItemText } from '@mui/material';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import { MealPlanData, Recipe, ShoppingItem } from '../types';
 import { handleAuthError, getAuthHeaders } from '../utils/auth';
 
 const MealPlanDetails: React.FC = () => {
@@ -10,6 +11,8 @@ const MealPlanDetails: React.FC = () => {
   const [mealPlan, setMealPlan] = useState<MealPlanData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [recipes, setRecipes] = useState<Recipe[] | null>(null);
+  const [shoppingList, setShoppingList] = useState<ShoppingItem[] | null>(null);
 
   useEffect(() => {
     const fetchMealPlan = async () => {
@@ -39,6 +42,8 @@ const MealPlanDetails: React.FC = () => {
 
         const data = await response.json();
         setMealPlan(data.meal_plan);
+        setRecipes(data.meal_plan.recipes || null);
+        setShoppingList(data.meal_plan.shopping_list || null);
       } catch (err) {
         if (!handleAuthError(err, navigate)) {
           setError(err instanceof Error ? err.message : 'An error occurred');
@@ -179,16 +184,122 @@ const MealPlanDetails: React.FC = () => {
           </Card>
         ))}
 
-        <Box sx={{ display: 'flex', justifyContent: 'center', mt: 4 }}>
-             <Button
-               variant="contained"
-               color="primary"
-               onClick={() => navigate('/meal-plan/history')}
-             >
-               Back to History
-             </Button>
-        </Box>
+        {recipes && (
+          <>
+            <Typography variant="h5" gutterBottom sx={{ mt: 4 }}>
+              Recipes
+            </Typography>
+            <Paper elevation={2} sx={{ p: 3, mb: 4 }}>
+              {recipes.map((recipe, index) => (
+                <Accordion key={index}>
+                  <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                    <Typography variant="h6">{recipe.name}</Typography>
+                  </AccordionSummary>
+                  <AccordionDetails>
+                    <Box sx={{ mb: 2 }}>
+                      <Typography variant="subtitle1" gutterBottom>
+                        Ingredients:
+                      </Typography>
+                      <List dense>
+                        {recipe.ingredients.map((ingredient, idx) => (
+                          <ListItem key={idx}>
+                            <ListItemText primary={ingredient} />
+                          </ListItem>
+                        ))}
+                      </List>
+                    </Box>
+                    <Box sx={{ mb: 2 }}>
+                      <Typography variant="subtitle1" gutterBottom>
+                        Instructions:
+                      </Typography>
+                      <List>
+                        {recipe.instructions.map((instruction, idx) => (
+                          <ListItem key={idx}>
+                            <ListItemText primary={`${idx + 1}. ${instruction}`} />
+                          </ListItem>
+                        ))}
+                      </List>
+                    </Box>
+                    <Box>
+                      <Typography variant="subtitle1" gutterBottom>
+                        Nutritional Information:
+                      </Typography>
+                      <List dense>
+                        <ListItem>
+                          <ListItemText primary={`Calories: ${recipe.nutritional_info.calories}`} />
+                        </ListItem>
+                        <ListItem>
+                          <ListItemText primary={`Protein: ${recipe.nutritional_info.protein}`} />
+                        </ListItem>
+                        <ListItem>
+                          <ListItemText primary={`Carbs: ${recipe.nutritional_info.carbs}`} />
+                        </ListItem>
+                        <ListItem>
+                          <ListItemText primary={`Fat: ${recipe.nutritional_info.fat}`} />
+                        </ListItem>
+                      </List>
+                    </Box>
+                  </AccordionDetails>
+                </Accordion>
+              ))}
+            </Paper>
+          </>
+        )}
 
+        {shoppingList && (
+          <>
+            <Typography variant="h5" gutterBottom sx={{ mt: 4 }}>
+              Shopping List
+            </Typography>
+            <Paper elevation={2} sx={{ p: 3, mb: 4 }}>
+              {Object.entries(
+                shoppingList.reduce((acc, item) => {
+                  if (!acc[item.category]) {
+                    acc[item.category] = [];
+                  }
+                  acc[item.category].push(item);
+                  return acc;
+                }, {} as Record<string, ShoppingItem[]>)
+              ).map(([category, items]) => (
+                <Box key={category} sx={{ mb: 3 }}>
+                  <Typography variant="h6" gutterBottom>
+                    {category}
+                  </Typography>
+                  <List dense>
+                    {items.map((item, index) => (
+                      <ListItem key={index}>
+                        <ListItemText
+                          primary={item.name}
+                          secondary={`Amount: ${item.amount}`}
+                        />
+                      </ListItem>
+                    ))}
+                  </List>
+                </Box>
+              ))}
+            </Paper>
+          </>
+        )}
+
+        <Box sx={{ display: 'flex', justifyContent: 'center', mt: 4, gap: 2 }}>
+          <Button
+            variant="contained"
+            color="primary"
+            onClick={() => navigate('/meal-plan/history')}
+          >
+            Back to History
+          </Button>
+          <Button
+            variant="contained"
+            color="secondary"
+            onClick={() => {
+              // Add export functionality here
+              window.print();
+            }}
+          >
+            Export PDF
+          </Button>
+        </Box>
       </Paper>
     </Container>
   );
