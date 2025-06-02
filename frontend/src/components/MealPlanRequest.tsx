@@ -338,6 +338,58 @@ const MealPlanRequest: React.FC = () => {
     }
   };
 
+  // New function to save the full meal plan including recipes and shopping list
+  const handleSaveFullMealPlan = async () => {
+    if (!mealPlan || !recipes || !shoppingList) {
+      setError('Meal plan, recipes, or shopping list not available to save.');
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        navigate('/login');
+        return;
+      }
+
+      const fullMealPlan = {
+        ...mealPlan,
+        recipes: recipes,
+        shopping_list: shoppingList,
+      };
+
+      console.log('Saving full meal plan:', fullMealPlan);
+
+      // Assuming a backend endpoint exists to handle saving the full meal plan
+      const response = await fetch('http://localhost:8000/save-full-meal-plan', { // NOTE: This endpoint needs to exist on the backend
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify(fullMealPlan),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Failed to save full meal plan: ${errorText}`);
+      }
+
+      console.log('Full meal plan saved successfully.');
+      // Optionally navigate or show a success message
+      // navigate('/meal-plan/history'); // Example navigation after saving
+
+    } catch (err) {
+      console.error('Error saving full meal plan:', err);
+      setError(err instanceof Error ? err.message : 'An error occurred while saving the meal plan.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleExport = async (type: 'meal-plan' | 'recipes' | 'shopping-list') => {
     setLoading(true);
     setError(null);
@@ -587,6 +639,7 @@ const MealPlanRequest: React.FC = () => {
                 >
                   Export Shopping List
                 </Button>
+<<<<<<< HEAD
                 <Button
                   variant="contained"
                   color="primary"
@@ -599,6 +652,27 @@ const MealPlanRequest: React.FC = () => {
                 </Button>
               </>
             )}
+=======
+              )}
+              <Button
+                variant="contained"
+                color="secondary"
+                onClick={handleDownloadConsolidatedPDF}
+                disabled={loading}
+              >
+                {loading ? <CircularProgress size={24} /> : 'Download Consolidated PDF'}
+              </Button>
+              {/* Add Save Full Meal Plan button */}
+              <Button
+                variant="contained"
+                color="primary"
+                onClick={handleSaveFullMealPlan}
+                disabled={loading || !mealPlan || !recipes || !shoppingList}
+              >
+                {loading ? <CircularProgress size={24} /> : 'Save Meal Plan'}
+              </Button>
+            </Box>
+>>>>>>> origin/changed_ui_backend_ram
           </Box>
         );
       default:

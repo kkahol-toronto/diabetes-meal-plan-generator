@@ -22,10 +22,10 @@ import MenuIcon from '@mui/icons-material/Menu';
 import HomeIcon from '@mui/icons-material/Home';
 import RestaurantIcon from '@mui/icons-material/Restaurant';
 import BookIcon from '@mui/icons-material/Book';
-import ShoppingCartIcon from '@mui/icons-material/ShoppingCart';
 import ChatIcon from '@mui/icons-material/Chat';
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
 import AccountCircleIcon from '@mui/icons-material/AccountCircle';
+import { isTokenExpired } from '../utils/auth';
 
 const Navigation = () => {
   const navigate = useNavigate();
@@ -47,17 +47,17 @@ const Navigation = () => {
 
         // Validate token format and get user info from token
         try {
+          if (isTokenExpired(token)) {
+            throw new Error('Token expired');
+          }
+          
           const tokenParts = token.split('.');
           if (tokenParts.length !== 3) {
             throw new Error('Invalid token format');
           }
-          // Check if token is expired
-          const payload = JSON.parse(atob(tokenParts[1]));
-          if (payload.exp * 1000 < Date.now()) {
-            throw new Error('Token expired');
-          }
           
           // Set user info from token
+          const payload = JSON.parse(atob(tokenParts[1]));
           setUserInfo({
             username: payload.sub,
             is_admin: payload.is_admin || false,
@@ -93,9 +93,13 @@ const Navigation = () => {
   const menuItems = [
     { text: 'Home', icon: <HomeIcon />, path: '/' },
     { text: 'Meal Plan', icon: <RestaurantIcon />, path: '/meal-plan' },
+<<<<<<< HEAD
     { text: 'Recipes', icon: <BookIcon />, path: '/my-recipes' },
     { text: 'Shopping List', icon: <ShoppingCartIcon />, path: '/my-shopping-lists' },
+=======
+>>>>>>> origin/changed_ui_backend_ram
     { text: 'Chat', icon: <ChatIcon />, path: '/chat' },
+    { text: 'History', icon: <BookIcon />, path: '/meal-plan/history' },
   ];
 
   // Add admin panel link if user is admin
@@ -135,6 +139,7 @@ const Navigation = () => {
           button
           key={item.text}
           onClick={() => {
+            console.log(`Navigating to: ${item.path}`);
             navigate(item.path);
             setDrawerOpen(false);
           }}
