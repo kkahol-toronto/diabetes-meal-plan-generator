@@ -115,20 +115,66 @@ class Patient(BaseModel):
         }
 
 class UserProfile(BaseModel):
-    age: int
-    gender: str
-    medical_conditions: List[str]
-    height: float
-    weight: float
-    waist_circumference: float
-    systolic_bp: int
-    diastolic_bp: int
-    heart_rate: int
-    ethnicity: str
-    diet_type: str
-    calories_target: int
-    diet_features: List[str]
-    weight_loss_goal: bool
+    name: str
+    # 1. Patient Demographics
+    dateOfBirth: Optional[str] = None # ISO string format
+    age: Optional[int] = None # Calculated from DOB, might not be stored directly
+    gender: Optional[str] = None # Use Optional for flexibility if not required on backend model
+    ethnicity: Optional[List[str]] = [] # Multi-select
+    otherEthnicity: Optional[str] = None # Added text input for 'Other' ethnicity
+
+    # Existing fields that are still relevant (Physical measurements & Vitals)
+    weight: Optional[float] = None
+    height: Optional[float] = None
+    waistCircumference: Optional[float] = None
+    systolicBP: Optional[int] = None
+    diastolicBP: Optional[int] = None
+    heartRate: Optional[int] = None
+
+    # 2. Medical History
+    medicalConditions: Optional[List[str]] = [] # Broader checklist
+    otherMedicalCondition: Optional[str] = None # Text input for 'Other' medical condition
+
+    # 3. Current Medications
+    medications: Optional[List[str]] = [] # Checklist of medications
+    otherMedication: Optional[str] = None # Text input for 'Other' medication
+
+    # 4. Lab Values (Optional) - Grouped under a nested object
+    labValues: Optional[Dict[str, Optional[Any]]] = {}
+
+    # 5. Physical Activity Profile
+    workActivityLevel: Optional[str] = None # Radio
+    exerciseFrequency: Optional[str] = None # Radio
+    exerciseTypes: Optional[List[str]] = [] # Multi-select
+    jointIssues: Optional[bool] = None # Yes/No radio
+
+    # 6. Lifestyle & Preferences
+    mealPrep: Optional[str] = None # Radio
+    appliances: Optional[List[str]] = [] # Multi-select checklist
+    eatingSchedule: Optional[str] = None # Radio
+
+    # 7. Goals & Readiness to Change
+    goals: Optional[List[str]] = [] # Checklist of goals
+    readinessToChange: Optional[str] = None # Radio
+
+    # 8. Meal Plan Targeting
+    wantsWeightLoss: bool = False # Checkbox
+    calorieTarget: Optional[str] = None # Dropdown options (e.g., '1500', '1800', 'Other')
+    otherCalorieTarget: Optional[float] = None # Text input for 'Other' calorie target (using float for flexibility)
+
+    # Existing dietary restrictions, food preferences, and allergies
+    dietaryRestrictions: Optional[List[str]] = []
+    foodPreferences: Optional[List[str]] = []
+    allergies: Optional[List[str]] = []
+
+    # New fields
+    dietType: Optional[List[str]] = []
+    otherDietType: Optional[str] = None
+
+    # New fields for Dietary Features
+    dietFeatures: Optional[List[str]] = []
+    foodAllergiesCustom: Optional[str] = None
+    strongDislikesCustom: Optional[str] = None
 
 class MealPlanRequest(BaseModel):
     user_profile: UserProfile
@@ -348,90 +394,99 @@ async def admin_login(form_data: OAuth2PasswordRequestForm = Depends()):
     return {"access_token": access_token, "token_type": "bearer"}
 
 def generate_meal_plan_prompt(user_profile: UserProfile) -> str:
-    return f"""Generate a detailed meal plan for a person with the following profile:
+    """Generates a detailed prompt for the AI to create a meal plan based on user profile."""
+    # Start building the prompt with core information
+    prompt = f"""Create a 7-day personalized meal plan based on the following user profile:
+
+User Profile Details:
+Name: {user_profile.name}
 Age: {user_profile.age}
 Gender: {user_profile.gender}
-Medical Conditions: {', '.join(user_profile.medical_conditions)}
-Height: {user_profile.height} cm
 Weight: {user_profile.weight} kg
-Waist Circumference: {user_profile.waist_circumference} cm
-Blood Pressure: {user_profile.systolic_bp}/{user_profile.diastolic_bp}
-Heart Rate: {user_profile.heart_rate} bpm
-Ethnicity: {user_profile.ethnicity}
-Diet Type: {user_profile.diet_type}
-Calories Target: {user_profile.calories_target} kcal
-Diet Features: {', '.join(user_profile.diet_features)}
-Weight Loss Goal: {'Yes' if user_profile.weight_loss_goal else 'No'}
+Height: {user_profile.height} cm
+BMI: {user_profile.weight / ((user_profile.height/100)**2) if user_profile.weight and user_profile.height else 'N/A'}
+Waist Circumference: {user_profile.waistCircumference} cm
+Systolic BP: {user_profile.systolicBP}
+Diastolic BP: {user_profile.diastolicBP}
+Heart Rate: {user_profile.heartRate} bpm
+Ethnicity: {', '.join(user_profile.ethnicity) if user_profile.ethnicity else 'Not specified'}
+{f'Other Ethnicity: {user_profile.otherEthnicity}' if user_profile.otherEthnicity else ''}
 
-Please provide:
-1. Daily calorie and macronutrient breakdown
-2. Detailed meal plan for each day of the week
-3. Include saturated fat, unsaturated fat, omega-3, and omega-6 breakdown
-4. Ensure the plan is suitable for the specified medical conditions
-5. Consider cultural preferences based on ethnicity
-6. Follow the specified diet type and features
+Medical Conditions: {', '.join(user_profile.medicalConditions) if user_profile.medicalConditions else 'None'}
+{f'Other Medical Condition: {user_profile.otherMedicalCondition}' if user_profile.otherMedicalCondition else ''}
+Medications: {', '.join(user_profile.medications) if user_profile.medications else 'None'}
+{f'Other Medication: {user_profile.otherMedication}' if user_profile.otherMedication else ''}
 
-Format the response as a JSON object with the following structure:
-{{
-    "dailyCalories": number,
-    "macronutrients": {{
-        "protein": number,
-        "carbs": number,
-        "fats": number,
-        "saturatedFat": number,
-        "unsaturatedFat": number,
-        "omega3": number,
-        "omega6": number
-    }},
-    "meals": {{
-        "breakfast": [
-            {{
-                "name": string,
-                "calories": number,
-                "macronutrients": {{
-                    "protein": number,
-                    "carbs": number,
-                    "fats": number
-                }}
-            }}
-        ],
-        "lunch": [...],
-        "dinner": [...],
-        "snacks": [...]
-    }}
-}}"""
+Lab Values (Optional):
+{json.dumps(user_profile.labValues, indent=2) if user_profile.labValues and any(user_profile.labValues.values()) else 'None specified'}
+
+Physical Activity:
+Work Activity Level: {user_profile.workActivityLevel if user_profile.workActivityLevel else 'Not specified'}
+Exercise Frequency: {user_profile.exerciseFrequency if user_profile.exerciseFrequency else 'Not specified'}
+Exercise Types: {', '.join(user_profile.exerciseTypes) if user_profile.exerciseTypes else 'None'}
+Joint Issues: {user_profile.jointIssues if user_profile.jointIssues is not None else 'Not specified'}
+
+Lifestyle & Preferences:
+Meal Prep Capability: {user_profile.mealPrep if user_profile.mealPrep else 'Not specified'}
+Appliances: {', '.join(user_profile.appliances) if user_profile.appliances else 'None'}
+Eating Schedule: {user_profile.eatingSchedule if user_profile.eatingSchedule else 'Not specified'}
+Dietary Restrictions: {', '.join(user_profile.dietaryRestrictions) if user_profile.dietaryRestrictions else 'None'}
+Food Preferences: {', '.join(user_profile.foodPreferences) if user_profile.foodPreferences else 'None'}
+Allergies: {', '.join(user_profile.allergies) if user_profile.allergies else 'None'}
+Diet Type: {', '.join(user_profile.dietType) if user_profile.dietType else 'Not specified'}
+{f'Other Diet Type: {user_profile.otherDietType}' if user_profile.otherDietType else ''}
+Current Dietary Features: {', '.join(user_profile.dietFeatures) if user_profile.dietFeatures else 'None'}
+{f'Food Allergies (Custom): {user_profile.foodAllergiesCustom}' if user_profile.foodAllergiesCustom else ''}
+{f'Strong Dislikes (Custom): {user_profile.strongDislikesCustom}' if user_profile.strongDislikesCustom else ''}
+
+Goals & Readiness to Change:
+Goals: {', '.join(user_profile.goals) if user_profile.goals else 'None'}
+Readiness to Change: {user_profile.readinessToChange if user_profile.readinessToChange else 'Not specified'}
+
+Meal Plan Targeting:
+Wants Weight Loss: {'Yes' if user_profile.wantsWeightLoss else 'No'}
+Calorie Target: {user_profile.calorieTarget if user_profile.calorieTarget else 'Not specified'}
+{f'Other Calorie Target: {user_profile.otherCalorieTarget} kcal' if user_profile.otherCalorieTarget else ''}
+
+Based on this information, generate a 7-day meal plan providing specific meals for breakfast, lunch, dinner, and snacks. Ensure the meal plan adheres to all dietary restrictions, preferences, allergies, medical conditions, and goals. Consider the user's activity level, lifestyle, and calorie target.
+
+For each day, provide:
+- Breakfast
+- Lunch
+- Dinner
+- Snacks (if applicable)
+
+Format the output as a JSON object with a key 'meal_plan' which is a list of 7 daily meal plan objects. Each daily meal plan object should have keys for 'day', 'breakfast', 'lunch', 'dinner', and 'snacks'. The meals should be strings. Make sure the JSON is valid and can be parsed directly.
+"""
+
+    return prompt
 
 def generate_recipe_prompt(meal_name: str, user_profile: UserProfile) -> str:
-    return f"""Generate a detailed recipe for {meal_name} that is suitable for a person with the following profile:
-Medical Conditions: {', '.join(user_profile.medical_conditions)}
-Diet Type: {user_profile.diet_type}
-Diet Features: {', '.join(user_profile.diet_features)}
+    """Generates a detailed prompt for the AI to create a recipe based on meal name and user profile."""
+    # Include relevant user profile details for recipe generation
+    prompt = f"""Generate a detailed recipe for the following meal: {meal_name}
+
+Consider the following user profile constraints and preferences when creating the recipe:
+Dietary Restrictions: {', '.join(user_profile.dietaryRestrictions) if user_profile.dietaryRestrictions else 'None'}
+Food Preferences: {', '.join(user_profile.foodPreferences) if user_profile.foodPreferences else 'None'}
+Allergies: {', '.join(user_profile.allergies) if user_profile.allergies else 'None'}
+{f'Food Allergies (Custom): {user_profile.foodAllergiesCustom}' if user_profile.foodAllergiesCustom else ''}
+Strong Dislikes: {', '.join(user_profile.dietFeatures) if user_profile.dietFeatures else 'None'}
+{f'Strong Dislikes (Custom): {user_profile.strongDislikesCustom}' if user_profile.strongDislikesCustom else ''}
+Medical Conditions: {', '.join(user_profile.medicalConditions) if user_profile.medicalConditions else 'None'}
+Current Dietary Features: {', '.join(user_profile.dietFeatures) if user_profile.dietFeatures else 'None'}
+Eating Schedule: {user_profile.eatingSchedule if user_profile.eatingSchedule else 'Not specified'}
+Goals: {', '.join(user_profile.goals) if user_profile.goals else 'None'}
+Calorie Target: {user_profile.calorieTarget if user_profile.calorieTarget else 'Not specified'}
 
 Please provide:
-1. List of ingredients with amounts and preparation instructions
-2. Step-by-step cooking instructions
-3. Nutritional information
-4. Ensure the recipe is suitable for the specified medical conditions
-5. Follow the specified diet type and features
+1. A list of ingredients with quantities
+2. Step-by-step preparation instructions
+3. Nutritional information (calories, protein, carbs, fat)
 
-Format the response as a JSON object with the following structure:
-{{
-    "name": string,
-    "ingredients": [
-        {{
-            "name": string,
-            "amount": string,
-            "preparation": string
-        }}
-    ],
-    "instructions": [string],
-    "nutritionalInfo": {{
-        "calories": number,
-        "protein": number,
-        "carbs": number,
-        "fats": number
-    }}
-}}"""
+For all nutritional values, return them as strings with units (e.g., '3g', '115 kcal').\n\nFormat the response as a JSON object with the following structure:\n{{\n    \"name\": \"Recipe Name\",\n    \"ingredients\": [\"ingredient1\", \"ingredient2\", ...],\n    \"instructions\": [\"step1\", \"step2\", ...],\n    \"nutritional_info\": {{\n        \"calories\": \"number with unit, e.g. '115 kcal'\",\n        \"protein\": \"number with unit, e.g. '3g'\",\n        \"carbs\": \"number with unit, e.g. '16g'\",\n        \"fat\": \"number with unit, e.g. '4g'\"\n    }}\n}}"""
+
+    return prompt
 
 @app.get("/")
 async def root():
@@ -674,15 +729,15 @@ async def generate_shopping_list(
                         *Assume 1 bunch ≈ 30 g; round ⭡ to the nearest whole bunch.*
                     – **Loose fruit & veg** commonly weighed at checkout (apples, oranges, onions, potatoes, carrots, etc.): use pounds (lb).  
                         *Round ⭡ to the nearest 1 lb, minimum 1 lb.*
-                    – **Packaged produce** (bags of spinach, baby carrots, etc.): round ⭡ to the nearest 250 g (≈ ½ lb) or to the nearest package size you specify in the item name (e.g., “1 × 250 g bag baby spinach”).
+                    – **Packaged produce** (bags of spinach, baby carrots, etc.): round ⭡ to the nearest 250 g (≈ ½ lb) or to the nearest package size you specify in the item name (e.g., "1 × 250 g bag baby spinach").
                     – **Liquids**: keep ml/l, but round ⭡ to the nearest 100 ml (or common bottle size) if <1 l; use whole litres if ≥1 l.
                     – **Dry pantry staples** (rice, flour, sugar, pasta, beans, nuts, etc.): use grams/kilograms, rounded ⭡ to the nearest 100 g for ≤1 kg or to the nearest 0.5 kg for >1 kg.
-                    – If an item is only sold by count (e.g., eggs, garlic bulbs, lemons), use “pieces”.
-                    – Avoid descriptors like “large” or “medium”; only use count-based units when weight/volume makes no sense.
+                    – If an item is only sold by count (e.g., eggs, garlic bulbs, lemons), use "pieces".
+                    – Avoid descriptors like "large" or "medium"; only use count-based units when weight/volume makes no sense.
 
                     ––––– SANITY CHECK –––––
                     After calculating totals, scan the list for obviously implausible amounts (e.g., >2 bunches of coriander for ≤8 servings, >5 lb of garlic, etc.).  
-                    If an amount seems unrealistic, recompute or cap it to a reasonable upper bound and add a “_note” field explaining the adjustment.
+                    If an amount seems unrealistic, recompute or cap it to a reasonable upper bound and add a "_note" field explaining the adjustment.
 
                     ––––– ROUNDING GRID (CANADIAN GROCERY) –––––
                     When you finish aggregating all recipes, convert each total to the **next-larger** purchasable size:
@@ -1157,26 +1212,31 @@ async def get_current_user_info(current_user: User = Depends(get_current_user)):
 
 @app.post("/user/profile")
 async def save_user_profile(
-    request: FastAPIRequest,
+    profile: UserProfile, # Accept UserProfile BaseModel directly
     current_user: User = Depends(get_current_user)
 ):
-    data = await request.json()
-    profile = data.get("profile")
-    if not profile:
-        raise HTTPException(status_code=400, detail="No profile data provided")
     user_doc = await get_user_by_email(current_user["email"])
     if not user_doc:
         raise HTTPException(status_code=404, detail="User not found")
-    user_doc["profile"] = profile
+    # Convert Pydantic model to dictionary before saving
+    user_doc["profile"] = profile.dict()
     user_container.replace_item(item=user_doc["id"], body=user_doc)
     return {"message": "Profile saved"}
 
 @app.get("/user/profile")
-async def get_user_profile(current_user: User = Depends(get_current_user)):
+async def get_user_profile(
+    current_user: User = Depends(get_current_user)
+) -> Optional[UserProfile]: # Indicate return type is UserProfile or None
     user_doc = await get_user_by_email(current_user["email"])
-    if not user_doc or "profile" not in user_doc:
-        return {}
-    return user_doc["profile"]
+    if not user_doc or "profile" not in user_doc or not user_doc["profile"]:
+        return None # Return None if no profile exists
+    # Defensive: Ensure ethnicity is always a list
+    profile = user_doc["profile"]
+    if isinstance(profile.get("ethnicity"), str):
+        profile["ethnicity"] = [profile["ethnicity"]]
+    elif profile.get("ethnicity") is None:
+        profile["ethnicity"] = []
+    return profile
 
 @app.post("/generate-recipe")
 async def generate_recipe(
@@ -1533,6 +1593,61 @@ async def save_full_meal_plan_endpoint(
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail="An error occurred while saving the meal plan.")
+
+@app.get("/api/patient/{patient_id}")
+async def get_patient_profile(
+    patient_id: str,
+    current_user: User = Depends(get_current_user)
+):
+    """Get patient profile by ID"""
+    try:
+        # Check if user is admin or the patient themselves
+        if not current_user.get("is_admin") and current_user.get("patient_id") != patient_id:
+            raise HTTPException(status_code=403, detail="Not authorized to access this profile")
+        
+        patient = await get_patient_by_id(patient_id)
+        if not patient:
+            raise HTTPException(status_code=404, detail="Patient not found")
+        # Defensive: Ensure ethnicity is always a list
+        if isinstance(patient.get("ethnicity"), str):
+            patient["ethnicity"] = [patient["ethnicity"]]
+        elif patient.get("ethnicity") is None:
+            patient["ethnicity"] = []
+        return patient
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.put("/api/patient/{patient_id}")
+async def update_patient_profile(
+    patient_id: str,
+    profile: UserProfile,
+    current_user: User = Depends(get_current_user)
+):
+    """Update patient profile by ID"""
+    try:
+        # Check if user is admin or the patient themselves
+        if not current_user.get("is_admin") and current_user.get("patient_id") != patient_id:
+            raise HTTPException(status_code=403, detail="Not authorized to update this profile")
+        
+        # Get existing patient
+        existing_patient = await get_patient_by_id(patient_id)
+        if not existing_patient:
+            raise HTTPException(status_code=404, detail="Patient not found")
+        
+        # Update patient profile
+        updated_patient = {
+            **existing_patient,
+            **profile.dict(exclude_unset=True),  # Only update fields that are provided
+            "type": "patient",
+            "id": patient_id
+        }
+        
+        # Save to database
+        await user_container.replace_item(item=updated_patient, body=updated_patient)
+        
+        return updated_patient
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
     import uvicorn
