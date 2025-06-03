@@ -1301,7 +1301,6 @@ async def export_test_minimal():
     print(">>>> Entered /export/test-minimal endpoint")
     return {"ok": True}
 
-<<<<<<< HEAD
 @app.post("/generate_plan")
 async def generate_plan(
     request: Request,
@@ -1539,7 +1538,7 @@ async def save_full_meal_plan_endpoint(
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail="An error occurred while saving the meal plan.")
-=======
+
 @app.post("/chat/analyze-image")
 async def analyze_image(
     image: UploadFile = File(...),
@@ -1627,7 +1626,6 @@ async def analyze_image(
     except Exception as e:
         print(f"Error in image analysis: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
->>>>>>> image_analyser
 
 if __name__ == "__main__":
     import uvicorn
