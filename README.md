@@ -1,14 +1,14 @@
 # Diabetes Diet Planner
 
-A comprehensive web application for diabetes patients to manage their diet, track meals, and get personalized recommendations.
+A comprehensive web application for diabetes patients to manage their diet, generate meal plans, recipes, and shopping lists, and get personalized recommendations.
 
 ## Features
 
 - User authentication and profile management
-- Real-time chat with AI assistant for diet advice
-- Meal tracking and history
-- PDF report generation
-- Session management for chat history
+- Personalized meal plan generation with optional overlap from previous plan
+- Recipe and shopping list generation
+- Meal plan history and management
+- PDF export for meal plans, recipes, and shopping lists
 - Responsive Material-UI design
 
 ## Tech Stack
@@ -16,7 +16,7 @@ A comprehensive web application for diabetes patients to manage their diet, trac
 ### Backend
 - FastAPI (Python web framework)
 - Azure Cosmos DB (Database)
-- Azure OpenAI (AI chat)
+- Azure OpenAI (AI chat and meal plan generation)
 - Twilio (SMS notifications)
 - ReportLab (PDF generation)
 
@@ -141,21 +141,30 @@ npm start
 
 ## Usage
 
-1. Register a new account or login
-2. Use the chat interface to get diet advice
-3. Track your meals and view history
-4. Generate PDF reports of your diet plan
-5. Switch between different chat sessions
+1. Register a new account or login.
+2. Complete your profile.
+3. On the Meal Plan step, choose whether to use your most recent meal plan for overlap (about 70% overlap, 30% new meals) or start fresh using the toggle (now labeled 'Start Fresh').
+4. Click "Generate Meal Plan Now" to create your plan.
+5. Review and optionally edit your meal plan, then proceed to generate recipes and a shopping list.
+6. When ready, click **Save Meal Plan and Go to Home** to save your plan, recipes, and shopping list to your history. **Meal plans are only saved to history after this step.**
+7. View, export, or manage your meal plan history from the History page.
 
-## API Endpoints
+**Note:**
+- If your session expires, you may be asked to log in again before saving or generating new plans.
+- Duplicate or partial meal plans are no longer saved; only complete plans (with recipes and shopping list) are stored in your history.
+- The UI/UX for meal plan editing and history has been improved for clarity and ease of use.
+- The meal plan overlap toggle is now labeled 'Start Fresh' for clarity.
 
-- `POST /auth/register` - Register new user
-- `POST /auth/login` - User login
-- `POST /chat/message` - Send chat message
-- `GET /chat/history` - Get chat history
-- `GET /chat/sessions` - Get chat sessions
-- `POST /chat/clear` - Clear chat history
-- `GET /report/generate` - Generate PDF report
+## Main API Endpoints
+
+- `POST /login` - User login
+- `POST /generate-meal-plan` - Generate a new meal plan (optionally with previous plan for overlap)
+- `POST /generate-recipe` - Generate recipes for meals
+- `POST /generate-shopping-list` - Generate a shopping list from recipes
+- `POST /save-full-meal-plan` - Save the full meal plan, recipes, and shopping list to history
+- `GET /meal_plans` - Get all meal plans for the current user
+- `POST /meal_plans/bulk_delete` - Delete selected meal plans
+- `POST /export/{type}` - Export meal plan, recipes, or shopping list as PDF
 
 ## Contributing
 

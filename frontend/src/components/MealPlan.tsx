@@ -67,13 +67,13 @@ const MealPlan = ({ mealPlan }: MealPlanProps) => {
       </Card>
 
       <Grid container spacing={3}>
-        {days.map((day, dayIndex) => (
+      {days.map((day, dayIndex) => (
           <Grid item xs={12} md={6} lg={4} key={day}>
             <Card sx={{ borderRadius: '12px', boxShadow: 3, height: '100%' }}>
               <CardContent sx={{ backgroundColor: 'secondary.main', color: 'secondary.contrastText', borderTopLeftRadius: '12px', borderTopRightRadius: '12px'}}>
                 <Typography variant="h6" component="div" align="center">
-                  {day}
-                </Typography>
+              {day}
+            </Typography>
               </CardContent>
               <CardContent>
                 {mealTypes.map((mealTypeDetail) => (
@@ -93,7 +93,7 @@ const MealPlan = ({ mealPlan }: MealPlanProps) => {
                       </ListItemIcon>
                       <Typography variant="subtitle1" sx={{ fontWeight: 'medium', textTransform: 'capitalize' }}>
                         {mealTypeDetail.label}
-                      </Typography>
+                    </Typography>
                     </Box>
                     <Typography variant="body2" color="text.secondary">
                       {mealPlan[mealTypeDetail.name][dayIndex] || 'Not specified'}
@@ -102,9 +102,9 @@ const MealPlan = ({ mealPlan }: MealPlanProps) => {
                 ))}
               </CardContent>
             </Card>
-          </Grid>
-        ))}
-      </Grid>
+                </Grid>
+              ))}
+            </Grid>
     </Box>
   );
 };

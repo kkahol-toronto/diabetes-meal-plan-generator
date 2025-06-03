@@ -18,9 +18,12 @@ import {
   Checkbox,
   FormControlLabel,
   Snackbar,
+  Tooltip,
+  Collapse,
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
 import DeleteIcon from '@mui/icons-material/Delete';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { useNavigate } from 'react-router-dom';
 import { MealPlanData } from '../types';
 import { handleAuthError, getAuthHeaders } from '../utils/auth';
@@ -37,6 +40,8 @@ const MealPlanHistory = () => {
   const [snackbarOpen, setSnackbarOpen] = useState(false);
   const [snackbarMessage, setSnackbarMessage] = useState('');
   const [snackbarSeverity, setSnackbarSeverity] = useState<'success' | 'error' | 'info' | 'warning'>('success');
+  const [showDetails, setShowDetails] = useState(false);
+  const [details, setDetails] = useState('');
   const navigate = useNavigate();
 
   const fetchMealPlans = async () => {
@@ -143,30 +148,34 @@ const MealPlanHistory = () => {
         body: JSON.stringify({ plan_ids: formattedIds }),
       });
 
-      if (!response.ok) {
-        if (handleAuthError(response, navigate)) {
-          return;
-        }
-        const result = await response.json();
-        throw new Error(result.detail || 'Failed to delete selected meal plans.');
-      }
-
       const result = await response.json();
       let message = result.message;
+      let failedIds: string[] = [];
+      let details = '';
       if (result.failed_deletions?.length > 0) {
-        message += `\nFailed to delete: ${result.failed_deletions.join(', ')}`;
+        if (result.deleted_count === 0) {
+          message = 'Some selected meal plans were already deleted or not found. Your list is now up to date.';
+        } else {
+          message += '\nSome plans could not be deleted (already deleted or not found).';
+        }
+        details = result.failed_deletions.join(', ');
+        failedIds = result.failed_deletions.map((s: string) => s.split(' ')[0]);
       }
       if (result.corrupted_plans?.length > 0) {
         message += `\nCorrupted plans found and deleted: ${result.corrupted_plans.join(', ')}`;
       }
 
-      setSnackbarMessage(message);
+      setSnackbarMessage(message + (details ? '\nDetails available.' : ''));
       setSnackbarSeverity(result.failed_deletions?.length > 0 ? 'warning' : 'success');
       setSnackbarOpen(true);
-
+      setShowDetails(false);
+      setDetails(details);
+      // Remove deleted and failed plans from UI
       setSelectedMealPlans([]);
+      setMealPlans(prev => prev.filter(plan => !formattedIds.includes(plan.id || '') && !failedIds.includes(plan.id || '')));
+      setFilteredPlans(prev => prev.filter(plan => !formattedIds.includes(plan.id || '') && !failedIds.includes(plan.id || '')));
+      // Always refresh from backend to ensure sync
       fetchMealPlans();
-
     } catch (err) {
       if (!handleAuthError(err, navigate)) {
         console.error('Error deleting selected plans:', err);
@@ -295,6 +304,8 @@ const MealPlanHistory = () => {
 
         {filteredPlans.length > 0 && (
             <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 2, mb: 2 }}>
+                 <Tooltip title="If a plan can't be deleted, it may have already been removed or is corrupted. The list will refresh automatically.">
+                   <span>
                  <Button
                     variant="outlined"
                     color="error"
@@ -304,6 +315,8 @@ const MealPlanHistory = () => {
                  >
                     Delete Selected ({selectedMealPlans.length})
                  </Button>
+                   </span>
+                 </Tooltip>
                  <Button
                     variant="outlined"
                     color="error"
@@ -437,11 +450,34 @@ const MealPlanHistory = () => {
         </Box>
       </Paper>
 
-      <Snackbar open={snackbarOpen} autoHideDuration={6000} onClose={handleCloseSnackbar}>
+      <Snackbar open={snackbarOpen} autoHideDuration={6000} onClose={handleCloseSnackbar} anchorOrigin={{ vertical: 'top', horizontal: 'center' }}>
         <Alert onClose={handleCloseSnackbar} severity={snackbarSeverity} sx={{ width: '100%' }}>
-          {snackbarMessage}
+          {snackbarMessage.split('\n').map((line, idx) => <div key={idx}>{line}</div>)}
+          {snackbarMessage.includes('Details available.') && (
+            <>
+              <Button
+                color="inherit"
+                size="small"
+                endIcon={<ExpandMoreIcon />}
+                onClick={() => setShowDetails((prev) => !prev)}
+                sx={{ mt: 1 }}
+              >
+                {showDetails ? 'Hide Details' : 'Show Details'}
+              </Button>
+              <Collapse in={showDetails}>
+                <Box sx={{ mt: 1, bgcolor: '#f9f9f9', p: 1, borderRadius: 1, fontSize: 13, color: '#555' }}>
+                  {details}
+                </Box>
+              </Collapse>
+            </>
+          )}
         </Alert>
       </Snackbar>
+      {loading && (
+        <Box position="fixed" top={0} left={0} width="100vw" height="100vh" zIndex={2000} display="flex" alignItems="center" justifyContent="center" bgcolor="rgba(255,255,255,0.6)">
+          <CircularProgress size={60} />
+        </Box>
+      )}
     </Container>
   );
 };

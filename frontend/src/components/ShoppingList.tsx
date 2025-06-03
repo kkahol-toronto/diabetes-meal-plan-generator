@@ -90,7 +90,7 @@ const ShoppingList: React.FC<ShoppingListProps> = ({ shoppingList: initialShoppi
       const categoryItems = items
         .filter(item => item.category === category)
         .map(item => `${item.checked ? '[x]' : '[ ]'} ${item.name} - ${item.amount}`)
-        .join('\n');
+      .join('\n');
       return `${category}:\n${categoryItems}`;
     }).join('\n\n');
     navigator.clipboard.writeText(textToCopy).then(() => {
@@ -119,15 +119,15 @@ const ShoppingList: React.FC<ShoppingListProps> = ({ shoppingList: initialShoppi
     return (
       <Paper elevation={3} sx={{ p: {xs: 2, sm:3}, borderRadius: '12px', m: 2 }}>
         <Alert severity="error" sx={{mb: 2}}>{error}</Alert>
-        <Button
-          variant="contained"
+          <Button
+            variant="contained"
           onClick={() => navigate(-1)}
           startIcon={<NavigateBeforeIcon />}
           sx={{ borderRadius: '20px', px:3 }}
-        >
+          >
           Go Back
-        </Button>
-      </Paper>
+          </Button>
+        </Paper>
     );
   }
 
@@ -148,7 +148,7 @@ const ShoppingList: React.FC<ShoppingListProps> = ({ shoppingList: initialShoppi
     <Paper elevation={3} sx={{ p: {xs: 2, sm: 3, md: 4}, borderRadius: '16px' }}>
       <Typography variant="h5" component="h2" gutterBottom align="center" sx={{ fontWeight: 'bold', mb: 3 }}>
         Your Shopping List
-      </Typography>
+        </Typography>
 
       <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 3, gap: 1 }}>
         <Button onClick={handleCopyList} variant="outlined" startIcon={<ContentCopyIcon />} sx={{borderRadius: '20px'}} size="small">
@@ -157,19 +157,19 @@ const ShoppingList: React.FC<ShoppingListProps> = ({ shoppingList: initialShoppi
         <Button onClick={handlePrintList} variant="outlined" startIcon={<PrintIcon />} sx={{borderRadius: '20px'}} size="small">
           Print List
         </Button>
-      </Box>
+        </Box>
 
       {categories.map((category) => (
-        <Box key={category} sx={{ mb: 3 }}>
-          <Chip
+          <Box key={category} sx={{ mb: 3 }}>
+            <Chip
             icon={<CategoryIcon />}
-            label={category}
+              label={category}
             color="secondary"
             sx={{ mb: 1.5, fontWeight: 'medium', fontSize: '1.1rem', p: 0.5, borderRadius: '8px' }}
-          />
+            />
           <List sx={{ backgroundColor: (theme: Theme) => theme.palette.action.hover, borderRadius: '8px', p: 1}} dense>
-            {items
-              .filter(item => item.category === category)
+              {items
+                .filter(item => item.category === category)
               .map((item, itemIndex, arr) => (
                 <React.Fragment key={`${item.name}-${item.category}-${itemIndex}`}>
                   <ListItem sx={{
@@ -181,31 +181,31 @@ const ShoppingList: React.FC<ShoppingListProps> = ({ shoppingList: initialShoppi
                     '&:hover': { backgroundColor: (theme: Theme) => theme.palette.action.selected }
                   }}>
                     <ListItemIcon sx={{minWidth: 'auto', mr: 1.5}}>
-                      <Checkbox
-                        edge="start"
-                        checked={item.checked}
+                          <Checkbox
+                            edge="start"
+                            checked={item.checked}
                         onChange={() => handleToggle(item.name, item.category)}
                         size="small"
-                      />
-                    </ListItemIcon>
-                    <ListItemText
+                          />
+                        </ListItemIcon>
+                        <ListItemText
                       primary={<Typography variant="body1" component="span">{item.name}</Typography>}
                       secondary={<Typography variant="body2" component="span" sx={{ fontWeight: 'bold', color: 'text.primary', ml: 0.5 }}>{`[${item.amount}]`}</Typography>}
-                      sx={{
-                        textDecoration: item.checked ? 'line-through' : 'none',
-                        color: item.checked ? 'text.secondary' : 'text.primary',
+                          sx={{
+                            textDecoration: item.checked ? 'line-through' : 'none',
+                            color: item.checked ? 'text.secondary' : 'text.primary',
                         opacity: item.checked ? 0.6 : 1,
-                      }}
-                    />
-                  </ListItem>
+                          }}
+                        />
+                      </ListItem>
                   {itemIndex < arr.length - 1 && (
                     <Divider variant="inset" component="li" sx={{my: 0.5, borderColor: 'transparent'}} />
-                  )}
-                </React.Fragment>
+                      )}
+                    </React.Fragment>
               ))}
-          </List>
-        </Box>
-      ))}
+            </List>
+          </Box>
+        ))}
 
       <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 4, borderTop: '1px solid lightgrey', pt: 3 }}>
           <Button
@@ -226,7 +226,7 @@ const ShoppingList: React.FC<ShoppingListProps> = ({ shoppingList: initialShoppi
             Start New Plan
           </Button>
         </Box>
-    </Paper>
+      </Paper>
   );
 };
 

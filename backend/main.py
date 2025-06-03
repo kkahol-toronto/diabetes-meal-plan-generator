@@ -459,6 +459,7 @@ async def generate_meal_plan(
 
         data = await request.json()
         user_profile = data.get('user_profile', {})
+        previous_meal_plan = data.get('previous_meal_plan')
         
         # Validate required user profile fields
         required_fields = ['name', 'age', 'gender', 'weight', 'height']
@@ -477,6 +478,43 @@ async def generate_meal_plan(
         print("Endpoint:", os.getenv("AZURE_OPENAI_ENDPOINT"))
         print("API Version:", os.getenv("AZURE_OPENAI_API_VERSION"))
 
+        # If previous_meal_plan is provided, use it for 70/30 overlap
+        def get_overlap_meals(prev_meals, new_meals):
+            import re
+            if not prev_meals or not isinstance(prev_meals, list):
+                return new_meals
+            overlap_count = int(0.7 * len(new_meals))
+            new_count = len(new_meals) - overlap_count
+            prev_sample = random.sample(prev_meals, min(overlap_count, len(prev_meals)))
+            # Remove any duplicates from new_meals
+            remaining_new = [m for m in new_meals if m not in prev_sample]
+
+            # Helper: extract keywords from meal name
+            def extract_keywords(meal):
+                return set(re.findall(r"\\w+", meal.lower()))
+
+            prev_keywords = set()
+            for meal in prev_sample:
+                prev_keywords.update(extract_keywords(meal))
+
+            # Find new meals that share a keyword with any previous meal
+            related_new = []
+            unrelated_new = []
+            for meal in remaining_new:
+                if extract_keywords(meal) & prev_keywords:
+                    related_new.append(meal)
+                else:
+                    unrelated_new.append(meal)
+
+            # Prefer related new meals for the 30% new
+            new_sample = []
+            if len(related_new) >= new_count:
+                new_sample = random.sample(related_new, new_count)
+            else:
+                new_sample = related_new + random.sample(unrelated_new, min(new_count - len(related_new), len(unrelated_new)))
+
+            return prev_sample + new_sample
+
         # Define a simpler JSON structure
         json_structure = """
 {
@@ -493,7 +531,38 @@ async def generate_meal_plan(
 }"""
 
         # Format the prompt with proper error handling for optional fields
-        prompt = f"""Create a diabetes-friendly meal plan based on this profile:
+        if previous_meal_plan:
+            # Add previous meal plan to the prompt and instruct the model for 70/30 overlap
+            prev_meal_plan_str = json.dumps({k: previous_meal_plan.get(k, []) for k in ['breakfast', 'lunch', 'dinner', 'snacks']}, indent=2)
+            prompt = f"""Create a diabetes-friendly meal plan based on this profile:
+Name: {user_profile.get('name', 'Not provided')}
+Age: {user_profile.get('age', 'Not provided')}
+Gender: {user_profile.get('gender', 'Not provided')}
+Weight: {user_profile.get('weight', 'Not provided')} kg
+Height: {user_profile.get('height', 'Not provided')} cm
+Dietary Restrictions: {', '.join(user_profile.get('dietaryRestrictions', []) or ['None'])}
+Health Conditions: {', '.join(user_profile.get('healthConditions', []) or ['None'])}
+Food Preferences: {', '.join(user_profile.get('foodPreferences', []) or ['None'])}
+Allergies: {', '.join(user_profile.get('allergies', []) or ['None'])}
+
+Here is the previous week's meal plan (for each meal type, 7 days):
+{prev_meal_plan_str}
+
+Instructions:
+- For each meal type (breakfast, lunch, dinner, snacks), reuse about 70% of the meals from the previous plan.
+- For the remaining 30%, create new meals that are similar in style or ingredients to the previous ones, but not identical.
+- You may include a few (1-2 per meal type) completely new recipes that fit the user's preferences and restrictions.
+- Do not repeat the exact same meal for the new 30%.
+- Return a JSON object with exactly this structure (replace the example values with appropriate ones):
+{json_structure}
+
+Important:
+1. Ensure all meal arrays have exactly 7 items (one for each day of the week)
+2. Keep meal names concise
+3. Ensure calorie and macronutrient values are numbers, not strings
+4. Do not include any explanations or markdown, just the JSON object"""
+        else:
+            prompt = f"""Create a diabetes-friendly meal plan based on this profile:
 Name: {user_profile.get('name', 'Not provided')}
 Age: {user_profile.get('age', 'Not provided')}
 Gender: {user_profile.get('gender', 'Not provided')}
@@ -574,12 +643,14 @@ Important:
                 if not isinstance(meal_plan.get('dailyCalories'), (int, float)):
                     meal_plan['dailyCalories'] = 2000
 
-                await save_meal_plan(
-                    user_id=current_user["email"],
-                    meal_plan_data=meal_plan
-                )
-                print("Meal plan saved to database")
-                
+                # If previous_meal_plan is provided, use it for 70/30 overlap
+                if previous_meal_plan:
+                    for meal_type in ['breakfast', 'lunch', 'dinner', 'snacks']:
+                        prev_meals = previous_meal_plan.get(meal_type, [])
+                        new_meals = meal_plan.get(meal_type, [])
+                        if isinstance(prev_meals, list) and isinstance(new_meals, list) and len(new_meals) == 7:
+                            meal_plan[meal_type] = get_overlap_meals(prev_meals, new_meals)
+
                 # Explicitly convert the returned meal_plan to a plain dictionary
                 try:
                     # import json # Removed local import

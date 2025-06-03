@@ -13,6 +13,8 @@ import {
   Grid,
   Icon,
   LinearProgress,
+  Switch,
+  FormControlLabel,
 } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 import UserProfileForm from './UserProfileForm';
@@ -36,6 +38,10 @@ const steps = ['Profile', 'Meal Plan', 'Recipes', 'Shopping List'];
 type EditableMealType = 'breakfast' | 'lunch' | 'dinner' | 'snacks';
 const editableMealTypes: EditableMealType[] = ['breakfast', 'lunch', 'dinner', 'snacks'];
 
+function stripDayPrefix(meal: string) {
+  return meal.replace(/^Day \d+:\s*/, '');
+}
+
 const MealPlanRequest: React.FC = () => {
   const [activeStep, setActiveStep] = useState(0);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
@@ -48,6 +54,8 @@ const MealPlanRequest: React.FC = () => {
   const [recipeProgress, setRecipeProgress] = useState<number>(0);
   const [generatingRecipes, setGeneratingRecipes] = useState(false);
   const [saveStatus, setSaveStatus] = useState<{ message: string; severity: 'success' | 'error' | 'info' } | null>(null);
+  const [usePreviousPlan, setUsePreviousPlan] = useState(true);
+  const [hasGeneratedMealPlan, setHasGeneratedMealPlan] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -79,8 +87,30 @@ const MealPlanRequest: React.FC = () => {
   const handleProfileSubmit = async (profile: UserProfile) => {
     setUserProfile(profile);
     setActiveStep(1);
-    // Immediately trigger meal plan generation
-    await handleMealPlanGenerate(profile);
+    setHasGeneratedMealPlan(false);
+    setMealPlan(null);
+    setEditableMealPlan(null);
+    // Do NOT auto-generate meal plan here
+  };
+
+  const fetchPreviousMealPlan = async (): Promise<MealPlanData | null> => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) return null;
+      const response = await fetch('http://localhost:8000/meal_plans', {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      if (!response.ok) return null;
+      const data = await response.json();
+      const sortedPlans = (data.meal_plans || []).sort((a: MealPlanData, b: MealPlanData) => {
+        const dateA = new Date(a.created_at || 0).getTime();
+        const dateB = new Date(b.created_at || 0).getTime();
+        return dateB - dateA;
+      });
+      return sortedPlans.length > 0 ? sortedPlans[sortedPlans.length - 1] : null;
+    } catch {
+      return null;
+    }
   };
 
   const handleMealPlanGenerate = async (currentProfile?: UserProfile) => {
@@ -104,13 +134,16 @@ const MealPlanRequest: React.FC = () => {
         return;
       }
 
+      // Fetch previous meal plan if toggle is ON
+      const previousMealPlan = usePreviousPlan ? await fetchPreviousMealPlan() : null;
+
       const response = await fetch('http://localhost:8000/generate-meal-plan', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`,
         },
-        body: JSON.stringify({ user_profile: profileToUse }),
+        body: JSON.stringify({ user_profile: profileToUse, previous_meal_plan: previousMealPlan }),
       });
 
       if (response.status === 401) {
@@ -156,6 +189,7 @@ const MealPlanRequest: React.FC = () => {
 
       setMealPlan(data);
       setEditableMealPlan(data);
+      setHasGeneratedMealPlan(true);
     } catch (err) {
       console.error('Meal plan generation error:', err);
       setError(err instanceof Error ? err.message : 'An error occurred while generating the meal plan');
@@ -179,7 +213,7 @@ const MealPlanRequest: React.FC = () => {
   const handleConfirmMealPlan = async () => {
     setMealPlan(editableMealPlan);
     setActiveStep(2);
-    // await handleRecipeGenerate(); // Temporarily commented out due to backend error - User to click button
+    // Do NOT save to backend here
   };
 
   const handleRecipeGenerate = async () => {
@@ -312,31 +346,8 @@ const MealPlanRequest: React.FC = () => {
       const shoppingListData: ShoppingItem[] = await generateResponse.json();
       setShoppingList(shoppingListData);
 
-      // Step 2: Save the generated shopping list
-      if (shoppingListData && shoppingListData.length > 0) {
-        try {
-          const saveResponse = await fetch('http://localhost:8000/user/shopping-list', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${token}`,
-            },
-            body: JSON.stringify({ items: shoppingListData }), 
-          });
-          if (!saveResponse.ok) {
-            const errorText = await saveResponse.text().catch(() => 'Failed to parse error from saving shopping list');
-            throw new Error(`Failed to save shopping list: ${errorText}`);
-          }
-          setSaveStatus({ message: 'Shopping list generated and saved successfully!', severity: 'success' });
-        } catch (saveErr) {
-          const errorMessage = saveErr instanceof Error ? saveErr.message : 'Failed to save shopping list';
-          setSaveStatus({ message: `Error saving shopping list: ${errorMessage}`, severity: 'error' });
-        }
-      } else {
-         // If list is generated but empty, it's not an error, but inform the user.
-        setSaveStatus({ message: 'Shopping list generated, but it was empty. Nothing to save.', severity: 'info' });
-      }
-
+      // Do NOT save the shopping list to history here. Only display it.
+      setSaveStatus({ message: 'Shopping list generated successfully!', severity: 'success' });
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'An error occurred while processing the shopping list';
       setError(errorMessage);
@@ -372,8 +383,7 @@ const MealPlanRequest: React.FC = () => {
 
       console.log('Saving full meal plan:', fullMealPlan);
 
-      // Assuming a backend endpoint exists to handle saving the full meal plan
-      const response = await fetch('http://localhost:8000/save-full-meal-plan', { // NOTE: This endpoint needs to exist on the backend
+      const response = await fetch('http://localhost:8000/save-full-meal-plan', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -388,9 +398,7 @@ const MealPlanRequest: React.FC = () => {
       }
 
       console.log('Full meal plan saved successfully.');
-      // Optionally navigate or show a success message
-      // navigate('/meal-plan/history'); // Example navigation after saving
-
+      navigate('/'); // Redirect to home after saving
     } catch (err) {
       console.error('Error saving full meal plan:', err);
       setError(err instanceof Error ? err.message : 'An error occurred while saving the meal plan.');
@@ -491,18 +499,40 @@ const MealPlanRequest: React.FC = () => {
 
   const renderEditableMealPlan = () => {
     if (!editableMealPlan) return null;
+    const daysOfWeek = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
     return (
       <Box sx={{ mt: 2 }}>
         {editableMealTypes.map((mealType) => (
-          <Box key={mealType} sx={{ mb: 2 }}>
-            <Typography variant="h6" sx={{ textTransform: 'capitalize' }}>{mealType}</Typography>
-            {(editableMealPlan[mealType] as string[]).map((item, idx) => (
-              <Box key={idx} sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+          <Box key={mealType} sx={{ mb: 4 }}>
+            <Typography
+              variant="h5"
+              sx={{
+                fontWeight: 'bold',
+                textTransform: 'capitalize',
+                mb: 2,
+                color: 'primary.main',
+                letterSpacing: 1,
+                borderBottom: '2px solid',
+                borderColor: 'primary.light',
+                pb: 1,
+                pl: 1,
+                background: 'linear-gradient(90deg, #e3f2fd 0%, #fff 100%)',
+                borderRadius: '8px 8px 0 0',
+                boxShadow: 1,
+                width: 'fit-content',
+                display: 'inline-block',
+              }}
+            >
+              {mealType.charAt(0).toUpperCase() + mealType.slice(1)}
+            </Typography>
+            {daysOfWeek.map((day, idx) => (
+              <Box key={day} sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                <Typography sx={{ width: 100, fontWeight: 500 }}>{day}:</Typography>
                 <input
                   type="text"
-                  value={item}
+                  value={stripDayPrefix(editableMealPlan[mealType][idx] || '')}
                   onChange={e => handleMealPlanFieldChange(mealType, idx, e.target.value)}
-                  style={{ width: '80%', padding: 6, fontSize: 16, marginRight: 8 }}
+                  style={{ flex: 1, padding: 6, borderRadius: 4, border: '1px solid #ccc' }}
                 />
               </Box>
             ))}
@@ -519,6 +549,11 @@ const MealPlanRequest: React.FC = () => {
       case 1:
         return (
           <Box>
+            <FormControlLabel
+              control={<Switch checked={usePreviousPlan} onChange={e => setUsePreviousPlan(e.target.checked)} color="primary" />}
+              label={usePreviousPlan ? 'Use your most recent meal plan to help create this one' : 'Start Fresh'}
+              sx={{ mb: 2 }}
+            />
             {editableMealPlan && renderEditableMealPlan()}
           </Box>
         );
@@ -547,22 +582,34 @@ const MealPlanRequest: React.FC = () => {
 
   const renderActionButtons = () => {
     switch (activeStep) {
-      case 0: // Profile Step
-        // The UserProfileForm itself should handle its submission and enable navigation.
-        // The main "Next" button in the footer will be used after profile is submitted.
-        return null; // No specific action buttons here, handled by form + main nav
-      case 1: // Meal Plan Step
+      case 0:
+        return null;
+      case 1:
         return (
           <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, justifyContent: 'center', mb: 2 }}>
-            <Button
-              variant="outlined"
-              onClick={() => handleMealPlanGenerate()}
-              disabled={loading}
-              startIcon={loading && activeStep === 1 ? <CircularProgress size={20} color="inherit" /> : <ReplayIcon />}
-              sx={{ borderRadius: '20px', px: 3 }}
-            >
-              {loading && activeStep === 1 ? 'Generating...' : 'Re-generate Meal Plan'}
-            </Button>
+            {!hasGeneratedMealPlan && (
+              <Button
+                variant="contained"
+                color="primary"
+                onClick={() => handleMealPlanGenerate()}
+                disabled={loading}
+                startIcon={loading && activeStep === 1 ? <CircularProgress size={20} color="inherit" /> : <RestaurantMenuIcon />}
+                sx={{ borderRadius: '20px', px: 3 }}
+              >
+                {loading && activeStep === 1 ? 'Generating...' : 'Generate Meal Plan Now'}
+              </Button>
+            )}
+            {hasGeneratedMealPlan && (
+              <Button
+                variant="outlined"
+                onClick={() => handleMealPlanGenerate()}
+                disabled={loading}
+                startIcon={loading && activeStep === 1 ? <CircularProgress size={20} color="inherit" /> : <ReplayIcon />}
+                sx={{ borderRadius: '20px', px: 3 }}
+              >
+                {loading && activeStep === 1 ? 'Generating...' : 'Re-generate Meal Plan'}
+              </Button>
+            )}
             <Button
               variant="contained"
               onClick={handleConfirmMealPlan}
@@ -665,7 +712,7 @@ const MealPlanRequest: React.FC = () => {
                   disabled={loading || !mealPlan || !recipes || !shoppingList}
                   sx={{ borderRadius: '20px', px: 3 }}
                 >
-                  {loading ? <CircularProgress size={24} /> : 'Save Meal Plan'}
+                  {loading ? <CircularProgress size={24} /> : 'Save Meal Plan and Go to Home'}
                 </Button>
               </>
             )}
