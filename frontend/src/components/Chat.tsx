@@ -16,9 +16,12 @@ import {
   FormControl,
   InputLabel,
   SelectChangeEvent,
+  IconButton,
+  Tooltip,
 } from '@mui/material';
 import SendIcon from '@mui/icons-material/Send';
 import AddCommentIcon from '@mui/icons-material/AddComment';
+import ImageIcon from '@mui/icons-material/Image';
 import { useNavigate } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import { v4 as uuidv4 } from 'uuid';
@@ -29,6 +32,7 @@ interface Message {
   is_user: boolean;
   timestamp: string;
   session_id: string;
+  imageUrl?: string;
 }
 
 interface Session {
@@ -38,7 +42,7 @@ interface Session {
 }
 
 const Chat = () => {
-  const [messages, setMessages] = useState<Array<{ role: string; content: string }>>([]);
+  const [messages, setMessages] = useState<Message[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [currentSession, setCurrentSession] = useState<string>('');
   const [input, setInput] = useState('');
@@ -48,6 +52,9 @@ const Chat = () => {
   const prevMessagesLengthRef = useRef<number>(messages.length);
   const userScrolledRef = useRef<boolean>(false); // Flag to indicate user has scrolled manually
   const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null); // Timeout for resetting userScrolledRef
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const navigate = useNavigate();
+  const [isMobile, setIsMobile] = useState(false);
 
   const handleNewChat = () => {
     const newSessionId = uuidv4();
@@ -139,6 +146,11 @@ const Chat = () => {
     }
   }, []); // Empty dependency array, runs once on mount and cleanup on unmount
 
+  useEffect(() => {
+    // Check if device is mobile
+    setIsMobile(/iPhone|iPad|iPod|Android/i.test(navigator.userAgent));
+  }, []);
+
   const fetchSessions = async () => {
     try {
       const response = await fetch('http://localhost:8000/chat/sessions', {
@@ -182,7 +194,14 @@ const Chat = () => {
 
       if (response.ok) {
         const data = await response.json();
-        setMessages(data.map((msg: Message) => ({ role: msg.is_user ? 'user' : 'assistant', content: msg.message })));
+        setMessages(data.map((msg: any) => ({
+          id: msg.id,
+          message: msg.message_content,
+          is_user: msg.is_user,
+          timestamp: msg.timestamp,
+          session_id: msg.session_id,
+          imageUrl: msg.imageUrl
+        })));
       }
     } catch (error) {
       console.error('Failed to fetch chat history:', error);
@@ -192,7 +211,13 @@ const Chat = () => {
   const handleSendMessage = async () => {
     if (!input.trim()) return;
 
-    const userMessage = { role: 'user', content: input };
+    const userMessage: Message = {
+      id: uuidv4(),
+      message: input,
+      is_user: true,
+      timestamp: new Date().toISOString(),
+      session_id: currentSession
+    };
     setMessages((prev) => [...prev, userMessage]);
     const currentInput = input;
     setInput('');
@@ -220,7 +245,14 @@ const Chat = () => {
           let isStreaming = true;
           const revealSpeed = 40; // characters per second
 
-          setMessages((prev) => [...prev, { role: 'assistant', content: '' }]);
+          const assistantInitialMessage: Message = {
+            id: uuidv4(),
+            message: '',
+            is_user: false,
+            timestamp: new Date().toISOString(),
+            session_id: currentSession
+          };
+          setMessages((prev) => [...prev, assistantInitialMessage]);
 
           // Reveal characters at a constant rate (typewriter effect)
           const revealCharacters = () => {
@@ -234,8 +266,8 @@ const Chat = () => {
               setMessages((prev) => {
                 const newMessages = [...prev];
                 const lastMessage = newMessages[newMessages.length - 1];
-                if (lastMessage && lastMessage.role === 'assistant') {
-                  lastMessage.content = assistantMessage;
+                if (lastMessage && !lastMessage.is_user) {
+                  lastMessage.message = assistantMessage;
                 }
                 return newMessages;
               });
@@ -284,6 +316,87 @@ const Chat = () => {
       }
     } catch (error) {
       console.error('Failed to clear chat history:', error);
+    }
+  };
+
+  const handleImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    // Create a temporary URL for the image
+    const imageUrl = URL.createObjectURL(file);
+    
+    // Add user message with image
+    const userMessage = {
+      id: uuidv4(),
+      message: 'Analyzing this image...',
+      is_user: true,
+      timestamp: new Date().toISOString(),
+      session_id: currentSession,
+      imageUrl
+    };
+    setMessages(prev => [...prev, userMessage]);
+    setIsLoading(true);
+
+    try {
+      const formData = new FormData();
+      formData.append('image', file);
+      formData.append('prompt', 'Analyze the calorie content and nutritional information of this food image.');
+
+      const response = await fetch('http://localhost:8000/chat/analyze-image', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+        },
+        body: formData
+      });
+
+      if (response.ok) {
+        const reader = response.body?.getReader();
+        if (reader) {
+          const decoder = new TextDecoder();
+          let assistantMessage = '';
+
+          // Add initial empty assistant message
+          setMessages(prev => [...prev, {
+            id: uuidv4(),
+            message: '',
+            is_user: false,
+            timestamp: new Date().toISOString(),
+            session_id: currentSession
+          }]);
+
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            const chunk = decoder.decode(value, { stream: true });
+            assistantMessage += chunk;
+            
+            // Update the last message (assistant's message) with the new content
+            setMessages(prev => {
+              const newMessages = [...prev];
+              const lastMessage = newMessages[newMessages.length - 1];
+              if (lastMessage && !lastMessage.is_user) {
+                lastMessage.message = assistantMessage;
+              }
+              return newMessages;
+            });
+          }
+        }
+      } else {
+        console.error('Failed to analyze image');
+      }
+    } catch (error) {
+      console.error('Error analyzing image:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleImageButtonClick = () => {
+    if (fileInputRef.current) {
+      fileInputRef.current.click();
     }
   };
 
@@ -338,7 +451,7 @@ const Chat = () => {
               <React.Fragment key={index}>
                 <ListItem
                   sx={{
-                    justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start',
+                    justifyContent: msg.is_user ? 'flex-end' : 'flex-start',
                   }}
                 >
                   <Paper
@@ -346,14 +459,23 @@ const Chat = () => {
                     sx={{
                       p: 2,
                       maxWidth: '70%',
-                      backgroundColor: msg.role === 'user' ? 'primary.light' : 'grey.100',
-                      color: msg.role === 'user' ? 'white' : 'text.primary',
+                      backgroundColor: msg.is_user ? 'primary.light' : 'grey.100',
+                      color: msg.is_user ? 'white' : 'text.primary',
                     }}
                   >
                     <Typography variant="subtitle2" color="textSecondary">
-                      {msg.role === 'user' ? 'You' : 'Assistant'}:
+                      {msg.is_user ? 'You' : 'Assistant'}:
                     </Typography>
-                    <ReactMarkdown>{msg.content}</ReactMarkdown>
+                    {msg.imageUrl && (
+                      <Box sx={{ mb: 2 }}>
+                        <img 
+                          src={msg.imageUrl} 
+                          alt="Uploaded food" 
+                          style={{ maxWidth: '100%', maxHeight: '200px', borderRadius: '8px' }} 
+                        />
+                      </Box>
+                    )}
+                    <ReactMarkdown>{msg.message}</ReactMarkdown>
                   </Paper>
                 </ListItem>
                 <Divider />
@@ -364,6 +486,19 @@ const Chat = () => {
         </Box>
 
         <Box component="form" onSubmit={(e) => { e.preventDefault(); handleSendMessage(); }} sx={{ display: 'flex', gap: 1 }}>
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleImageUpload}
+            accept="image/*"
+            capture={isMobile ? "environment" : undefined}
+            style={{ display: 'none' }}
+          />
+          <Tooltip title={isMobile ? "Take photo or upload image" : "Upload image"}>
+            <IconButton onClick={handleImageButtonClick} color="primary">
+              <ImageIcon />
+            </IconButton>
+          </Tooltip>
           <TextField
             fullWidth
             variant="outlined"

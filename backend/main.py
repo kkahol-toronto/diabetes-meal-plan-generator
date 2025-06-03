@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends, status, Request, Body
+from fastapi import FastAPI, HTTPException, Depends, status, Request, Body, File, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel, EmailStr, Field
@@ -44,6 +44,8 @@ import re
 import traceback
 import sys
 from fastapi import Request as FastAPIRequest
+from PIL import Image
+import base64
 
 # Load environment variables
 load_dotenv()
@@ -143,6 +145,9 @@ class RegistrationData(BaseModel):
     registration_code: str
     email: EmailStr
     password: str
+
+class ImageAnalysisRequest(BaseModel):
+    prompt: str
 
 def get_password_hash(password: str) -> str:
     """Hash a password using bcrypt"""
@@ -1296,6 +1301,7 @@ async def export_test_minimal():
     print(">>>> Entered /export/test-minimal endpoint")
     return {"ok": True}
 
+<<<<<<< HEAD
 @app.post("/generate_plan")
 async def generate_plan(
     request: Request,
@@ -1533,6 +1539,95 @@ async def save_full_meal_plan_endpoint(
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail="An error occurred while saving the meal plan.")
+=======
+@app.post("/chat/analyze-image")
+async def analyze_image(
+    image: UploadFile = File(...),
+    prompt: str = Form(...),
+    current_user: User = Depends(get_current_user)
+):
+    try:
+        # Read and validate image
+        contents = await image.read()
+        img = Image.open(BytesIO(contents))
+        
+        # Convert image to base64
+        buffered = BytesIO()
+        img.save(buffered, format="JPEG")
+        img_str = base64.b64encode(buffered.getvalue()).decode()
+        
+        # Save user message with image
+        user_message = await save_chat_message(
+            current_user["id"],
+            "Analyzing food image...",
+            is_user=True,
+            session_id=None,  # You might want to handle session_id differently
+            image_url=img_str
+        )
+        
+        # Generate response using OpenAI with image
+        response = client.chat.completions.create(
+            model=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are a helpful diet assistant for diabetes patients. Analyze the food image and provide detailed nutritional information, including estimated calories, macronutrients, and any relevant dietary considerations for diabetes patients."
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": prompt
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/jpeg;base64,{img_str}"
+                            }
+                        }
+                    ]
+                }
+            ],
+            max_tokens=500,
+            temperature=0.7,
+            stream=True
+        )
+        
+        # Stream the response
+        async def generate():
+            full_message = ""
+            try:
+                for chunk in response:
+                    if not chunk.choices:
+                        continue
+                    if not chunk.choices[0].delta:
+                        continue
+                    content = chunk.choices[0].delta.content
+                    if content:
+                        full_message += content
+                        yield content
+            except Exception as e:
+                print(f"Error in streaming response: {str(e)}")
+                if full_message:
+                    yield full_message
+            
+            # Save the complete assistant message after streaming
+            if full_message:
+                await save_chat_message(
+                    current_user["id"],
+                    full_message,
+                    is_user=False,
+                    session_id=user_message["session_id"],
+                    image_url=img_str
+                )
+        
+        return StreamingResponse(generate(), media_type="text/plain")
+        
+    except Exception as e:
+        print(f"Error in image analysis: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+>>>>>>> image_analyser
 
 if __name__ == "__main__":
     import uvicorn
