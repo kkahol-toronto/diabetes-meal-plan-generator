@@ -1412,29 +1412,6 @@ async def get_current_user_info(current_user: User = Depends(get_current_user)):
         "name": patient_name
     }
 
-@app.post("/user/profile")
-async def save_user_profile(
-    request: FastAPIRequest,
-    current_user: User = Depends(get_current_user)
-):
-    data = await request.json()
-    profile = data.get("profile")
-    if not profile:
-        raise HTTPException(status_code=400, detail="No profile data provided")
-    user_doc = await get_user_by_email(current_user["email"])
-    if not user_doc:
-        raise HTTPException(status_code=404, detail="User not found")
-    user_doc["profile"] = profile
-    user_container.replace_item(item=user_doc["id"], body=user_doc)
-    return {"message": "Profile saved"}
-
-@app.get("/user/profile")
-async def get_user_profile(current_user: User = Depends(get_current_user)):
-    user_doc = await get_user_by_email(current_user["email"])
-    if not user_doc or "profile" not in user_doc:
-        return {}
-    return user_doc["profile"]
-
 @app.post("/generate-recipe")
 async def generate_recipe(
     request: FastAPIRequest,
