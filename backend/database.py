@@ -549,4 +549,38 @@ async def view_meal_plans(user_id: str):
             enable_cross_partition_query=True
         ))
     except Exception as e:
-        raise Exception(f"Failed to view meal plans: {str(e)}") 
+        raise Exception(f"Failed to view meal plans: {str(e)}")
+
+async def save_patient_profile(user_id: str, profile_data: dict):
+    """Save a patient's profile data to Cosmos DB."""
+    try:
+        # Ensure required fields
+        item = {
+            'id': f'profile_{user_id}',
+            'type': 'patient_profile',
+            'user_id': user_id,
+            'created_at': datetime.utcnow().isoformat(),
+            'updated_at': datetime.utcnow().isoformat(),
+            '_partitionKey': user_id,
+            **profile_data
+        }
+        
+        # Use upsert to create or update the profile
+        saved_item = user_container.upsert_item(body=item)
+        return json.loads(json.dumps(saved_item))
+    except Exception as e:
+        print(f"[save_patient_profile] Error saving profile for user {user_id}: {e}")
+        raise
+
+async def get_patient_profile(user_id: str):
+    """Get a patient's profile data from Cosmos DB."""
+    try:
+        query = f"SELECT * FROM c WHERE c.type = 'patient_profile' AND c.user_id = '{user_id}'"
+        items = list(user_container.query_items(
+            query=query,
+            enable_cross_partition_query=True
+        ))
+        return items[0] if items else None
+    except Exception as e:
+        print(f"[get_patient_profile] Error getting profile for user {user_id}: {e}")
+        raise 

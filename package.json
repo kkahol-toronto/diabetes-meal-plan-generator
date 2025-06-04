@@ -18,7 +18,15 @@
   },
   "homepage": "https://github.com/kkahol-toronto/diabetes-meal-plan-generator#readme",
   "dependencies": {
+    "@date-io/date-fns": "^3.2.1",
+    "@mui/lab": "^7.0.0-beta.13",
+    "@mui/material": "^7.1.1",
+    "date-fns": "^4.1.0",
     "express": "^5.1.0",
     "openai": "^5.0.1"
+  },
+  "devDependencies": {
+    "@mui/x-date-pickers": "^8.5.0",
+    "@types/date-fns": "^2.5.3"
   }
 }

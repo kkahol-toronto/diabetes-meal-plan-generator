@@ -22,5 +22,6 @@
   },
   "include": [
     "src"
-  ]
+  ],
+  "types": ["@types/node", "@types/react", "@types/date-fns", "@mui/x-date-pickers"]
 }
