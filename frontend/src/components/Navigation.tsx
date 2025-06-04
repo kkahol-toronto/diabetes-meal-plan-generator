@@ -139,7 +139,7 @@ const Navigation = () => {
           button
           key={item.text}
           onClick={() => {
-            console.log(`Navigating to: ${item.path}`);
+            console.log(`Navigating to (Drawer): ${item.path}`);
             navigate(item.path);
             setDrawerOpen(false);
           }}
@@ -185,7 +185,10 @@ const Navigation = () => {
                 key={item.text}
                 color="inherit"
                 startIcon={item.icon}
-                onClick={() => navigate(item.path)}
+                onClick={() => {
+                  console.log(`Navigating to (Button): ${item.path}`);
+                  navigate(item.path);
+                }}
                 sx={{
                   backgroundColor: location.pathname === item.path ? 'rgba(255, 255, 255, 0.1)' : 'transparent',
                 }}

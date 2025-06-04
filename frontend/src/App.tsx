@@ -61,12 +61,6 @@ function App() {
       <CssBaseline />
       <Navigation />
       <Routes>
-        <Route path="/" element={<HomePage />} />
-        <Route path="/login" element={<Login />} />
-        <Route path="/register" element={<Register />} />
-        <Route path="/admin/login" element={<AdminLogin />} />
-        <Route path="/thank-you" element={<ThankYou />} />
-
         {/* Moved Consumption History Route Up & Restored ProtectedRoute */}
         <Route
           path="/consumption-history"
@@ -76,7 +70,12 @@ function App() {
             </ProtectedRoute>
           }
         />
-        
+        <Route path="/" element={<HomePage />} />
+        <Route path="/login" element={<Login />} />
+        <Route path="/register" element={<Register />} />
+        <Route path="/admin/login" element={<AdminLogin />} />
+        <Route path="/thank-you" element={<ThankYou />} />
+
         {/* Admin Protected Route */}
         <Route
           path="/admin"
