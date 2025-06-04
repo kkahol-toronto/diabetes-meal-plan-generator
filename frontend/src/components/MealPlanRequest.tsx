@@ -21,7 +21,8 @@ import UserProfileForm from './UserProfileForm';
 import MealPlan from './MealPlan';
 import RecipeList from './RecipeList';
 import ShoppingList from './ShoppingList';
-import { UserProfile, MealPlanData, Recipe, ShoppingItem } from '../types';
+import { PatientProfile } from '../types/PatientProfile';
+import { MealPlanData, Recipe, ShoppingItem } from '../types';
 
 // Import icons
 import NavigateNextIcon from '@mui/icons-material/NavigateNext';
@@ -44,7 +45,7 @@ function stripDayPrefix(meal: string) {
 
 const MealPlanRequest: React.FC = () => {
   const [activeStep, setActiveStep] = useState(0);
-  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const [userProfile, setUserProfile] = useState<PatientProfile | null>(null);
   const [mealPlan, setMealPlan] = useState<MealPlanData | null>(null);
   const [recipes, setRecipes] = useState<Recipe[] | null>(null);
   const [shoppingList, setShoppingList] = useState<ShoppingItem[] | null>(null);
@@ -84,7 +85,7 @@ const MealPlanRequest: React.FC = () => {
     loadSavedProfile();
   }, []);
 
-  const handleProfileSubmit = async (profile: UserProfile) => {
+  const handleProfileSubmit = async (profile: PatientProfile) => {
     setUserProfile(profile);
     setActiveStep(1);
     setHasGeneratedMealPlan(false);
@@ -113,7 +114,7 @@ const MealPlanRequest: React.FC = () => {
     }
   };
 
-  const handleMealPlanGenerate = async (currentProfile?: UserProfile) => {
+  const handleMealPlanGenerate = async (currentProfile?: PatientProfile) => {
     setError(null);
     setLoading(true);
     setRecipeProgress(0);

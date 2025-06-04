@@ -34,6 +34,8 @@ from database import (
     save_consumption_record,
     get_user_consumption_history,
     get_consumption_analytics,
+    save_patient_profile,
+    get_patient_profile,
 )
 import uuid
 from io import BytesIO
@@ -149,8 +151,101 @@ class RegistrationData(BaseModel):
     email: EmailStr
     password: str
 
-class ImageAnalysisRequest(BaseModel):
-    prompt: str
+class PatientProfile(BaseModel):
+    # Date of Intake
+    intakeDate: Optional[str] = None
+    intakeDateUpdatedBy: Optional[str] = None  # 'admin' or 'user'
+
+    # Patient Demographics
+    fullName: Optional[str] = None
+    fullNameUpdatedBy: Optional[str] = None
+    dateOfBirth: Optional[str] = None
+    dateOfBirthUpdatedBy: Optional[str] = None
+    age: Optional[int] = None
+    ageUpdatedBy: Optional[str] = None
+    sex: Optional[str] = None
+    sexUpdatedBy: Optional[str] = None
+    ethnicity: Optional[List[str]] = None
+    ethnicityUpdatedBy: Optional[str] = None
+    ethnicityOther: Optional[str] = None
+    ethnicityOtherUpdatedBy: Optional[str] = None
+
+    # Medical History
+    medicalHistory: Optional[List[str]] = None
+    medicalHistoryUpdatedBy: Optional[str] = None
+    medicalHistoryOther: Optional[str] = None
+    medicalHistoryOtherUpdatedBy: Optional[str] = None
+
+    # Current Medications
+    medications: Optional[List[str]] = None
+    medicationsUpdatedBy: Optional[str] = None
+    medicationsOther: Optional[str] = None
+    medicationsOtherUpdatedBy: Optional[str] = None
+
+    # Most Recent Lab Values
+    labValues: Optional[Dict[str, Optional[float]]] = None
+    labValuesUpdatedBy: Optional[str] = None
+
+    # Vital Signs
+    vitalSigns: Optional[Dict[str, Optional[float]]] = None
+    vitalSignsUpdatedBy: Optional[str] = None
+
+    # Dietary Information
+    dietaryInfo: Optional[Dict[str, Any]] = None
+    dietaryInfoUpdatedBy: Optional[str] = None
+
+    # Physical Activity Profile
+    physicalActivity: Optional[Dict[str, Any]] = None
+    physicalActivityUpdatedBy: Optional[str] = None
+
+    # Lifestyle & Preferences
+    lifestyle: Optional[Dict[str, Any]] = None
+    lifestyleUpdatedBy: Optional[str] = None
+
+    # Goals & Readiness to Change
+    goals: Optional[List[str]] = None
+    goalsUpdatedBy: Optional[str] = None
+    goalsOther: Optional[str] = None
+    goalsOtherUpdatedBy: Optional[str] = None
+    readiness: Optional[str] = None
+    readinessUpdatedBy: Optional[str] = None
+
+    # Meal Plan Targeting
+    mealPlanTargeting: Optional[Dict[str, Any]] = None
+    mealPlanTargetingUpdatedBy: Optional[str] = None
+
+    class Config:
+        schema_extra = {
+            "example": {
+                "intakeDate": "2024-03-20",
+                "intakeDateUpdatedBy": "admin",
+                "fullName": "John Doe",
+                "fullNameUpdatedBy": "user",
+                "dateOfBirth": "1980-01-01",
+                "dateOfBirthUpdatedBy": "admin",
+                "age": 44,
+                "ageUpdatedBy": "admin",
+                "sex": "Male",
+                "sexUpdatedBy": "admin",
+                "ethnicity": ["Caucasian"],
+                "ethnicityUpdatedBy": "admin",
+                "medicalHistory": ["Type 2 Diabetes"],
+                "medicalHistoryUpdatedBy": "admin",
+                "medications": ["Metformin"],
+                "medicationsUpdatedBy": "admin",
+                "labValues": {
+                    "a1c": 7.2,
+                    "fastingGlucose": 6.5
+                },
+                "labValuesUpdatedBy": "admin",
+                "vitalSigns": {
+                    "heightCm": 175,
+                    "weightKg": 80,
+                    "bmi": 26.1
+                },
+                "vitalSignsUpdatedBy": "admin"
+            }
+        }
 
 def get_password_hash(password: str) -> str:
     """Hash a password using bcrypt"""
@@ -441,10 +536,6 @@ Format the response as a JSON object with the following structure:
     }}
 }}"""
 
-@app.get("/")
-async def root():
-    return {"message": "Welcome to Diabetes Diet Manager API"}
-
 @app.post("/generate-meal-plan")
 async def generate_meal_plan(
     request: FastAPIRequest,
@@ -581,14 +672,92 @@ Health Conditions: {', '.join(user_profile.get('healthConditions', []) or ['None
 Food Preferences: {', '.join(user_profile.get('foodPreferences', []) or ['None'])}
 Allergies: {', '.join(user_profile.get('allergies', []) or ['None'])}
 
-Return a JSON object with exactly this structure (replace the example values with appropriate ones):
-{json_structure}
+Please provide:
+1. Daily calorie and macronutrient breakdown
+2. Detailed meal plan for each day of the week
+3. Include saturated fat, unsaturated fat, omega-3, and omega-6 breakdown
+4. Ensure the plan is suitable for the specified medical conditions
+5. Consider cultural preferences based on ethnicity
+6. Follow the specified diet type and features
 
+Format the response as a JSON object with the following structure:
+{{
+    "dailyCalories": number,
+    "macronutrients": {{
+        "protein": number,
+        "carbs": number,
+        "fats": number,
+        "saturatedFat": number,
+        "unsaturatedFat": number,
+        "omega3": number,
+        "omega6": number
+    }},
+    "meals": {{
+        "breakfast": [
+            {{
+                "name": string,
+                "calories": number,
+                "macronutrients": {{
+                    "protein": number,
+                    "carbs": number,
+                    "fats": number
+                }}
+            }}
+        ],
+        "lunch": [...],
+        "dinner": [...],
+        "snacks": [...]
+    }}
+}}"""
+
+        # Add lab values only if the labValues dictionary exists and is not empty
+        lab_values = user_profile.get('labValues', {})
+        if lab_values:
+            lab_value_strings = []
+            if lab_values.get('a1c') is not None:
+                 lab_value_strings.append(f"A1C: {lab_values['a1c']}%")
+            if lab_values.get('fastingGlucose') is not None:
+                 lab_value_strings.append(f"Fasting Glucose: {lab_values['fastingGlucose']} mg/dL")
+            if lab_values.get('ldlC') is not None:
+                 lab_value_strings.append(f"LDL-C: {lab_values['ldlC']} mg/dL")
+            if lab_values.get('hdlC') is not None:
+                 lab_value_strings.append(f"HDL-C: {lab_values['hdlC']} mg/dL")
+            if lab_values.get('triglycerides') is not None:
+                 lab_value_strings.append(f"Triglycerides: {lab_values['triglycerides']} mg/dL")
+            if lab_values.get('totalCholesterol') is not None:
+                 lab_value_strings.append(f"Total Cholesterol: {lab_values['totalCholesterol']} mg/dL")
+            if lab_values.get('egfr') is not None:
+                 lab_value_strings.append(f"eGFR: {lab_values['egfr']} mL/min/1.73 m²")
+            if lab_values.get('creatinine') is not None:
+                 lab_value_strings.append(f"Creatinine: {lab_values['creatinine']} mg/dL")
+            if lab_values.get('potassium') is not None:
+                 lab_value_strings.append(f"Potassium: {lab_values['potassium']} mEq/L")
+            if lab_values.get('uacr') is not None:
+                 lab_value_strings.append(f"UACR: {lab_values['uacr']} mg/g")
+            if lab_values.get('alt') is not None:
+                 lab_value_strings.append(f"ALT: {lab_values['alt']} U/L")
+            if lab_values.get('ast') is not None:
+                 lab_value_strings.append(f"AST: {lab_values['ast']} U/L")
+            if lab_values.get('vitaminD') is not None:
+                 lab_value_strings.append(f"Vitamin D: {lab_values['vitaminD']} nmol/L")
+            if lab_values.get('vitaminB12') is not None:
+                 lab_value_strings.append(f"Vitamin B12: {lab_values['vitaminB12']} pmol/L")
+
+            if lab_value_strings: # Only add the Lab Values section if there are any non-null values
+                prompt_parts.append("\nMost Recent Lab Values:")
+                prompt_parts.extend(lab_value_strings)
+
+
+        prompt_parts.append(f"\nReturn a JSON object with exactly this structure (replace the example values with appropriate ones):\n{json_structure}")
+
+        prompt_parts.append("""
 Important:
 1. Ensure all meal arrays have exactly 7 items (one for each day of the week)
 2. Keep meal names concise
 3. Ensure calorie and macronutrient values are numbers, not strings
-4. Do not include any explanations or markdown, just the JSON object"""
+4. Do not include any explanations or markdown, just the JSON object""")
+
+        prompt = "\n".join(prompt_parts) # Join with newline characters
 
         print("Prompt for OpenAI:")
         print(prompt)
@@ -608,7 +777,7 @@ Important:
                 response_format={"type": "json_object"}
             )
             print("OpenAI response received")
-            
+
             if not response.choices or not response.choices[0].message:
                 raise HTTPException(
                     status_code=500,
@@ -623,7 +792,7 @@ Important:
                 meal_plan = json.loads(raw_content)
                 print("Meal plan parsed successfully:")
                 print(json.dumps(meal_plan, indent=2))
-                
+
                 # Validate meal plan structure
                 required_keys = ['breakfast', 'lunch', 'dinner', 'snacks', 'dailyCalories', 'macronutrients']
                 missing_keys = [key for key in required_keys if key not in meal_plan]
@@ -636,7 +805,7 @@ Important:
 
                 # Ensure arrays have 7 items
                 for meal_type in ['breakfast', 'lunch', 'dinner', 'snacks']:
-                    if not isinstance(meal_plan[meal_type], list):
+                    if not isinstance(meal_plan.get(meal_type), list): # Use .get for safety
                         meal_plan[meal_type] = ["Not specified"] * 7
                     while len(meal_plan[meal_type]) < 7:
                         meal_plan[meal_type].append("Not specified")
@@ -644,9 +813,13 @@ Important:
 
                 # Ensure macronutrients are numbers
                 macro_keys = ['protein', 'carbs', 'fats']
-                for key in macro_keys:
-                    if not isinstance(meal_plan['macronutrients'].get(key), (int, float)):
-                        meal_plan['macronutrients'][key] = 0
+                if isinstance(meal_plan.get('macronutrients'), dict): # Check if macronutrients is a dict
+                    for key in macro_keys:
+                        if not isinstance(meal_plan['macronutrients'].get(key), (int, float)):
+                            meal_plan['macronutrients'][key] = 0
+                else: # If macronutrients is not a dict, initialize it
+                     meal_plan['macronutrients'] = {"protein": 0, "carbs": 0, "fats": 0}
+
 
                 if not isinstance(meal_plan.get('dailyCalories'), (int, float)):
                     meal_plan['dailyCalories'] = 2000
@@ -659,9 +832,14 @@ Important:
                         if isinstance(prev_meals, list) and isinstance(new_meals, list) and len(new_meals) == 7:
                             meal_plan[meal_type] = get_overlap_meals(prev_meals, new_meals)
 
+                await save_meal_plan(
+                    user_id=current_user["email"],
+                    meal_plan_data=meal_plan
+                )
+                print("Meal plan saved to database")
+
                 # Explicitly convert the returned meal_plan to a plain dictionary
                 try:
-                    # import json # Removed local import
                     plain_meal_plan = json.loads(json.dumps(meal_plan))
                     print("[/generate-meal-plan] Converted returned meal_plan to plain dict")
                     return plain_meal_plan
@@ -748,7 +926,7 @@ async def generate_shopping_list(
                     Group items by category (e.g., Produce, Dairy, Meat, etc.) and combine quantities for the same items.
 
                     ––––– UNIT RULES –––––
-                    • Express quantities in units a Canadian grocery shopper can actually buy (“purchasable quantity”).
+                    • Express quantities in units a Canadian grocery shopper can actually buy ("purchasable quantity").
                     – **Fresh herbs** (cilantro/coriander, parsley, mint, dill, etc.): use whole bunches.  
                         *Assume 1 bunch ≈ 30 g; round ⭡ to the nearest whole bunch.*
                     – **Loose fruit & veg** commonly weighed at checkout (apples, oranges, onions, potatoes, carrots, etc.): use pounds (lb).  
@@ -1897,6 +2075,144 @@ async def analyze_image(
     except Exception as e:
         print(f"Error in image analysis: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/profile/save")
+async def save_profile(
+    profile: PatientProfile,
+    current_user: User = Depends(get_current_user)
+):
+    """Save or update a patient's profile."""
+    try:
+        # Convert Pydantic model to dict
+        profile_data = profile.dict(exclude_none=True)
+        
+        # Add updated_by information for each field
+        is_admin = current_user.get("is_admin", False)
+        updated_by = "admin" if is_admin else "user"
+        
+        # Get existing profile to merge with
+        existing_profile = await get_patient_profile(current_user["id"])
+        
+        # Update the updated_by fields for changed values
+        for key, value in profile_data.items():
+            if not key.endswith("UpdatedBy") and value is not None:
+                updated_by_key = f"{key}UpdatedBy"
+                profile_data[updated_by_key] = updated_by
+        
+        # Merge with existing profile
+        if existing_profile:
+            merged_data = {**existing_profile, **profile_data}
+        else:
+            merged_data = profile_data
+        
+        # Save to database
+        saved_profile = await save_patient_profile(current_user["id"], merged_data)
+        
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={"message": "Profile saved successfully", "profile": saved_profile}
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to save profile: {str(e)}"
+        )
+
+@app.get("/api/profile/get")
+async def get_profile(current_user: User = Depends(get_current_user)):
+    """Get a patient's profile."""
+    try:
+        profile = await get_patient_profile(current_user["id"])
+        if not profile:
+            return JSONResponse(
+                status_code=status.HTTP_404_NOT_FOUND,
+                content={"message": "Profile not found"}
+            )
+        
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={"profile": profile}
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get profile: {str(e)}"
+        )
+
+@app.get("/api/admin/profile/{user_id}")
+async def get_user_profile(
+    user_id: str,
+    current_user: User = Depends(get_current_user)
+):
+    """Admin endpoint to get a specific user's profile."""
+    if not current_user.get("is_admin"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to access user profiles"
+        )
+    
+    try:
+        profile = await get_patient_profile(user_id)
+        if not profile:
+            return JSONResponse(
+                status_code=status.HTTP_404_NOT_FOUND,
+                content={"message": "Profile not found"}
+            )
+        
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={"profile": profile}
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get profile: {str(e)}"
+        )
+
+@app.post("/api/admin/profile/{user_id}")
+async def save_user_profile(
+    user_id: str,
+    profile: PatientProfile,
+    current_user: User = Depends(get_current_user)
+):
+    """Admin endpoint to save a specific user's profile."""
+    if not current_user.get("is_admin"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to modify user profiles"
+        )
+    
+    try:
+        # Convert Pydantic model to dict
+        profile_data = profile.dict(exclude_none=True)
+        
+        # Add admin as the updater for all fields
+        for key, value in profile_data.items():
+            if not key.endswith("UpdatedBy") and value is not None:
+                updated_by_key = f"{key}UpdatedBy"
+                profile_data[updated_by_key] = "admin"
+        
+        # Get existing profile to merge with
+        existing_profile = await get_patient_profile(user_id)
+        
+        # Merge with existing profile
+        if existing_profile:
+            merged_data = {**existing_profile, **profile_data}
+        else:
+            merged_data = profile_data
+        
+        # Save to database
+        saved_profile = await save_patient_profile(user_id, merged_data)
+        
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={"message": "Profile saved successfully", "profile": saved_profile}
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to save profile: {str(e)}"
+        )
 
 if __name__ == "__main__":
     import uvicorn
