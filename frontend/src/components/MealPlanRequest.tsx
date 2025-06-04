@@ -224,7 +224,7 @@ const MealPlanRequest: React.FC = () => {
     setSaveStatus(null);
     setRecipes([]);
     setRecipeProgress(0);
-    const token = localStorage.getItem('token');
+      const token = localStorage.getItem('token');
     if (!token) {
       setSaveStatus({ message: 'Authentication token not found. Please log in.', severity: 'error' });
       navigate('/login');
@@ -695,10 +695,10 @@ const MealPlanRequest: React.FC = () => {
                 >
                   Export Shopping List
                 </Button>
-                <Button
-                  variant="contained"
+              <Button
+                variant="contained"
                   color="primary"
-                  onClick={handleDownloadConsolidatedPDF}
+                onClick={handleDownloadConsolidatedPDF}
                   disabled={loading || !mealPlan || !recipes || !shoppingList}
                   startIcon={loading ? <CircularProgress size={20} color="inherit" /> : <DownloadIcon />}
                   sx={{ borderRadius: '20px', px: 3 }}
@@ -713,7 +713,7 @@ const MealPlanRequest: React.FC = () => {
                   sx={{ borderRadius: '20px', px: 3 }}
                 >
                   {loading ? <CircularProgress size={24} /> : 'Save Meal Plan and Go to Home'}
-                </Button>
+              </Button>
               </>
             )}
           </Box>
@@ -730,12 +730,12 @@ const MealPlanRequest: React.FC = () => {
           Personalized Meal Plan Generator
         </Typography>
         <Stepper activeStep={activeStep} alternativeLabel sx={{ mb: 4 }}>
-          {steps.map((label) => (
-            <Step key={label}>
-              <StepLabel>{label}</StepLabel>
-            </Step>
-          ))}
-        </Stepper>
+            {steps.map((label) => (
+              <Step key={label}>
+                <StepLabel>{label}</StepLabel>
+              </Step>
+            ))}
+          </Stepper>
 
         {error && (
           <Alert severity="error" sx={{ mb: 2, borderRadius: '8px' }} onClose={() => setError(null)}>
@@ -777,8 +777,8 @@ const MealPlanRequest: React.FC = () => {
           </Box>
           {/* Show Next button only if not on Profile step (handled by form) and not on the last step */}
           {activeStep !== 0 && activeStep < steps.length - 1 && ( 
-             <Button
-                variant="contained"
+          <Button
+            variant="contained"
                 onClick={handleNext}
                 disabled={loading || generatingRecipes || 
                     (activeStep === 0 && !userProfile) || // Ensure profile is set before allowing next from step 0 if it were shown
@@ -789,7 +789,7 @@ const MealPlanRequest: React.FC = () => {
                 sx={{ borderRadius: '20px', px: 3 }}
              >
                 Next
-             </Button>
+          </Button>
           )}
         </Box>
       </Paper>

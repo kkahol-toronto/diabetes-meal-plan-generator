@@ -549,4 +549,7 @@ async def view_meal_plans(user_id: str):
             enable_cross_partition_query=True
         ))
     except Exception as e:
-        raise Exception(f"Failed to view meal plans: {str(e)}") 
+        raise Exception(f"Failed to view meal plans: {str(e)}")
+
+def log_debug(msg):
+    print(f"[DEBUG] {msg}") 

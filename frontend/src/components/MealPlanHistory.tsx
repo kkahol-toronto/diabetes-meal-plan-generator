@@ -141,6 +141,7 @@ const MealPlanHistory = () => {
       const formattedIds = selectedMealPlans.map(id => {
         return id.startsWith('meal_plan_') ? id : `meal_plan_${id}`;
       });
+      console.log('Bulk delete: Sending plan IDs:', formattedIds);
 
       const response = await fetch('http://localhost:8000/meal_plans/bulk_delete', {
         method: 'POST',
@@ -149,6 +150,7 @@ const MealPlanHistory = () => {
       });
 
       const result = await response.json();
+      console.log('Bulk delete: Backend response:', result);
       let message = result.message;
       let failedIds: string[] = [];
       let details = '';
@@ -170,10 +172,10 @@ const MealPlanHistory = () => {
       setSnackbarOpen(true);
       setShowDetails(false);
       setDetails(details);
-      // Remove deleted and failed plans from UI
+      // Remove from UI any plans that were deleted or not found (i.e., all selected)
       setSelectedMealPlans([]);
-      setMealPlans(prev => prev.filter(plan => !formattedIds.includes(plan.id || '') && !failedIds.includes(plan.id || '')));
-      setFilteredPlans(prev => prev.filter(plan => !formattedIds.includes(plan.id || '') && !failedIds.includes(plan.id || '')));
+      setMealPlans(prev => prev.filter(plan => !formattedIds.includes(plan.id || '')));
+      setFilteredPlans(prev => prev.filter(plan => !formattedIds.includes(plan.id || '')));
       // Always refresh from backend to ensure sync
       fetchMealPlans();
     } catch (err) {
@@ -244,23 +246,28 @@ const MealPlanHistory = () => {
       if (isNaN(date.getTime())) {
         return 'Invalid Date';
       }
-      
+
       const now = new Date();
-      const diffTime = Math.abs(now.getTime() - date.getTime());
-      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-      
-      if (diffDays === 0) return 'Today';
-      if (diffDays === 1) return 'Yesterday';
-      if (diffDays < 7) return `${diffDays} days ago`;
-      
-      // Format as "Month Day, Year"
+      // Zero out the time for both dates to compare only the date part
+      const dateOnly = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+      const nowOnly = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const diffTime = nowOnly.getTime() - dateOnly.getTime();
+      const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+
+      const timeString = date.toLocaleTimeString('en-US', {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true
+      });
+
+      if (diffDays === 0) return `Today, ${timeString}`;
+      if (diffDays === 1) return `Yesterday, ${timeString}`;
+      // For all earlier dates, show as 'Month Day, Year, HH:MM AM/PM'
       return date.toLocaleDateString('en-US', {
         year: 'numeric',
         month: 'long',
         day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
-      });
+      }) + `, ${timeString}`;
     } catch (e) {
       return 'Invalid Date';
     }

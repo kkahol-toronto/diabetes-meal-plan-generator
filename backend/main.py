@@ -1439,6 +1439,31 @@ async def get_meal_plan(
             detail=f"Failed to retrieve meal plan: {str(e)}"
         )
 
+@app.delete("/meal_plans/all") # Use DELETE with a specific path for clarity
+async def delete_all_meal_plans_endpoint(
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Deletes all meal plans for the current user."""
+    try:
+        user_id = current_user.get("email")
+        if not user_id:
+            raise HTTPException(status_code=400, detail="User ID not found in token. Please log in again.")
+
+        deleted_count = await delete_all_user_meal_plans(user_id)
+
+        if deleted_count == 0:
+            return {"message": "No meal plans were found to delete. Your history is already empty."}
+        else:
+            return {"message": f"Successfully deleted all {deleted_count} meal plan(s) for user {user_id}."}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error in DELETE /meal_plans/all: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Failed to delete all meal plans: {str(e)}")
+
 @app.delete("/meal_plans/{plan_id}")
 async def delete_meal_plan(
     plan_id: str,
@@ -1446,22 +1471,15 @@ async def delete_meal_plan(
 ):
     """Deletes a specific meal plan by ID for the current user."""
     try:
-        # Use "email" consistently with how save_meal_plan uses it
         user_id = current_user.get("email")
         if not user_id:
              raise HTTPException(status_code=400, detail="User ID not found in token.")
-             
         deleted = await delete_meal_plan_by_id(plan_id, user_id)
-        
         if not deleted:
-             # Return 404 if the plan wasn't found for *this* user
              raise HTTPException(status_code=404, detail="Meal plan not found or does not belong to user.")
-             
         return {"message": f"Meal plan '{plan_id}' deleted successfully"}
-        
     except Exception as e:
         print(f"Error in DELETE /meal_plans/{{plan_id}}: {e}")
-        # Log the full traceback for better debugging
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Failed to delete meal plan: {str(e)}")
@@ -1537,28 +1555,6 @@ async def bulk_delete_meal_plans(
     
     return response
 
-@app.delete("/meal_plans/all") # Use DELETE with a specific path for clarity
-async def delete_all_meal_plans_endpoint(
-    current_user: Dict[str, Any] = Depends(get_current_user)
-):
-    """Deletes all meal plans for the current user."""
-    try:
-        # Use "email" consistently with how save_meal_plan uses it
-        user_id = current_user.get("email")
-        if not user_id:
-             raise HTTPException(status_code=400, detail="User ID not found in token.")
-
-        deleted_count = await delete_all_user_meal_plans(user_id)
-
-        return {"message": f"Successfully deleted all {deleted_count} meal plans for user {user_id}"}
-
-    except Exception as e:
-        print(f"Error in DELETE /meal_plans/all: {e}")
-        # Log the full traceback for better debugging
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Failed to delete all meal plans: {str(e)}")
-
 @app.get("/view-meal-plans")
 async def view_meal_plans_endpoint(current_user: Dict[str, Any] = Depends(get_current_user)):
     """View all meal plans for the current user"""
@@ -1604,6 +1600,24 @@ async def save_full_meal_plan_endpoint(
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail="An error occurred while saving the meal plan.")
+
+@app.get("/debug/meal_plans")
+async def debug_meal_plans(current_user: User = Depends(get_current_user)):
+    """Return all meal plans for the current user, including IDs and partition keys, for debugging."""
+    try:
+        user_id = current_user.get("email")
+        if not user_id:
+            raise HTTPException(status_code=400, detail="User ID not found in token.")
+        query = f"SELECT * FROM c WHERE c.type = 'meal_plan' AND c.user_id = '{user_id}'"
+        print(f"[DEBUG] Querying all meal plans for user_id: {user_id}")
+        items = list(interactions_container.query_items(query=query, enable_cross_partition_query=True))
+        print(f"[DEBUG] Found {len(items)} meal plans for user_id: {user_id}")
+        return {"meal_plans": items}
+    except Exception as e:
+        print(f"[DEBUG] Error in /debug/meal_plans: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
     import uvicorn
