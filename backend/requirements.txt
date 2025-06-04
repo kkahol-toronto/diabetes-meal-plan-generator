@@ -19,3 +19,4 @@ bcrypt>=4.0.1
 aiofiles>=23.2.1
 starlette>=0.36.3
 typing-extensions>=4.9.0
+pillow==11.2.1

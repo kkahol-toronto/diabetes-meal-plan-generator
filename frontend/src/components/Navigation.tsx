@@ -27,6 +27,7 @@ import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
 import AccountCircleIcon from '@mui/icons-material/AccountCircle';
 import { isTokenExpired } from '../utils/auth';
 import ShoppingCartIcon from '@mui/icons-material/ShoppingCart';
+import HistoryIcon from '@mui/icons-material/History';
 
 const Navigation = () => {
   const navigate = useNavigate();
@@ -97,7 +98,8 @@ const Navigation = () => {
     { text: 'Recipes', icon: <BookIcon />, path: '/my-recipes' },
     { text: 'Shopping List', icon: <ShoppingCartIcon />, path: '/my-shopping-lists' },
     { text: 'Chat', icon: <ChatIcon />, path: '/chat' },
-    { text: 'History', icon: <BookIcon />, path: '/meal-plan/history' },
+    { text: 'Consumption History', icon: <HistoryIcon />, path: '/consumption-history' },
+    { text: 'Meal Plan History', icon: <BookIcon />, path: '/meal_plans' },
   ];
 
   // Add admin panel link if user is admin
@@ -137,7 +139,7 @@ const Navigation = () => {
           button
           key={item.text}
           onClick={() => {
-            console.log(`Navigating to: ${item.path}`);
+            console.log(`Navigating to (Drawer): ${item.path}`);
             navigate(item.path);
             setDrawerOpen(false);
           }}
@@ -183,7 +185,10 @@ const Navigation = () => {
                 key={item.text}
                 color="inherit"
                 startIcon={item.icon}
-                onClick={() => navigate(item.path)}
+                onClick={() => {
+                  console.log(`Navigating to (Button): ${item.path}`);
+                  navigate(item.path);
+                }}
                 sx={{
                   backgroundColor: location.pathname === item.path ? 'rgba(255, 255, 255, 0.1)' : 'transparent',
                 }}
