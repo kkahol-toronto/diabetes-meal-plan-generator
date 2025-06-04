@@ -55,6 +55,10 @@ All backend dependencies are listed in `backend/requirements.txt`:
 - azure-cosmos>=4.5.1
 - reportlab>=4.0.8
 - tiktoken==0.9.0
+- bcrypt>=4.0.1
+- aiofiles>=23.2.1
+- starlette>=0.36.3
+- typing-extensions>=4.9.0
 
 ## Frontend Dependencies
 
@@ -101,6 +105,16 @@ SMS_API_SID=your_twilio_sid
 SMS_KEY=your_twilio_token
 TWILIO_PHONE_NUMBER=your_twilio_phone
 ```
+
+## Cosmos DB Partition Key Usage
+
+**Important:**
+- The Cosmos DB `interactions` container is partitioned by `/session_id` (see `init_db.py`).
+- For most operations, the partition key is the `session_id` field of the document. For meal plans, the `user_id` is also used as a logical partition key in queries and deletes.
+- When deleting or updating items, you must supply the correct partition key value. Supplying `None` or the wrong value will result in errors like:
+  > The partition key supplied in x-ms-partitionkey header has fewer components than defined in the the collection.
+- If you encounter this error, ensure you are passing the correct partition key (usually `session_id` for chat messages, and `user_id` for meal plans).
+- See `backend/database.py` and `backend/cleanup_meal_plans.py` for examples of correct partition key usage.
 
 ## Setup
 
@@ -165,6 +179,13 @@ npm start
 - `GET /meal_plans` - Get all meal plans for the current user
 - `POST /meal_plans/bulk_delete` - Delete selected meal plans
 - `POST /export/{type}` - Export meal plan, recipes, or shopping list as PDF
+
+## Troubleshooting
+
+### Cosmos DB Partition Key Errors
+- If you see errors about partition keys (e.g., "The partition key supplied in x-ms-partitionkey header has fewer components than defined in the the collection."), double-check that you are passing the correct partition key value for the item you are deleting or updating.
+- For meal plans, use the `user_id` as the partition key. For chat messages, use the `session_id`.
+- See `backend/cleanup_meal_plans.py` and `backend/database.py` for code examples.
 
 ## Contributing
 

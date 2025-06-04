@@ -123,14 +123,18 @@ const RecipeList: React.FC<RecipeListProps> = ({ recipes }) => {
                 Instructions
               </Typography>
               <List dense disablePadding>
-                {recipe.instructions.map((instruction, idx) => (
-                  <ListItem key={idx} sx={{ py: 0.5, alignItems: 'flex-start' }}>
-                     <ListItemText 
+                {recipe.instructions.map((instruction, idx) => {
+                  // Remove leading numbering (e.g., '1. ', '2) ', etc.)
+                  const cleaned = instruction.replace(/^\s*\d+\s*[\.|\)]?\s*/, '');
+                  return (
+                    <ListItem key={idx} sx={{ py: 0.5, alignItems: 'flex-start' }}>
+                      <ListItemText 
                         primaryTypographyProps={{ variant: 'body2' }} 
-                        primary={`${idx + 1}. ${instruction}`}
-                     />
-                  </ListItem>
-                ))}
+                        primary={`${idx + 1}. ${cleaned}`}
+                      />
+                    </ListItem>
+                  );
+                })}
               </List>
             </Box>
 

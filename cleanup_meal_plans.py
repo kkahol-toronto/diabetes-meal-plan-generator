@@ -62,4 +62,4 @@ def main():
     print(f"Deleted {deleted} meal plans for user {USER_EMAIL}")
 
 if __name__ == "__main__":
-    main()
+    main() 
