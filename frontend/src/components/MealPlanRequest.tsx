@@ -64,13 +64,11 @@ const MealPlanRequest: React.FC = () => {
       try {
         const token = localStorage.getItem('token');
         if (!token) return;
-        
-        const response = await fetch('http://localhost:8000/user/profile', {
+        const response = await fetch('http://localhost:8000/api/profile/get', {
           headers: {
             'Authorization': `Bearer ${token}`,
           },
         });
-        
         if (response.ok) {
           const data = await response.json();
           if (data && data.profile) {
@@ -81,7 +79,6 @@ const MealPlanRequest: React.FC = () => {
         console.error('Error loading profile:', error);
       }
     };
-
     loadSavedProfile();
   }, []);
 
@@ -128,23 +125,30 @@ const MealPlanRequest: React.FC = () => {
       return;
     }
 
+    // Map PatientProfile to required flat fields for /generate-meal-plan
+    const mappedProfile = {
+      ...profileToUse,
+      name: profileToUse.fullName || '',
+      gender: profileToUse.sex || '',
+      weight: profileToUse.vitalSigns?.weightKg || '',
+      height: profileToUse.vitalSigns?.heightCm || '',
+    };
+
     try {
       const token = localStorage.getItem('token');
       if (!token) {
         navigate('/login');
         return;
       }
-
       // Fetch previous meal plan if toggle is ON
       const previousMealPlan = usePreviousPlan ? await fetchPreviousMealPlan() : null;
-
       const response = await fetch('http://localhost:8000/generate-meal-plan', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`,
         },
-        body: JSON.stringify({ user_profile: profileToUse, previous_meal_plan: previousMealPlan }),
+        body: JSON.stringify({ user_profile: mappedProfile, previous_meal_plan: previousMealPlan }),
       });
 
       if (response.status === 401) {
