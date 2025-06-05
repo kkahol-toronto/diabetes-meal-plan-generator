@@ -1261,39 +1261,97 @@ async def generate_recipe(
         print("/generate-recipe endpoint called")
         print("Meal name:", meal_name)
         print("User profile:", user_profile)
+        
         if not meal_name:
             raise HTTPException(status_code=400, detail="No meal name provided")
+        
+        # Check if OpenAI client is properly configured
+        if not client:
+            print("ERROR: OpenAI client is not initialized")
+            raise HTTPException(status_code=500, detail="OpenAI client not configured")
+        
+        # Check environment variables
+        openai_key = os.getenv("AZURE_OPENAI_KEY")
+        openai_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
+        deployment_name = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME")
+        
+        print(f"OpenAI Key exists: {bool(openai_key)}")
+        print(f"OpenAI Endpoint: {openai_endpoint}")
+        print(f"Deployment Name: {deployment_name}")
+        
+        if not openai_key or not openai_endpoint or not deployment_name:
+            missing = []
+            if not openai_key: missing.append("AZURE_OPENAI_KEY")
+            if not openai_endpoint: missing.append("AZURE_OPENAI_ENDPOINT")
+            if not deployment_name: missing.append("AZURE_OPENAI_DEPLOYMENT_NAME")
+            error_msg = f"Missing environment variables: {', '.join(missing)}"
+            print(f"ERROR: {error_msg}")
+            raise HTTPException(status_code=500, detail=error_msg)
+        
         prompt = f"""Generate a detailed recipe for the following meal: {meal_name}\n\nUser profile context: {json.dumps(user_profile, indent=2)}\n\nPlease provide:\n1. A list of ingredients with quantities\n2. Step-by-step preparation instructions\n3. Nutritional information (calories, protein, carbs, fat)\n\nFor all nutritional values, return them as strings with units (e.g., '3g', '115 kcal').\n\nFormat the response as a JSON object with the following structure:\n{{\n    \"name\": \"Recipe Name\",\n    \"ingredients\": [\"ingredient1\", \"ingredient2\", ...],\n    \"instructions\": [\"step1\", \"step2\", ...],\n    \"nutritional_info\": {{\n        \"calories\": \"number with unit, e.g. '115 kcal'\",\n        \"protein\": \"number with unit, e.g. '3g'\",\n        \"carbs\": \"number with unit, e.g. '16g'\",\n        \"fat\": \"number with unit, e.g. '4g'\"\n    }}\n}}"""
+        
         print("Prompt for OpenAI:")
-        print(prompt)
-        response = client.chat.completions.create(
-            model=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
-            messages=[
-                {"role": "system", "content": "You are a diabetes diet planning assistant."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.7,
-            max_tokens=2000,
-        )
-        print("OpenAI response received")
+        print(prompt[:200] + "..." if len(prompt) > 200 else prompt)
+        
+        try:
+            print("Calling OpenAI API...")
+            response = client.chat.completions.create(
+                model=deployment_name,
+                messages=[
+                    {"role": "system", "content": "You are a diabetes diet planning assistant."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.7,
+                max_tokens=2000,
+            )
+            print("OpenAI response received successfully")
+        except Exception as openai_error:
+            print(f"OpenAI API Error: {type(openai_error).__name__}: {str(openai_error)}")
+            # Check for common OpenAI errors
+            if "rate_limit" in str(openai_error).lower():
+                raise HTTPException(status_code=429, detail="OpenAI rate limit exceeded. Please try again later.")
+            elif "quota" in str(openai_error).lower():
+                raise HTTPException(status_code=503, detail="OpenAI quota exceeded. Please check your API limits.")
+            elif "authentication" in str(openai_error).lower() or "401" in str(openai_error):
+                raise HTTPException(status_code=500, detail="OpenAI authentication failed. Please check API credentials.")
+            elif "network" in str(openai_error).lower() or "connection" in str(openai_error).lower():
+                raise HTTPException(status_code=502, detail="Network error connecting to OpenAI. Please try again.")
+            else:
+                raise HTTPException(status_code=500, detail=f"OpenAI API error: {str(openai_error)}")
+        
         raw_content = response.choices[0].message.content
-        print("Raw OpenAI response:")
-        print(raw_content)
+        print("Raw OpenAI response received")
+        print(f"Response length: {len(raw_content) if raw_content else 0}")
+        
+        if not raw_content:
+            raise HTTPException(status_code=500, detail="Empty response from OpenAI")
+        
         # Remove Markdown code block if present
         if raw_content.strip().startswith('```'):
             raw_content = re.sub(r'^```[a-zA-Z]*\s*|```$', '', raw_content.strip(), flags=re.MULTILINE).strip()
+        
         try:
             recipe = json.loads(raw_content)
-            print("Parsed recipe JSON:")
-            print(recipe)
+            print("Successfully parsed recipe JSON")
+            print(f"Recipe name: {recipe.get('name', 'Unknown')}")
+        except json.JSONDecodeError as parse_err:
+            print(f"JSON parsing error: {str(parse_err)}")
+            print(f"Raw content (first 500 chars): {raw_content[:500]}")
+            raise HTTPException(status_code=500, detail=f"Invalid JSON response from OpenAI: {str(parse_err)}")
         except Exception as parse_err:
-            print("Error parsing OpenAI response as JSON:")
-            print(parse_err)
-            raise HTTPException(status_code=500, detail=f"OpenAI response not valid JSON: {parse_err}\nRaw response: {raw_content}")
+            print(f"Unexpected parsing error: {str(parse_err)}")
+            raise HTTPException(status_code=500, detail=f"Error parsing OpenAI response: {str(parse_err)}")
+        
         return recipe
+        
+    except HTTPException:
+        # Re-raise HTTP exceptions as-is
+        raise
     except Exception as e:
-        print(f"Error in /generate-recipe: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"Unexpected error in /generate-recipe: {type(e).__name__}: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 @app.get("/user/shopping-list")
 async def get_user_shopping_list(current_user: User = Depends(get_current_user)):

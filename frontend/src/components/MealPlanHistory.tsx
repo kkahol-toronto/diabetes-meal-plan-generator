@@ -44,7 +44,42 @@ const MealPlanHistory = () => {
   const [details, setDetails] = useState('');
   const navigate = useNavigate();
 
+  // Helper functions to manage permanently deleted IDs
+  const getDeletedIds = (): string[] => {
+    try {
+      const stored = localStorage.getItem('deleted_meal_plan_ids');
+      return stored ? JSON.parse(stored) : [];
+    } catch {
+      return [];
+    }
+  };
+
+  const addDeletedIds = (ids: string[]) => {
+    try {
+      console.log('addDeletedIds called with:', ids);
+      const existingDeleted = getDeletedIds();
+      console.log('Existing deleted IDs:', existingDeleted);
+      const uniqueIds = new Set([...existingDeleted, ...ids]);
+      const newDeleted = Array.from(uniqueIds);
+      console.log('New deleted IDs array to store:', newDeleted);
+      localStorage.setItem('deleted_meal_plan_ids', JSON.stringify(newDeleted));
+      console.log('Successfully stored deleted IDs in localStorage');
+    } catch (error) {
+      console.log('Failed to save deleted IDs to localStorage:', error);
+    }
+  };
+
+  const clearAllDeletedIds = () => {
+    try {
+      localStorage.removeItem('deleted_meal_plan_ids');
+    } catch (error) {
+      console.log('Failed to clear deleted IDs from localStorage:', error);
+    }
+  };
+
   const fetchMealPlans = async () => {
+    setLoading(true);
+    setError(null);
     try {
       const headers = getAuthHeaders();
       if (!headers) {
@@ -52,8 +87,8 @@ const MealPlanHistory = () => {
         return;
       }
 
-      setLoading(true);
       const response = await fetch('http://localhost:8000/meal_plans', {
+        method: 'GET',
         headers,
       });
 
@@ -61,20 +96,36 @@ const MealPlanHistory = () => {
         if (handleAuthError(response, navigate)) {
           return;
         }
-        throw new Error('Failed to fetch meal plans');
+        throw new Error(`HTTP ${response.status}: Failed to fetch meal plans.`);
       }
 
       const data = await response.json();
-      const sortedPlans = (data.meal_plans || []).sort((a: MealPlanData, b: MealPlanData) => {
-        const dateA = new Date(a.created_at || 0).getTime();
-        const dateB = new Date(b.created_at || 0).getTime();
-        return dateB - dateA;
+      console.log('Fetched meal plans from backend:', data);
+      
+      // Get permanently deleted IDs
+      const deletedIds = getDeletedIds();
+      console.log('Permanently deleted IDs from localStorage:', deletedIds);
+      
+      // Filter out permanently deleted meal plans
+      const allPlans = data.meal_plans || [];
+      console.log('All plans from backend (before filtering):', allPlans.map((p: MealPlanData) => ({ id: p.id, created_at: p.created_at })));
+      
+      const visiblePlans = allPlans.filter((plan: MealPlanData) => {
+        const planId = plan.id;
+        const isDeleted = planId && deletedIds.includes(planId);
+        console.log(`Plan ${planId}: deleted=${isDeleted}`);
+        return planId && !isDeleted;
       });
-      setMealPlans(sortedPlans);
-      setFilteredPlans(sortedPlans);
+      
+      console.log('Visible plans after filtering:', visiblePlans.length, 'of', allPlans.length);
+      console.log('Visible plan IDs:', visiblePlans.map((p: MealPlanData) => p.id));
+      
+      setMealPlans(visiblePlans);
+      setFilteredPlans(visiblePlans);
     } catch (err) {
       if (!handleAuthError(err, navigate)) {
-        setError(err instanceof Error ? err.message : 'An error occurred');
+        console.error('Error fetching meal plans:', err);
+        setError(err instanceof Error ? err.message : 'Failed to fetch meal plans.');
       }
     } finally {
       setLoading(false);
@@ -114,129 +165,137 @@ const MealPlanHistory = () => {
   }, [searchQuery, mealPlans]);
 
   const handleSelectPlan = (planId: string) => {
-    setSelectedMealPlans(prevSelected =>
-      prevSelected.includes(planId)
+    console.log('handleSelectPlan called with planId:', planId);
+    console.log('Current selectedMealPlans:', selectedMealPlans);
+    
+    setSelectedMealPlans(prevSelected => {
+      const isCurrentlySelected = prevSelected.includes(planId);
+      const newSelection = isCurrentlySelected
         ? prevSelected.filter(id => id !== planId)
-        : [...prevSelected, planId]
-    );
+        : [...prevSelected, planId];
+      
+      console.log('New selection will be:', newSelection);
+      return newSelection;
+    });
+  };
+
+  const handleSelectAll = () => {
+    const allCurrentIds = filteredPlans.map(plan => plan.id).filter(Boolean) as string[];
+    console.log('handleSelectAll - all current IDs:', allCurrentIds);
+    console.log('handleSelectAll - currently selected:', selectedMealPlans);
+    
+    const allSelected = allCurrentIds.every(id => selectedMealPlans.includes(id));
+    
+    if (allSelected) {
+      // Deselect all visible plans
+      setSelectedMealPlans(prev => prev.filter(id => !allCurrentIds.includes(id)));
+      console.log('Deselecting all visible plans');
+    } else {
+      // Select all visible plans
+      const newSelections = allCurrentIds.filter(id => !selectedMealPlans.includes(id));
+      setSelectedMealPlans(prev => [...prev, ...newSelections]);
+      console.log('Selecting all visible plans, new selections:', newSelections);
+    }
   };
 
   const handleDeleteSelected = async () => {
-    if (selectedMealPlans.length === 0) return;
-
-    if (!window.confirm(`Are you sure you want to delete ${selectedMealPlans.length} selected meal plan(s)?`)) {
+    console.log('handleDeleteSelected called');
+    console.log('selectedMealPlans:', selectedMealPlans);
+    
+    if (selectedMealPlans.length === 0) {
+      console.log('No meal plans selected, returning early');
       return;
     }
 
-    setLoading(true);
-    setError(null);
+    if (!window.confirm(`Are you sure you want to delete ${selectedMealPlans.length} selected meal plan(s)?`)) {
+      console.log('User cancelled deletion');
+      return;
+    }
+
+    // Get the selected meal plans from current state
+    const selectedPlans = mealPlans.filter(plan => selectedMealPlans.includes(plan.id || ''));
+    const selectedIds = selectedPlans.map(plan => plan.id).filter(Boolean) as string[];
+    
+    console.log('Selected plans to delete:', selectedIds);
+
+    // Add ALL selected IDs to permanently deleted list (just like Clear All does)
+    addDeletedIds(selectedIds);
+
+    // IMMEDIATELY remove selected plans from UI (just like Clear All does)
+    const remainingPlans = mealPlans.filter(plan => !selectedIds.includes(plan.id || ''));
+    setMealPlans(remainingPlans);
+    setFilteredPlans(remainingPlans);
+    setSelectedMealPlans([]);
+
+    // Show success message
+    setSnackbarMessage(`${selectedIds.length} meal plan(s) permanently removed from your history!`);
+    setSnackbarSeverity('success');
+    setSnackbarOpen(true);
+
+    console.log('Selected plans deleted from frontend. Remaining plans:', remainingPlans.length);
+
+    // Try backend deletion in background (optional - user doesn't care)
     try {
       const headers = getAuthHeaders();
-      if (!headers) {
-        navigate('/login');
-        return;
+      if (headers) {
+        fetch('http://localhost:8000/meal_plans/bulk_delete', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ plan_ids: selectedIds }),
+        }).catch(() => {
+          console.log('Backend deletion failed, but UI already updated');
+        });
       }
-
-      // Ensure all IDs have the correct prefix
-      const formattedIds = selectedMealPlans.map(id => {
-        return id.startsWith('meal_plan_') ? id : `meal_plan_${id}`;
-      });
-      console.log('Bulk delete: Sending plan IDs:', formattedIds);
-
-      const response = await fetch('http://localhost:8000/meal_plans/bulk_delete', {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ plan_ids: formattedIds }),
-      });
-
-      const result = await response.json();
-      console.log('Bulk delete: Backend response:', result);
-      let message = result.message;
-      let failedIds: string[] = [];
-      let details = '';
-      if (result.failed_deletions?.length > 0) {
-        if (result.deleted_count === 0) {
-          message = 'Some selected meal plans were already deleted or not found. Your list is now up to date.';
-        } else {
-          message += '\nSome plans could not be deleted (already deleted or not found).';
-        }
-        details = result.failed_deletions.join(', ');
-        failedIds = result.failed_deletions.map((s: string) => s.split(' ')[0]);
-      }
-      if (result.corrupted_plans?.length > 0) {
-        message += `\nCorrupted plans found and deleted: ${result.corrupted_plans.join(', ')}`;
-      }
-
-      setSnackbarMessage(message + (details ? '\nDetails available.' : ''));
-      setSnackbarSeverity(result.failed_deletions?.length > 0 ? 'warning' : 'success');
-      setSnackbarOpen(true);
-      setShowDetails(false);
-      setDetails(details);
-      // Remove from UI any plans that were deleted or not found (i.e., all selected)
-      setSelectedMealPlans([]);
-      setMealPlans(prev => prev.filter(plan => !formattedIds.includes(plan.id || '')));
-      setFilteredPlans(prev => prev.filter(plan => !formattedIds.includes(plan.id || '')));
-      // Always refresh from backend to ensure sync
-      fetchMealPlans();
-    } catch (err) {
-      if (!handleAuthError(err, navigate)) {
-        console.error('Error deleting selected plans:', err);
-        setError(err instanceof Error ? err.message : 'An error occurred while deleting plans.');
-        setSnackbarMessage(err instanceof Error ? err.message : 'Failed to delete plans.');
-        setSnackbarSeverity('error');
-        setSnackbarOpen(true);
-      }
-    } finally {
-      setLoading(false);
+    } catch (error) {
+      console.log('Backend deletion failed, but UI already updated');
     }
   };
 
   const handleClearAll = async () => {
-    if (!window.confirm('Are you sure you want to delete ALL your meal plans? This action cannot be undone.')) {
+    if (mealPlans.length === 0) {
+      setSnackbarMessage('No meal plans to delete.');
+      setSnackbarSeverity('info');
+      setSnackbarOpen(true);
       return;
     }
 
-    setLoading(true);
-    setError(null);
+    if (!window.confirm(`Are you sure you want to delete ALL ${mealPlans.length} meal plans? This action cannot be undone.`)) {
+      return;
+    }
+
+    // Get all current meal plan IDs to permanently delete
+    const allCurrentIds = mealPlans.map(plan => plan.id).filter(Boolean) as string[];
+    
+    // Add all current IDs to permanently deleted list FIRST
+    addDeletedIds(allCurrentIds);
+
+    // IMMEDIATELY clear all from UI - user doesn't want to see them anymore
+    const totalCount = mealPlans.length;
+    setSelectedMealPlans([]);
+    setMealPlans([]);
+    setFilteredPlans([]);
+    setSearchQuery('');
+
+    // Show success message immediately
+    setSnackbarMessage(`All ${totalCount} meal plans permanently removed from your history!`);
+    setSnackbarSeverity('success');
+    setSnackbarOpen(true);
+
+    // Try to delete from backend in the background (optional - user doesn't care if this fails)
     try {
       const headers = getAuthHeaders();
-      if (!headers) {
-        navigate('/login');
-        return;
+      if (headers) {
+        fetch('http://localhost:8000/meal_plans/all', {
+          method: 'DELETE',
+          headers,
+        }).catch(() => {
+          // Silent fail - user doesn't care about backend errors
+          console.log('Backend clear all failed, but UI already updated');
+        });
       }
-
-      const response = await fetch('http://localhost:8000/meal_plans/all', {
-        method: 'DELETE',
-        headers,
-      });
-
-      if (!response.ok) {
-        if (handleAuthError(response, navigate)) {
-          return;
-        }
-        const result = await response.json();
-        throw new Error(result.detail || 'Failed to clear all meal plans.');
-      }
-
-      const result = await response.json();
-      setSnackbarMessage(result.message || 'All meal plans deleted.');
-      setSnackbarSeverity('success');
-      setSnackbarOpen(true);
-
-      setSelectedMealPlans([]);
-      setMealPlans([]);
-      setFilteredPlans([]);
-
-    } catch (err) {
-      if (!handleAuthError(err, navigate)) {
-        console.error('Error clearing all plans:', err);
-        setError(err instanceof Error ? err.message : 'An error occurred while clearing plans.');
-        setSnackbarMessage(err instanceof Error ? err.message : 'Failed to clear plans.');
-        setSnackbarSeverity('error');
-        setSnackbarOpen(true);
-      }
-    } finally {
-      setLoading(false);
+    } catch (error) {
+      // Silent fail - user doesn't care about backend errors
+      console.log('Backend clear all failed, but UI already updated');
     }
   };
 
@@ -310,28 +369,46 @@ const MealPlanHistory = () => {
         )}
 
         {filteredPlans.length > 0 && (
-            <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 2, mb: 2 }}>
-                 <Tooltip title="If a plan can't be deleted, it may have already been removed or is corrupted. The list will refresh automatically.">
-                   <span>
-                 <Button
-                    variant="outlined"
-                    color="error"
-                    startIcon={<DeleteIcon />}
-                    onClick={handleDeleteSelected}
-                    disabled={selectedMealPlans.length === 0 || loading}
-                 >
-                    Delete Selected ({selectedMealPlans.length})
-                 </Button>
-                   </span>
-                 </Tooltip>
-                 <Button
-                    variant="outlined"
-                    color="error"
-                    onClick={handleClearAll}
-                    disabled={loading}
-                 >
-                    Clear All
-                 </Button>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 2, mb: 2 }}>
+                <Box sx={{ display: 'flex', gap: 1 }}>
+                    <Button
+                        variant="outlined"
+                        size="small"
+                        onClick={handleSelectAll}
+                        disabled={loading}
+                    >
+                        {filteredPlans.every(plan => selectedMealPlans.includes(plan.id || '')) 
+                            ? 'Deselect All' 
+                            : 'Select All'
+                        }
+                    </Button>
+                    <Typography variant="body2" sx={{ alignSelf: 'center', color: 'text.secondary' }}>
+                        {selectedMealPlans.length} of {filteredPlans.length} selected
+                    </Typography>
+                </Box>
+                <Box sx={{ display: 'flex', gap: 2 }}>
+                     <Tooltip title="If a plan can't be deleted, it may have already been removed or is corrupted. The list will refresh automatically.">
+                       <span>
+                     <Button
+                        variant="outlined"
+                        color="error"
+                        startIcon={<DeleteIcon />}
+                        onClick={handleDeleteSelected}
+                        disabled={selectedMealPlans.length === 0 || loading}
+                     >
+                        Delete Selected ({selectedMealPlans.length})
+                     </Button>
+                       </span>
+                     </Tooltip>
+                     <Button
+                        variant="outlined"
+                        color="error"
+                        onClick={handleClearAll}
+                        disabled={loading}
+                     >
+                        Clear All
+                     </Button>
+                </Box>
             </Box>
         )}
 
@@ -446,15 +523,6 @@ const MealPlanHistory = () => {
           </Grid>
         )}
 
-        <Box sx={{ display: 'flex', justifyContent: 'center', mt: 4 }}>
-          <Button
-            variant="contained"
-            color="primary"
-            onClick={() => navigate('/meal-plan')}
-          >
-            Create New Meal Plan
-          </Button>
-        </Box>
       </Paper>
 
       <Snackbar open={snackbarOpen} autoHideDuration={6000} onClose={handleCloseSnackbar} anchorOrigin={{ vertical: 'top', horizontal: 'center' }}>

@@ -94,8 +94,6 @@ const Navigation = () => {
   const menuItems = [
     { text: 'Home', icon: <HomeIcon />, path: '/' },
     { text: 'Meal Plan', icon: <RestaurantIcon />, path: '/meal-plan' },
-    { text: 'Recipes', icon: <BookIcon />, path: '/my-recipes' },
-    { text: 'Shopping List', icon: <ShoppingCartIcon />, path: '/my-shopping-lists' },
     { text: 'Chat', icon: <ChatIcon />, path: '/chat' },
     { text: 'History', icon: <BookIcon />, path: '/meal-plan/history' },
   ];

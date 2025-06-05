@@ -54,7 +54,7 @@ const MealPlanRequest: React.FC = () => {
   const [recipeProgress, setRecipeProgress] = useState<number>(0);
   const [generatingRecipes, setGeneratingRecipes] = useState(false);
   const [saveStatus, setSaveStatus] = useState<{ message: string; severity: 'success' | 'error' | 'info' } | null>(null);
-  const [usePreviousPlan, setUsePreviousPlan] = useState(true);
+  const [usePreviousPlan, setUsePreviousPlan] = useState(false);
   const [hasGeneratedMealPlan, setHasGeneratedMealPlan] = useState(false);
   const navigate = useNavigate();
 
@@ -97,18 +97,49 @@ const MealPlanRequest: React.FC = () => {
     try {
       const token = localStorage.getItem('token');
       if (!token) return null;
+      
       const response = await fetch('http://localhost:8000/meal_plans', {
         headers: { 'Authorization': `Bearer ${token}` },
       });
+      
       if (!response.ok) return null;
+      
       const data = await response.json();
-      const sortedPlans = (data.meal_plans || []).sort((a: MealPlanData, b: MealPlanData) => {
+      console.log('Fetched meal plans for previous plan lookup:', data);
+      
+      // Get permanently deleted IDs (same logic as MealPlanHistory)
+      const getDeletedIds = (): string[] => {
+        try {
+          const stored = localStorage.getItem('deleted_meal_plan_ids');
+          return stored ? JSON.parse(stored) : [];
+        } catch {
+          return [];
+        }
+      };
+      
+      const deletedIds = getDeletedIds();
+      console.log('Deleted IDs to filter out:', deletedIds);
+      
+      // Filter out permanently deleted meal plans
+      const availablePlans = (data.meal_plans || []).filter((plan: MealPlanData) => {
+        return plan.id && !deletedIds.includes(plan.id);
+      });
+      
+      console.log('Available plans after filtering deleted ones:', availablePlans.length);
+      
+      // Sort by date (newest first)
+      const sortedPlans = availablePlans.sort((a: MealPlanData, b: MealPlanData) => {
         const dateA = new Date(a.created_at || 0).getTime();
         const dateB = new Date(b.created_at || 0).getTime();
-        return dateB - dateA;
+        return dateB - dateA; // Newest first
       });
-      return sortedPlans.length > 0 ? sortedPlans[sortedPlans.length - 1] : null;
-    } catch {
+      
+      const mostRecentPlan = sortedPlans.length > 0 ? sortedPlans[0] : null; // First element = newest
+      console.log('Most recent meal plan for reference:', mostRecentPlan ? mostRecentPlan.id : 'None');
+      
+      return mostRecentPlan;
+    } catch (error) {
+      console.error('Error fetching previous meal plan:', error);
       return null;
     }
   };
@@ -134,8 +165,32 @@ const MealPlanRequest: React.FC = () => {
         return;
       }
 
+      console.log('🔄 Starting meal plan generation...');
+      console.log('Toggle state - usePreviousPlan:', usePreviousPlan);
+
       // Fetch previous meal plan if toggle is ON
       const previousMealPlan = usePreviousPlan ? await fetchPreviousMealPlan() : null;
+      
+      if (usePreviousPlan) {
+        console.log('✅ Previous meal plan fetched:', previousMealPlan);
+        if (previousMealPlan) {
+          console.log('📋 Previous meal plan details:');
+          console.log('- ID:', previousMealPlan.id);
+          console.log('- Created:', previousMealPlan.created_at);
+          console.log('- Breakfast:', previousMealPlan.breakfast);
+          console.log('- Lunch:', previousMealPlan.lunch);
+          console.log('- Dinner:', previousMealPlan.dinner);
+          console.log('- Snacks:', previousMealPlan.snacks);
+        } else {
+          console.log('⚠️ No previous meal plan found, will create fresh one');
+        }
+      } else {
+        console.log('🆕 Creating fresh meal plan (toggle is OFF)');
+      }
+
+      console.log('🚀 Sending request to backend with:');
+      console.log('- User profile:', profileToUse);
+      console.log('- Previous meal plan:', previousMealPlan);
 
       const response = await fetch('http://localhost:8000/generate-meal-plan', {
         method: 'POST',
@@ -158,6 +213,8 @@ const MealPlanRequest: React.FC = () => {
       if (!response.ok) {
         throw new Error(data.detail || 'Failed to generate meal plan');
       }
+
+      console.log('✅ Meal plan generated successfully:', data);
 
       // Validate the meal plan data structure
       const requiredKeys = ['breakfast', 'lunch', 'dinner', 'snacks', 'dailyCalories', 'macronutrients'];
@@ -191,7 +248,7 @@ const MealPlanRequest: React.FC = () => {
       setEditableMealPlan(data);
       setHasGeneratedMealPlan(true);
     } catch (err) {
-      console.error('Meal plan generation error:', err);
+      console.error('❌ Meal plan generation error:', err);
       setError(err instanceof Error ? err.message : 'An error occurred while generating the meal plan');
     } finally {
       setLoading(false);
@@ -549,11 +606,25 @@ const MealPlanRequest: React.FC = () => {
       case 1:
         return (
           <Box>
-            <FormControlLabel
-              control={<Switch checked={usePreviousPlan} onChange={e => setUsePreviousPlan(e.target.checked)} color="primary" />}
-              label={usePreviousPlan ? 'Use your most recent meal plan to help create this one' : 'Start Fresh'}
-              sx={{ mb: 2 }}
-            />
+            <Box sx={{ mb: 3, p: 2, bgcolor: '#f5f5f5', borderRadius: 2 }}>
+              <FormControlLabel
+                control={<Switch checked={usePreviousPlan} onChange={e => setUsePreviousPlan(e.target.checked)} color="primary" />}
+                label={
+                  <Box>
+                    <Typography variant="body1" sx={{ fontWeight: 'bold' }}>
+                      {usePreviousPlan ? '✅ Use Previous Meal Plan' : '🆕 Start Fresh'}
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      {usePreviousPlan 
+                        ? 'Creating a new plan based on your most recent meal plan' 
+                        : 'Creating a completely new meal plan (Toggle on if you want to use your previous meal plan as a base)'
+                      }
+                    </Typography>
+                  </Box>
+                }
+                sx={{ mb: 2 }}
+              />
+            </Box>
             {editableMealPlan && renderEditableMealPlan()}
           </Box>
         );
