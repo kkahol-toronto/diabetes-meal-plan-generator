@@ -19,7 +19,7 @@ import {
   DialogActions,
   Snackbar,
 } from '@mui/material';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link, Outlet } from 'react-router-dom';
 
 interface Patient {
   id: string;
@@ -32,6 +32,7 @@ interface Patient {
 }
 
 const AdminPanel = () => {
+  console.log('AdminPanel component rendered');
   const navigate = useNavigate();
   const [patients, setPatients] = useState<Patient[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -176,7 +177,6 @@ const AdminPanel = () => {
                 return (
                   <TableRow 
                     key={patient.id}
-                    onClick={isRegistered ? () => navigate(`/admin/users/${patient.id}`) : undefined}
                     sx={{ 
                       cursor: isRegistered ? 'pointer' : 'default',
                       opacity: isRegistered ? 1 : 0.6,
@@ -201,16 +201,11 @@ const AdminPanel = () => {
                       {new Date(patient.created_at).toLocaleString()}
                     </TableCell>
                     <TableCell>
-                      <Button
-                        variant="outlined"
-                        color="primary"
-                        onClick={(e) => {
-                          e.stopPropagation(); // Prevent row click when button is clicked
-                          handleResendCode(patient.id);
-                        }}
-                      >
-                        Resend Code
-                      </Button>
+                      {isRegistered ? (
+                        <Link to={`/admin/users/${patient.id}`}>Edit</Link>
+                      ) : (
+                        <span style={{ color: '#666', fontStyle: 'italic' }}>Not registered</span>
+                      )}
                     </TableCell>
                   </TableRow>
                 );
@@ -267,6 +262,7 @@ const AdminPanel = () => {
             {success}
           </Alert>
         </Snackbar>
+        <Outlet />
       </Paper>
     </Container>
   );

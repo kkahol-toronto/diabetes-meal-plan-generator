@@ -9,6 +9,7 @@ import Chat from './components/Chat';
 import AdminLogin from './components/AdminLogin';
 import AdminPanel from './components/AdminPanel';
 import AdminUserProfile from './components/AdminUserProfile';
+import AdminDashboard from './components/AdminDashboard';
 // Debug imports - can remove these later
 import RouteDebugger from './components/RouteDebugger';
 import AdminAuthDebugger from './components/AdminAuthDebugger';
@@ -54,15 +55,9 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
 const AdminRoute = ({ children }: { children: React.ReactNode }) => {
   const token = localStorage.getItem('token');
   const isAdmin = localStorage.getItem('isAdmin') === 'true';
-  
-  console.log('AdminRoute - Token:', !!token, 'IsAdmin:', isAdmin); // Debug log
-  
   if (!token || !isAdmin) {
-    console.log('AdminRoute - Redirecting to admin login'); // Debug log
     return <Navigate to="/admin/login" replace />;
   }
-  
-  console.log('AdminRoute - Allowing access'); // Debug log
   return <>{children}</>;
 };
 
@@ -80,84 +75,26 @@ function App() {
           <Route path="/thank-you" element={<ThankYou />} />
           <Route path="/emergency/:userId" element={<div style={{padding: '20px'}}><h1>🚨 EMERGENCY ROUTE WORKS!</h1><p>UserId: {window.location.pathname.split('/')[2]}</p></div>} />
           
-          {/* Admin Protected Routes */}
-          <Route
-            path="/admin"
-            element={
-              <AdminRoute>
-                <AdminPanel />
-              </AdminRoute>
-            }
-          />
-          <Route
-            path="/admin/users/:userId"
-            element={
-              <AdminRoute>
-                <AdminUserProfile />
-              </AdminRoute>
-            }
-          />
-          <Route
-            path="/debug/:userId"
-            element={<RouteDebugger />}
-          />
-          <Route
-            path="/auth-debug"
-            element={<AdminAuthDebugger />}
-          />
-          <Route
-            path="/temp-admin/:userId"
-            element={<TempAdminUserProfile />}
-          />
-          <Route
-            path="/simple/:userId"
-            element={<SimpleAdminProfile />}
-          />
+          {/* Admin Protected Routes - Nested */}
+          <Route path="/admin" element={<AdminRoute><AdminPanel /></AdminRoute>}>
+            <Route index element={<AdminDashboard />} />
+            <Route path="users/:userId" element={<AdminUserProfile />} />
+          </Route>
+          
+          <Route path="/debug/:userId" element={<RouteDebugger />} />
+          <Route path="/auth-debug" element={<AdminAuthDebugger />} />
+          <Route path="/temp-admin/:userId" element={<TempAdminUserProfile />} />
+          <Route path="/simple/:userId" element={<SimpleAdminProfile />} />
           
           {/* User Protected Routes */}
-          <Route
-            path="/meal-plan"
-            element={
-              <ProtectedRoute>
-                <MealPlanRequest />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/chat"
-            element={
-              <ProtectedRoute>
-                <Chat />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/my-recipes"
-            element={
-              <ProtectedRoute>
-                <AllRecipesPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/my-shopping-lists"
-            element={
-              <ProtectedRoute>
-                <AllShoppingListsPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/meal_plans"
-            element={
-              <ProtectedRoute>
-                <MealPlanHistory />
-              </ProtectedRoute>
-            }
-          />
-
-          {/* Catch-all route for debugging - Renders a simple message if no other route matches */}
-          <Route path="*" element={<div>404 - Page Not Found or Route Not Matched</div>} />
+          <Route path="/meal-plan" element={<ProtectedRoute><MealPlanRequest /></ProtectedRoute>} />
+          <Route path="/chat" element={<ProtectedRoute><Chat /></ProtectedRoute>} />
+          <Route path="/my-recipes" element={<ProtectedRoute><AllRecipesPage /></ProtectedRoute>} />
+          <Route path="/my-shopping-lists" element={<ProtectedRoute><AllShoppingListsPage /></ProtectedRoute>} />
+          <Route path="/meal_plans" element={<ProtectedRoute><MealPlanHistory /></ProtectedRoute>} />
+          
+          {/* Catch-all route */}
+          <Route path="*" element={<div>404 - Page Not Found</div>} />
         </Routes>
       </Router>
     </ThemeProvider>

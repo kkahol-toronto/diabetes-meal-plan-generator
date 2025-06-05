@@ -16,7 +16,9 @@ import { getAdminUserProfile, saveAdminUserProfile } from '../services/api';
 import { PatientProfile } from '../types/PatientProfile';
 
 const AdminUserProfile: React.FC = () => {
+  console.log('AdminUserProfile component rendered');
   const { userId } = useParams<{ userId: string }>();
+  console.log("userId param:", userId);
   const navigate = useNavigate();
   const [profile, setProfile] = useState<PatientProfile | null>(null);
   const [loading, setLoading] = useState(true);
