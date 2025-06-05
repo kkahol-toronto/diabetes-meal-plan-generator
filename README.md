@@ -1,90 +1,69 @@
-# Diabetes Diet Planner
+# Diabetes Meal Plan Generator
 
-A comprehensive web application for diabetes patients to manage their diet, generate meal plans, recipes, and shopping lists, and get personalized recommendations.
+A comprehensive web application for diabetes patients to manage their diet, generate personalized meal plans, recipes, and shopping lists with AI-powered recommendations.
 
-## Features
+## 🌟 Features
 
-- User authentication and profile management
-- Personalized meal plan generation with optional overlap from previous plan
-- Recipe and shopping list generation
-- Meal plan history and management
-- PDF export for meal plans, recipes, and shopping lists
-- Responsive Material-UI design
+### Core Functionality
+- **User Authentication** - Secure JWT-based login and profile management
+- **Smart Meal Planning** - AI-powered meal plan generation with Azure OpenAI
+- **Recipe Generation** - Detailed recipes for each meal with nutritional information
+- **Shopping Lists** - Automatic generation of shopping lists from meal plans
+- **PDF Export** - Export meal plans, recipes, and shopping lists as professional PDFs
 
-## Tech Stack
+### Advanced Features
+- **Previous Plan Integration** - Toggle to create new plans based on previous ones (70% similar, 30% new)
+- **Meal Plan History** - View, manage, and delete previous meal plans
+- **Persistent Deletion** - Deleted meal plans stay hidden across sessions using localStorage
+- **Bulk Operations** - Select and delete multiple meal plans at once
+- **Real-time Progress** - Live progress tracking during recipe generation
+- **Responsive Design** - Modern Material-UI interface that works on all devices
+
+### Recent Improvements (Latest Update)
+- ✅ **Fixed Bulk Delete System** - Now works perfectly with localStorage persistence
+- ✅ **Enhanced Previous Plan Toggle** - 70% similar + 30% new meal functionality restored
+- ✅ **Improved Error Handling** - Better error messages and debugging for recipe generation
+- ✅ **UI/UX Enhancements** - Cleaner navigation, better defaults, removed duplicate elements
+- ✅ **Persistent History Management** - Deleted items stay hidden permanently across sessions
+
+## 🛠 Tech Stack
 
 ### Backend
-- FastAPI (Python web framework)
-- Azure Cosmos DB (Database)
-- Azure OpenAI (AI chat and meal plan generation)
-- Twilio (SMS notifications)
-- ReportLab (PDF generation)
+- **FastAPI** - Modern Python web framework with automatic API documentation
+- **Azure Cosmos DB** - NoSQL database for scalable data storage
+- **Azure OpenAI** - GPT-4 integration for intelligent meal plan generation
+- **JWT Authentication** - Secure token-based authentication
+- **ReportLab** - Professional PDF generation
+- **Twilio** - SMS notifications (optional)
 
 ### Frontend
-- React with TypeScript
-- Material-UI
-- React Router
-- React Markdown
+- **React 18** - Modern React with hooks and TypeScript
+- **Material-UI v5** - Google's Material Design components
+- **React Router v6** - Client-side routing
+- **TypeScript** - Type-safe JavaScript development
+- **localStorage** - Client-side persistence for user preferences
 
-## Prerequisites
+## 📋 Prerequisites
 
-- Python 3.8+
-- Node.js 16+
-- Azure account with:
-  - Cosmos DB
-  - OpenAI service
-- Twilio account (for SMS features)
+- **Python 3.8+**
+- **Node.js 16+**
+- **Azure Account** with:
+  - Cosmos DB instance
+  - Azure OpenAI service
+- **Twilio Account** (optional, for SMS features)
 
-## Backend Dependencies
+## 🚀 Backend Setup
 
-All backend dependencies are listed in `backend/requirements.txt`:
+### 1. Environment Setup
+```bash
+cd backend
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+pip install -r requirements.txt
+```
 
-- fastapi>=0.109.0
-- uvicorn>=0.27.0
-- python-dotenv>=1.0.0
-- openai>=1.3.0
-- pydantic>=2.6.0
-- python-multipart>=0.0.6
-- sqlalchemy>=2.0.25
-- pydantic-settings>=2.1.0
-- python-jose[cryptography]>=3.3.0
-- passlib[bcrypt]>=1.7.4
-- twilio>=8.10.0
-- email-validator>=2.1.0.post1
-- alembic>=1.13.1
-- azure-cosmos>=4.5.1
-- reportlab>=4.0.8
-- tiktoken==0.9.0
-- bcrypt>=4.0.1
-- aiofiles>=23.2.1
-- starlette>=0.36.3
-- typing-extensions>=4.9.0
-
-## Frontend Dependencies
-
-All frontend dependencies are listed in `frontend/package.json`:
-
-- @emotion/react
-- @emotion/styled
-- @mui/icons-material
-- @mui/material
-- @types/node
-- @types/react
-- @types/react-dom
-- axios
-- react
-- react-dom
-- react-markdown
-- react-router-dom
-- react-scripts
-- typescript
-- uuid
-- web-vitals
-- @types/uuid (dev)
-
-## Environment Variables
-
-Create a `.env` file in the `backend` directory with the following (update values as needed):
+### 2. Environment Variables
+Create a `.env` file in the `backend` directory:
 
 ```env
 # Azure Cosmos DB
@@ -95,106 +74,185 @@ USER_INFORMATION_CONTAINER=user_information
 # Azure OpenAI
 AZURE_OPENAI_KEY=your_openai_key
 AZURE_OPENAI_ENDPOINT=your_openai_endpoint
-AZURE_OPENAI_API_VERSION=2023-05-15
+AZURE_OPENAI_API_VERSION=2024-02-15-preview
+AZURE_OPENAI_DEPLOYMENT_NAME=your_deployment_name
 
-# JWT
-SECRET_KEY=your_jwt_secret
+# JWT Authentication
+SECRET_KEY=your_secure_jwt_secret_key
 
 # Twilio (Optional)
 SMS_API_SID=your_twilio_sid
-SMS_KEY=your_twilio_token
-TWILIO_PHONE_NUMBER=your_twilio_phone
+SMS_KEY=your_twilio_auth_token
+TWILIO_PHONE_NUMBER=your_twilio_phone_number
 ```
 
-## Cosmos DB Partition Key Usage
-
-**Important:**
-- The Cosmos DB `interactions` container is partitioned by `/session_id` (see `init_db.py`).
-- For most operations, the partition key is the `session_id` field of the document. For meal plans, the `user_id` is also used as a logical partition key in queries and deletes.
-- When deleting or updating items, you must supply the correct partition key value. Supplying `None` or the wrong value will result in errors like:
-  > The partition key supplied in x-ms-partitionkey header has fewer components than defined in the the collection.
-- If you encounter this error, ensure you are passing the correct partition key (usually `session_id` for chat messages, and `user_id` for meal plans).
-- See `backend/database.py` and `backend/cleanup_meal_plans.py` for examples of correct partition key usage.
-
-## Setup
-
-### Backend Setup
-
-1. Create a virtual environment:
+### 3. Start Backend Server
 ```bash
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-2. Install dependencies:
-```bash
-pip install -r requirements.txt
-```
+## 🎨 Frontend Setup
 
-3. Start the backend server:
-```bash
-uvicorn main:app --reload
-```
-
-### Frontend Setup
-
-1. Navigate to the frontend directory:
+### 1. Install Dependencies
 ```bash
 cd frontend
-```
-
-2. Install dependencies:
-```bash
 npm install
 ```
 
-3. Start the development server:
+### 2. Start Development Server
 ```bash
 npm start
 ```
 
-## Usage
+The application will open at `http://localhost:3000`
 
-1. Register a new account or login.
-2. Complete your profile.
-3. On the Meal Plan step, choose whether to use your most recent meal plan for overlap (about 70% overlap, 30% new meals) or start fresh using the toggle (now labeled 'Start Fresh').
-4. Click "Generate Meal Plan Now" to create your plan.
-5. Review and optionally edit your meal plan, then proceed to generate recipes and a shopping list.
-6. When ready, click **Save Meal Plan and Go to Home** to save your plan, recipes, and shopping list to your history. **Meal plans are only saved to history after this step.**
-7. View, export, or manage your meal plan history from the History page.
+## 📖 Usage Guide
 
-**Note:**
-- If your session expires, you may be asked to log in again before saving or generating new plans.
-- Duplicate or partial meal plans are no longer saved; only complete plans (with recipes and shopping list) are stored in your history.
-- The UI/UX for meal plan editing and history has been improved for clarity and ease of use.
-- The meal plan overlap toggle is now labeled 'Start Fresh' for clarity.
+### Getting Started
+1. **Register/Login** - Create a new account or sign in
+2. **Complete Profile** - Fill in your health information and dietary preferences
+3. **Generate Meal Plan** - Choose between:
+   - 🆕 **Start Fresh** - Create a completely new meal plan
+   - ✅ **Use Previous Plan** - Base new plan on your most recent one (70% similar, 30% new)
 
-## Main API Endpoints
+### Meal Plan Generation
+1. Click "Generate Meal Plan Now"
+2. Review and edit your meal plan if needed
+3. Generate recipes for your meals
+4. Create a shopping list automatically
+5. Save everything to your history
 
+### History Management
+- **View History** - See all your previous meal plans
+- **Bulk Delete** - Select multiple plans and delete them
+- **Clear All** - Remove all meal plans at once
+- **Persistent Deletion** - Deleted plans stay hidden permanently
+- **Export** - Download PDFs of any meal plan
+
+## 🔧 Backend Dependencies
+
+```
+# Core FastAPI and web framework
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+python-dotenv>=1.0.0
+pydantic>=2.6.0
+starlette>=0.36.3
+
+# AI and OpenAI integration
+openai>=1.3.0
+tiktoken>=0.5.0
+
+# Database and storage
+azure-cosmos>=4.5.1
+sqlalchemy>=2.0.25
+
+# Authentication and security
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.4
+bcrypt>=4.0.1
+
+# PDF generation and utilities
+reportlab>=4.0.8
+aiofiles>=23.2.1
+requests>=2.31.0
+```
+
+## 🎯 Frontend Dependencies
+
+```json
+{
+  "@emotion/react": "^11.11.1",
+  "@emotion/styled": "^11.11.0",
+  "@mui/icons-material": "^5.14.20",
+  "@mui/material": "^5.14.20",
+  "react": "^18.2.0",
+  "react-dom": "^18.2.0",
+  "react-router-dom": "^6.20.1",
+  "typescript": "^4.9.5",
+  "uuid": "^9.0.1"
+}
+```
+
+## 🔌 API Endpoints
+
+### Authentication
+- `POST /register` - User registration
 - `POST /login` - User login
-- `POST /generate-meal-plan` - Generate a new meal plan (optionally with previous plan for overlap)
-- `POST /generate-recipe` - Generate recipes for meals
-- `POST /generate-shopping-list` - Generate a shopping list from recipes
-- `POST /save-full-meal-plan` - Save the full meal plan, recipes, and shopping list to history
-- `GET /meal_plans` - Get all meal plans for the current user
+- `GET /user/profile` - Get user profile
+
+### Meal Plan Management
+- `POST /generate-meal-plan` - Generate new meal plan (with optional previous plan)
+- `GET /meal_plans` - Get all user meal plans
+- `GET /meal_plans/{plan_id}` - Get specific meal plan
 - `POST /meal_plans/bulk_delete` - Delete selected meal plans
-- `POST /export/{type}` - Export meal plan, recipes, or shopping list as PDF
+- `DELETE /meal_plans/all` - Clear all meal plans
 
-## Troubleshooting
+### Recipe & Shopping
+- `POST /generate-recipe` - Generate recipe for specific meal
+- `POST /generate-shopping-list` - Generate shopping list from recipes
+- `POST /save-full-meal-plan` - Save complete meal plan to history
 
-### Cosmos DB Partition Key Errors
-- If you see errors about partition keys (e.g., "The partition key supplied in x-ms-partitionkey header has fewer components than defined in the the collection."), double-check that you are passing the correct partition key value for the item you are deleting or updating.
-- For meal plans, use the `user_id` as the partition key. For chat messages, use the `session_id`.
-- See `backend/cleanup_meal_plans.py` and `backend/database.py` for code examples.
+### Export
+- `POST /export/meal-plan` - Export meal plan as PDF
+- `POST /export/recipes` - Export recipes as PDF
+- `POST /export/consolidated-meal-plan` - Export everything as PDF
 
-## Contributing
+## 🗄️ Database Schema
+
+### Cosmos DB Structure
+- **Container**: `interactions` (partitioned by `/user_id`)
+- **Container**: `user_information` (partitioned by `/id`)
+
+### Document Types
+- **meal_plan** - Meal plan data with recipes and nutritional info
+- **user_profile** - User health information and preferences
+- **recipe** - Individual recipe data
+- **shopping_list** - Shopping list items
+
+## 🛠️ Troubleshooting
+
+### Common Issues
+
+**Recipe Generation Fails**
+- Check Azure OpenAI API key and endpoint
+- Verify deployment name matches environment variable
+- Check rate limits and quotas
+
+**Meal Plan History Not Loading**
+- Clear localStorage: `localStorage.clear()`
+- Check browser console for authentication errors
+- Verify backend connection
+
+**PDF Export Issues**
+- Ensure ReportLab is properly installed
+- Check file permissions in backend directory
+
+### Database Partition Key Errors
+If you see partition key errors:
+- Use correct partition key (`user_id` for meal plans)
+- Check `backend/database.py` for examples
+- Ensure partition key matches document structure
+
+## 🤝 Contributing
 
 1. Fork the repository
-2. Create a feature branch
-3. Commit your changes
-4. Push to the branch
-5. Create a Pull Request
+2. Create a feature branch: `git checkout -b feature/amazing-feature`
+3. Commit changes: `git commit -m 'Add amazing feature'`
+4. Push to branch: `git push origin feature/amazing-feature`
+5. Open a Pull Request
 
-## License
+## 🔒 Security
 
-This project is licensed under the MIT License - see the LICENSE file for details. 
+- JWT tokens for secure authentication
+- Input validation and sanitization
+- Environment variable protection
+- HTTPS recommended for production
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+---
+
+**Built with ❤️ for diabetes management and healthy living** 
