@@ -1,70 +1,145 @@
-# Diabetes Meal Plan Generator
+# 🍽️ Diabetes Diet Manager
 
-A comprehensive web application for diabetes patients to manage their diet, generate personalized meal plans, recipes, and shopping lists with AI-powered recommendations.
+A comprehensive, production-ready web application designed to help diabetes patients manage their diet through AI-powered meal planning, recipe generation, and nutrition tracking. Built with modern technologies and enhanced for real-world deployment.
 
-## 🌟 Features
+[![Made with React](https://img.shields.io/badge/React-18.2.0-blue.svg)](https://reactjs.org/)
+[![Made with FastAPI](https://img.shields.io/badge/FastAPI-0.109.0-green.svg)](https://fastapi.tiangolo.com/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-4.9.5-blue.svg)](https://www.typescriptlang.org/)
+[![Material-UI](https://img.shields.io/badge/Material--UI-5.17.1-blue.svg)](https://mui.com/)
 
-### Core Functionality
-- **User Authentication** - Secure JWT-based login and profile management
-- **Smart Meal Planning** - AI-powered meal plan generation with Azure OpenAI
-- **Recipe Generation** - Detailed recipes for each meal with nutritional information
-- **Shopping Lists** - Automatic generation of shopping lists from meal plans
-- **PDF Export** - Export meal plans, recipes, and shopping lists as professional PDFs
+## ✨ Key Features
 
-### Advanced Features
-- **Previous Plan Integration** - Toggle to create new plans based on previous ones (70% similar, 30% new)
-- **Meal Plan History** - View, manage, and delete previous meal plans
-- **Persistent Deletion** - Deleted meal plans stay hidden across sessions using localStorage
-- **Bulk Operations** - Select and delete multiple meal plans at once
-- **Real-time Progress** - Live progress tracking during recipe generation
-- **Responsive Design** - Modern Material-UI interface that works on all devices
+### 🎯 Core Functionality
+- **🔐 Secure Authentication** - JWT-based auth with enhanced session management
+- **🤖 AI-Powered Meal Planning** - Azure OpenAI integration for intelligent meal generation
+- **👨‍🍳 Smart Recipe Generation** - Detailed diabetes-friendly recipes with nutritional info
+- **🛒 Automatic Shopping Lists** - Generated from your meal plans with smart organization
+- **📄 Professional PDF Export** - Export meal plans, recipes, and shopping lists
+- **📱 Mobile-Responsive Design** - Modern animated UI that works on all devices
 
-### Recent Improvements (Latest Update)
-- ✅ **Fixed Bulk Delete System** - Now works perfectly with localStorage persistence
-- ✅ **Enhanced Previous Plan Toggle** - 70% similar + 30% new meal functionality restored
-- ✅ **Improved Error Handling** - Better error messages and debugging for recipe generation
-- ✅ **UI/UX Enhancements** - Cleaner navigation, better defaults, removed duplicate elements
-- ✅ **Persistent History Management** - Deleted items stay hidden permanently across sessions
+### 🏥 Health Management
+- **👤 Comprehensive User Profiles** - Detailed health information and dietary preferences
+- **📊 Consumption Tracking** - Upload food images for AI-powered nutrition analysis
+- **📈 Analytics Dashboard** - Track macronutrient intake and dietary patterns
+- **🕐 Timezone-Aware Display** - Accurate timestamps for all your activities
+- **💬 AI Health Assistant** - 24/7 chat support for nutrition questions
 
-## 🛠 Tech Stack
+### 🔧 Advanced Features
+- **📚 Meal Plan History** - View, manage, and reuse previous meal plans
+- **🔄 Smart Plan Building** - Create new plans based on previous ones (70% similar, 30% new)
+- **🗑️ Persistent Data Management** - Deleted items stay hidden with localStorage persistence
+- **⚡ Real-time Progress** - Live progress tracking during generation processes
+- **🎛️ Bulk Operations** - Select and manage multiple items at once
+- **🔔 Error Boundaries** - Production-grade error handling with recovery options
 
-### Backend
-- **FastAPI** - Modern Python web framework with automatic API documentation
-- **Azure Cosmos DB** - NoSQL database for scalable data storage
-- **Azure OpenAI** - GPT-4 integration for intelligent meal plan generation
-- **JWT Authentication** - Secure token-based authentication
+### 🚀 Production-Ready Enhancements
+- **🛡️ Enhanced Security** - Token validation, secure headers, CORS configuration
+- **🔄 Auto-Recovery** - API retry logic with exponential backoff
+- **📱 Toast Notifications** - User-friendly feedback system
+- **🌐 Environment Management** - Separate dev/staging/production configurations
+- **📊 Performance Monitoring** - Health checks and comprehensive logging
+- **🐳 Docker Support** - Containerized deployment ready
+
+## 🏗️ Tech Stack
+
+### Backend Architecture
+- **FastAPI** - High-performance Python web framework with automatic API docs
+- **Azure Cosmos DB** - Globally distributed NoSQL database
+- **Azure OpenAI GPT-4** - Advanced AI for meal planning and recipes
+- **JWT Authentication** - Secure token-based authentication with refresh logic
 - **ReportLab** - Professional PDF generation
-- **Twilio** - SMS notifications (optional)
+- **Pillow** - Image processing for food consumption tracking
+- **Gunicorn** - Production WSGI server
 
-### Frontend
-- **React 18** - Modern React with hooks and TypeScript
-- **Material-UI v5** - Google's Material Design components
-- **React Router v6** - Client-side routing
-- **TypeScript** - Type-safe JavaScript development
-- **localStorage** - Client-side persistence for user preferences
+### Frontend Architecture
+- **React 18** - Modern React with TypeScript and hooks
+- **Material-UI v5** - Google's Material Design system
+- **React Router v6** - Client-side routing with protected routes
+- **TypeScript** - Type-safe development
+- **Emotion/Styled** - CSS-in-JS styling with animations
+- **Context API** - Global state management
+
+### DevOps & Infrastructure
+- **Docker & Docker Compose** - Containerized deployment
+- **GitHub Actions** - CI/CD pipeline
+- **Nginx** - Reverse proxy and load balancing
+- **Redis** - Session storage and caching
+- **Prometheus** - Monitoring and metrics
 
 ## 📋 Prerequisites
 
-- **Python 3.8+**
-- **Node.js 16+**
+### Required
+- **Python 3.8+** (3.11+ recommended)
+- **Node.js 16+** (18+ recommended)
 - **Azure Account** with:
   - Cosmos DB instance
-  - Azure OpenAI service
-- **Twilio Account** (optional, for SMS features)
+  - Azure OpenAI service (GPT-4 model)
 
-## 🚀 Backend Setup
+### Optional
+- **Docker & Docker Compose** (for containerized deployment)
+- **Redis** (for enhanced session management)
+- **Twilio Account** (for SMS notifications)
 
-### 1. Environment Setup
+## 🚀 Quick Start
+
+### Using Docker (Recommended)
 ```bash
-cd backend
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-pip install -r requirements.txt
+# Clone the repository
+git clone <repository-url>
+cd diabetes-meal-plan-generator
+
+# Copy environment files
+cp backend/.env.example backend/.env
+cp frontend/.env.example frontend/.env
+
+# Edit .env files with your credentials
+# Then start with Docker Compose
+docker-compose up -d
+
+# Access the application
+# Frontend: http://localhost:3000
+# Backend API: http://localhost:8000
+# API Docs: http://localhost:8000/docs
 ```
 
-### 2. Environment Variables
-Create a `.env` file in the `backend` directory:
+### Manual Setup
 
+#### Backend Setup
+```bash
+cd backend
+
+# Create virtual environment
+python -m venv venv
+source venv/bin/activate  # Windows: venv\Scripts\activate
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Setup environment
+cp .env.example .env
+# Edit .env with your Azure credentials
+
+# Start development server
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
+```
+
+#### Frontend Setup
+```bash
+cd frontend
+
+# Install dependencies
+npm install
+
+# Start development server
+npm start
+
+# Build for production
+npm run build:prod
+```
+
+## ⚙️ Environment Configuration
+
+### Backend (.env)
 ```env
 # Azure Cosmos DB
 COSMO_DB_CONNECTION_STRING=your_cosmos_connection_string
@@ -75,184 +150,141 @@ USER_INFORMATION_CONTAINER=user_information
 AZURE_OPENAI_KEY=your_openai_key
 AZURE_OPENAI_ENDPOINT=your_openai_endpoint
 AZURE_OPENAI_API_VERSION=2024-02-15-preview
-AZURE_OPENAI_DEPLOYMENT_NAME=your_deployment_name
+AZURE_OPENAI_DEPLOYMENT_NAME=your_gpt4_deployment
 
-# JWT Authentication
-SECRET_KEY=your_secure_jwt_secret_key
+# Security
+SECRET_KEY=your_secure_jwt_secret_key_256_bits
+JWT_ALGORITHM=HS256
+ACCESS_TOKEN_EXPIRE_MINUTES=30
 
-# Twilio (Optional)
+# Optional: Twilio for SMS
 SMS_API_SID=your_twilio_sid
 SMS_KEY=your_twilio_auth_token
-TWILIO_PHONE_NUMBER=your_twilio_phone_number
+TWILIO_PHONE_NUMBER=your_twilio_phone
+
+# Optional: Redis for sessions
+REDIS_URL=redis://localhost:6379
+
+# Environment
+ENVIRONMENT=development  # development|staging|production
 ```
 
-### 3. Start Backend Server
-```bash
-uvicorn main:app --reload --host 0.0.0.0 --port 8000
+### Frontend (.env)
+```env
+REACT_APP_API_URL=http://localhost:8000
+REACT_APP_ENVIRONMENT=development
+REACT_APP_VERSION=1.0.0
 ```
-
-## 🎨 Frontend Setup
-
-### 1. Install Dependencies
-```bash
-cd frontend
-npm install
-```
-
-### 2. Start Development Server
-```bash
-npm start
-```
-
-The application will open at `http://localhost:3000`
 
 ## 📖 Usage Guide
 
 ### Getting Started
-1. **Register/Login** - Create a new account or sign in
-2. **Complete Profile** - Fill in your health information and dietary preferences
-3. **Generate Meal Plan** - Choose between:
-   - 🆕 **Start Fresh** - Create a completely new meal plan
-   - ✅ **Use Previous Plan** - Base new plan on your most recent one (70% similar, 30% new)
+1. **Register Account** - Create your secure account
+2. **Complete Profile** - Fill in health information and dietary preferences
+3. **Choose Generation Mode**:
+   - 🆕 **Fresh Start** - Create completely new meal plan
+   - 🔄 **Build on Previous** - Use your last plan as base (70% similar, 30% new)
 
-### Meal Plan Generation
-1. Click "Generate Meal Plan Now"
-2. Review and edit your meal plan if needed
-3. Generate recipes for your meals
-4. Create a shopping list automatically
-5. Save everything to your history
+### Meal Planning Workflow
+1. **Generate Meal Plan** - AI creates personalized weekly plan
+2. **Review & Edit** - Modify any meals to your preference
+3. **Generate Recipes** - Get detailed cooking instructions
+4. **Create Shopping List** - Automatic ingredient compilation
+5. **Save to History** - Store for future reference
+6. **Export PDFs** - Download professional documents
 
-### History Management
-- **View History** - See all your previous meal plans
-- **Bulk Delete** - Select multiple plans and delete them
-- **Clear All** - Remove all meal plans at once
-- **Persistent Deletion** - Deleted plans stay hidden permanently
-- **Export** - Download PDFs of any meal plan
+### Advanced Features
+- **History Management** - View, reuse, or delete previous plans
+- **Consumption Tracking** - Upload food photos for nutrition analysis
+- **AI Chat Assistant** - Ask questions about diabetes nutrition
+- **Bulk Operations** - Manage multiple meal plans efficiently
 
-## 🔧 Backend Dependencies
+## 🔌 API Documentation
 
-```
-# Core FastAPI and web framework
-fastapi>=0.109.0
-uvicorn[standard]>=0.27.0
-python-dotenv>=1.0.0
-pydantic>=2.6.0
-starlette>=0.36.3
-
-# AI and OpenAI integration
-openai>=1.3.0
-tiktoken>=0.5.0
-
-# Database and storage
-azure-cosmos>=4.5.1
-sqlalchemy>=2.0.25
-
-# Authentication and security
-python-jose[cryptography]>=3.3.0
-passlib[bcrypt]>=1.7.4
-bcrypt>=4.0.1
-
-# PDF generation and utilities
-reportlab>=4.0.8
-aiofiles>=23.2.1
-requests>=2.31.0
-```
-
-## 🎯 Frontend Dependencies
-
-```json
-{
-  "@emotion/react": "^11.11.1",
-  "@emotion/styled": "^11.11.0",
-  "@mui/icons-material": "^5.14.20",
-  "@mui/material": "^5.14.20",
-  "react": "^18.2.0",
-  "react-dom": "^18.2.0",
-  "react-router-dom": "^6.20.1",
-  "typescript": "^4.9.5",
-  "uuid": "^9.0.1"
-}
-```
-
-## 🔌 API Endpoints
+The backend provides comprehensive API documentation at `/docs` when running. Key endpoints include:
 
 ### Authentication
 - `POST /register` - User registration
-- `POST /login` - User login
-- `GET /user/profile` - Get user profile
+- `POST /login` - User authentication
+- `GET /user/profile` - Profile management
 
-### Meal Plan Management
-- `POST /generate-meal-plan` - Generate new meal plan (with optional previous plan)
-- `GET /meal_plans` - Get all user meal plans
-- `GET /meal_plans/{plan_id}` - Get specific meal plan
-- `POST /meal_plans/bulk_delete` - Delete selected meal plans
-- `DELETE /meal_plans/all` - Clear all meal plans
+### Meal Planning
+- `POST /generate-meal-plan` - AI meal plan generation
+- `GET /meal_plans` - Retrieve user's meal plans
+- `POST /save-full-meal-plan` - Save complete meal plan
 
-### Recipe & Shopping
-- `POST /generate-recipe` - Generate recipe for specific meal
-- `POST /generate-shopping-list` - Generate shopping list from recipes
-- `POST /save-full-meal-plan` - Save complete meal plan to history
+### AI Features  
+- `POST /generate-recipe` - Recipe generation
+- `POST /generate-shopping-list` - Shopping list creation
+- `POST /consumption-analysis` - Food image analysis
 
-### Export
-- `POST /export/meal-plan` - Export meal plan as PDF
-- `POST /export/recipes` - Export recipes as PDF
-- `POST /export/consolidated-meal-plan` - Export everything as PDF
+### Export & Utilities
+- `POST /export/*` - Various PDF export options
+- `GET /health` - System health check
 
-## 🗄️ Database Schema
+## 🧪 Testing
 
-### Cosmos DB Structure
-- **Container**: `interactions` (partitioned by `/user_id`)
-- **Container**: `user_information` (partitioned by `/id`)
+### Frontend Testing
+```bash
+cd frontend
+npm test                    # Run tests
+npm run test:coverage      # Coverage report
+npm run lint               # Code linting
+npm run type-check         # TypeScript validation
+```
 
-### Document Types
-- **meal_plan** - Meal plan data with recipes and nutritional info
-- **user_profile** - User health information and preferences
-- **recipe** - Individual recipe data
-- **shopping_list** - Shopping list items
+### Backend Testing
+```bash
+cd backend
+pytest                     # Run tests
+pytest --cov=app          # Coverage report
+black .                   # Code formatting
+isort .                   # Import sorting
+```
 
-## 🛠️ Troubleshooting
+## 📦 Deployment
 
-### Common Issues
+### Production Deployment
+1. **Review** `DEPLOYMENT.md` for comprehensive deployment guide
+2. **Configure** environment variables for production
+3. **Deploy** using Docker Compose or cloud platforms
+4. **Monitor** using health checks and logging
 
-**Recipe Generation Fails**
-- Check Azure OpenAI API key and endpoint
-- Verify deployment name matches environment variable
-- Check rate limits and quotas
-
-**Meal Plan History Not Loading**
-- Clear localStorage: `localStorage.clear()`
-- Check browser console for authentication errors
-- Verify backend connection
-
-**PDF Export Issues**
-- Ensure ReportLab is properly installed
-- Check file permissions in backend directory
-
-### Database Partition Key Errors
-If you see partition key errors:
-- Use correct partition key (`user_id` for meal plans)
-- Check `backend/database.py` for examples
-- Ensure partition key matches document structure
+### Supported Platforms
+- **Docker/Kubernetes** - Containerized deployment
+- **Azure App Service** - Native Azure deployment  
+- **AWS/GCP** - Cloud platform deployment
+- **Traditional VPS** - Manual server deployment
 
 ## 🤝 Contributing
 
 1. Fork the repository
-2. Create a feature branch: `git checkout -b feature/amazing-feature`
-3. Commit changes: `git commit -m 'Add amazing feature'`
-4. Push to branch: `git push origin feature/amazing-feature`
-5. Open a Pull Request
+2. Create feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit changes (`git commit -m 'Add amazing feature'`)
+4. Push to branch (`git push origin feature/amazing-feature`)
+5. Open Pull Request
 
-## 🔒 Security
-
-- JWT tokens for secure authentication
-- Input validation and sanitization
-- Environment variable protection
-- HTTPS recommended for production
-
-## 📄 License
+## 📝 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
+## 🆘 Support
+
+- **Documentation** - Check `/docs` endpoint for API documentation
+- **Issues** - Report bugs via GitHub issues
+- **Health Checks** - Monitor `/health` endpoint for system status
+
+## 🎯 Roadmap
+
+- [ ] Mobile app development (React Native)
+- [ ] Advanced meal plan customization
+- [ ] Integration with fitness trackers
+- [ ] Multilingual support
+- [ ] Advanced analytics dashboard
+- [ ] Nutritionist collaboration features
+
 ---
 
-**Built with ❤️ for diabetes management and healthy living** 
+**Made with ❤️ for the diabetes community**
+
+*Transform your health journey with AI-powered nutrition guidance designed specifically for diabetes management.* 

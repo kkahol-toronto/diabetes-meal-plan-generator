@@ -86,9 +86,9 @@ const HomePage = () => {
   ];
 
   const stats = [
-    { icon: <HeartIcon />, number: "10K+", label: "Happy Users" },
-    { icon: <RestaurantIcon />, number: "50K+", label: "Meal Plans" },
-    { icon: <TrendingIcon />, number: "95%", label: "Success Rate" },
+    { icon: <BrainIcon />, number: "AI-Powered", label: "Smart Planning" },
+    { icon: <RestaurantIcon />, number: "Diabetes-Friendly", label: "Meal Plans" },
+    { icon: <HeartIcon />, number: "Health-Focused", label: "Approach" },
   ];
 
   return (

@@ -27,6 +27,7 @@ import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
 import AccountCircleIcon from '@mui/icons-material/AccountCircle';
 import HistoryIcon from '@mui/icons-material/History';
 import { isTokenExpired } from '../utils/auth';
+import { useApp } from '../contexts/AppContext';
 import ShoppingCartIcon from '@mui/icons-material/ShoppingCart';
 
 const Navigation = () => {
@@ -37,6 +38,7 @@ const Navigation = () => {
   const [drawerOpen, setDrawerOpen] = React.useState(false);
   const [userInfo, setUserInfo] = useState<{ username: string; is_admin: boolean; name?: string } | null>(null);
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
+  const { showNotification } = useApp();
 
   useEffect(() => {
     const fetchUserInfo = async () => {
@@ -109,6 +111,7 @@ const Navigation = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('isAdmin');
     setUserInfo(null);
+    showNotification('You have been logged out successfully', 'info');
     navigate('/login');
   };
 

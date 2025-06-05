@@ -243,7 +243,33 @@ const ConsumptionHistory = () => {
   };
 
   const formatTimestamp = (timestamp: string) => {
-    return new Date(timestamp).toLocaleString();
+    try {
+      // Handle the case where backend sends UTC timestamp without 'Z' suffix
+      let processedTimestamp = timestamp;
+      
+      // If the string doesn't end with 'Z' or timezone info, assume it's UTC
+      if (!timestamp.includes('Z') && !timestamp.includes('+') && !timestamp.includes('-', 10)) {
+        processedTimestamp = timestamp + 'Z';
+      }
+      
+      const date = new Date(processedTimestamp);
+      if (isNaN(date.getTime())) {
+        return 'Invalid Date';
+      }
+
+      // Return formatted timestamp in user's local timezone
+      return date.toLocaleString('en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true,
+        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone
+      });
+    } catch (e) {
+      return 'Invalid Date';
+    }
   };
 
   if (isLoading) {
@@ -424,17 +450,19 @@ const ConsumptionHistory = () => {
               <Card>
                 <CardContent>
                   <Typography color="textSecondary" gutterBottom>
-                    Total Carbs
+                    Macronutrients
                   </Typography>
-                  <Typography variant="h4">
-                    {Math.round(analytics.total_macronutrients.carbohydrates)}g
-                  </Typography>
-                  <Typography variant="body2" color="textSecondary">
-                    Protein: {Math.round(analytics.total_macronutrients.protein)}g
-                  </Typography>
-                  <Typography variant="body2" color="textSecondary">
-                    Fat: {Math.round(analytics.total_macronutrients.fat)}g
-                  </Typography>
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                    <Typography variant="h6" color="textPrimary">
+                      Carbs: {Math.round(analytics.total_macronutrients.carbohydrates)}g
+                    </Typography>
+                    <Typography variant="h6" color="textPrimary">
+                      Protein: {Math.round(analytics.total_macronutrients.protein)}g
+                    </Typography>
+                    <Typography variant="h6" color="textPrimary">
+                      Fat: {Math.round(analytics.total_macronutrients.fat)}g
+                    </Typography>
+                  </Box>
                 </CardContent>
               </Card>
             </Grid>

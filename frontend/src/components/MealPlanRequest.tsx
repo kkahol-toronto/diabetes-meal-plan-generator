@@ -24,6 +24,7 @@ import {
   CardContent,
 } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
+import { isValidToken } from '../utils/auth';
 import UserProfileForm from './UserProfileForm';
 import MealPlan from './MealPlan';
 import RecipeList from './RecipeList';
@@ -464,8 +465,11 @@ const MealPlanRequest: React.FC = () => {
 
     try {
       const token = localStorage.getItem('token');
-      if (!token) {
-        navigate('/login');
+      if (!token || !isValidToken(token)) {
+        localStorage.removeItem('token');
+        localStorage.removeItem('isAdmin');
+        setError('Your session has expired. Please refresh the page and log in again to save your meal plan.');
+        setLoading(false);
         return;
       }
 
@@ -487,12 +491,30 @@ const MealPlanRequest: React.FC = () => {
       });
 
       if (!response.ok) {
+        if (response.status === 401) {
+          // Token expired or invalid
+          localStorage.removeItem('token');
+          localStorage.removeItem('isAdmin');
+          setError('Your session has expired. Please refresh the page and log in again to save your meal plan.');
+          setLoading(false);
+          return;
+        }
+        
         const errorText = await response.text();
-        throw new Error(`Failed to save full meal plan: ${errorText}`);
+        let errorMessage = 'Failed to save meal plan';
+        
+        try {
+          const errorData = JSON.parse(errorText);
+          errorMessage = errorData.detail || errorMessage;
+        } catch {
+          errorMessage = errorText || errorMessage;
+        }
+        
+        throw new Error(errorMessage);
       }
 
       console.log('Full meal plan saved successfully.');
-      navigate('/'); // Redirect to home after saving
+      navigate('/meal-plan/history'); // Redirect to history to see the saved plan
     } catch (err) {
       console.error('Error saving full meal plan:', err);
       setError(err instanceof Error ? err.message : 'An error occurred while saving the meal plan.');

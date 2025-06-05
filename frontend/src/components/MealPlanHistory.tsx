@@ -332,22 +332,32 @@ const MealPlanHistory = () => {
 
   const formatDate = (dateString: string) => {
     try {
-      const date = new Date(dateString);
+      // Handle the case where backend sends UTC timestamp without 'Z' suffix
+      let processedDateString = dateString;
+      
+      // If the string doesn't end with 'Z' or timezone info, assume it's UTC
+      if (!dateString.includes('Z') && !dateString.includes('+') && !dateString.includes('-', 10)) {
+        processedDateString = dateString + 'Z';
+      }
+      
+      const date = new Date(processedDateString);
       if (isNaN(date.getTime())) {
         return 'Invalid Date';
       }
 
       const now = new Date();
-      // Zero out the time for both dates to compare only the date part
+      // Zero out the time for both dates to compare only the date part (in local timezone)
       const dateOnly = new Date(date.getFullYear(), date.getMonth(), date.getDate());
       const nowOnly = new Date(now.getFullYear(), now.getMonth(), now.getDate());
       const diffTime = nowOnly.getTime() - dateOnly.getTime();
       const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
 
+      // Format time in user's local timezone
       const timeString = date.toLocaleTimeString('en-US', {
         hour: '2-digit',
         minute: '2-digit',
-        hour12: true
+        hour12: true,
+        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone
       });
 
       if (diffDays === 0) return `Today, ${timeString}`;
@@ -357,6 +367,7 @@ const MealPlanHistory = () => {
         year: 'numeric',
         month: 'long',
         day: 'numeric',
+        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone
       }) + `, ${timeString}`;
     } catch (e) {
       return 'Invalid Date';

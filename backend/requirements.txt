@@ -1,4 +1,6 @@
-# Updated for Diabetes Meal Plan Generator - Latest workflow and features
+# Diabetes Meal Plan Generator - Production-Ready Backend Dependencies
+# Updated: December 2024
+
 # Core FastAPI and web framework dependencies
 fastapi>=0.109.0
 uvicorn[standard]>=0.27.0
@@ -22,18 +24,37 @@ alembic>=1.13.1
 python-jose[cryptography]>=3.3.0
 passlib[bcrypt]>=1.7.4
 bcrypt>=4.0.1
+cryptography>=42.0.0
 
 # Communication and notifications
 twilio>=8.10.0
-email-validator>=2.1.0.post1
+email-validator>=2.1.0
 
 # PDF generation and file handling
 reportlab>=4.0.8
 aiofiles>=23.2.1
 
-# Image processing (for consumption history)
-pillow==11.2.1
+# Image processing (for consumption history features)
+pillow>=11.2.1
+
+# HTTP and API utilities
+requests>=2.31.0
+httpx>=0.26.0
+
+# Date and time handling (for timezone fixes)
+python-dateutil>=2.8.2
+pytz>=2023.3
+
+# Production server and monitoring
+gunicorn>=21.2.0
+prometheus-client>=0.19.0
 
 # Additional utilities
-requests>=2.31.0
-python-dateutil>=2.8.2
+python-json-logger>=2.0.7
+redis>=5.0.1
+
+# Development and testing (optional)
+pytest>=7.4.0
+pytest-asyncio>=0.21.1
+black>=23.12.0
+isort>=5.13.0
