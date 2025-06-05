@@ -1,4 +1,4 @@
-import React, { useState, useEffect, ChangeEvent } from 'react';
+import React, { useState, useEffect, ChangeEvent, useCallback } from 'react';
 import {
   Container,
   Paper,
@@ -10,7 +10,6 @@ import {
   InputLabel,
   Select,
   MenuItem,
-  Grid,
   FormHelperText,
   Checkbox,
   ListItemText,
@@ -21,20 +20,24 @@ import {
   FormControlLabel,
   FormGroup,
   FormLabel,
-  Radio,
-  RadioGroup,
-  Switch,
   Collapse,
+  Grid,
   IconButton,
 } from '@mui/material';
-import { PatientProfile, LabValues, VitalSigns, DietaryInfo, PhysicalActivity, Lifestyle, MealPlanTargeting } from '../types/PatientProfile'; // Corrected import path and imported nested types
-import { getPatientProfile } from '../services/api'; // Add this import
+import { getPatientProfile, savePatientProfile } from '../services/api';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
+import {
+  PatientProfile,
+  DietaryInfo,
+  PhysicalActivity,
+  Lifestyle
+} from '../types/PatientProfile';
 
 interface UserProfileFormProps {
   onSubmit: (profile: PatientProfile) => Promise<void>;
   initialProfile?: PatientProfile;
+  mode?: 'user' | 'admin';
 }
 
 // Define the structure for form errors, mirroring PatientProfile structure where fields can have errors
@@ -144,230 +147,480 @@ const Section: React.FC<SectionProps> = ({ title, children, expanded, onToggle, 
     </Card>
 );
 
-const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProfile }) => {
-  const [formData, setFormData] = useState<Partial<PatientProfile>>(() => {
-    if (initialProfile) {
-      // Ensure nested objects exist if initialProfile is provided and handle array/string types
-      return {
-        ...initialProfile,
-        vitalSigns: initialProfile.vitalSigns || {},
-        labValues: initialProfile.labValues || {},
-        dietaryInfo: {
-           ...initialProfile.dietaryInfo,
-           dietFeatures: initialProfile.dietaryInfo?.dietFeatures || [],
-           allergies: initialProfile.dietaryInfo?.allergies || '', // Initialize as string
-           dislikes: initialProfile.dietaryInfo?.dislikes || '', // Initialize as string
-        } as DietaryInfo, // Cast to DietaryInfo
-        physicalActivity: {
-          ...initialProfile.physicalActivity,
-          exerciseTypes: initialProfile.physicalActivity?.exerciseTypes || [],
-        } as PhysicalActivity, // Cast to PhysicalActivity
-        lifestyle: {
-          ...initialProfile.lifestyle,
-          availableAppliances: initialProfile.lifestyle?.availableAppliances || [],
-        } as Lifestyle, // Cast to Lifestyle
-        mealPlanTargeting: initialProfile.mealPlanTargeting || {},
-        // Ensure top-level array fields are arrays
-        ethnicity: initialProfile.ethnicity || [],
-        medicalHistory: initialProfile.medicalHistory || [],
-        medications: initialProfile.medications || [],
-        goals: initialProfile.goals || [], // Goals is an array
-      };
+const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProfile, mode = 'user' }) => {
+  // Constants and options
+  const sexOptions = ['Male', 'Female', 'Other', 'Prefer not to say'];
+  const ethnicityOptions = [
+    'South Asian – North Indian',
+    'South Asian – Pakistani',
+    'South Asian – Sri Lankan',
+    'South Asian – Bangladeshi',
+    'East Asian – Chinese',
+    'East Asian – Korean',
+    'Filipino',
+    'Caucasian / White',
+    'Black / African / African-American',
+    'Caribbean – Jamaican',
+    'Caribbean – Guyanese',
+    'Indigenous / First Nations',
+    'Middle Eastern',
+    'Hispanic / Latin American',
+    'Other:',
+  ];
+  const medicalHistoryOptions = [
+    'Type 2 Diabetes',
+    'Type 1 Diabetes',
+    'Obesity',
+    'Hypertension',
+    'High Cholesterol',
+    'High Triglycerides',
+    'Coronary Artery Disease',
+    'Stroke',
+    'Peripheral Vascular Disease',
+    'Fatty Liver',
+    'Chronic Kidney Disease',
+    'Proteinuria',
+    'Elevated Potassium',
+    'PCOS',
+    'Hypothyroidism',
+    'Osteoporosis',
+    'GERD / acid reflux',
+    'B12 deficiency',
+    'Iron deficiency / anemia',
+    'Other:',
+  ];
+  const medicationOptions = [
+    'Metformin',
+    'Insulin',
+    'GLP-1 agonist (e.g., Ozempic, Trulicity)',
+    'SGLT2 inhibitor (e.g., Jardiance, Farxiga)',
+    'Statin',
+    'Diuretic',
+    'Thyroid hormone',
+    'Antihypertensives',
+    'Anticoagulants (e.g., Aspirin, Eliquis)',
+    'Other:',
+  ];
+  const dietTypeOptions = [
+    'Standard',
+    'Vegetarian',
+    'Vegan',
+    'Pescatarian',
+    'Keto',
+    'Low Carb',
+    'Paleo',
+    'Mediterranean',
+    'DASH',
+    'Gluten-Free',
+    'Dairy-Free',
+    'Other',
+  ];
+  const dietFeaturesOptions = [
+    'High Protein', 'Low Fat', 'Low Sodium', 'High Fiber', 'Sugar-Free', 'Organic', 'Local Produce', 'Seasonal Eating'
+  ];
+  const workActivityLevelOptions = ['Sedentary', 'Light', 'Moderate', 'Heavy'];
+  const exerciseFrequencyOptions = ['None', '1-2 times/week', '3-4 times/week', '5+ times/week'];
+  const mealPrepMethodOptions = ['Own', 'Assisted', 'Caregiver', 'Delivery'];
+  const eatingScheduleOptions = ['3 meals', '2 meals + snack', 'Fasting', 'Night Shift', 'Other'];
+  const availableAppliancesOptions = ['Stove', 'Oven', 'Microwave', 'Blender', 'Toaster'];
+  const goalsOptions = [
+    'Weight Loss',
+    'Improved Blood Sugar Control',
+    'Lower Cholesterol',
+    'Lower Blood Pressure',
+    'Increased Energy Levels',
+    'Better Digestion',
+    'Reduced Inflammation',
+    'Improved Sleep',
+    'Increased Physical Activity',
+    'Better Stress Management',
+    'Learn Healthy Cooking Skills',
+    'Meal Planning',
+    'Mindful Eating',
+    'Manage Food Cravings',
+    'Navigate Social Eating Situations',
+    'Reduce Processed Foods',
+    'Increase Fruits and Vegetables',
+    'Increase Fiber Intake',
+    'Reduce Sugar Intake',
+    'Reduce Sodium Intake',
+    'Increase Protein Intake',
+    'Increase Healthy Fats',
+    'Understand Food Labels',
+    'Grocery Shopping Strategies',
+    'Eating Out Strategies',
+    'Managing Hunger and Fullness',
+    'Other:',
+  ];
+  const readinessOptions = ['Not ready', 'Thinking about it', 'Getting started', 'Already making changes'];
+
+  // Helper functions
+  const calculateAge = (dob: string): number => {
+    const birthDate = new Date(dob);
+    const today = new Date();
+    let age = today.getFullYear() - birthDate.getFullYear();
+    const m = today.getMonth() - birthDate.getMonth();
+    if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
+      age--;
     }
-    return {
-      fullName: '',
-      intakeDate: undefined,
-      dateOfBirth: undefined,
-      age: undefined,
-      sex: undefined,
-      ethnicity: [],
-      ethnicityOther: undefined,
+    return age;
+  };
 
-      medicalHistory: [],
-      medicalHistoryOther: undefined,
-      medications: [],
-      medicationsOther: undefined,
+  const isOtherSelected = (selectedItems: any) => {
+    return Array.isArray(selectedItems) && selectedItems.includes('Other:');
+  };
 
-      labValues: {
-        a1c: undefined,
-        fastingGlucose: undefined,
-        ldlC: undefined,
-        hdlC: undefined,
-        triglycerides: undefined,
-        totalCholesterol: undefined,
-        egfr: undefined,
-        creatinine: undefined,
-        potassium: undefined,
-        uacr: undefined,
-        alt: undefined,
-        ast: undefined,
-        vitaminD: undefined,
-        vitaminB12: undefined,
-      },
+  const ensureArray = (value: any): any[] => {
+    if (!value) return [];
+    if (Array.isArray(value)) {
+      // Filter out undefined/null values
+      return value.filter(item => item !== undefined && item !== null);
+    }
+    if (typeof value === 'string') return [value];
+    return [];
+  };
 
-      vitalSigns: {
-        heightCm: undefined,
-        weightKg: undefined,
-        bmi: undefined,
-        bloodPressureSystolic: undefined,
-        bloodPressureDiastolic: undefined,
-        heartRateBpm: undefined,
-      },
+  const safeJoinArray = (selected: any): string => {
+    if (!selected) return '';
+    if (Array.isArray(selected)) {
+      // Filter out undefined/null values and join
+      const validItems = selected.filter(item => item !== undefined && item !== null && item !== '');
+      return validItems.join(', ');
+    }
+    if (typeof selected === 'string') return selected;
+    return '';
+  };
 
-      dietaryInfo: {
-        dietType: undefined,
-        dietFeatures: [],
-        allergies: '', // Initialize as string
-        dislikes: '', // Initialize as string
-      },
-
-      physicalActivity: {
-        workActivityLevel: undefined,
-        exerciseFrequency: undefined,
-        exerciseTypes: [],
-        exerciseTypesOther: undefined,
-        exerciseTypesOtherUpdatedBy: undefined,
-        mobilityIssues: undefined,
-      },
-
-      lifestyle: {
-        mealPrepMethod: undefined,
-        availableAppliances: [],
-        eatingSchedule: undefined,
-        eatingScheduleOther: undefined,
-      },
-
-      goals: [], // Goals is an array
-      goalsOther: undefined,
-      readiness: undefined,
-
-      mealPlanTargeting: {
-        wantsWeightLoss: undefined,
-        calorieTarget: undefined,
-      },
-    };
+  // Initialize form data with proper defaults
+  const initializeFormData = (profile: PatientProfile): Partial<PatientProfile> => ({
+    ...profile,
+    // Properly initialize nested objects with default values
+    vitalSigns: {
+      heightCm: undefined,
+      weightKg: undefined,
+      bmi: undefined,
+      bloodPressureSystolic: undefined,
+      bloodPressureDiastolic: undefined,
+      heartRateBpm: undefined,
+      ...profile.vitalSigns,
+    },
+    labValues: {
+      a1c: undefined,
+      fastingGlucose: undefined,
+      ldlC: undefined,
+      hdlC: undefined,
+      triglycerides: undefined,
+      totalCholesterol: undefined,
+      egfr: undefined,
+      creatinine: undefined,
+      potassium: undefined,
+      uacr: undefined,
+      alt: undefined,
+      ast: undefined,
+      vitaminD: undefined,
+      vitaminB12: undefined,
+      ...profile.labValues,
+    },
+    dietaryInfo: {
+      dietType: undefined,
+      dietFeatures: [],
+      allergies: '',
+      dislikes: '',
+      ...profile.dietaryInfo,
+    },
+    physicalActivity: {
+      workActivityLevel: undefined,
+      exerciseFrequency: undefined,
+      exerciseTypes: [],
+      exerciseTypesOther: undefined,
+      exerciseTypesOtherUpdatedBy: undefined,
+      mobilityIssues: undefined,
+      ...profile.physicalActivity,
+    },
+    lifestyle: {
+      mealPrepMethod: undefined,
+      availableAppliances: [],
+      eatingSchedule: undefined,
+      eatingScheduleOther: undefined,
+      ...profile.lifestyle,
+    },
+    mealPlanTargeting: {
+      wantsWeightLoss: undefined,
+      calorieTarget: undefined,
+      ...profile.mealPlanTargeting,
+    },
+    // Ensure arrays are properly initialized
+    ethnicity: profile.ethnicity || [],
+    medicalHistory: profile.medicalHistory || [],
+    medications: profile.medications || [],
+    goals: profile.goals || [],
   });
 
+  // Get empty form data with proper defaults
+  const getEmptyFormData = (): Partial<PatientProfile> => ({
+    fullName: '',
+    intakeDate: undefined,
+    dateOfBirth: undefined,
+    age: undefined,
+    sex: undefined,
+    ethnicity: [],
+    ethnicityOther: undefined,
+    medicalHistory: [],
+    medicalHistoryOther: undefined,
+    medications: [],
+    medicationsOther: undefined,
+    labValues: {
+      a1c: undefined,
+      fastingGlucose: undefined,
+      ldlC: undefined,
+      hdlC: undefined,
+      triglycerides: undefined,
+      totalCholesterol: undefined,
+      egfr: undefined,
+      creatinine: undefined,
+      potassium: undefined,
+      uacr: undefined,
+      alt: undefined,
+      ast: undefined,
+      vitaminD: undefined,
+      vitaminB12: undefined,
+    },
+    vitalSigns: {
+      heightCm: undefined,
+      weightKg: undefined,
+      bmi: undefined,
+      bloodPressureSystolic: undefined,
+      bloodPressureDiastolic: undefined,
+      heartRateBpm: undefined,
+    },
+    dietaryInfo: {
+      dietType: undefined,
+      dietFeatures: [],
+      allergies: '',
+      dislikes: '',
+    },
+    physicalActivity: {
+      workActivityLevel: undefined,
+      exerciseFrequency: undefined,
+      exerciseTypes: [],
+      exerciseTypesOther: undefined,
+      exerciseTypesOtherUpdatedBy: undefined,
+      mobilityIssues: undefined,
+    },
+    lifestyle: {
+      mealPrepMethod: undefined,
+      availableAppliances: [],
+      eatingSchedule: undefined,
+      eatingScheduleOther: undefined,
+    },
+    goals: [],
+    goalsOther: undefined,
+    readiness: undefined,
+    mealPlanTargeting: {
+      wantsWeightLoss: undefined,
+      calorieTarget: undefined,
+    },
+  });
+
+  // State declarations
+  const [formData, setFormData] = useState<Partial<PatientProfile>>(() => {
+    if (initialProfile) {
+      return initializeFormData(initialProfile);
+    }
+    return getEmptyFormData();
+  });
 
   const [errors, setErrors] = useState<FormErrors>({});
   const [loading, setLoading] = useState(false);
   const [alert, setAlert] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
-  const [expandedSections, setExpandedSections] = useState<{ [key: string]: boolean }>({
+  const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
     demographics: true,
     medical: true,
     vitals: true,
     dietary: true,
-    activity: true,
+    physical: true,
     lifestyle: true,
     goals: true,
   });
-
-  // State for unit selection
+  const [formDataLoaded, setFormDataLoaded] = useState(false);
   const [heightUnit, setHeightUnit] = useState('cm');
   const [weightUnit, setWeightUnit] = useState('kg');
 
-  // Helper functions for unit conversion
+  // Unit conversion helpers
   const cmToInches = (cm: number) => cm / 2.54;
   const inchesToCm = (inches: number) => inches * 2.54;
   const kgToLbs = (kg: number) => kg * 2.20462;
   const lbsToKg = (lbs: number) => lbs / 2.20462;
 
-  // Handlers for nested state - Simplified field type to string
-  const handleNestedInputChange = (section: keyof PatientProfile, field: string, value: any) => {
-     setFormData(prev => {
-        const sectionData = prev?.[section] as Record<string, any> | undefined;
-        return {
-          ...prev,
-          [section]: {
-            ...sectionData,
-            [field]: value,
-          },
-        } as Partial<PatientProfile>; // Cast the result back to Partial<PatientProfile>
-     });
-  };
-
-  const handleNestedSelectChange = (section: keyof PatientProfile, field: string, value: any) => {
-     setFormData(prev => {
-        const sectionData = prev?.[section] as Record<string, any> | undefined;
-        return {
-          ...prev,
-          [section]: {
-            ...sectionData,
-            [field]: value,
-          },
-        } as Partial<PatientProfile>; // Cast the result back to Partial<PatientProfile>
-     });
-  };
-
-
-  const handleNestedMultiSelectChange = (section: keyof PatientProfile, field: string, value: string[]) => {
-    setFormData(prev => {
-        const sectionData = prev?.[section] as Record<string, any> | undefined;
-        return {
-          ...prev,
-          [section]: {
-            ...sectionData,
-            [field]: value,
-          },
-        } as Partial<PatientProfile>; // Cast the result back to Partial<PatientProfile>
-     });
-  };
-
-
-    // Handler for top-level state (like fullName, ethnicity, goals, readiness)
-  const handleInputChange = (e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({
+  // Form data handlers
+  const updateFormData = useCallback((updates: Partial<PatientProfile>) => {
+    setFormData((prev: Partial<PatientProfile>) => ({
       ...prev,
-      [name]: value,
+      ...updates
+    }));
+  }, []);
+
+  const handleInputChange = useCallback((e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement> | { target: { name: string; value: string } }) => {
+    const name = e?.target?.name;
+    const value = e?.target?.value;
+    
+    if (!name) {
+      console.warn('Input change event missing name property');
+      return;
+    }
+    
+    if (name === 'dateOfBirth' && value) {
+      const age = calculateAge(value);
+      updateFormData({
+        [name]: value,
+        age: age
+      });
+    } else {
+      updateFormData({ [name]: value });
+    }
+  }, [updateFormData]);
+
+  const handleSelectChange = useCallback((e: any) => {
+    const name = e?.target?.name;
+    const value = e?.target?.value;
+    
+    if (!name) {
+      console.warn('Select change event missing name property');
+      return;
+    }
+
+    updateFormData({ [name]: value });
+  }, [updateFormData]);
+
+  const handleMultiSelectChange = useCallback((e: any) => {
+    const name = e?.target?.name;
+    const value = e?.target?.value;
+    
+    if (!name) {
+      console.warn('Multi-select change event missing name property');
+      return;
+    }
+
+    // Handle nested object updates
+    if (name === 'dietFeatures') {
+      updateFormData({ 
+        dietaryInfo: { 
+          ...formData.dietaryInfo, 
+          dietFeatures: value as string[] 
+        } 
+      });
+    } else if (name === 'exerciseTypes') {
+      updateFormData({ 
+        physicalActivity: { 
+          ...formData.physicalActivity, 
+          exerciseTypes: value as string[] 
+        } 
+      });
+    } else if (name === 'availableAppliances') {
+      updateFormData({ 
+        lifestyle: { 
+          ...formData.lifestyle, 
+          availableAppliances: value as string[] 
+        } 
+      });
+    } else {
+      // Handle regular fields
+      updateFormData({ [name]: value });
+    }
+  }, [updateFormData, formData.dietaryInfo, formData.physicalActivity, formData.lifestyle]);
+
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (validateForm()) {
+      setLoading(true);
+      setErrors({});
+      try {
+        const profileToSubmit: PatientProfile = {
+          fullName: formData.fullName || '',
+          intakeDate: formData.intakeDate || undefined,
+          dateOfBirth: formData.dateOfBirth || undefined,
+          age: formData.age || undefined,
+          sex: formData.sex || undefined,
+          ethnicity: formData.ethnicity || [],
+          ethnicityOther: formData.ethnicityOther || undefined,
+          medicalHistory: formData.medicalHistory || [],
+          medicalHistoryOther: formData.medicalHistoryOther || undefined,
+          medications: formData.medications || [],
+          medicationsOther: formData.medicationsOther || undefined,
+          labValues: {
+              a1c: formData.labValues?.a1c || undefined,
+              fastingGlucose: formData.labValues?.fastingGlucose || undefined,
+              ldlC: formData.labValues?.ldlC || undefined,
+              hdlC: formData.labValues?.hdlC || undefined,
+              triglycerides: formData.labValues?.triglycerides || undefined,
+              totalCholesterol: formData.labValues?.totalCholesterol || undefined,
+              egfr: formData.labValues?.egfr || undefined,
+              creatinine: formData.labValues?.creatinine || undefined,
+              potassium: formData.labValues?.potassium || undefined,
+              uacr: formData.labValues?.uacr || undefined,
+              alt: formData.labValues?.alt || undefined,
+              ast: formData.labValues?.ast || undefined,
+              vitaminD: formData.labValues?.vitaminD || undefined,
+              vitaminB12: formData.labValues?.vitaminB12 || undefined,
+          },
+          vitalSigns: {
+              heightCm: formData.vitalSigns?.heightCm || undefined,
+              weightKg: formData.vitalSigns?.weightKg || undefined,
+              bmi: formData.vitalSigns?.bmi || undefined,
+              bloodPressureSystolic: formData.vitalSigns?.bloodPressureSystolic || undefined,
+              bloodPressureDiastolic: formData.vitalSigns?.bloodPressureDiastolic || undefined,
+              heartRateBpm: formData.vitalSigns?.heartRateBpm || undefined,
+          },
+          dietaryInfo: {
+              dietType: formData.dietaryInfo?.dietType || undefined,
+              dietFeatures: formData.dietaryInfo?.dietFeatures || [],
+              allergies: formData.dietaryInfo?.allergies || '', // Initialize as string
+              dislikes: formData.dietaryInfo?.dislikes || '', // Initialize as string
+          },
+          physicalActivity: {
+              workActivityLevel: formData.physicalActivity?.workActivityLevel || undefined,
+              exerciseFrequency: formData.physicalActivity?.exerciseFrequency || undefined,
+              exerciseTypes: formData.physicalActivity?.exerciseTypes || [],
+              exerciseTypesOther: formData.physicalActivity?.exerciseTypesOther || undefined,
+              exerciseTypesOtherUpdatedBy: formData.physicalActivity?.exerciseTypesOtherUpdatedBy || undefined,
+              mobilityIssues: formData.physicalActivity?.mobilityIssues || undefined,
+          },
+          lifestyle: {
+              mealPrepMethod: formData.lifestyle?.mealPrepMethod || undefined,
+              availableAppliances: formData.lifestyle?.availableAppliances || [],
+              eatingSchedule: formData.lifestyle?.eatingSchedule || undefined,
+              eatingScheduleOther: formData.lifestyle?.eatingScheduleOther || undefined,
+          },
+          goals: formData.goals || [], // Goals is an array
+          goalsOther: formData.goalsOther || undefined,
+          readiness: formData.readiness || undefined,
+
+          mealPlanTargeting: {
+              wantsWeightLoss: formData.mealPlanTargeting?.wantsWeightLoss || undefined,
+              calorieTarget: formData.mealPlanTargeting?.calorieTarget || undefined,
+          },
+        };
+
+        await onSubmit(profileToSubmit);
+        setAlert({ type: 'success', message: 'Profile saved successfully!' });
+      } catch (err: any) {
+        setErrors({});
+        setAlert({ 
+          type: 'error', 
+          message: err.message || 'An error occurred while saving the profile. Please log in again.' 
+        });
+      } finally {
+        setLoading(false);
+      }
+    }
+  };
+
+  const handleSectionToggle = (section: string) => {
+    setExpandedSections(prev => ({
+        ...prev,
+        [section]: !prev[section]
     }));
   };
-
-  const handleSelectChange = (e: any) => { // Use 'any' for now due to complex event types
-    const { name, value } = e.target;
-     setFormData(prev => ({
-      ...prev,
-      [name]: value,
-    }));
-  }
-
-   const handleMultiSelectChange = (e: any) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: value, // Value is expected to be an array for multi-select
-    }) as Partial<PatientProfile>);
-  };
-
-
-    const handleOtherEthnicityChange = (e: ChangeEvent<HTMLInputElement>) => {
-        setFormData(prev => ({
-            ...prev,
-            ethnicityOther: e.target.value
-        }));
-    };
-
-     const handleOtherMedicalHistoryChange = (e: ChangeEvent<HTMLInputElement>) => {
-        setFormData(prev => ({
-            ...prev,
-            medicalHistoryOther: e.target.value
-        }));
-    };
-
-    const handleOtherMedicationChange = (e: ChangeEvent<HTMLInputElement>) => {
-        setFormData(prev => ({
-            ...prev,
-            medicationsOther: e.target.value
-        }));
-    };
-
-    const handleOtherGoalsChange = (e: ChangeEvent<HTMLInputElement>) => {
-        setFormData(prev => ({
-            ...prev,
-            goalsOther: e.target.value
-        }));
-    };
-
 
   const validateForm = () => {
     const newErrors: FormErrors = {};
@@ -397,288 +650,64 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
 
     // Add more validation for other required fields and nested structures
 
-    setErrors(newErrors); // Use setErrors instead of setError
+    setErrors(newErrors);
     return isValid;
   };
 
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    if (validateForm()) {
-      setLoading(true);
-      setErrors({}); // Clear previous errors // Use setErrors instead of setError
-      try {
-        // Ensure all nested objects and arrays are initialized before submitting
-         const profileToSubmit: PatientProfile = {
-            fullName: formData.fullName || '',
-            intakeDate: formData.intakeDate || undefined,
-            dateOfBirth: formData.dateOfBirth || undefined,
-            age: formData.age || undefined,
-            sex: formData.sex || undefined,
-            ethnicity: formData.ethnicity || [],
-            ethnicityOther: formData.ethnicityOther || undefined,
-            medicalHistory: formData.medicalHistory || [],
-            medicalHistoryOther: formData.medicalHistoryOther || undefined,
-            medications: formData.medications || [],
-            medicationsOther: formData.medicationsOther || undefined,
-            labValues: {
-                a1c: formData.labValues?.a1c || undefined,
-                fastingGlucose: formData.labValues?.fastingGlucose || undefined,
-                ldlC: formData.labValues?.ldlC || undefined,
-                hdlC: formData.labValues?.hdlC || undefined,
-                triglycerides: formData.labValues?.triglycerides || undefined,
-                totalCholesterol: formData.labValues?.totalCholesterol || undefined,
-                egfr: formData.labValues?.egfr || undefined,
-                creatinine: formData.labValues?.creatinine || undefined,
-                potassium: formData.labValues?.potassium || undefined,
-                uacr: formData.labValues?.uacr || undefined,
-                alt: formData.labValues?.alt || undefined,
-                ast: formData.labValues?.ast || undefined,
-                vitaminD: formData.labValues?.vitaminD || undefined,
-                vitaminB12: formData.labValues?.vitaminB12 || undefined,
-            },
-            vitalSigns: {
-                heightCm: formData.vitalSigns?.heightCm || undefined,
-                weightKg: formData.vitalSigns?.weightKg || undefined,
-                bmi: formData.vitalSigns?.bmi || undefined,
-                bloodPressureSystolic: formData.vitalSigns?.bloodPressureSystolic || undefined,
-                bloodPressureDiastolic: formData.vitalSigns?.bloodPressureDiastolic || undefined,
-                heartRateBpm: formData.vitalSigns?.heartRateBpm || undefined,
-            },
-            dietaryInfo: {
-                dietType: formData.dietaryInfo?.dietType || undefined,
-                dietFeatures: formData.dietaryInfo?.dietFeatures || [],
-                allergies: formData.dietaryInfo?.allergies || '', // Initialize as string
-                dislikes: formData.dietaryInfo?.dislikes || '', // Initialize as string
-            },
-            physicalActivity: {
-                workActivityLevel: formData.physicalActivity?.workActivityLevel || undefined,
-                exerciseFrequency: formData.physicalActivity?.exerciseFrequency || undefined,
-                exerciseTypes: formData.physicalActivity?.exerciseTypes || [],
-                exerciseTypesOther: formData.physicalActivity?.exerciseTypesOther || undefined,
-                exerciseTypesOtherUpdatedBy: formData.physicalActivity?.exerciseTypesOtherUpdatedBy || undefined,
-                mobilityIssues: formData.physicalActivity?.mobilityIssues || undefined,
-            },
-            lifestyle: {
-                mealPrepMethod: formData.lifestyle?.mealPrepMethod || undefined,
-                availableAppliances: formData.lifestyle?.availableAppliances || [],
-                eatingSchedule: formData.lifestyle?.eatingSchedule || undefined,
-                eatingScheduleOther: formData.lifestyle?.eatingScheduleOther || undefined,
-            },
-            goals: formData.goals || [], // Goals is an array
-            goalsOther: formData.goalsOther || undefined,
-            readiness: formData.readiness || undefined,
-
-            mealPlanTargeting: {
-                wantsWeightLoss: formData.mealPlanTargeting?.wantsWeightLoss || undefined,
-                calorieTarget: formData.mealPlanTargeting?.calorieTarget || undefined,
-            },
-         };
-
-
-        await onSubmit(profileToSubmit);
-        setAlert({ type: 'success', message: 'Profile saved successfully!' });
-      } catch (err: any) {
-        setErrors({}); // Clear errors on successful submission, but this is error case
-        setAlert({ type: 'error', message: err.message || 'An error occurred while saving the profile.' });
-      } finally {
-        setLoading(false);
-      }
-    }
-  };
-
-  const handleSectionToggle = (section: string) => {
-    setExpandedSections(prev => ({
-        ...prev,
-        [section]: !prev[section]
-    }));
-  };
-
-  const sexOptions = ['Male', 'Female', 'Other', 'Prefer not to say'];
-
-  const ethnicityOptions = [
-    'South Asian – North Indian',
-    'South Asian – Pakistani',
-    'South Asian – Sri Lankan',
-    'South Asian – Bangladeshi',
-    'East Asian – Chinese',
-    'East Asian – Korean',
-    'Filipino',
-    'Caucasian / White',
-    'Black / African / African-American',
-    'Caribbean – Jamaican',
-    'Caribbean – Guyanese',
-    'Indigenous / First Nations',
-    'Middle Eastern',
-    'Hispanic / Latin American',
-    'Other:',
-  ];
-
-  const medicalHistoryOptions = [
-    'Type 2 Diabetes',
-    'Type 1 Diabetes',
-    'Obesity',
-    'Hypertension',
-    'High Cholesterol',
-    'High Triglycerides',
-    'Coronary Artery Disease',
-    'Stroke',
-    'Peripheral Vascular Disease',
-    'Fatty Liver',
-    'Chronic Kidney Disease',
-    'Proteinuria',
-    'Elevated Potassium',
-    'PCOS',
-    'Hypothyroidism',
-    'Osteoporosis',
-    'GERD / acid reflux',
-    'B12 deficiency',
-    'Iron deficiency / anemia',
-    'Other:',
-  ];
-
-   const medicationOptions = [
-    'Metformin',
-    'Insulin',
-    'GLP-1 agonist (e.g., Ozempic, Trulicity)',
-    'SGLT2 inhibitor (e.g., Jardiance, Farxiga)',
-    'Statin',
-    'Diuretic',
-    'Thyroid hormone',
-    'Antihypertensives',
-    'Anticoagulants (e.g., Aspirin, Eliquis)',
-    'Other:',
-  ];
-
-
-  const dietTypeOptions = [
-    'Standard',
-    'Vegetarian',
-    'Vegan',
-    'Pescatarian',
-    'Keto',
-    'Low Carb',
-    'Paleo',
-    'Mediterranean',
-    'DASH',
-    'Gluten-Free',
-    'Dairy-Free',
-    'Other',
-  ];
-
-  const dietFeaturesOptions = [
-      'High Protein', 'Low Fat', 'Low Sodium', 'High Fiber', 'Sugar-Free', 'Organic', 'Local Produce', 'Seasonal Eating'
-  ];
-
-    // Options based on PhysicalActivity type
-   const workActivityLevelOptions = ['Sedentary', 'Moderate', 'Physical Labor'];
-   const exerciseFrequencyOptions = ['None', '<60min', '60–150min', '>150min'];
-
-    // Options based on Lifestyle type
-    const mealPrepMethodOptions = ['Own', 'Assisted', 'Caregiver', 'Delivery'];
-    const eatingScheduleOptions = ['3 meals', '2 meals + snack', 'Fasting', 'Night Shift', 'Other'];
-    const availableAppliancesOptions = ['Stove', 'Oven', 'Microwave', 'Blender', 'Toaster']; // Example appliances
-
-
-    // Options based on Goals type (string array)
-    const goalsOptions = [
-        'Weight Loss',
-        'Improved Blood Sugar Control',
-        'Lower Cholesterol',
-        'Lower Blood Pressure',
-        'Increased Energy Levels',
-        'Better Digestion',
-        'Reduced Inflammation',
-        'Improved Sleep',
-        'Increased Physical Activity',
-        'Better Stress Management',
-        'Learn Healthy Cooking Skills',
-        'Meal Planning',
-        'Mindful Eating',
-        'Manage Food Cravings',
-        'Navigate Social Eating Situations',
-        'Reduce Processed Foods',
-        'Increase Fruits and Vegetables',
-        'Increase Fiber Intake',
-        'Reduce Sugar Intake',
-        'Reduce Sodium Intake',
-        'Increase Protein Intake',
-        'Increase Healthy Fats',
-        'Understand Food Labels',
-        'Grocery Shopping Strategies',
-        'Eating Out Strategies',
-        'Managing Hunger and Fullness',
-        'Other:',
-    ];
-
-    const readinessOptions = ['Not ready', 'Thinking about it', 'Getting started', 'Already making changes'];
-
-
-    // Check if 'Other:' is selected in a multi-select string array
-    const isOtherSelected = (selectedItems: any) => {
-      return Array.isArray(selectedItems) && selectedItems.includes('Other:');
-    };
-
-    // Check if 'Other' is selected in a string field (like dietaryInfo.allergies)
-     const isOtherSelectedString = (selectedItem: string | undefined, options: string[]) => {
-        // This check might need refinement based on how "Other" is handled in the string fields
-        // For now, assuming "Other" is an exact match if selected from a single-select list or typed.
-        return selectedItem === 'Other';
-     };
-
-  // Add these helper functions at the top level of the component
-  const ensureArray = (value: any): any[] => {
-    if (!value) return [];
-    if (Array.isArray(value)) return value;
-    if (typeof value === 'string') return [value];
-    return [];
-  };
-
-  const safeJoinArray = (selected: any): string => {
-    if (!selected) return '';
-    if (Array.isArray(selected)) return selected.join(', ');
-    if (typeof selected === 'string') return selected;
-    return '';
-  };
-
-  // Update the useEffect that loads saved data
+  // Load saved profile on component mount
   useEffect(() => {
     const loadSavedProfile = async () => {
       try {
-        const savedProfile = await getPatientProfile();
-        if (savedProfile) {
-          // Ensure all multi-select fields are arrays
-          const processedProfile = {
-            ...savedProfile,
-            ethnicity: ensureArray(savedProfile.ethnicity),
-            medicalHistory: ensureArray(savedProfile.medicalHistory),
-            medications: ensureArray(savedProfile.medications),
-            dietaryInfo: {
-              ...savedProfile.dietaryInfo,
-              dietFeatures: ensureArray(savedProfile.dietaryInfo?.dietFeatures),
-            },
-            physicalActivity: {
-              ...savedProfile.physicalActivity,
-              exerciseTypes: ensureArray(savedProfile.physicalActivity?.exerciseTypes),
-            },
-            lifestyle: {
-              ...savedProfile.lifestyle,
-              availableAppliances: ensureArray(savedProfile.lifestyle?.availableAppliances),
-            },
-            goals: ensureArray(savedProfile.goals),
-          };
-          setFormData(processedProfile);
+        // In admin mode, use the initialProfile passed as prop instead of fetching
+        if (mode === 'admin' && initialProfile) {
+          setFormData(initializeFormData(initialProfile));
+        } else if (mode === 'user') {
+          const savedProfile = await getPatientProfile();
+          if (savedProfile) {
+            setFormData(initializeFormData(savedProfile));
+          }
+        } else {
+          // Initialize with empty form data if no profile available
+          setFormData(getEmptyFormData());
         }
       } catch (error) {
         console.error('Error loading saved profile:', error);
         setAlert({
           type: 'error',
-          message: 'Failed to load saved profile'
+          message: 'Failed to load saved profile. Please log in again.'
         });
+      } finally {
+        setFormDataLoaded(true);
       }
     };
 
     loadSavedProfile();
-  }, []);
+  }, [mode, initialProfile]);
+
+  // Auto-save form data when it changes (only in user mode)
+  useEffect(() => {
+    if (formDataLoaded && mode === 'user') {
+      const saveData = async () => {
+        try {
+          const success = await savePatientProfile(formData);
+          if (!success) {
+            console.warn('Failed to auto-save form data');
+            setAlert({
+              type: 'error',
+              message: 'Failed to save changes. Please log in again.'
+            });
+          }
+        } catch (error) {
+          console.error('Error auto-saving form data:', error);
+          setAlert({
+            type: 'error',
+            message: 'Failed to save changes. Please log in again.'
+          });
+        }
+      };
+      saveData();
+    }
+  }, [formData, formDataLoaded, mode]);
 
   return (
     <Container maxWidth="md">
@@ -690,6 +719,11 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
           <Alert severity={alert.type} sx={{ mb: 2 }}>
             {alert.message}
           </Alert>
+        )}
+        {loading && (
+          <Box display="flex" justifyContent="center" my={2}>
+            <CircularProgress />
+          </Box>
         )}
         <form onSubmit={handleSubmit}>
           <Grid container spacing={3}>
@@ -729,11 +763,13 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
                         <TextField
                             fullWidth
                             label="Age"
-                             type="number"
+                            type="number"
                             name="age"
                             value={formData.age || ''}
-                            onChange={handleInputChange} // Age is a number in type, but input value is string
-                             error={!!errors.age}
+                            InputProps={{
+                                readOnly: true,
+                            }}
+                            error={!!errors.age}
                             helperText={`Last updated by: ${formData.ageUpdatedBy || 'Not set'}`}
                         />
                     </Grid>
@@ -781,7 +817,7 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
                                 label="Specify Other Ethnicity"
                                 name="ethnicityOther"
                                 value={formData.ethnicityOther || ''}
-                                onChange={handleOtherEthnicityChange}
+                                onChange={(e) => updateFormData({ ethnicityOther: e.target.value })}
                                 error={!!errors.ethnicityOther}
                                 helperText={`Last updated by: ${formData.ethnicityUpdatedBy || 'Not set'}`}
                             />
@@ -811,11 +847,10 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
                                                     const currentHistory = Array.isArray(formData.medicalHistory) ? formData.medicalHistory : [];
                                                     const newHistory = e.target.checked
                                                         ? [...currentHistory, condition]
-                                                        : currentHistory.filter(c => c !== condition);
-                                                    setFormData(prev => ({ // Update directly
-                                                        ...prev,
+                                                        : currentHistory.filter((c: string) => c !== condition);
+                                                    updateFormData({ // Update directly
                                                         medicalHistory: newHistory,
-                                                    }));
+                                                    });
                                                 }}
                                             />
                                         }
@@ -835,7 +870,7 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
                                 label="Specify Other Medical History"
                                 name="medicalHistoryOther"
                                 value={formData.medicalHistoryOther || ''}
-                                onChange={handleOtherMedicalHistoryChange}
+                                onChange={(e) => updateFormData({ medicalHistoryOther: e.target.value })}
                                 error={!!errors.medicalHistoryOther}
                                 helperText={`Last updated by: ${formData.medicalHistoryUpdatedBy || 'Not set'}`}
                             />
@@ -874,14 +909,14 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
                             </FormHelperText>
                         </FormControl>
                     </Grid>
-                    {isOtherSelected(formData.medications) && (
+                    {isOtherSelected(ensureArray(formData.medications)) && (
                         <Grid item xs={12}>
                             <TextField
                                 fullWidth
                                 label="Specify Other Medications"
                                 name="medicationsOther"
                                 value={formData.medicationsOther || ''}
-                                onChange={handleOtherMedicationChange}
+                                onChange={(e) => updateFormData({ medicationsOther: e.target.value })}
                                  error={!!errors.medicationsOther}
                                 helperText={`Last updated by: ${formData.medicationsUpdatedBy || 'Not set'}`}
                             />
@@ -912,7 +947,7 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
                                 onChange={(e) => {
                                     const inputValue = parseFloat(e.target.value);
                                     const cmValue = heightUnit === 'cm' ? inputValue : inchesToCm(inputValue);
-                                    handleNestedInputChange('vitalSigns', 'heightCm', isNaN(cmValue) ? undefined : cmValue);
+                                    updateFormData({ vitalSigns: { ...formData.vitalSigns, heightCm: isNaN(cmValue) ? undefined : cmValue } });
                                 }}
                                 error={!!errors.vitalSigns?.heightCm}
                                 helperText={`Last updated by: ${formData.vitalSignsUpdatedBy || 'Not set'}`}
@@ -955,7 +990,7 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
                                 onChange={(e) => {
                                     const inputValue = parseFloat(e.target.value);
                                     const kgValue = weightUnit === 'kg' ? inputValue : lbsToKg(inputValue);
-                                    handleNestedInputChange('vitalSigns', 'weightKg', isNaN(kgValue) ? undefined : kgValue);
+                                    updateFormData({ vitalSigns: { ...formData.vitalSigns, weightKg: isNaN(kgValue) ? undefined : kgValue } });
                                 }}
                                 error={!!errors.vitalSigns?.weightKg}
                                 helperText={`Last updated by: ${formData.vitalSignsUpdatedBy || 'Not set'}`}
@@ -1008,7 +1043,7 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
                             type="number"
                             name="bloodPressureSystolic"
                             value={formData.vitalSigns?.bloodPressureSystolic || ''}
-                            onChange={(e) => handleNestedInputChange('vitalSigns', 'bloodPressureSystolic', parseFloat(e.target.value))} // Store as number
+                            onChange={(e) => updateFormData({ vitalSigns: { ...formData.vitalSigns, bloodPressureSystolic: parseFloat(e.target.value) } })} // Store as number
                              error={!!errors.vitalSigns?.bloodPressureSystolic}
                             helperText={`Last updated by: ${formData.vitalSignsUpdatedBy || 'Not set'}`}
                         />
@@ -1020,7 +1055,7 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
                             type="number"
                             name="bloodPressureDiastolic"
                             value={formData.vitalSigns?.bloodPressureDiastolic || ''}
-                            onChange={(e) => handleNestedInputChange('vitalSigns', 'bloodPressureDiastolic', parseFloat(e.target.value))} // Store as number
+                            onChange={(e) => updateFormData({ vitalSigns: { ...formData.vitalSigns, bloodPressureDiastolic: parseFloat(e.target.value) } })} // Store as number
                              error={!!errors.vitalSigns?.bloodPressureDiastolic}
                             helperText={`Last updated by: ${formData.vitalSignsUpdatedBy || 'Not set'}`}
                         />
@@ -1032,7 +1067,7 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
                             type="number"
                             name="heartRateBpm"
                             value={formData.vitalSigns?.heartRateBpm || ''}
-                            onChange={(e) => handleNestedInputChange('vitalSigns', 'heartRateBpm', parseFloat(e.target.value))} // Store as number
+                            onChange={(e) => updateFormData({ vitalSigns: { ...formData.vitalSigns, heartRateBpm: parseFloat(e.target.value) } })} // Store as number
                              error={!!errors.vitalSigns?.heartRateBpm}
                             helperText={`Last updated by: ${formData.vitalSignsUpdatedBy || 'Not set'}`}
                         />
@@ -1054,7 +1089,7 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
                             type="number"
                             name="a1c"
                             value={formData.labValues?.a1c || ''}
-                            onChange={(e) => handleNestedInputChange('labValues', 'a1c', parseFloat(e.target.value))} // Store as number
+                            onChange={(e) => updateFormData({ labValues: { ...formData.labValues, a1c: parseFloat(e.target.value) } })} // Store as number
                             error={!!errors.labValues?.a1c}
                             helperText={`Last updated by: ${formData.labValuesUpdatedBy || 'Not set'}`}
                         />
@@ -1066,7 +1101,7 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
                             type="number"
                             name="fastingGlucose"
                             value={formData.labValues?.fastingGlucose || ''}
-                            onChange={(e) => handleNestedInputChange('labValues', 'fastingGlucose', parseFloat(e.target.value))} // Store as number
+                            onChange={(e) => updateFormData({ labValues: { ...formData.labValues, fastingGlucose: parseFloat(e.target.value) } })} // Store as number
                             error={!!errors.labValues?.fastingGlucose}
                             helperText={`Last updated by: ${formData.labValuesUpdatedBy || 'Not set'}`}
                         />
@@ -1078,7 +1113,7 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
                             type="number"
                             name="ldlC"
                             value={formData.labValues?.ldlC || ''}
-                            onChange={(e) => handleNestedInputChange('labValues', 'ldlC', parseFloat(e.target.value))} // Store as number
+                            onChange={(e) => updateFormData({ labValues: { ...formData.labValues, ldlC: parseFloat(e.target.value) } })} // Store as number
                             error={!!errors.labValues?.ldlC}
                             helperText={`Last updated by: ${formData.labValuesUpdatedBy || 'Not set'}`}
                         />
@@ -1090,7 +1125,7 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
                             type="number"
                             name="hdlC"
                             value={formData.labValues?.hdlC || ''}
-                            onChange={(e) => handleNestedInputChange('labValues', 'hdlC', parseFloat(e.target.value))} // Store as number
+                            onChange={(e) => updateFormData({ labValues: { ...formData.labValues, hdlC: parseFloat(e.target.value) } })} // Store as number
                             error={!!errors.labValues?.hdlC}
                             helperText={`Last updated by: ${formData.labValuesUpdatedBy || 'Not set'}`}
                         />
@@ -1102,7 +1137,7 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
                             type="number"
                             name="triglycerides"
                             value={formData.labValues?.triglycerides || ''}
-                            onChange={(e) => handleNestedInputChange('labValues', 'triglycerides', parseFloat(e.target.value))} // Store as number
+                            onChange={(e) => updateFormData({ labValues: { ...formData.labValues, triglycerides: parseFloat(e.target.value) } })} // Store as number
                             error={!!errors.labValues?.triglycerides}
                             helperText={`Last updated by: ${formData.labValuesUpdatedBy || 'Not set'}`}
                         />
@@ -1114,7 +1149,7 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
                             type="number"
                             name="totalCholesterol"
                             value={formData.labValues?.totalCholesterol || ''}
-                            onChange={(e) => handleNestedInputChange('labValues', 'totalCholesterol', parseFloat(e.target.value))} // Store as number
+                            onChange={(e) => updateFormData({ labValues: { ...formData.labValues, totalCholesterol: parseFloat(e.target.value) } })} // Store as number
                             error={!!errors.labValues?.totalCholesterol}
                             helperText={`Last updated by: ${formData.labValuesUpdatedBy || 'Not set'}`}
                         />
@@ -1126,7 +1161,7 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
                             type="number"
                             name="egfr"
                             value={formData.labValues?.egfr || ''}
-                            onChange={(e) => handleNestedInputChange('labValues', 'egfr', parseFloat(e.target.value))} // Store as number
+                            onChange={(e) => updateFormData({ labValues: { ...formData.labValues, egfr: parseFloat(e.target.value) } })} // Store as number
                             error={!!errors.labValues?.egfr}
                             helperText={`Last updated by: ${formData.labValuesUpdatedBy || 'Not set'}`}
                         />
@@ -1138,7 +1173,7 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
                             type="number"
                             name="creatinine"
                             value={formData.labValues?.creatinine || ''}
-                            onChange={(e) => handleNestedInputChange('labValues', 'creatinine', parseFloat(e.target.value))} // Store as number
+                            onChange={(e) => updateFormData({ labValues: { ...formData.labValues, creatinine: parseFloat(e.target.value) } })} // Store as number
                             error={!!errors.labValues?.creatinine}
                             helperText={`Last updated by: ${formData.labValuesUpdatedBy || 'Not set'}`}
                         />
@@ -1150,7 +1185,7 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
                             type="number"
                             name="potassium"
                             value={formData.labValues?.potassium || ''}
-                            onChange={(e) => handleNestedInputChange('labValues', 'potassium', parseFloat(e.target.value))} // Store as number
+                            onChange={(e) => updateFormData({ labValues: { ...formData.labValues, potassium: parseFloat(e.target.value) } })} // Store as number
                             error={!!errors.labValues?.potassium}
                             helperText={`Last updated by: ${formData.labValuesUpdatedBy || 'Not set'}`}
                         />
@@ -1162,7 +1197,7 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
                             type="number"
                             name="uacr"
                             value={formData.labValues?.uacr || ''}
-                            onChange={(e) => handleNestedInputChange('labValues', 'uacr', parseFloat(e.target.value))} // Store as number
+                            onChange={(e) => updateFormData({ labValues: { ...formData.labValues, uacr: parseFloat(e.target.value) } })} // Store as number
                             error={!!errors.labValues?.uacr}
                             helperText={`Last updated by: ${formData.labValuesUpdatedBy || 'Not set'}`}
                         />
@@ -1174,7 +1209,7 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
                             type="number"
                             name="alt"
                             value={formData.labValues?.alt || ''}
-                            onChange={(e) => handleNestedInputChange('labValues', 'alt', parseFloat(e.target.value))} // Store as number
+                            onChange={(e) => updateFormData({ labValues: { ...formData.labValues, alt: parseFloat(e.target.value) } })} // Store as number
                             error={!!errors.labValues?.alt}
                             helperText={`Last updated by: ${formData.labValuesUpdatedBy || 'Not set'}`}
                         />
@@ -1186,7 +1221,7 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
                             type="number"
                             name="ast"
                             value={formData.labValues?.ast || ''}
-                            onChange={(e) => handleNestedInputChange('labValues', 'ast', parseFloat(e.target.value))} // Store as number
+                            onChange={(e) => updateFormData({ labValues: { ...formData.labValues, ast: parseFloat(e.target.value) } })} // Store as number
                             error={!!errors.labValues?.ast}
                             helperText={`Last updated by: ${formData.labValuesUpdatedBy || 'Not set'}`}
                         />
@@ -1198,7 +1233,7 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
                             type="number"
                             name="vitaminD"
                             value={formData.labValues?.vitaminD || ''}
-                            onChange={(e) => handleNestedInputChange('labValues', 'vitaminD', parseFloat(e.target.value))} // Store as number
+                            onChange={(e) => updateFormData({ labValues: { ...formData.labValues, vitaminD: parseFloat(e.target.value) } })} // Store as number
                             error={!!errors.labValues?.vitaminD}
                             helperText={`Last updated by: ${formData.labValuesUpdatedBy || 'Not set'}`}
                         />
@@ -1210,7 +1245,7 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
                             type="number"
                             name="vitaminB12"
                             value={formData.labValues?.vitaminB12 || ''}
-                            onChange={(e) => handleNestedInputChange('labValues', 'vitaminB12', parseFloat(e.target.value))} // Store as number
+                            onChange={(e) => updateFormData({ labValues: { ...formData.labValues, vitaminB12: parseFloat(e.target.value) } })} // Store as number
                             error={!!errors.labValues?.vitaminB12}
                             helperText={`Last updated by: ${formData.labValuesUpdatedBy || 'Not set'}`}
                         />
@@ -1232,7 +1267,7 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
                                 name="dietType"
                                 value={formData.dietaryInfo?.dietType || ''}
                                 label="Diet Type"
-                                onChange={(e) => handleNestedInputChange('dietaryInfo', 'dietType', e.target.value)} // dietType is string
+                                onChange={(e) => updateFormData({ dietaryInfo: { ...formData.dietaryInfo, dietType: e.target.value } })} // dietType is string
                             >
                                  <MenuItem value=""><em>None</em></MenuItem>
                                 {dietTypeOptions.map((option) => (
@@ -1251,7 +1286,7 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
                                 multiple
                                 name="dietFeatures"
                                 value={ensureArray(formData.dietaryInfo?.dietFeatures)}
-                                onChange={(e) => handleNestedMultiSelectChange('dietaryInfo', 'dietFeatures', e.target.value as string[])}
+                                onChange={handleMultiSelectChange}
                                 label="Dietary Features"
                                 renderValue={safeJoinArray}
                             >
@@ -1273,7 +1308,7 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
                             label="Food Allergies"
                             name="allergies"
                             value={formData.dietaryInfo?.allergies || ''}
-                            onChange={(e) => handleNestedInputChange('dietaryInfo', 'allergies', e.target.value)} // allergies is string
+                            onChange={(e) => updateFormData({ dietaryInfo: { ...formData.dietaryInfo, allergies: e.target.value } })} // allergies is string
                             error={!!errors.dietaryInfo?.allergies}
                             helperText={`Last updated by: ${formData.dietaryInfoUpdatedBy || 'Not set'}`}
                         />
@@ -1284,7 +1319,7 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
                             label="Food Dislikes"
                             name="dislikes"
                             value={formData.dietaryInfo?.dislikes || ''}
-                            onChange={(e) => handleNestedInputChange('dietaryInfo', 'dislikes', e.target.value)} // dislikes is string
+                            onChange={(e) => updateFormData({ dietaryInfo: { ...formData.dietaryInfo, dislikes: e.target.value } })} // dislikes is string
                             error={!!errors.dietaryInfo?.dislikes}
                             helperText={`Last updated by: ${formData.dietaryInfoUpdatedBy || 'Not set'}`}
                         />
@@ -1295,8 +1330,8 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
             {/* Physical Activity Section */}
             <Section
                 title="Physical Activity"
-                expanded={expandedSections.activity}
-                onToggle={() => handleSectionToggle('activity')}
+                expanded={expandedSections.physical}
+                onToggle={() => handleSectionToggle('physical')}
             >
                 <Grid container spacing={2}>
                     <Grid item xs={12} sm={6}>
@@ -1306,7 +1341,12 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
                                 name="workActivityLevel"
                                 value={formData.physicalActivity?.workActivityLevel || ''}
                                 label="Work Activity Level"
-                                onChange={(e) => handleNestedSelectChange('physicalActivity', 'workActivityLevel', e.target.value)} // workActivityLevel is enum
+                                onChange={(e) => updateFormData({ 
+                                    physicalActivity: { 
+                                        ...formData.physicalActivity, 
+                                        workActivityLevel: e.target.value as 'Sedentary' | 'Light' | 'Moderate' | 'Heavy' | undefined 
+                                    } 
+                                })} // workActivityLevel is enum
                             >
                                 <MenuItem value=""><em>None</em></MenuItem>
                                 {workActivityLevelOptions.map((option) => (
@@ -1325,7 +1365,12 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
                                 name="exerciseFrequency"
                                 value={formData.physicalActivity?.exerciseFrequency || ''}
                                 label="Exercise Frequency"
-                                onChange={(e) => handleNestedSelectChange('physicalActivity', 'exerciseFrequency', e.target.value)} // exerciseFrequency is enum
+                                onChange={(e) => updateFormData({ 
+                                    physicalActivity: { 
+                                        ...formData.physicalActivity, 
+                                        exerciseFrequency: e.target.value as 'None' | '1-2 times/week' | '3-4 times/week' | '5+ times/week' | undefined 
+                                    } 
+                                })} // exerciseFrequency is enum
                             >
                                 <MenuItem value=""><em>None</em></MenuItem>
                                 {exerciseFrequencyOptions.map((option) => (
@@ -1344,7 +1389,7 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
                                 multiple
                                 name="exerciseTypes"
                                 value={ensureArray(formData.physicalActivity?.exerciseTypes)}
-                                onChange={(e) => handleNestedMultiSelectChange('physicalActivity', 'exerciseTypes', e.target.value as string[])}
+                                onChange={handleMultiSelectChange}
                                 label="Exercise Types"
                                 renderValue={safeJoinArray}
                             >
@@ -1369,7 +1414,7 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
                                 label="Specify Other Exercise Type"
                                 name="exerciseTypesOther"
                                 value={formData.physicalActivity?.exerciseTypesOther || ''}
-                                onChange={(e) => handleNestedInputChange('physicalActivity', 'exerciseTypesOther', e.target.value)}
+                                onChange={(e) => updateFormData({ physicalActivity: { ...formData.physicalActivity, exerciseTypesOther: e.target.value } })}
                                 error={!!errors.physicalActivity?.exerciseTypesOther}
                                 helperText={`Last updated by: ${formData.physicalActivity?.exerciseTypesOtherUpdatedBy || 'Not set'}`}
                             />
@@ -1382,7 +1427,15 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
                                 name="mobilityIssues"
                                 value={formData.physicalActivity?.mobilityIssues === undefined ? '' : formData.physicalActivity.mobilityIssues}
                                 label="Mobility Issues"
-                                onChange={(e) => handleNestedInputChange('physicalActivity', 'mobilityIssues', e.target.value === '' ? undefined : e.target.value)} // mobilityIssues is boolean
+                                onChange={(e) => {
+                                    const value = e.target.value;
+                                    updateFormData({ 
+                                        physicalActivity: { 
+                                            ...formData.physicalActivity, 
+                                            mobilityIssues: value === '' ? undefined : value === 'true' 
+                                        } 
+                                    });
+                                }}
                             >
                                 <MenuItem value=""><em>None</em></MenuItem>
                                 <MenuItem value={true as any}>Yes</MenuItem> {/* Use any for boolean value in Select */}
@@ -1410,7 +1463,12 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
                                 name="mealPrepMethod"
                                 value={formData.lifestyle?.mealPrepMethod || ''}
                                 label="Meal Preparation Method"
-                                onChange={(e) => handleNestedSelectChange('lifestyle', 'mealPrepMethod', e.target.value)} // mealPrepMethod is enum
+                                onChange={(e) => updateFormData({ 
+                                    lifestyle: { 
+                                        ...formData.lifestyle, 
+                                        mealPrepMethod: e.target.value as 'Own' | 'Assisted' | 'Caregiver' | 'Delivery' | undefined 
+                                    } 
+                                })} // mealPrepMethod is enum
                             >
                                 <MenuItem value=""><em>None</em></MenuItem>
                                 {mealPrepMethodOptions.map((option) => (
@@ -1429,7 +1487,7 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
                                 multiple
                                 name="availableAppliances"
                                 value={ensureArray(formData.lifestyle?.availableAppliances)}
-                                onChange={(e) => handleNestedMultiSelectChange('lifestyle', 'availableAppliances', e.target.value as string[])}
+                                onChange={handleMultiSelectChange}
                                 label="Available Appliances"
                                 renderValue={safeJoinArray}
                             >
@@ -1452,7 +1510,12 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
                                 name="eatingSchedule"
                                 value={formData.lifestyle?.eatingSchedule || ''}
                                 label="Eating Schedule"
-                                onChange={(e) => handleNestedSelectChange('lifestyle', 'eatingSchedule', e.target.value)} // eatingSchedule is enum
+                                onChange={(e) => updateFormData({ 
+                                    lifestyle: { 
+                                        ...formData.lifestyle, 
+                                        eatingSchedule: e.target.value as '3 meals' | '2 meals + snack' | 'Fasting' | 'Night Shift' | 'Other' | undefined 
+                                    } 
+                                })} // eatingSchedule is enum
                             >
                                 <MenuItem value=""><em>None</em></MenuItem>
                                 {eatingScheduleOptions.map((option) => (
@@ -1471,7 +1534,7 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
                                 label="Specify Other Eating Schedule"
                                 name="eatingScheduleOther"
                                 value={formData.lifestyle?.eatingScheduleOther || ''}
-                                onChange={(e) => handleNestedInputChange('lifestyle', 'eatingScheduleOther', e.target.value)} // eatingScheduleOther is string
+                                onChange={(e) => updateFormData({ lifestyle: { ...formData.lifestyle, eatingScheduleOther: e.target.value } })} // eatingScheduleOther is string
                                 error={!!errors.lifestyle?.eatingScheduleOther}
                                 helperText={`Last updated by: ${formData.lifestyleUpdatedBy || 'Not set'}`}
                             />
@@ -1510,14 +1573,14 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
                             </FormHelperText>
                         </FormControl>
                     </Grid>
-                    {isOtherSelected(formData.goals) && (
+                    {isOtherSelected(ensureArray(formData.goals)) && (
                         <Grid item xs={12}>
                             <TextField
                                 fullWidth
                                 label="Specify Other Goals"
                                 name="goalsOther"
                                 value={formData.goalsOther || ''}
-                                onChange={handleOtherGoalsChange} // goalsOther is string
+                                onChange={(e) => updateFormData({ goalsOther: e.target.value })} // goalsOther is string
                                 error={!!errors.goalsOther}
                                 helperText={`Last updated by: ${formData.goalsUpdatedBy || 'Not set'}`}
                             />
@@ -1540,7 +1603,9 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
                                 name="readiness"
                                 value={formData.readiness || ''}
                                 label="Readiness"
-                                onChange={(e) => handleSelectChange(e)} // readiness is enum
+                                onChange={(e) => updateFormData({ 
+                                    readiness: e.target.value as 'Not ready' | 'Thinking about it' | 'Getting started' | 'Already making changes' | undefined 
+                                })} // readiness is enum
                             >
                                 <MenuItem value=""><em>None</em></MenuItem>
                                 {readinessOptions.map((option) => (
@@ -1569,7 +1634,15 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
                                 name="wantsWeightLoss"
                                 value={formData.mealPlanTargeting?.wantsWeightLoss === undefined ? '' : formData.mealPlanTargeting.wantsWeightLoss}
                                 label="Wants Weight Loss"
-                                onChange={(e) => handleNestedInputChange('mealPlanTargeting', 'wantsWeightLoss', e.target.value === '' ? undefined : e.target.value)} // wantsWeightLoss is boolean
+                                onChange={(e) => {
+                                    const value = e.target.value;
+                                    updateFormData({ 
+                                        mealPlanTargeting: { 
+                                            ...formData.mealPlanTargeting, 
+                                            wantsWeightLoss: value === '' ? undefined : value === 'true' 
+                                        } 
+                                    });
+                                }}
                             >
                                 <MenuItem value=""><em>None</em></MenuItem>
                                 <MenuItem value={true as any}>Yes</MenuItem> {/* Use any for boolean value in Select */}
@@ -1587,7 +1660,7 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
                             type="number"
                             name="calorieTarget"
                             value={formData.mealPlanTargeting?.calorieTarget || ''}
-                            onChange={(e) => handleNestedInputChange('mealPlanTargeting', 'calorieTarget', parseFloat(e.target.value))} // Store as number
+                            onChange={(e) => updateFormData({ mealPlanTargeting: { ...formData.mealPlanTargeting, calorieTarget: parseFloat(e.target.value) } })} // Store as number
                             error={!!errors.mealPlanTargeting?.calorieTarget}
                             helperText={`Last updated by: ${formData.goalsUpdatedBy || 'Not set'}`}
                         />

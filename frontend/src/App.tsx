@@ -8,6 +8,12 @@ import Register from './components/Register';
 import Chat from './components/Chat';
 import AdminLogin from './components/AdminLogin';
 import AdminPanel from './components/AdminPanel';
+import AdminUserProfile from './components/AdminUserProfile';
+// Debug imports - can remove these later
+import RouteDebugger from './components/RouteDebugger';
+import AdminAuthDebugger from './components/AdminAuthDebugger';
+import TempAdminUserProfile from './components/TempAdminUserProfile';
+import SimpleAdminProfile from './components/SimpleAdminProfile';
 import Navigation from './components/Navigation';
 import ThankYou from './components/ThankYou';
 import AllRecipesPage from './pages/AllRecipesPage';
@@ -48,9 +54,15 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
 const AdminRoute = ({ children }: { children: React.ReactNode }) => {
   const token = localStorage.getItem('token');
   const isAdmin = localStorage.getItem('isAdmin') === 'true';
+  
+  console.log('AdminRoute - Token:', !!token, 'IsAdmin:', isAdmin); // Debug log
+  
   if (!token || !isAdmin) {
-    return <Navigate to="/admin/login" />;
+    console.log('AdminRoute - Redirecting to admin login'); // Debug log
+    return <Navigate to="/admin/login" replace />;
   }
+  
+  console.log('AdminRoute - Allowing access'); // Debug log
   return <>{children}</>;
 };
 
@@ -66,8 +78,9 @@ function App() {
           <Route path="/register" element={<Register />} />
           <Route path="/admin/login" element={<AdminLogin />} />
           <Route path="/thank-you" element={<ThankYou />} />
+          <Route path="/emergency/:userId" element={<div style={{padding: '20px'}}><h1>🚨 EMERGENCY ROUTE WORKS!</h1><p>UserId: {window.location.pathname.split('/')[2]}</p></div>} />
           
-          {/* Admin Protected Route */}
+          {/* Admin Protected Routes */}
           <Route
             path="/admin"
             element={
@@ -75,6 +88,30 @@ function App() {
                 <AdminPanel />
               </AdminRoute>
             }
+          />
+          <Route
+            path="/admin/users/:userId"
+            element={
+              <AdminRoute>
+                <AdminUserProfile />
+              </AdminRoute>
+            }
+          />
+          <Route
+            path="/debug/:userId"
+            element={<RouteDebugger />}
+          />
+          <Route
+            path="/auth-debug"
+            element={<AdminAuthDebugger />}
+          />
+          <Route
+            path="/temp-admin/:userId"
+            element={<TempAdminUserProfile />}
+          />
+          <Route
+            path="/simple/:userId"
+            element={<SimpleAdminProfile />}
           />
           
           {/* User Protected Routes */}

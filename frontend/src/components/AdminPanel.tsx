@@ -28,6 +28,7 @@ interface Patient {
   condition: string;
   registration_code: string;
   created_at: string;
+  email?: string; // Optional email field that will be populated
 }
 
 const AdminPanel = () => {
@@ -148,12 +149,20 @@ const AdminPanel = () => {
           </Alert>
         )}
 
+        <Alert severity="info" sx={{ mb: 2 }}>
+          <Typography variant="body2">
+            <strong>💡 Tip:</strong> Click on a patient row to view and edit their profile. 
+            Only patients who have registered with their email can have their profiles viewed.
+          </Typography>
+        </Alert>
+
         <TableContainer>
           <Table>
             <TableHead>
               <TableRow>
                 <TableCell>Name</TableCell>
                 <TableCell>Phone</TableCell>
+                <TableCell>Email</TableCell>
                 <TableCell>Condition</TableCell>
                 <TableCell>Registration Code</TableCell>
                 <TableCell>Created At</TableCell>
@@ -161,26 +170,51 @@ const AdminPanel = () => {
               </TableRow>
             </TableHead>
             <TableBody>
-              {patients.map((patient) => (
-                <TableRow key={patient.id}>
-                  <TableCell>{patient.name}</TableCell>
-                  <TableCell>{patient.phone}</TableCell>
-                  <TableCell>{patient.condition}</TableCell>
-                  <TableCell>{patient.registration_code}</TableCell>
-                  <TableCell>
-                    {new Date(patient.created_at).toLocaleString()}
-                  </TableCell>
-                  <TableCell>
-                    <Button
-                      variant="outlined"
-                      color="primary"
-                      onClick={() => handleResendCode(patient.id)}
-                    >
-                      Resend Code
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))}
+              {patients.map((patient) => {
+                const isRegistered = patient.email && patient.email !== 'Not registered' && patient.email !== 'Error fetching email';
+                
+                return (
+                  <TableRow 
+                    key={patient.id}
+                    onClick={isRegistered ? () => navigate(`/admin/users/${patient.id}`) : undefined}
+                    sx={{ 
+                      cursor: isRegistered ? 'pointer' : 'default',
+                      opacity: isRegistered ? 1 : 0.6,
+                      '&:hover': isRegistered ? {
+                        backgroundColor: 'rgba(0, 0, 0, 0.04)',
+                      } : {}
+                    }}
+                  >
+                    <TableCell>{patient.name}</TableCell>
+                    <TableCell>{patient.phone}</TableCell>
+                    <TableCell>
+                      <span style={{ 
+                        color: isRegistered ? 'inherit' : '#666',
+                        fontStyle: isRegistered ? 'normal' : 'italic'
+                      }}>
+                        {patient.email || 'Not registered'}
+                      </span>
+                    </TableCell>
+                    <TableCell>{patient.condition}</TableCell>
+                    <TableCell>{patient.registration_code}</TableCell>
+                    <TableCell>
+                      {new Date(patient.created_at).toLocaleString()}
+                    </TableCell>
+                    <TableCell>
+                      <Button
+                        variant="outlined"
+                        color="primary"
+                        onClick={(e) => {
+                          e.stopPropagation(); // Prevent row click when button is clicked
+                          handleResendCode(patient.id);
+                        }}
+                      >
+                        Resend Code
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
             </TableBody>
           </Table>
         </TableContainer>

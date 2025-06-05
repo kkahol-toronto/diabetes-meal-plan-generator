@@ -6,6 +6,12 @@ from datetime import datetime
 import uuid
 import tiktoken
 import json
+import logging
+from tenacity import retry, stop_after_attempt, wait_exponential
+from typing import Optional, Dict, Any, List
+
+# Configure logging
+logger = logging.getLogger(__name__)
 
 # Load environment variables
 load_dotenv()
@@ -15,36 +21,99 @@ COSMOS_CONNECTION_STRING = os.getenv("COSMO_DB_CONNECTION_STRING")
 INTERACTIONS_CONTAINER = os.getenv("INTERACTIONS_CONTAINER")
 USER_INFORMATION_CONTAINER = os.getenv("USER_INFORMATION_CONTAINER")
 
-# Initialize Cosmos DB client
-client = CosmosClient.from_connection_string(COSMOS_CONNECTION_STRING)
-database = client.get_database_client("diabetes_diet_manager")
+if not all([COSMOS_CONNECTION_STRING, INTERACTIONS_CONTAINER, USER_INFORMATION_CONTAINER]):
+    raise ValueError("Missing required environment variables for Cosmos DB configuration")
 
-# Get container clients
-interactions_container = database.get_container_client(INTERACTIONS_CONTAINER)
-user_container = database.get_container_client(USER_INFORMATION_CONTAINER)
+# Initialize Cosmos DB client
+try:
+    client = CosmosClient.from_connection_string(COSMOS_CONNECTION_STRING)
+    database = client.get_database_client("diabetes_diet_manager")
+    interactions_container = database.get_container_client(INTERACTIONS_CONTAINER)
+    user_container = database.get_container_client(USER_INFORMATION_CONTAINER)
+except Exception as e:
+    logger.error(f"Failed to initialize Cosmos DB client: {str(e)}")
+    raise
 
 def generate_session_id():
     """Generate a unique session ID"""
     return str(uuid.uuid4())
 
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
 async def create_user(user_data: dict):
     """Create a new user in the database"""
     try:
+        # Validate required fields
+        required_fields = ["email", "hashed_password"]
+        missing_fields = [field for field in required_fields if field not in user_data]
+        if missing_fields:
+            raise ValueError(f"Missing required fields: {', '.join(missing_fields)}")
+
         # Add type field for querying and set partition key
         user_data["type"] = "user"
         user_data["id"] = user_data["email"]  # Use email as partition key
+        user_data["created_at"] = datetime.utcnow().isoformat()
+        
         return user_container.create_item(body=user_data)
     except Exception as e:
-        raise Exception(f"Failed to create user: {str(e)}")
+        logger.error(f"Failed to create user: {str(e)}")
+        raise
 
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
 async def get_user_by_email(email: str):
     """Get user by email"""
     try:
+        if not email:
+            raise ValueError("Email is required")
+
         query = f"SELECT * FROM c WHERE c.type = 'user' AND c.id = '{email}'"
         items = list(user_container.query_items(query=query, enable_cross_partition_query=True))
         return items[0] if items else None
     except Exception as e:
-        raise Exception(f"Failed to get user: {str(e)}")
+        logger.error(f"Failed to get user: {str(e)}")
+        raise
+
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
+async def save_patient_profile(user_id: str, profile_data: dict):
+    """Save patient profile data"""
+    try:
+        if not user_id:
+            raise ValueError("User ID is required")
+        if not profile_data:
+            raise ValueError("Profile data is required")
+
+        # Add type and partition key
+        profile_data["type"] = "patient_profile"
+        profile_data["id"] = user_id
+        profile_data["_partitionKey"] = user_id
+        profile_data["updated_at"] = datetime.utcnow().isoformat()
+
+        # Validate required fields
+        required_fields = ["fullName", "dateOfBirth", "sex"]
+        missing_fields = [field for field in required_fields if field not in profile_data]
+        if missing_fields:
+            raise ValueError(f"Missing required fields: {', '.join(missing_fields)}")
+
+        return await user_container.upsert_item(body=profile_data)
+    except Exception as e:
+        logger.error(f"Failed to save patient profile: {str(e)}")
+        raise
+
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
+async def get_patient_profile(user_id: str):
+    """Get patient profile data"""
+    try:
+        if not user_id:
+            raise ValueError("User ID is required")
+
+        query = f"SELECT * FROM c WHERE c.type = 'patient_profile' AND c.id = '{user_id}'"
+        items = list(user_container.query_items(
+            query=query,
+            enable_cross_partition_query=True
+        ))
+        return items[0] if items else None
+    except Exception as e:
+        logger.error(f"Failed to get patient profile: {str(e)}")
+        raise
 
 async def create_patient(patient_data: dict):
     """Create a new patient record"""
@@ -81,6 +150,17 @@ async def get_patient_by_id(patient_id: str):
         return items[0] if items else None
     except Exception as e:
         raise Exception(f"Failed to get patient: {str(e)}")
+
+async def get_user_email_by_patient_id(patient_id: str):
+    """Get user email by patient ID (registration code)"""
+    try:
+        query = f"SELECT * FROM c WHERE c.type = 'user' AND c.patient_id = '{patient_id}'"
+        items = list(user_container.query_items(query=query, enable_cross_partition_query=True))
+        if items:
+            return items[0].get('email')
+        return None
+    except Exception as e:
+        raise Exception(f"Failed to get user email by patient ID: {str(e)}")
 
 async def save_meal_plan(user_id: str, meal_plan_data: dict):
     """Saves a user's meal plan to Cosmos DB."""
@@ -549,38 +629,4 @@ async def view_meal_plans(user_id: str):
             enable_cross_partition_query=True
         ))
     except Exception as e:
-        raise Exception(f"Failed to view meal plans: {str(e)}")
-
-async def save_patient_profile(user_id: str, profile_data: dict):
-    """Save a patient's profile data to Cosmos DB."""
-    try:
-        # Ensure required fields
-        item = {
-            'id': f'profile_{user_id}',
-            'type': 'patient_profile',
-            'user_id': user_id,
-            'created_at': datetime.utcnow().isoformat(),
-            'updated_at': datetime.utcnow().isoformat(),
-            '_partitionKey': user_id,
-            **profile_data
-        }
-        
-        # Use upsert to create or update the profile
-        saved_item = user_container.upsert_item(body=item)
-        return json.loads(json.dumps(saved_item))
-    except Exception as e:
-        print(f"[save_patient_profile] Error saving profile for user {user_id}: {e}")
-        raise
-
-async def get_patient_profile(user_id: str):
-    """Get a patient's profile data from Cosmos DB."""
-    try:
-        query = f"SELECT * FROM c WHERE c.type = 'patient_profile' AND c.user_id = '{user_id}'"
-        items = list(user_container.query_items(
-            query=query,
-            enable_cross_partition_query=True
-        ))
-        return items[0] if items else None
-    except Exception as e:
-        print(f"[get_patient_profile] Error getting profile for user {user_id}: {e}")
-        raise 
+        raise Exception(f"Failed to view meal plans: {str(e)}") 

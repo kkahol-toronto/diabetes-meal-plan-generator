@@ -1,51 +1,75 @@
-from fastapi import FastAPI, HTTPException, Depends, status, Request, Body
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import FastAPI, Depends, HTTPException, status, Request, Body
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-from pydantic import BaseModel, EmailStr, Field
-from typing import List, Optional, Dict, Any
-import os
-from dotenv import load_dotenv
-from openai import AzureOpenAI
-import json
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from fastapi.responses import StreamingResponse, JSONResponse
+from pydantic import BaseModel, EmailStr, Field, ValidationError
+from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta
 from jose import JWTError, jwt
 from passlib.context import CryptContext
+from dotenv import load_dotenv
 from twilio.rest import Client
+from openai import AzureOpenAI
+from docx import Document
+from docx.shared import Inches, Pt
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from logging.handlers import RotatingFileHandler
+import os
+import json
+import openai
+import asyncio
+import re
+import io
+import base64
+import uuid
+import pytz
+import traceback
+import logging
+import sys
 import random
 import string
+
+# Import database functions
 from database import (
-    create_user, get_user_by_email, create_patient,
-    get_patient_by_registration_code, get_all_patients,
-    save_meal_plan, get_user_meal_plans, get_meal_plan_by_id,
-    save_shopping_list, get_user_shopping_lists,
-    save_chat_message, save_recipes, get_user_recipes,
+    create_user,
+    get_user_by_email,
+    get_patient_by_registration_code,
+    create_patient,
+    get_all_patients,
+    save_meal_plan,
+    get_patient_profile,
+    save_patient_profile,
+    get_user_recipes,
+    save_chat_message,
+    get_user_meal_plans,
+    get_user_shopping_lists,
+    save_shopping_list,
+    save_recipes,
     get_recent_chat_history,
-    format_chat_history_for_prompt,
-    clear_chat_history,
     get_user_sessions,
-    get_patient_by_id,
-    user_container,
-    get_context_history,
-    generate_session_id,
-    interactions_container,
-    view_meal_plans,
+    clear_chat_history,
     delete_meal_plan_by_id,
     delete_all_user_meal_plans,
-    save_patient_profile,
-    get_patient_profile,
+    interactions_container,
+    get_user_email_by_patient_id
 )
-import uuid
-from io import BytesIO
-from reportlab.lib.pagesizes import letter, landscape
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image as RLImage, PageBreak
-from reportlab.lib import colors
-from reportlab.lib.styles import getSampleStyleSheet
-from reportlab.lib.units import inch
-from fastapi.responses import StreamingResponse, JSONResponse
-import re
-import traceback
-import sys
-from fastapi import Request as FastAPIRequest
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        RotatingFileHandler(
+            'app.log',
+            maxBytes=10000000,
+            backupCount=5
+        ),
+        logging.StreamHandler()
+    ]
+)
+
+logger = logging.getLogger(__name__)
 
 # Load environment variables
 load_dotenv()
@@ -55,10 +79,16 @@ app = FastAPI(title="Diabetes Diet Manager API")
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, replace with specific origins
+    allow_origins=[os.getenv("ALLOWED_ORIGINS", "http://localhost:3000")],
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE"],
     allow_headers=["*"],
+)
+
+# Add trusted hosts middleware
+app.add_middleware(
+    TrustedHostMiddleware,
+    allowed_hosts=["*"]  # Replace with your domain in production
 )
 
 # Configure OpenAI
@@ -74,7 +104,8 @@ twilio_client = Client(os.getenv("SMS_API_SID"), os.getenv("SMS_KEY"))
 # Security
 SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-here")
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
+ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 24 hours
+REFRESH_TOKEN_EXPIRE_DAYS = 30
 
 # Update password context to use newer bcrypt settings
 pwd_context = CryptContext(
@@ -108,7 +139,7 @@ class Patient(BaseModel):
     created_at: Optional[datetime] = None
 
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "name": "John Doe",
                 "phone": "1234567890",
@@ -210,7 +241,7 @@ class PatientProfile(BaseModel):
     mealPlanTargetingUpdatedBy: Optional[str] = None
 
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "intakeDate": "2024-03-20",
                 "intakeDateUpdatedBy": "admin",
@@ -255,10 +286,16 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     if expires_delta:
         expire = datetime.utcnow() + expires_delta
     else:
-        expire = datetime.utcnow() + timedelta(minutes=15)
+        expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
+
+def create_refresh_token(data: dict):
+    to_encode = data.copy()
+    expire = datetime.utcnow() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+    to_encode.update({"exp": expire})
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
 async def get_current_user(token: str = Depends(oauth2_scheme)):
     print("get_current_user called")
@@ -314,48 +351,34 @@ def send_registration_code(phone: str, code: str):
 
 @app.post("/login", response_model=Token)
 async def login(form_data: OAuth2PasswordRequestForm = Depends()):
-    print(f"Login attempt for user: {form_data.username}")
-    
-    user = await get_user_by_email(form_data.username)
-    if not user or not verify_password(form_data.password, user["hashed_password"]):
-        print(f"Login failed for user: {form_data.username}")
+    try:
+        user = await get_user_by_email(form_data.username)
+        if not user or not verify_password(form_data.password, user["hashed_password"]):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Incorrect username or password",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        
+        # Check if user is admin and include in token
+        token_data = {"sub": user["email"]}
+        if user.get("is_admin"):
+            token_data["is_admin"] = True
+            
+        access_token = create_access_token(data=token_data)
+        refresh_token = create_refresh_token(data=token_data)
+        
+        return {
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "token_type": "bearer"
+        }
+    except Exception as e:
+        logger.error(f"Login error: {str(e)}")
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect username or password",
-            headers={"WWW-Authenticate": "Bearer"},
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An error occurred during login"
         )
-    
-    print(f"User found: {user}")
-    
-    # Get patient info if available
-    patient_name = None
-    if user.get("patient_id"):
-        try:
-            print(f"Fetching patient info for patient_id: {user['patient_id']}")
-            patient = await get_patient_by_id(user["patient_id"])
-            if patient:
-                patient_name = patient.get("name")
-                print(f"Found patient name: {patient_name}")
-            else:
-                print("No patient found with the given ID")
-        except Exception as e:
-            print(f"Error fetching patient info: {str(e)}")
-    else:
-        print("No patient_id found in user data")
-    
-    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    token_data = {
-        "sub": user["email"],
-        "is_admin": user.get("is_admin", False),
-        "name": patient_name
-    }
-    print(f"Creating token with data: {token_data}")
-    
-    access_token = create_access_token(
-        data=token_data,
-        expires_delta=access_token_expires
-    )
-    return {"access_token": access_token, "token_type": "bearer"}
 
 @app.post("/register")
 async def register(data: RegistrationData):
@@ -424,7 +447,24 @@ async def get_patients(current_user: User = Depends(get_current_user)):
     
     try:
         patients = await get_all_patients()
-        return patients
+        
+        # Enrich patients with email information
+        enriched_patients = []
+        for patient in patients:
+            patient_data = dict(patient)  # Convert to regular dict
+            # Try to get the associated user email
+            try:
+                user_email = await get_user_email_by_patient_id(patient['id'])
+                if user_email:
+                    patient_data['email'] = user_email
+                else:
+                    patient_data['email'] = 'Not registered'
+            except Exception:
+                patient_data['email'] = 'Error fetching email'
+            
+            enriched_patients.append(patient_data)
+        
+        return enriched_patients
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -533,7 +573,7 @@ Format the response as a JSON object with the following structure:
 
 @app.post("/generate-meal-plan")
 async def generate_meal_plan(
-    request: FastAPIRequest,
+    request: Request,
     current_user: User = Depends(get_current_user)
 ):
     try:
@@ -766,7 +806,7 @@ Important:
 
 @app.post("/generate-recipes")
 async def generate_recipes(
-    request: FastAPIRequest,
+    request: Request,
     current_user: User = Depends(get_current_user)
 ):
     try:
@@ -799,7 +839,7 @@ async def generate_recipes(
 
 @app.post("/generate-shopping-list")
 async def generate_shopping_list(
-    request: FastAPIRequest,
+    request: Request,
     recipes: List[dict],
     current_user: User = Depends(get_current_user)
 ):
@@ -1034,7 +1074,7 @@ async def export_consolidated_meal_plan(current_user: User = Depends(get_current
 @app.post("/export/{type}")
 async def export_document(
     type: str,
-    request: FastAPIRequest,
+    request: Request,
     current_user: User = Depends(get_current_user)
 ):
     try:
@@ -1301,7 +1341,7 @@ async def get_current_user_info(current_user: User = Depends(get_current_user)):
 
 @app.post("/user/profile")
 async def save_user_profile(
-    request: FastAPIRequest,
+    request: Request,
     current_user: User = Depends(get_current_user)
 ):
     data = await request.json()
@@ -1324,7 +1364,7 @@ async def get_user_profile(current_user: User = Depends(get_current_user)):
 
 @app.post("/generate-recipe")
 async def generate_recipe(
-    request: FastAPIRequest,
+    request: Request,
     current_user: User = Depends(get_current_user)
 ):
     try:
@@ -1383,7 +1423,10 @@ async def get_user_shopping_list(current_user: User = Depends(get_current_user))
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/user/shopping-list")
-async def save_user_shopping_list(request: FastAPIRequest, current_user: User = Depends(get_current_user)):
+async def save_user_shopping_list(
+    request: Request,
+    current_user: User = Depends(get_current_user)
+):
     data = await request.json()
     items = data.get("items")
     if not items or not isinstance(items, list):
@@ -1408,7 +1451,10 @@ async def get_user_recipes_endpoint(current_user: User = Depends(get_current_use
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/user/recipes")
-async def save_user_recipes(request: FastAPIRequest, current_user: User = Depends(get_current_user)):
+async def save_user_recipes(
+    request: Request,
+    current_user: User = Depends(get_current_user)
+):
     data = await request.json()
     recipes = data.get("recipes")
     if not recipes or not isinstance(recipes, list):
@@ -1420,20 +1466,79 @@ async def save_user_recipes(request: FastAPIRequest, current_user: User = Depend
         print(f"Error saving recipes: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.exception_handler(ValidationError)
+async def validation_exception_handler(request: Request, exc: ValidationError):
+    logger.error(f"Validation error: {str(exc)}")
+    logger.error(f"Validation error details: {exc.errors()}")
+    return JSONResponse(
+        status_code=422,
+        content={
+            "detail": "Validation error",
+            "errors": exc.errors(),
+            "body": exc.model.__name__ if hasattr(exc, 'model') else "Unknown"
+        }
+    )
+
 @app.exception_handler(Exception)
-async def global_exception_handler(request: FastAPIRequest, exc: Exception):
-    print(f"Global exception handler: {exc}", file=sys.stderr)
-    import traceback
-    traceback.print_exc()
+async def global_exception_handler(
+    request: Request,
+    exc: Exception
+):
+    logger.error(f"Global error handler caught: {str(exc)}")
+    logger.error(traceback.format_exc())
+    
+    if isinstance(exc, HTTPException):
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"detail": exc.detail},
+        )
+    
     return JSONResponse(
         status_code=500,
-        content={"detail": str(exc)},
+        content={"detail": "Internal server error"},
     )
 
 @app.post("/test-echo")
 async def test_echo(current_user: User = Depends(get_current_user)):
     print(">>>> Entered /test-echo endpoint")
     return {"ok": True}
+
+@app.post("/debug/profile")
+async def debug_profile_data(
+    request: Request,
+    current_user: User = Depends(get_current_user)
+):
+    """Debug endpoint to log profile data being sent"""
+    print(f"[DEBUG] Current user: {current_user.get('email')}")
+    print(f"[DEBUG] Is admin: {current_user.get('is_admin')}")
+    
+    try:
+        raw_body = await request.body()
+        print(f"[DEBUG] Raw request body length: {len(raw_body)}")
+        
+        json_data = await request.json()
+        print(f"[DEBUG] JSON data keys: {list(json_data.keys())}")
+        print(f"[DEBUG] JSON data sample: {str(json_data)[:500]}...")
+        
+        # Try to parse as PatientProfile
+        try:
+            profile = PatientProfile(**json_data)
+            print(f"[DEBUG] Successfully parsed as PatientProfile")
+            return {"status": "success", "message": "Data is valid PatientProfile"}
+        except ValidationError as e:
+            print(f"[DEBUG] Validation error: {e.errors()}")
+            return {
+                "status": "validation_error", 
+                "errors": e.errors(),
+                "received_keys": list(json_data.keys())
+            }
+        except Exception as e:
+            print(f"[DEBUG] Other error: {str(e)}")
+            return {"status": "error", "message": str(e)}
+            
+    except Exception as e:
+        print(f"[DEBUG] Failed to parse request: {str(e)}")
+        return {"status": "request_error", "message": str(e)}
 
 @app.post("/export/test-minimal")
 async def export_test_minimal():
@@ -1494,7 +1599,7 @@ async def get_meal_plan(
     """Get a specific meal plan by ID"""
     try:
         # Query Cosmos DB for the specific meal plan
-        query = f"SELECT * FROM c WHERE c.type = 'meal_plan' AND c.id = '{plan_id}' AND c.user_id = '{current_user['id']}'"
+        query = f"SELECT * FROM c WHERE c.type = 'meal_plan' AND c.id = '{plan_id}' AND c.user_id = '{current_user['email']}'"
         items = list(interactions_container.query_items(query=query, enable_cross_partition_query=True))
         
         if not items:
@@ -1693,7 +1798,7 @@ async def save_profile(
         updated_by = "admin" if is_admin else "user"
         
         # Get existing profile to merge with
-        existing_profile = await get_patient_profile(current_user["id"])
+        existing_profile = await get_patient_profile(current_user["email"])
         
         # Update the updated_by fields for changed values
         for key, value in profile_data.items():
@@ -1708,13 +1813,15 @@ async def save_profile(
             merged_data = profile_data
         
         # Save to database
-        saved_profile = await save_patient_profile(current_user["id"], merged_data)
+        saved_profile = await save_patient_profile(current_user["email"], merged_data)
         
         return JSONResponse(
             status_code=status.HTTP_200_OK,
             content={"message": "Profile saved successfully", "profile": saved_profile}
         )
     except Exception as e:
+        print(f"[ADMIN SAVE] Error saving profile: {str(e)}")
+        print(f"[ADMIN SAVE] Error type: {type(e).__name__}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to save profile: {str(e)}"
@@ -1724,7 +1831,7 @@ async def save_profile(
 async def get_profile(current_user: User = Depends(get_current_user)):
     """Get a patient's profile."""
     try:
-        profile = await get_patient_profile(current_user["id"])
+        profile = await get_patient_profile(current_user["email"])
         if not profile:
             return JSONResponse(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -1746,7 +1853,7 @@ async def get_user_profile(
     user_id: str,
     current_user: User = Depends(get_current_user)
 ):
-    """Admin endpoint to get a specific user's profile."""
+    """Admin endpoint to get a specific user's profile by patient ID (registration code)."""
     if not current_user.get("is_admin"):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -1754,7 +1861,15 @@ async def get_user_profile(
         )
     
     try:
-        profile = await get_patient_profile(user_id)
+        # Resolve patient ID (registration code) to user email
+        user_email = await get_user_email_by_patient_id(user_id)
+        if not user_email:
+            return JSONResponse(
+                status_code=status.HTTP_404_NOT_FOUND,
+                content={"message": "User not found for this patient ID"}
+            )
+        
+        profile = await get_patient_profile(user_email)
         if not profile:
             return JSONResponse(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -1777,14 +1892,27 @@ async def save_user_profile(
     profile: PatientProfile,
     current_user: User = Depends(get_current_user)
 ):
-    """Admin endpoint to save a specific user's profile."""
+    """Admin endpoint to save a specific user's profile by patient ID (registration code)."""
+    print(f"[ADMIN SAVE] Received request for user_id: {user_id}")
+    print(f"[ADMIN SAVE] Current user: {current_user.get('email')}")
+    print(f"[ADMIN SAVE] Profile data keys: {list(profile.dict().keys()) if profile else 'None'}")
+    
     if not current_user.get("is_admin"):
+        print(f"[ADMIN SAVE] Access denied - user is not admin")
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized to modify user profiles"
         )
     
     try:
+        # Resolve patient ID (registration code) to user email
+        user_email = await get_user_email_by_patient_id(user_id)
+        if not user_email:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found for this patient ID"
+            )
+        
         # Convert Pydantic model to dict
         profile_data = profile.dict(exclude_none=True)
         
@@ -1795,7 +1923,7 @@ async def save_user_profile(
                 profile_data[updated_by_key] = "admin"
         
         # Get existing profile to merge with
-        existing_profile = await get_patient_profile(user_id)
+        existing_profile = await get_patient_profile(user_email)
         
         # Merge with existing profile
         if existing_profile:
@@ -1804,7 +1932,7 @@ async def save_user_profile(
             merged_data = profile_data
         
         # Save to database
-        saved_profile = await save_patient_profile(user_id, merged_data)
+        saved_profile = await save_patient_profile(user_email, merged_data)
         
         return JSONResponse(
             status_code=status.HTTP_200_OK,

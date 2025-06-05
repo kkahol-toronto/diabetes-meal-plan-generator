@@ -44,12 +44,25 @@ const Login = () => {
 
       if (response.ok) {
         const data = await response.json();
+        
+        // Store the JWT token
         localStorage.setItem('token', data.access_token);
-        // Check if the token contains admin status
-        const tokenPayload = JSON.parse(atob(data.access_token.split('.')[1]));
-        if (tokenPayload.is_admin) {
-          localStorage.setItem('isAdmin', 'true');
+        
+        // Extract user email from JWT token and store as userId
+        try {
+          const tokenPayload = JSON.parse(atob(data.access_token.split('.')[1]));
+          if (tokenPayload.sub) {
+            localStorage.setItem('userId', tokenPayload.sub); // Store email as userId
+          }
+          
+          // Check if the token contains admin status
+          if (tokenPayload.is_admin) {
+            localStorage.setItem('isAdmin', 'true');
+          }
+        } catch (tokenError) {
+          console.error('Error parsing JWT token:', tokenError);
         }
+        
         navigate('/');
         window.location.reload();
       } else {
