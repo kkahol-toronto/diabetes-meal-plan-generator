@@ -1697,14 +1697,52 @@ async def analyze_and_record_food(
         
         # Read and validate image
         contents = await image.read()
-        img = Image.open(BytesIO(contents))
         
-        # Convert image to base64
-        buffered = BytesIO()
-        img.save(buffered, format="JPEG")
-        img_str = base64.b64encode(buffered.getvalue()).decode()
+        # Validate file type and size
+        if len(contents) == 0:
+            raise HTTPException(status_code=400, detail="Empty file uploaded")
         
-        print("[analyze_and_record_food] Image processed and converted to base64")
+        if len(contents) > 10 * 1024 * 1024:  # 10MB limit
+            raise HTTPException(status_code=400, detail="File too large. Maximum size is 10MB")
+        
+        # Check file extension
+        allowed_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp'}
+        file_extension = image.filename.lower().split('.')[-1] if image.filename else ''
+        if not file_extension or f'.{file_extension}' not in allowed_extensions:
+            raise HTTPException(status_code=400, detail=f"Unsupported file format. Allowed formats: {', '.join(allowed_extensions)}")
+        
+        try:
+            # Try to open and validate the image
+            img = Image.open(BytesIO(contents))
+            
+            # Convert to RGB if necessary (handles RGBA, P modes, etc.)
+            if img.mode in ('RGBA', 'LA', 'P'):
+                background = Image.new('RGB', img.size, (255, 255, 255))
+                if img.mode == 'P':
+                    img = img.convert('RGBA')
+                background.paste(img, mask=img.split()[-1] if img.mode == 'RGBA' else None)
+                img = background
+            elif img.mode != 'RGB':
+                img = img.convert('RGB')
+            
+            # Resize if too large (max 1024x1024 for processing efficiency)
+            max_size = 1024
+            if img.width > max_size or img.height > max_size:
+                img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
+            
+            # Convert image to base64
+            buffered = BytesIO()
+            img.save(buffered, format="JPEG", quality=85, optimize=True)
+            img_str = base64.b64encode(buffered.getvalue()).decode()
+            
+            print("[analyze_and_record_food] Image processed and converted to base64")
+            
+        except Exception as img_error:
+            print(f"[analyze_and_record_food] Image processing error: {str(img_error)}")
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Invalid or corrupted image file. Please upload a valid image in one of these formats: {', '.join(allowed_extensions)}"
+            )
         
         # Generate structured analysis using OpenAI
         response = client.chat.completions.create(
@@ -1895,12 +1933,50 @@ async def analyze_image(
     try:
         # Read and validate image
         contents = await image.read()
-        img = Image.open(BytesIO(contents))
         
-        # Convert image to base64
-        buffered = BytesIO()
-        img.save(buffered, format="JPEG")
-        img_str = base64.b64encode(buffered.getvalue()).decode()
+        # Validate file type and size
+        if len(contents) == 0:
+            raise HTTPException(status_code=400, detail="Empty file uploaded")
+        
+        if len(contents) > 10 * 1024 * 1024:  # 10MB limit
+            raise HTTPException(status_code=400, detail="File too large. Maximum size is 10MB")
+        
+        # Check file extension
+        allowed_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp'}
+        file_extension = image.filename.lower().split('.')[-1] if image.filename else ''
+        if not file_extension or f'.{file_extension}' not in allowed_extensions:
+            raise HTTPException(status_code=400, detail=f"Unsupported file format. Allowed formats: {', '.join(allowed_extensions)}")
+        
+        try:
+            # Try to open and validate the image
+            img = Image.open(BytesIO(contents))
+            
+            # Convert to RGB if necessary (handles RGBA, P modes, etc.)
+            if img.mode in ('RGBA', 'LA', 'P'):
+                background = Image.new('RGB', img.size, (255, 255, 255))
+                if img.mode == 'P':
+                    img = img.convert('RGBA')
+                background.paste(img, mask=img.split()[-1] if img.mode == 'RGBA' else None)
+                img = background
+            elif img.mode != 'RGB':
+                img = img.convert('RGB')
+            
+            # Resize if too large (max 1024x1024 for processing efficiency)
+            max_size = 1024
+            if img.width > max_size or img.height > max_size:
+                img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
+            
+            # Convert image to base64
+            buffered = BytesIO()
+            img.save(buffered, format="JPEG", quality=85, optimize=True)
+            img_str = base64.b64encode(buffered.getvalue()).decode()
+            
+        except Exception as img_error:
+            print(f"[analyze_image] Image processing error: {str(img_error)}")
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Invalid or corrupted image file. Please upload a valid image in one of these formats: {', '.join(allowed_extensions)}"
+            )
         
         # Save user message with image
         user_message = await save_chat_message(
