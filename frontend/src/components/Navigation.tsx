@@ -25,9 +25,9 @@ import BookIcon from '@mui/icons-material/Book';
 import ChatIcon from '@mui/icons-material/Chat';
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
 import AccountCircleIcon from '@mui/icons-material/AccountCircle';
+import HistoryIcon from '@mui/icons-material/History';
 import { isTokenExpired } from '../utils/auth';
 import ShoppingCartIcon from '@mui/icons-material/ShoppingCart';
-import HistoryIcon from '@mui/icons-material/History';
 
 const Navigation = () => {
   const navigate = useNavigate();
@@ -137,7 +137,7 @@ const Navigation = () => {
           button
           key={item.text}
           onClick={() => {
-            console.log(`Navigating to (Drawer): ${item.path}`);
+            console.log(`Navigating to: ${item.path}`);
             navigate(item.path);
             setDrawerOpen(false);
           }}
@@ -183,10 +183,7 @@ const Navigation = () => {
                 key={item.text}
                 color="inherit"
                 startIcon={item.icon}
-                onClick={() => {
-                  console.log(`Navigating to (Button): ${item.path}`);
-                  navigate(item.path);
-                }}
+                onClick={() => navigate(item.path)}
                 sx={{
                   backgroundColor: location.pathname === item.path ? 'rgba(255, 255, 255, 0.1)' : 'transparent',
                 }}
