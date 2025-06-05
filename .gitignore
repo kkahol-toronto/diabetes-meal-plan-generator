@@ -56,4 +56,7 @@ htmlcov/
 .ipynb_checkpoints/
 
 # System
-Thumbs.db 
+Thumbs.db
+
+# Storage for generated PDFs
+backend/storage/pdfs/ 

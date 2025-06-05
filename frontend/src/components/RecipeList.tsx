@@ -132,7 +132,7 @@ const RecipeList: React.FC<RecipeListProps> = ({ recipes }) => {
                         primaryTypographyProps={{ variant: 'body2' }} 
                         primary={`${idx + 1}. ${cleaned}`}
                       />
-                    </ListItem>
+                </ListItem>
                   );
                 })}
               </List>

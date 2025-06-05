@@ -453,7 +453,7 @@ const MealPlanRequest: React.FC = () => {
     }
   };
 
-  // New function to save the full meal plan including recipes and shopping list
+  // New function to save the full meal plan including recipes, shopping list, and consolidated PDF
   const handleSaveFullMealPlan = async () => {
     if (!mealPlan || !recipes || !shoppingList) {
       setError('Meal plan, recipes, or shopping list not available to save.');
@@ -473,10 +473,42 @@ const MealPlanRequest: React.FC = () => {
         return;
       }
 
+      // Step 1: Generate and save the consolidated PDF
+      console.log('Generating consolidated PDF for saving...');
+      let pdfInfo = null;
+      
+      try {
+        const pdfResponse = await fetch('http://localhost:8000/save-consolidated-pdf', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            meal_plan: mealPlan,
+            recipes: recipes,
+            shopping_list: shoppingList,
+          }),
+        });
+
+        if (pdfResponse.ok) {
+          const pdfResult = await pdfResponse.json();
+          pdfInfo = pdfResult.pdf_info;
+          console.log('Consolidated PDF saved:', pdfInfo);
+        } else {
+          console.warn('Failed to save consolidated PDF, continuing without it...');
+        }
+      } catch (pdfError) {
+        console.warn('Error saving consolidated PDF:', pdfError);
+        // Continue saving without PDF - don't let this stop the meal plan save
+      }
+
+      // Step 2: Save the full meal plan with PDF reference
       const fullMealPlan = {
         ...mealPlan,
         recipes: recipes,
         shopping_list: shoppingList,
+        consolidated_pdf: pdfInfo, // Include PDF info if available
       };
 
       console.log('Saving full meal plan:', fullMealPlan);
@@ -513,7 +545,7 @@ const MealPlanRequest: React.FC = () => {
         throw new Error(errorMessage);
       }
 
-      console.log('Full meal plan saved successfully.');
+      console.log('Full meal plan saved successfully with consolidated PDF.');
       navigate('/meal-plan/history'); // Redirect to history to see the saved plan
     } catch (err) {
       console.error('Error saving full meal plan:', err);
@@ -920,8 +952,8 @@ const MealPlanRequest: React.FC = () => {
                       boxShadow: '0 8px 20px rgba(0,0,0,0.15)',
                     },
                   }}
-                >
-                  {loading ? <CircularProgress size={24} /> : '💾 Save Meal Plan and Go to Home'}
+                                  >
+                  {loading ? <CircularProgress size={24} /> : '💾 Save Meal Plan + PDF'}
                 </Button>
               </>
             )}

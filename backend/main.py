@@ -42,7 +42,7 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, Tabl
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib.units import inch
-from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.responses import StreamingResponse, JSONResponse, FileResponse
 import re
 import traceback
 import sys
@@ -120,20 +120,66 @@ class Patient(BaseModel):
         }
 
 class UserProfile(BaseModel):
-    age: int
-    gender: str
-    medical_conditions: List[str]
-    height: float
-    weight: float
-    waist_circumference: float
-    systolic_bp: int
-    diastolic_bp: int
-    heart_rate: int
-    ethnicity: str
-    diet_type: str
-    calories_target: int
-    diet_features: List[str]
-    weight_loss_goal: bool
+    # Patient Demographics
+    name: Optional[str] = None
+    dateOfBirth: Optional[str] = None
+    age: Optional[int] = None
+    gender: Optional[str] = None
+    ethnicity: Optional[List[str]] = []
+    
+    # Medical History
+    medical_conditions: Optional[List[str]] = []
+    medicalConditions: Optional[List[str]] = []  # For backward compatibility
+    
+    # Current Medications
+    currentMedications: Optional[List[str]] = []
+    
+    # Lab Values (Optional)
+    labValues: Optional[Dict[str, Optional[str]]] = {}
+    
+    # Vital Signs
+    height: Optional[float] = None
+    weight: Optional[float] = None
+    bmi: Optional[float] = None
+    waistCircumference: Optional[float] = None
+    waist_circumference: Optional[float] = None  # For backward compatibility
+    systolicBP: Optional[int] = None
+    systolic_bp: Optional[int] = None  # For backward compatibility
+    diastolicBP: Optional[int] = None
+    diastolic_bp: Optional[int] = None  # For backward compatibility
+    heartRate: Optional[int] = None
+    heart_rate: Optional[int] = None  # For backward compatibility
+    
+    # Dietary Information
+    dietType: Optional[List[str]] = []
+    diet_type: Optional[str] = None  # For backward compatibility
+    dietaryFeatures: Optional[List[str]] = []
+    diet_features: Optional[List[str]] = []  # For backward compatibility
+    dietaryRestrictions: Optional[List[str]] = []
+    foodPreferences: Optional[List[str]] = []
+    allergies: Optional[List[str]] = []
+    strongDislikes: Optional[List[str]] = []
+    
+    # Physical Activity
+    workActivityLevel: Optional[str] = None
+    exerciseFrequency: Optional[str] = None
+    exerciseTypes: Optional[List[str]] = []
+    mobilityIssues: Optional[bool] = False
+    
+    # Lifestyle & Preferences
+    mealPrepCapability: Optional[str] = None
+    availableAppliances: Optional[List[str]] = []
+    eatingSchedule: Optional[str] = None
+    
+    # Goals & Readiness
+    primaryGoals: Optional[List[str]] = []
+    readinessToChange: Optional[str] = None
+    
+    # Meal Plan Targeting
+    wantsWeightLoss: Optional[bool] = False
+    weight_loss_goal: Optional[bool] = False  # For backward compatibility
+    calorieTarget: Optional[str] = None
+    calories_target: Optional[int] = None  # For backward compatibility
 
 class MealPlanRequest(BaseModel):
     user_profile: UserProfile
@@ -356,90 +402,14 @@ async def admin_login(form_data: OAuth2PasswordRequestForm = Depends()):
     return {"access_token": access_token, "token_type": "bearer"}
 
 def generate_meal_plan_prompt(user_profile: UserProfile) -> str:
-    return f"""Generate a detailed meal plan for a person with the following profile:
-Age: {user_profile.age}
-Gender: {user_profile.gender}
-Medical Conditions: {', '.join(user_profile.medical_conditions)}
-Height: {user_profile.height} cm
-Weight: {user_profile.weight} kg
-Waist Circumference: {user_profile.waist_circumference} cm
-Blood Pressure: {user_profile.systolic_bp}/{user_profile.diastolic_bp}
-Heart Rate: {user_profile.heart_rate} bpm
-Ethnicity: {user_profile.ethnicity}
-Diet Type: {user_profile.diet_type}
-Calories Target: {user_profile.calories_target} kcal
-Diet Features: {', '.join(user_profile.diet_features)}
-Weight Loss Goal: {'Yes' if user_profile.weight_loss_goal else 'No'}
-
-Please provide:
-1. Daily calorie and macronutrient breakdown
-2. Detailed meal plan for each day of the week
-3. Include saturated fat, unsaturated fat, omega-3, and omega-6 breakdown
-4. Ensure the plan is suitable for the specified medical conditions
-5. Consider cultural preferences based on ethnicity
-6. Follow the specified diet type and features
-
-Format the response as a JSON object with the following structure:
-{{
-    "dailyCalories": number,
-    "macronutrients": {{
-        "protein": number,
-        "carbs": number,
-        "fats": number,
-        "saturatedFat": number,
-        "unsaturatedFat": number,
-        "omega3": number,
-        "omega6": number
-    }},
-    "meals": {{
-        "breakfast": [
-            {{
-                "name": string,
-                "calories": number,
-                "macronutrients": {{
-                    "protein": number,
-                    "carbs": number,
-                    "fats": number
-                }}
-            }}
-        ],
-        "lunch": [...],
-        "dinner": [...],
-        "snacks": [...]
-    }}
-}}"""
+    """Legacy function - now redirects to comprehensive profile handling"""
+    # This function is deprecated - the main endpoint now uses comprehensive profiling
+    return "This function has been replaced with comprehensive profile analysis"
 
 def generate_recipe_prompt(meal_name: str, user_profile: UserProfile) -> str:
-    return f"""Generate a detailed recipe for {meal_name} that is suitable for a person with the following profile:
-Medical Conditions: {', '.join(user_profile.medical_conditions)}
-Diet Type: {user_profile.diet_type}
-Diet Features: {', '.join(user_profile.diet_features)}
-
-Please provide:
-1. List of ingredients with amounts and preparation instructions
-2. Step-by-step cooking instructions
-3. Nutritional information
-4. Ensure the recipe is suitable for the specified medical conditions
-5. Follow the specified diet type and features
-
-Format the response as a JSON object with the following structure:
-{{
-    "name": string,
-    "ingredients": [
-        {{
-            "name": string,
-            "amount": string,
-            "preparation": string
-        }}
-    ],
-    "instructions": [string],
-    "nutritionalInfo": {{
-        "calories": number,
-        "protein": number,
-        "carbs": number,
-        "fats": number
-    }}
-}}"""
+    """Legacy function - now redirects to comprehensive profile handling"""
+    # This function is deprecated - the main endpoint now uses comprehensive profiling
+    return "This function has been replaced with comprehensive profile analysis"
 
 @app.get("/")
 async def root():
@@ -538,57 +508,118 @@ async def generate_meal_plan(
     }
 }"""
 
+        # Helper function to get profile value with fallbacks
+        def get_profile_value(profile, new_key, old_key=None, default='Not provided'):
+            value = profile.get(new_key)
+            if not value and old_key:
+                value = profile.get(old_key)
+            if isinstance(value, list) and value:
+                return ', '.join(value)
+            elif isinstance(value, list):
+                return default
+            return value or default
+
+        # Create comprehensive profile summary
+        profile_summary = f"""
+PATIENT DEMOGRAPHICS:
+Name: {get_profile_value(user_profile, 'name')}
+Age: {get_profile_value(user_profile, 'age')}
+Gender: {get_profile_value(user_profile, 'gender')}
+Ethnicity: {get_profile_value(user_profile, 'ethnicity', default='Not specified')}
+
+VITAL SIGNS & MEASUREMENTS:
+Height: {get_profile_value(user_profile, 'height')} cm
+Weight: {get_profile_value(user_profile, 'weight')} kg
+BMI: {get_profile_value(user_profile, 'bmi', default='Not calculated')}
+Waist Circumference: {get_profile_value(user_profile, 'waistCircumference', 'waist_circumference')} cm
+Blood Pressure: {get_profile_value(user_profile, 'systolicBP', 'systolic_bp')}/{get_profile_value(user_profile, 'diastolicBP', 'diastolic_bp')} mmHg
+Heart Rate: {get_profile_value(user_profile, 'heartRate', 'heart_rate')} bpm
+
+MEDICAL CONDITIONS:
+Medical Conditions: {get_profile_value(user_profile, 'medicalConditions', 'medical_conditions', 'None specified')}
+Current Medications: {get_profile_value(user_profile, 'currentMedications', default='None specified')}
+
+LAB VALUES (if available):
+{json.dumps(user_profile.get('labValues', {}), indent=2) if user_profile.get('labValues') else 'Not provided'}
+
+DIETARY INFORMATION:
+Diet Type: {get_profile_value(user_profile, 'dietType', 'diet_type', 'Not specified')}
+Dietary Features: {get_profile_value(user_profile, 'dietaryFeatures', 'diet_features', 'None specified')}
+Dietary Restrictions: {get_profile_value(user_profile, 'dietaryRestrictions', default='None specified')}
+Food Preferences: {get_profile_value(user_profile, 'foodPreferences', default='None specified')}
+Food Allergies: {get_profile_value(user_profile, 'allergies', default='None specified')}
+Strong Dislikes: {get_profile_value(user_profile, 'strongDislikes', default='None specified')}
+
+PHYSICAL ACTIVITY:
+Work Activity Level: {get_profile_value(user_profile, 'workActivityLevel', default='Not specified')}
+Exercise Frequency: {get_profile_value(user_profile, 'exerciseFrequency', default='Not specified')}
+Exercise Types: {get_profile_value(user_profile, 'exerciseTypes', default='Not specified')}
+Mobility Issues: {'Yes' if user_profile.get('mobilityIssues') else 'No'}
+
+LIFESTYLE & PREFERENCES:
+Meal Prep Capability: {get_profile_value(user_profile, 'mealPrepCapability', default='Not specified')}
+Available Appliances: {get_profile_value(user_profile, 'availableAppliances', default='Standard kitchen')}
+Eating Schedule: {get_profile_value(user_profile, 'eatingSchedule', default='Standard 3 meals')}
+
+GOALS & TARGET:
+Primary Health Goals: {get_profile_value(user_profile, 'primaryGoals', default='General wellness')}
+Readiness to Change: {get_profile_value(user_profile, 'readinessToChange', default='Not specified')}
+Weight Loss Goal: {'Yes' if user_profile.get('wantsWeightLoss') or user_profile.get('weight_loss_goal') else 'No'}
+Calorie Target: {get_profile_value(user_profile, 'calorieTarget', 'calories_target', '2000')} kcal/day
+        """
+
         # Format the prompt with proper error handling for optional fields
         if previous_meal_plan:
             # Add previous meal plan to the prompt and instruct the model for 70/30 overlap
             prev_meal_plan_str = json.dumps({k: previous_meal_plan.get(k, []) for k in ['breakfast', 'lunch', 'dinner', 'snacks']}, indent=2)
-            prompt = f"""Create a diabetes-friendly meal plan based on this profile:
-Name: {user_profile.get('name', 'Not provided')}
-Age: {user_profile.get('age', 'Not provided')}
-Gender: {user_profile.get('gender', 'Not provided')}
-Weight: {user_profile.get('weight', 'Not provided')} kg
-Height: {user_profile.get('height', 'Not provided')} cm
-Dietary Restrictions: {', '.join(user_profile.get('dietaryRestrictions', []) or ['None'])}
-Health Conditions: {', '.join(user_profile.get('healthConditions', []) or ['None'])}
-Food Preferences: {', '.join(user_profile.get('foodPreferences', []) or ['None'])}
-Allergies: {', '.join(user_profile.get('allergies', []) or ['None'])}
+            prompt = f"""Create a comprehensive, medically-appropriate meal plan based on this detailed patient profile:
+
+{profile_summary}
 
 Here is the previous week's meal plan (for each meal type, 7 days):
 {prev_meal_plan_str}
 
-Instructions:
-- For each meal type (breakfast, lunch, dinner, snacks), reuse about 70% of the meals from the previous plan.
-- For the remaining 30%, create new meals that are similar in style or ingredients to the previous ones, but not identical.
-- You may include a few (1-2 per meal type) completely new recipes that fit the user's preferences and restrictions.
-- Do not repeat the exact same meal for the new 30%.
-- Return a JSON object with exactly this structure (replace the example values with appropriate ones):
+CRITICAL INSTRUCTIONS:
+1. MEDICAL SAFETY: Carefully consider all medical conditions, medications, and lab values. Ensure meals are appropriate for diabetes management and any other health conditions.
+2. DIETARY COMPLIANCE: Strictly follow dietary restrictions, allergies, and food preferences.
+3. CULTURAL CONSIDERATIONS: Incorporate ethnicity and cultural food preferences where specified.
+4. ACTIVITY ALIGNMENT: Consider physical activity level for calorie and macronutrient targets.
+5. MEAL CONTINUITY: For each meal type (breakfast, lunch, dinner, snacks), reuse about 70% of meals from the previous plan and create 30% new similar meals.
+6. APPLIANCE CONSTRAINTS: Only suggest meals that can be prepared with available appliances.
+
+Return a JSON object with exactly this structure:
 {json_structure}
 
-Important:
-1. Ensure all meal arrays have exactly 7 items (one for each day of the week)
-2. Keep meal names concise
-3. Ensure calorie and macronutrient values are numbers, not strings
-4. Do not include any explanations or markdown, just the JSON object"""
+REQUIREMENTS:
+- Each meal array must have exactly 7 items (one for each day)
+- Consider medical conditions for ingredient selection
+- Match calorie target and dietary features
+- Keep meal names concise but descriptive
+- Ensure all values are numbers, not strings
+- No explanations or markdown, just the JSON object"""
         else:
-            prompt = f"""Create a diabetes-friendly meal plan based on this profile:
-Name: {user_profile.get('name', 'Not provided')}
-Age: {user_profile.get('age', 'Not provided')}
-Gender: {user_profile.get('gender', 'Not provided')}
-Weight: {user_profile.get('weight', 'Not provided')} kg
-Height: {user_profile.get('height', 'Not provided')} cm
-Dietary Restrictions: {', '.join(user_profile.get('dietaryRestrictions', []) or ['None'])}
-Health Conditions: {', '.join(user_profile.get('healthConditions', []) or ['None'])}
-Food Preferences: {', '.join(user_profile.get('foodPreferences', []) or ['None'])}
-Allergies: {', '.join(user_profile.get('allergies', []) or ['None'])}
+            prompt = f"""Create a comprehensive, medically-appropriate meal plan based on this detailed patient profile:
 
-Return a JSON object with exactly this structure (replace the example values with appropriate ones):
+{profile_summary}
+
+CRITICAL INSTRUCTIONS:
+1. MEDICAL SAFETY: Carefully consider all medical conditions, medications, and lab values. Ensure meals are appropriate for diabetes management and any other health conditions.
+2. DIETARY COMPLIANCE: Strictly follow dietary restrictions, allergies, and food preferences.
+3. CULTURAL CONSIDERATIONS: Incorporate ethnicity and cultural food preferences where specified.
+4. ACTIVITY ALIGNMENT: Consider physical activity level for calorie and macronutrient targets.
+5. APPLIANCE CONSTRAINTS: Only suggest meals that can be prepared with available appliances.
+6. PERSONALIZATION: Use lifestyle preferences and eating schedule to optimize meal timing and preparation.
+
+Return a JSON object with exactly this structure:
 {json_structure}
 
-Important:
-1. Ensure all meal arrays have exactly 7 items (one for each day of the week)
-2. Keep meal names concise
-3. Ensure calorie and macronutrient values are numbers, not strings
-4. Do not include any explanations or markdown, just the JSON object"""
+REQUIREMENTS:
+- Each meal array must have exactly 7 items (one for each day)
+- Consider medical conditions for ingredient selection
+- Match calorie target and dietary features
+- Keep meal names concise but descriptive
+- Ensure all values are numbers, not strings
+- No explanations or markdown, just the JSON object"""
 
         print("Prompt for OpenAI:")
         print(prompt)
@@ -1296,7 +1327,59 @@ async def generate_recipe(
             print(f"ERROR: {error_msg}")
             raise HTTPException(status_code=500, detail=error_msg)
         
-        prompt = f"""Generate a detailed recipe for the following meal: {meal_name}\n\nUser profile context: {json.dumps(user_profile, indent=2)}\n\nPlease provide:\n1. A list of ingredients with quantities\n2. Step-by-step preparation instructions\n3. Nutritional information (calories, protein, carbs, fat)\n\nFor all nutritional values, return them as strings with units (e.g., '3g', '115 kcal').\n\nFormat the response as a JSON object with the following structure:\n{{\n    \"name\": \"Recipe Name\",\n    \"ingredients\": [\"ingredient1\", \"ingredient2\", ...],\n    \"instructions\": [\"step1\", \"step2\", ...],\n    \"nutritional_info\": {{\n        \"calories\": \"number with unit, e.g. '115 kcal'\",\n        \"protein\": \"number with unit, e.g. '3g'\",\n        \"carbs\": \"number with unit, e.g. '16g'\",\n        \"fat\": \"number with unit, e.g. '4g'\"\n    }}\n}}"""
+        # Create profile summary for recipe generation
+        def get_profile_value(profile, new_key, old_key=None, default='Not specified'):
+            value = profile.get(new_key)
+            if not value and old_key:
+                value = profile.get(old_key)
+            if isinstance(value, list) and value:
+                return ', '.join(value)
+            elif isinstance(value, list):
+                return default
+            return value or default
+
+        medical_summary = f"""
+MEDICAL CONDITIONS: {get_profile_value(user_profile, 'medicalConditions', 'medical_conditions', 'None')}
+CURRENT MEDICATIONS: {get_profile_value(user_profile, 'currentMedications', default='None')}
+DIETARY RESTRICTIONS: {get_profile_value(user_profile, 'dietaryRestrictions', default='None')}
+FOOD ALLERGIES: {get_profile_value(user_profile, 'allergies', default='None')}
+FOOD DISLIKES: {get_profile_value(user_profile, 'strongDislikes', default='None')}
+DIET TYPE: {get_profile_value(user_profile, 'dietType', 'diet_type', 'Standard')}
+DIETARY FEATURES: {get_profile_value(user_profile, 'dietaryFeatures', 'diet_features', 'None')}
+AVAILABLE APPLIANCES: {get_profile_value(user_profile, 'availableAppliances', default='Standard kitchen equipment')}
+MEAL PREP CAPABILITY: {get_profile_value(user_profile, 'mealPrepCapability', default='Self-prepared')}
+        """
+
+        prompt = f"""Generate a detailed, medically-appropriate recipe for: {meal_name}
+
+PATIENT MEDICAL & DIETARY CONTEXT:
+{medical_summary}
+
+CRITICAL REQUIREMENTS:
+1. MEDICAL SAFETY: Ensure recipe is safe for all listed medical conditions
+2. MEDICATION INTERACTIONS: Avoid ingredients that may interact with medications
+3. DIETARY COMPLIANCE: Strictly adhere to dietary restrictions and allergies
+4. EQUIPMENT CONSTRAINTS: Only use available appliances and match meal prep capability
+5. DIABETES-FRIENDLY: Ensure appropriate carbohydrate content and glycemic index
+
+Please provide:
+1. A list of ingredients with precise quantities
+2. Step-by-step preparation instructions
+3. Cooking tips for the specified medical conditions
+4. Nutritional information per serving
+
+Format the response as a JSON object with the following structure:
+{{
+    "name": "Recipe Name",
+    "ingredients": ["ingredient1 with quantity", "ingredient2 with quantity", ...],
+    "instructions": ["step1", "step2", ...],
+    "nutritional_info": {{
+        "calories": "number with unit, e.g. '115 kcal'",
+        "protein": "number with unit, e.g. '3g'",
+        "carbs": "number with unit, e.g. '16g'",
+        "fat": "number with unit, e.g. '4g'"
+    }}
+}}"""
         
         print("Prompt for OpenAI:")
         print(prompt[:200] + "..." if len(prompt) > 200 else prompt)
@@ -1633,12 +1716,178 @@ async def view_meal_plans_endpoint(current_user: Dict[str, Any] = Depends(get_cu
             detail=str(e)
         )
 
+@app.post("/save-consolidated-pdf")
+async def save_consolidated_pdf_endpoint(
+    request: FastAPIRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Generates and saves a consolidated PDF, returns PDF info for storage reference."""
+    try:
+        data = await request.json()
+        meal_plan = data.get('meal_plan', {})
+        recipes = data.get('recipes', [])
+        shopping_list = data.get('shopping_list', [])
+        
+        print("Generating consolidated PDF for saving...")
+        
+        # Generate PDF using the same logic as the download endpoint
+        buffer = BytesIO()
+        doc = SimpleDocTemplate(buffer, pagesize=landscape(letter))
+        elements = []
+        styles = getSampleStyleSheet()
+        
+        # Add cover page
+        try:
+            cover_path = os.path.join("assets", "coverpage.png")
+            elements.append(RLImage(cover_path, width=10*inch, height=6*inch))
+            elements.append(Spacer(1, 48))
+        except Exception as cover_err:
+            print(f"Could not add cover page: {cover_err}")
+        
+        # Title
+        elements.append(Paragraph("Consolidated Meal Plan", styles['Title']))
+        elements.append(Spacer(1, 12))
+        
+        # Meal Plan Section
+        elements.append(Paragraph("Meal Plan", styles['Heading1']))
+        elements.append(Spacer(1, 12))
+        data_table = [["Day", "Breakfast", "Lunch", "Dinner", "Snacks"]]
+        days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+        for i, day in enumerate(days):
+            data_table.append([
+                day,
+                meal_plan["breakfast"][i] if i < len(meal_plan["breakfast"]) else "",
+                meal_plan["lunch"][i] if i < len(meal_plan["lunch"]) else "",
+                meal_plan["dinner"][i] if i < len(meal_plan["dinner"]) else "",
+                meal_plan["snacks"][i] if i < len(meal_plan["snacks"]) else "",
+            ])
+        col_widths = [0.8*inch, 2.5*inch, 2.5*inch, 2.5*inch, 2.5*inch]
+        table = Table(data_table, colWidths=col_widths)
+        table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 14),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+            ('TEXTCOLOR', (0, 1), (-1, -1), colors.black),
+            ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+            ('FONTSIZE', (0, 1), (-1, -1), 10),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black),
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+        ]))
+        for row in range(1, len(data_table)):
+            for col in range(1, 5):
+                table._cellvalues[row][col] = Paragraph(str(table._cellvalues[row][col]), styles['BodyText'])
+        elements.append(table)
+        elements.append(Spacer(1, 24))
+        
+        # Recipes Section (new page)
+        elements.append(PageBreak())
+        elements.append(Paragraph("Recipes", styles['Heading1']))
+        elements.append(Spacer(1, 12))
+        for recipe in recipes:
+            elements.append(Paragraph(recipe["name"], styles['Heading2']))
+            elements.append(Spacer(1, 12))
+            elements.append(Paragraph("Nutritional Information", styles['Heading3']))
+            elements.append(Paragraph(f"Calories: {recipe['nutritional_info']['calories']}", styles['Normal']))
+            elements.append(Paragraph(f"Protein: {recipe['nutritional_info']['protein']}", styles['Normal']))
+            elements.append(Paragraph(f"Carbs: {recipe['nutritional_info']['carbs']}", styles['Normal']))
+            elements.append(Paragraph(f"Fat: {recipe['nutritional_info']['fat']}", styles['Normal']))
+            elements.append(Spacer(1, 12))
+            elements.append(Paragraph("Ingredients", styles['Heading3']))
+            for ingredient in recipe["ingredients"]:
+                elements.append(Paragraph(f"• {ingredient}", styles['Normal']))
+            elements.append(Spacer(1, 12))
+            elements.append(Paragraph("Instructions", styles['Heading3']))
+            for i, instruction in enumerate(recipe["instructions"], 1):
+                elements.append(Paragraph(f"{i}. {instruction}", styles['Normal']))
+            elements.append(Spacer(1, 24))
+        
+        # Shopping List Section (new page)
+        elements.append(PageBreak())
+        elements.append(Paragraph("Shopping List", styles['Heading1']))
+        elements.append(Spacer(1, 12))
+        categories = {}
+        for item in shopping_list:
+            if item["category"] not in categories:
+                categories[item["category"]] = []
+            categories[item["category"]].append(item)
+        for category, items in categories.items():
+            elements.append(Paragraph(category, styles['Heading2']))
+            elements.append(Spacer(1, 12))
+            for item in items:
+                elements.append(Paragraph(f"• {item['name']} - {item['amount']}", styles['Normal']))
+            elements.append(Spacer(1, 24))
+        
+        doc.build(elements)
+        buffer.seek(0)
+        
+        # Create filename
+        username = current_user["email"].split("@")[0]
+        date_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"{username}_{date_str}_consolidated_meal_plan.pdf"
+        
+        # Save PDF to a storage directory (create directory if it doesn't exist)
+        storage_dir = os.path.join("storage", "pdfs")
+        os.makedirs(storage_dir, exist_ok=True)
+        file_path = os.path.join(storage_dir, filename)
+        
+        with open(file_path, 'wb') as f:
+            f.write(buffer.getvalue())
+        
+        # Return PDF info for storage in meal plan
+        pdf_info = {
+            "filename": filename,
+            "file_path": file_path,
+            "generated_at": datetime.now().isoformat(),
+            "file_size": len(buffer.getvalue())
+        }
+        
+        print(f"Consolidated PDF saved to: {file_path}")
+        return {"pdf_info": pdf_info}
+        
+    except Exception as e:
+        print("Error in /save-consolidated-pdf:")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/download-saved-pdf/{filename}")
+async def download_saved_pdf(
+    filename: str,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Download a previously saved consolidated PDF"""
+    try:
+        # Security check: ensure filename is safe and belongs to user
+        username = current_user["email"].split("@")[0]
+        if not filename.startswith(username) or ".." in filename or "/" in filename:
+            raise HTTPException(status_code=403, detail="Access denied")
+        
+        file_path = os.path.join("storage", "pdfs", filename)
+        
+        if not os.path.exists(file_path):
+            raise HTTPException(status_code=404, detail="PDF file not found")
+        
+        return FileResponse(
+            file_path,
+            media_type="application/pdf",
+            filename=filename
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error downloading saved PDF: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/save-full-meal-plan")
 async def save_full_meal_plan_endpoint(
     full_meal_plan_data: Dict[str, Any] = Body(...),
     current_user: Dict[str, Any] = Depends(get_current_user)
 ):
-    """Saves the full meal plan data including recipes and shopping list."""
+    """Saves the full meal plan data including recipes, shopping list, and PDF reference."""
     try:
         user_id = current_user.get("email") # Or use "id" depending on how you identify users
         if not user_id:
@@ -1647,7 +1896,7 @@ async def save_full_meal_plan_endpoint(
         # The save_meal_plan function in database.py is designed to accept
         # the meal_plan dictionary and use **meal_plan, so we can pass the
         # full_meal_plan_data directly if it contains the required base fields
-        # (breakfast, lunch, etc.) plus recipes and shopping_list.
+        # (breakfast, lunch, etc.) plus recipes, shopping_list, and consolidated_pdf.
         
         # It might be a good idea to add validation here or in save_meal_plan
         # to ensure the basic meal plan fields are present.

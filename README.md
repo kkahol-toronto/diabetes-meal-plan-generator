@@ -15,6 +15,7 @@ A comprehensive, production-ready web application designed to help diabetes pati
 - **👨‍🍳 Smart Recipe Generation** - Detailed diabetes-friendly recipes with nutritional info
 - **🛒 Automatic Shopping Lists** - Generated from your meal plans with smart organization
 - **📄 Professional PDF Export** - Export meal plans, recipes, and shopping lists
+- **📋 Consolidated PDF Storage** - Automatically save complete meal plan PDFs in history
 - **📱 Mobile-Responsive Design** - Modern animated UI that works on all devices
 
 ### 🏥 Health Management
@@ -190,8 +191,8 @@ REACT_APP_VERSION=1.0.0
 2. **Review & Edit** - Modify any meals to your preference
 3. **Generate Recipes** - Get detailed cooking instructions
 4. **Create Shopping List** - Automatic ingredient compilation
-5. **Save to History** - Store for future reference
-6. **Export PDFs** - Download professional documents
+5. **Save to History** - Store for future reference with auto-generated PDF
+6. **Export PDFs** - Download professional documents anytime
 
 ### Advanced Features
 - **History Management** - View, reuse, or delete previous plans
@@ -220,6 +221,8 @@ The backend provides comprehensive API documentation at `/docs` when running. Ke
 
 ### Export & Utilities
 - `POST /export/*` - Various PDF export options
+- `POST /save-consolidated-pdf` - Generate and store consolidated PDF
+- `GET /download-saved-pdf/{filename}` - Download previously saved PDFs
 - `GET /health` - System health check
 
 ## 🧪 Testing

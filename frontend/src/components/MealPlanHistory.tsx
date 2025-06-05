@@ -29,6 +29,7 @@ import {
 import SearchIcon from '@mui/icons-material/Search';
 import DeleteIcon from '@mui/icons-material/Delete';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import DownloadIcon from '@mui/icons-material/Download';
 import { useNavigate } from 'react-router-dom';
 import { MealPlanData } from '../types';
 import { handleAuthError, getAuthHeaders } from '../utils/auth';
@@ -382,6 +383,47 @@ const MealPlanHistory = () => {
     return cleanId.slice(-6).toUpperCase();
   };
 
+  const handleDownloadPDF = async (filename: string) => {
+    try {
+      const headers = getAuthHeaders();
+      if (!headers) {
+        navigate('/login');
+        return;
+      }
+
+      const response = await fetch(`http://localhost:8000/download-saved-pdf/${filename}`, {
+        method: 'GET',
+        headers,
+      });
+
+      if (!response.ok) {
+        if (handleAuthError(response, navigate)) {
+          return;
+        }
+        throw new Error('Failed to download PDF');
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+
+      setSnackbarMessage('PDF downloaded successfully!');
+      setSnackbarSeverity('success');
+      setSnackbarOpen(true);
+    } catch (error) {
+      console.error('Error downloading PDF:', error);
+      setSnackbarMessage('Failed to download PDF. Please try again.');
+      setSnackbarSeverity('error');
+      setSnackbarOpen(true);
+    }
+  };
+
    const handleCloseSnackbar = (event?: React.SyntheticEvent | Event, reason?: string) => {
     if (reason === 'clickaway') {
       return;
@@ -547,7 +589,20 @@ const MealPlanHistory = () => {
                       </Stack>
                     </Box>
 
-                    <Box mt={2} display="flex" justifyContent="flex-end">
+                    <Box mt={2} display="flex" justifyContent="space-between" gap={1}>
+                      {plan.consolidated_pdf && (
+                        <Button
+                          variant="outlined"
+                          color="secondary"
+                          size="small"
+                          startIcon={<DownloadIcon />}
+                          onClick={() => handleDownloadPDF(plan.consolidated_pdf?.filename || '')}
+                          disabled={!plan.consolidated_pdf?.filename}
+                          sx={{ minWidth: 'auto' }}
+                        >
+                          PDF
+                        </Button>
+                      )}
                       <Button
                         variant="contained"
                         color="primary"
