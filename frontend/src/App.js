@@ -37,10 +37,42 @@ const theme = createTheme({
 // Protected Route component
 const ProtectedRoute = ({ children }) => {
   const token = localStorage.getItem('token');
+  
+  // Enhanced token validation
   if (!token) {
+    console.log('ProtectedRoute: No token found, redirecting to login');
     return <Navigate to="/login" />;
   }
-  return <>{children}</>;
+  
+  // Check if token is properly formatted (JWT should have 3 parts)
+  const tokenParts = token.split('.');
+  if (tokenParts.length !== 3) {
+    console.log('ProtectedRoute: Invalid token format, redirecting to login');
+    localStorage.removeItem('token');
+    localStorage.removeItem('isAdmin');
+    return <Navigate to="/login" />;
+  }
+  
+  try {
+    // Check if token is expired
+    const payload = JSON.parse(atob(tokenParts[1]));
+    const currentTime = Date.now() / 1000;
+    
+    if (payload.exp && payload.exp < currentTime) {
+      console.log('ProtectedRoute: Token expired, redirecting to login');
+      localStorage.removeItem('token');
+      localStorage.removeItem('isAdmin');
+      return <Navigate to="/login" />;
+    }
+    
+    console.log('ProtectedRoute: Token valid, allowing access');
+    return <>{children}</>;
+  } catch (error) {
+    console.log('ProtectedRoute: Token parsing error, redirecting to login', error);
+    localStorage.removeItem('token');
+    localStorage.removeItem('isAdmin');
+    return <Navigate to="/login" />;
+  }
 };
 
 // Admin Route component

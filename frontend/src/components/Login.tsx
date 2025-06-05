@@ -44,14 +44,26 @@ const Login = () => {
 
       if (response.ok) {
         const data = await response.json();
+        console.log('Login successful, storing token...');
         localStorage.setItem('token', data.access_token);
+        console.log('Token stored:', data.access_token.substring(0, 50) + '...');
+        
         // Check if the token contains admin status
-        const tokenPayload = JSON.parse(atob(data.access_token.split('.')[1]));
-        if (tokenPayload.is_admin) {
-          localStorage.setItem('isAdmin', 'true');
+        try {
+          const tokenPayload = JSON.parse(atob(data.access_token.split('.')[1]));
+          console.log('Token payload:', tokenPayload);
+          if (tokenPayload.is_admin) {
+            localStorage.setItem('isAdmin', 'true');
+            console.log('Admin status set');
+          }
+        } catch (error) {
+          console.error('Error parsing token:', error);
         }
+        
+        console.log('Navigating to home page...');
         navigate('/');
-        window.location.reload();
+        // Remove the reload to avoid clearing state
+        // window.location.reload();
       } else {
         const errorData = await response.json();
         // Handle FastAPI validation errors

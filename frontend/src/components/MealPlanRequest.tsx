@@ -151,8 +151,12 @@ const MealPlanRequest: React.FC = () => {
     const loadSavedProfile = async () => {
       try {
         const token = localStorage.getItem('token');
-        if (!token) return;
+        if (!token) {
+          console.log('MealPlanRequest: No token found for profile loading');
+          return;
+        }
         
+        console.log('MealPlanRequest: Loading saved profile...');
         const response = await fetch('http://localhost:8000/user/profile', {
           headers: {
             'Authorization': `Bearer ${token}`,
@@ -161,12 +165,18 @@ const MealPlanRequest: React.FC = () => {
         
         if (response.ok) {
           const data = await response.json();
+          console.log('MealPlanRequest: Profile loaded successfully:', data);
           if (data && data.profile) {
             setUserProfile(data.profile);
           }
+        } else if (response.status === 401) {
+          console.log('MealPlanRequest: Profile loading failed - unauthorized');
+          // Don't navigate here, let ProtectedRoute handle it
+        } else {
+          console.log('MealPlanRequest: Profile loading failed with status:', response.status);
         }
       } catch (error) {
-        console.error('Error loading profile:', error);
+        console.error('MealPlanRequest: Error loading profile:', error);
       }
     };
 
@@ -252,7 +262,9 @@ const MealPlanRequest: React.FC = () => {
     try {
       const token = localStorage.getItem('token');
       if (!token) {
-        navigate('/login');
+        console.log('MealPlanRequest: No token found for meal plan generation');
+        setError('Authentication required. Please refresh the page.');
+        setLoading(false);
         return;
       }
 
@@ -294,8 +306,11 @@ const MealPlanRequest: React.FC = () => {
 
       if (response.status === 401) {
         // Token expired or invalid
+        console.log('MealPlanRequest: 401 response - token invalid');
         localStorage.removeItem('token');
-        navigate('/login');
+        localStorage.removeItem('isAdmin');
+        setError('Your session has expired. Please refresh the page and log in again.');
+        setLoading(false);
         return;
       }
 
@@ -374,8 +389,8 @@ const MealPlanRequest: React.FC = () => {
     setRecipeProgress(0);
       const token = localStorage.getItem('token');
     if (!token) {
-      setSaveStatus({ message: 'Authentication token not found. Please log in.', severity: 'error' });
-      navigate('/login');
+      setSaveStatus({ message: 'Authentication token not found. Please refresh the page.', severity: 'error' });
+      setError('Authentication required. Please refresh the page.');
       setGeneratingRecipes(false);
       return;
     }
@@ -407,11 +422,12 @@ const MealPlanRequest: React.FC = () => {
         console.log(`Response status for ${name}:`, response.status);
         if (response.status === 401) {
           // Token expired or invalid
+          console.log('MealPlanRequest: 401 response in recipe generation - token invalid');
           localStorage.removeItem('token');
-          setError('Your session has expired. Please log in again.');
-          setSaveStatus({ message: 'Session expired. Please log in again to continue generating recipes.', severity: 'error' });
+          localStorage.removeItem('isAdmin');
+          setError('Your session has expired. Please refresh the page and log in again.');
+          setSaveStatus({ message: 'Session expired. Please refresh the page and log in again.', severity: 'error' });
           setGeneratingRecipes(false);
-          navigate('/login');
           return;
         }
         if (!response.ok) {
