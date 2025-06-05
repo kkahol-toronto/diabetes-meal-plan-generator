@@ -49,7 +49,17 @@ const AdminUserProfile: React.FC = () => {
       setProfile(userProfile);
     } catch (err) {
       console.error('Error fetching user profile:', err);
-      setError(err instanceof Error ? err.message : 'Failed to load user profile');
+      
+      // Check if it's a 404 error (profile doesn't exist yet)
+      if (err instanceof Error && err.message.includes('404')) {
+        // This is normal for new patients who haven't filled out their profile yet
+        console.log('No profile found for user - showing empty form');
+        setProfile(null); // This will show an empty form
+        setError(null); // Don't show an error for missing profiles
+      } else {
+        // This is a real error (network, auth, etc.)
+        setError(err instanceof Error ? err.message : 'Failed to load user profile');
+      }
     } finally {
       setLoading(false);
     }
@@ -147,9 +157,13 @@ const AdminUserProfile: React.FC = () => {
                   sx={{ ml: 2 }}
                 />
               </Box>
-              {profile?.fullName && (
+              {profile?.fullName ? (
                 <Typography variant="subtitle1" color="text.secondary">
                   Name: {profile.fullName}
+                </Typography>
+              ) : (
+                <Typography variant="subtitle1" color="text.secondary" sx={{ fontStyle: 'italic' }}>
+                  No profile data yet - creating new profile
                 </Typography>
               )}
             </Box>
@@ -166,6 +180,13 @@ const AdminUserProfile: React.FC = () => {
         {error && (
           <Alert severity="error" sx={{ mb: 2 }}>
             {error}
+          </Alert>
+        )}
+
+        {/* Info message for new profiles */}
+        {!profile && !error && (
+          <Alert severity="info" sx={{ mb: 2 }}>
+            This patient hasn't filled out their profile yet. You can create their initial profile below.
           </Alert>
         )}
 

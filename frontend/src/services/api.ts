@@ -135,22 +135,30 @@ export const getAdminUserProfile = async (userId: string): Promise<PatientProfil
     return null;
   }
 
+  const token = localStorage.getItem('token');
+  console.log('🔍 DEBUG: Token being sent:', token ? `${token.substring(0, 20)}...` : 'NO TOKEN');
+  console.log('🔍 DEBUG: Requesting URL:', `${API_BASE_URL}/admin/profile/${userId}`);
+
   try {
     const response = await fetchWithRetry(
-      `${API_BASE_URL}/api/admin/profile/${userId}`,
+      `${API_BASE_URL}/admin/profile/${userId}`,
       {
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+          'Authorization': `Bearer ${token}`,
         },
       }
     );
 
     const data = await handleResponse<{ profile: PatientProfile }>(response);
+    console.log('🔍 DEBUG: Profile received:', data);
     return data.profile || null;
   } catch (error) {
+    console.log('🔍 DEBUG: Error details:', error);
     if (error instanceof APIError && error.status === 401) {
+      console.log('🔍 DEBUG: 401 error - token might be expired or invalid');
       handleAuthError();
     } else if (error instanceof APIError && error.status === 403) {
+      console.log('🔍 DEBUG: 403 error - not authorized');
       throw new Error('You are not authorized to access user profiles');
     }
     console.error('Error fetching user profile for admin:', error);
@@ -191,7 +199,7 @@ export const saveAdminUserProfile = async (userId: string, profile: Partial<Pati
     
     // If debug passes, try the real endpoint
     const response = await fetchWithRetry(
-      `${API_BASE_URL}/api/admin/profile/${userId}`,
+      `${API_BASE_URL}/admin/profile/${userId}`,
       {
         method: 'POST',
         headers: {

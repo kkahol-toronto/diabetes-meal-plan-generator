@@ -78,7 +78,7 @@ const AdminProfileForm: React.FC<AdminProfileFormProps> = ({ userId }) => {
         try {
             setLoading(true);
             setError(null);
-            const response = await axios.get(`/api/admin/profile/${userId}`);
+            const response = await axios.get(`/admin/profile/${userId}`);
             if (response.data.profile) {
                 setProfile(response.data.profile);
             }
@@ -104,7 +104,7 @@ const AdminProfileForm: React.FC<AdminProfileFormProps> = ({ userId }) => {
             setError(null);
             setSuccess(null);
             
-            await axios.post(`/api/admin/profile/${userId}`, profile);
+            await axios.post(`/admin/profile/${userId}`, profile);
             setSuccess('Profile saved successfully');
         } catch (error) {
             console.error('Error saving profile:', error);

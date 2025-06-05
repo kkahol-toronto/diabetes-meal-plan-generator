@@ -1848,46 +1848,64 @@ async def get_profile(current_user: User = Depends(get_current_user)):
             detail=f"Failed to get profile: {str(e)}"
         )
 
-@app.get("/api/admin/profile/{user_id}")
-async def get_user_profile(
+@app.get("/admin/profile/{user_id}")
+async def get_admin_user_profile(
     user_id: str,
     current_user: User = Depends(get_current_user)
 ):
     """Admin endpoint to get a specific user's profile by patient ID (registration code)."""
+    print(f"🔥 DEBUG: get_admin_user_profile called with user_id={user_id}")
+    print(f"🔥 DEBUG: current_user={current_user.get('email')} is_admin={current_user.get('is_admin')}")
+    
     if not current_user.get("is_admin"):
+        print(f"🔥 DEBUG: Access denied - user is not admin")
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized to access user profiles"
         )
     
+    print(f"🔥 DEBUG: Admin access granted, proceeding with profile lookup")
     try:
         # Resolve patient ID (registration code) to user email
+        print(f"🔥 DEBUG: Looking up user email for patient ID: {user_id}")
         user_email = await get_user_email_by_patient_id(user_id)
+        print(f"🔥 DEBUG: Found user email: {user_email}")
+        
         if not user_email:
+            print(f"🔥 DEBUG: No user email found, returning 404")
             return JSONResponse(
                 status_code=status.HTTP_404_NOT_FOUND,
                 content={"message": "User not found for this patient ID"}
             )
         
+        print(f"🔥 DEBUG: Getting patient profile for email: {user_email}")
         profile = await get_patient_profile(user_email)
+        print(f"🔥 DEBUG: Profile result: {profile}")
+        
         if not profile:
+            print(f"🔥 DEBUG: No profile found, returning 404")
             return JSONResponse(
                 status_code=status.HTTP_404_NOT_FOUND,
                 content={"message": "Profile not found"}
             )
         
+        print(f"🔥 DEBUG: Returning successful profile response")
         return JSONResponse(
             status_code=status.HTTP_200_OK,
             content={"profile": profile}
         )
     except Exception as e:
+        print(f"🔥 DEBUG: Exception occurred: {str(e)}")
+        print(f"🔥 DEBUG: Exception type: {type(e).__name__}")
+        import traceback
+        print(f"🔥 DEBUG: Full traceback: {traceback.format_exc()}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get profile: {str(e)}"
         )
 
-@app.post("/api/admin/profile/{user_id}")
-async def save_user_profile(
+@app.post("/admin/profile/{user_id}")
+async def save_admin_user_profile(
     user_id: str,
     profile: PatientProfile,
     current_user: User = Depends(get_current_user)
@@ -1943,6 +1961,12 @@ async def save_user_profile(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to save profile: {str(e)}"
         )
+
+@app.get("/admin/test")
+async def test_admin_route(current_user: User = Depends(get_current_user)):
+    """Simple test route to verify admin routing works"""
+    print(f"🔥 TEST: Admin test route called by {current_user.get('email')}")
+    return {"message": "Admin test route works!", "user": current_user.get('email'), "is_admin": current_user.get('is_admin')}
 
 if __name__ == "__main__":
     import uvicorn
