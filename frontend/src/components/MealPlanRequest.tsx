@@ -15,6 +15,13 @@ import {
   LinearProgress,
   Switch,
   FormControlLabel,
+  Fade,
+  Slide,
+  Zoom,
+  useTheme,
+  keyframes,
+  Card,
+  CardContent,
 } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 import UserProfileForm from './UserProfileForm';
@@ -33,6 +40,30 @@ import ReplayIcon from '@mui/icons-material/Replay';
 import PlaylistAddCheckIcon from '@mui/icons-material/PlaylistAddCheck';
 import SendIcon from '@mui/icons-material/Send';
 
+// Animations
+const float = keyframes`
+  0% { transform: translateY(0px); }
+  50% { transform: translateY(-5px); }
+  100% { transform: translateY(0px); }
+`;
+
+const pulse = keyframes`
+  0% { transform: scale(1); }
+  50% { transform: scale(1.05); }
+  100% { transform: scale(1); }
+`;
+
+const shimmer = keyframes`
+  0% { background-position: -200px 0; }
+  100% { background-position: calc(200px + 100%) 0; }
+`;
+
+const gradientShift = keyframes`
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+`;
+
 const steps = ['Profile', 'Meal Plan', 'Recipes', 'Shopping List'];
 
 type EditableMealType = 'breakfast' | 'lunch' | 'dinner' | 'snacks';
@@ -43,6 +74,8 @@ function stripDayPrefix(meal: string) {
 }
 
 const MealPlanRequest: React.FC = () => {
+  const theme = useTheme();
+  const [loaded, setLoaded] = useState(false);
   const [activeStep, setActiveStep] = useState(0);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [mealPlan, setMealPlan] = useState<MealPlanData | null>(null);
@@ -57,6 +90,10 @@ const MealPlanRequest: React.FC = () => {
   const [usePreviousPlan, setUsePreviousPlan] = useState(false);
   const [hasGeneratedMealPlan, setHasGeneratedMealPlan] = useState(false);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    setLoaded(true);
+  }, []);
 
   useEffect(() => {
     const loadSavedProfile = async () => {
@@ -606,25 +643,6 @@ const MealPlanRequest: React.FC = () => {
       case 1:
         return (
           <Box>
-            <Box sx={{ mb: 3, p: 2, bgcolor: '#f5f5f5', borderRadius: 2 }}>
-              <FormControlLabel
-                control={<Switch checked={usePreviousPlan} onChange={e => setUsePreviousPlan(e.target.checked)} color="primary" />}
-                label={
-                  <Box>
-                    <Typography variant="body1" sx={{ fontWeight: 'bold' }}>
-                      {usePreviousPlan ? '✅ Use Previous Meal Plan' : '🆕 Start Fresh'}
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      {usePreviousPlan 
-                        ? 'Creating a new plan based on your most recent meal plan' 
-                        : 'Creating a completely new meal plan (Toggle on if you want to use your previous meal plan as a base)'
-                      }
-                    </Typography>
-                  </Box>
-                }
-                sx={{ mb: 2 }}
-              />
-            </Box>
             {editableMealPlan && renderEditableMealPlan()}
           </Box>
         );
@@ -657,7 +675,7 @@ const MealPlanRequest: React.FC = () => {
         return null;
       case 1:
         return (
-          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, justifyContent: 'center', mb: 2 }}>
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, justifyContent: 'center' }}>
             {!hasGeneratedMealPlan && (
               <Button
                 variant="contained"
@@ -665,9 +683,18 @@ const MealPlanRequest: React.FC = () => {
                 onClick={() => handleMealPlanGenerate()}
                 disabled={loading}
                 startIcon={loading && activeStep === 1 ? <CircularProgress size={20} color="inherit" /> : <RestaurantMenuIcon />}
-                sx={{ borderRadius: '20px', px: 3 }}
+                sx={{ 
+                  borderRadius: 3, 
+                  px: 3,
+                  background: `linear-gradient(45deg, ${theme.palette.primary.main}, ${theme.palette.primary.dark})`,
+                  transition: 'all 0.3s ease',
+                  '&:hover': {
+                    transform: 'translateY(-2px)',
+                    boxShadow: '0 8px 20px rgba(0,0,0,0.15)',
+                  },
+                }}
               >
-                {loading && activeStep === 1 ? 'Generating...' : 'Generate Meal Plan Now'}
+                {loading && activeStep === 1 ? '⏳ Generating...' : '🚀 Generate Meal Plan Now'}
               </Button>
             )}
             {hasGeneratedMealPlan && (
@@ -676,9 +703,19 @@ const MealPlanRequest: React.FC = () => {
                 onClick={() => handleMealPlanGenerate()}
                 disabled={loading}
                 startIcon={loading && activeStep === 1 ? <CircularProgress size={20} color="inherit" /> : <ReplayIcon />}
-                sx={{ borderRadius: '20px', px: 3 }}
+                sx={{ 
+                  borderRadius: 3, 
+                  px: 3,
+                  transition: 'all 0.3s ease',
+                  '&:hover': {
+                    transform: 'translateY(-2px)',
+                    backgroundColor: theme.palette.primary.main,
+                    color: 'white',
+                    boxShadow: '0 6px 16px rgba(0,0,0,0.1)',
+                  },
+                }}
               >
-                {loading && activeStep === 1 ? 'Generating...' : 'Re-generate Meal Plan'}
+                {loading && activeStep === 1 ? '⏳ Generating...' : '🔄 Re-generate Meal Plan'}
               </Button>
             )}
             <Button
@@ -686,37 +723,63 @@ const MealPlanRequest: React.FC = () => {
               onClick={handleConfirmMealPlan}
               disabled={!editableMealPlan || loading}
               endIcon={<PlaylistAddCheckIcon />}
-              sx={{ borderRadius: '20px', px: 3 }}
+              sx={{ 
+                borderRadius: 3, 
+                px: 3,
+                background: `linear-gradient(45deg, ${theme.palette.success.main}, ${theme.palette.success.dark})`,
+                transition: 'all 0.3s ease',
+                '&:hover': {
+                  transform: 'translateY(-2px)',
+                  boxShadow: '0 8px 20px rgba(0,0,0,0.15)',
+                },
+              }}
             >
-              Proceed to Recipe Generation
+              ✅ Proceed to Recipe Generation
             </Button>
             <Button
               variant="text"
               onClick={() => handleExport('meal-plan')}
               disabled={!mealPlan || loading}
               startIcon={<DownloadIcon />}
-              sx={{ borderRadius: '20px', px: 3 }}
+              sx={{ 
+                borderRadius: 3, 
+                px: 3,
+                transition: 'all 0.3s ease',
+                '&:hover': {
+                  transform: 'translateY(-2px)',
+                  backgroundColor: theme.palette.action.hover,
+                },
+              }}
             >
-              Export Meal Plan
+              📄 Export Meal Plan
             </Button>
           </Box>
         );
       case 2: // Recipes Step
         return (
-          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, justifyContent: 'center', mb: 2 }}>
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, justifyContent: 'center' }}>
             <Button
               variant="contained"
               color="primary"
               onClick={handleRecipeGenerate}
               disabled={generatingRecipes || !mealPlan}
               startIcon={generatingRecipes ? <CircularProgress size={20} color="inherit" /> : <RestaurantMenuIcon />}
-              sx={{ borderRadius: '20px', px: 3 }}
+              sx={{ 
+                borderRadius: 3, 
+                px: 3,
+                background: `linear-gradient(45deg, ${theme.palette.primary.main}, ${theme.palette.primary.dark})`,
+                transition: 'all 0.3s ease',
+                '&:hover': {
+                  transform: 'translateY(-2px)',
+                  boxShadow: '0 8px 20px rgba(0,0,0,0.15)',
+                },
+              }}
             >
               {generatingRecipes
-                ? 'Generating Recipes...'
+                ? '⏳ Generating Recipes...'
                 : recipes && recipes.length > 0
-                  ? 'Re-generate Recipes'
-                  : 'Try Generating Recipes'}
+                  ? '🔄 Re-generate Recipes'
+                  : '🍳 Try Generating Recipes'}
             </Button>
             {recipes && recipes.length > 0 && (
               <>
@@ -725,9 +788,17 @@ const MealPlanRequest: React.FC = () => {
                   onClick={() => handleExport('recipes')}
                   disabled={loading}
                   startIcon={<DownloadIcon />}
-                  sx={{ borderRadius: '20px', px: 3 }}
+                  sx={{ 
+                    borderRadius: 3, 
+                    px: 3,
+                    transition: 'all 0.3s ease',
+                    '&:hover': {
+                      transform: 'translateY(-2px)',
+                      backgroundColor: theme.palette.action.hover,
+                    },
+                  }}
                 >
-                  Export Recipes
+                  📄 Export Recipes
                 </Button>
                 <Button
                   variant="contained"
@@ -735,9 +806,18 @@ const MealPlanRequest: React.FC = () => {
                   onClick={handleNext}
                   disabled={loading || generatingRecipes}
                   endIcon={<NavigateNextIcon />}
-                  sx={{ borderRadius: '20px', px: 3 }}
+                  sx={{ 
+                    borderRadius: 3, 
+                    px: 3,
+                    background: `linear-gradient(45deg, ${theme.palette.secondary.main}, ${theme.palette.secondary.dark})`,
+                    transition: 'all 0.3s ease',
+                    '&:hover': {
+                      transform: 'translateY(-2px)',
+                      boxShadow: '0 8px 20px rgba(0,0,0,0.15)',
+                    },
+                  }}
                 >
-                  Proceed to Shopping List
+                  🛒 Proceed to Shopping List
                 </Button>
               </>
             )}
@@ -745,15 +825,24 @@ const MealPlanRequest: React.FC = () => {
         );
       case 3: // Shopping List Step
         return (
-          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, justifyContent: 'center', mb: 2 }}>
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, justifyContent: 'center' }}>
             <Button
               variant="contained"
               onClick={handleShoppingListGenerate}
               disabled={loading || !recipes || recipes.length === 0}
               startIcon={loading ? <CircularProgress size={20} color="inherit" /> : <ShoppingCartIcon />}
-              sx={{ borderRadius: '20px', px: 3 }}
+              sx={{ 
+                borderRadius: 3, 
+                px: 3,
+                background: `linear-gradient(45deg, ${theme.palette.primary.main}, ${theme.palette.primary.dark})`,
+                transition: 'all 0.3s ease',
+                '&:hover': {
+                  transform: 'translateY(-2px)',
+                  boxShadow: '0 8px 20px rgba(0,0,0,0.15)',
+                },
+              }}
             >
-              {loading ? 'Generating...' : 'Generate Shopping List'}
+              {loading ? '⏳ Generating...' : '🛒 Generate Shopping List'}
             </Button>
             {shoppingList && shoppingList.length > 0 && (
               <>
@@ -762,29 +851,56 @@ const MealPlanRequest: React.FC = () => {
                   onClick={() => handleExport('shopping-list')}
                   disabled={loading}
                   startIcon={<DownloadIcon />}
-                  sx={{ borderRadius: '20px', px: 3 }}
+                  sx={{ 
+                    borderRadius: 3, 
+                    px: 3,
+                    transition: 'all 0.3s ease',
+                    '&:hover': {
+                      transform: 'translateY(-2px)',
+                      backgroundColor: theme.palette.action.hover,
+                    },
+                  }}
                 >
-                  Export Shopping List
+                  📄 Export Shopping List
                 </Button>
-              <Button
-                variant="contained"
+                <Button
+                  variant="contained"
                   color="primary"
-                onClick={handleDownloadConsolidatedPDF}
+                  onClick={handleDownloadConsolidatedPDF}
                   disabled={loading || !mealPlan || !recipes || !shoppingList}
                   startIcon={loading ? <CircularProgress size={20} color="inherit" /> : <DownloadIcon />}
-                  sx={{ borderRadius: '20px', px: 3 }}
+                  sx={{ 
+                    borderRadius: 3, 
+                    px: 3,
+                    background: `linear-gradient(45deg, ${theme.palette.warning.main}, ${theme.palette.warning.dark})`,
+                    color: 'white',
+                    transition: 'all 0.3s ease',
+                    '&:hover': {
+                      transform: 'translateY(-2px)',
+                      boxShadow: '0 8px 20px rgba(0,0,0,0.15)',
+                    },
+                  }}
                 >
-                  Download Consolidated PDF
+                  📦 Download Consolidated PDF
                 </Button>
                 <Button
                   variant="contained"
                   color="primary"
                   onClick={handleSaveFullMealPlan}
                   disabled={loading || !mealPlan || !recipes || !shoppingList}
-                  sx={{ borderRadius: '20px', px: 3 }}
+                  sx={{ 
+                    borderRadius: 3, 
+                    px: 3,
+                    background: `linear-gradient(45deg, ${theme.palette.success.main}, ${theme.palette.success.dark})`,
+                    transition: 'all 0.3s ease',
+                    '&:hover': {
+                      transform: 'translateY(-2px)',
+                      boxShadow: '0 8px 20px rgba(0,0,0,0.15)',
+                    },
+                  }}
                 >
-                  {loading ? <CircularProgress size={24} /> : 'Save Meal Plan and Go to Home'}
-              </Button>
+                  {loading ? <CircularProgress size={24} /> : '💾 Save Meal Plan and Go to Home'}
+                </Button>
               </>
             )}
           </Box>
@@ -795,76 +911,336 @@ const MealPlanRequest: React.FC = () => {
   };
 
   return (
-    <Container maxWidth="lg" sx={{ py: 4 }}>
-      <Paper elevation={3} sx={{ p: { xs: 2, sm: 3, md: 4 }, borderRadius: '16px' }}>
-        <Typography variant="h4" component="h1" gutterBottom align="center" sx={{ fontWeight: 'bold', mb: 4 }}>
-          Personalized Meal Plan Generator
-        </Typography>
-        <Stepper activeStep={activeStep} alternativeLabel sx={{ mb: 4 }}>
-            {steps.map((label) => (
-              <Step key={label}>
-                <StepLabel>{label}</StepLabel>
-              </Step>
-            ))}
-          </Stepper>
-
-        {error && (
-          <Alert severity="error" sx={{ mb: 2, borderRadius: '8px' }} onClose={() => setError(null)}>
-            {error}
-          </Alert>
-        )}
-        {saveStatus && (
-          <Alert severity={saveStatus.severity} sx={{ mt: 2, mb: 2, borderRadius: '8px' }} onClose={() => setSaveStatus(null)}>
-            {saveStatus.message}
-          </Alert>
-        )}
-
-        <Box sx={{ mt: 3, mb: 3, p: 2, border: '1px dashed grey', borderRadius: '8px', minHeight: '300px' }}>
-          {renderStepContent(activeStep)}
-        </Box>
-        
-        {generatingRecipes && activeStep === 2 && (
-          <Box sx={{ width: '100%', my: 2 }}>
-            <Typography variant="caption" display="block" gutterBottom align="center">
-              Generating recipes... {recipeProgress.toFixed(0)}%
-            </Typography>
-            <LinearProgress variant="determinate" value={recipeProgress} />
-          </Box>
-        )}
-
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 3, p: 2, backgroundColor: 'action.hover', borderRadius: '8px' }}>
-          <Button
-            color="inherit"
-            disabled={activeStep === 0 || loading || generatingRecipes}
-            onClick={handleBack}
-            variant="outlined"
-            startIcon={<NavigateBeforeIcon />}
-            sx={{ borderRadius: '20px', px: 3 }}
+    <Box
+      sx={{
+        minHeight: '100vh',
+        background: `linear-gradient(-45deg, ${theme.palette.primary.main}08, ${theme.palette.secondary.main}08, ${theme.palette.primary.main}05, ${theme.palette.secondary.main}05)`,
+        backgroundSize: '400% 400%',
+        animation: `${gradientShift} 15s ease infinite`,
+        py: 4,
+      }}
+    >
+      <Container maxWidth="lg">
+        <Fade in={loaded} timeout={1000}>
+          <Paper 
+            elevation={0}
+            sx={{ 
+              p: { xs: 2, sm: 3, md: 4 }, 
+              borderRadius: 4,
+              background: 'rgba(255,255,255,0.95)',
+              backdropFilter: 'blur(20px)',
+              border: '1px solid rgba(255,255,255,0.3)',
+              boxShadow: '0 8px 32px rgba(0,0,0,0.1)',
+              position: 'relative',
+              overflow: 'hidden',
+              '&::before': {
+                content: '""',
+                position: 'absolute',
+                top: 0,
+                left: '-200px',
+                width: '200px',
+                height: '100%',
+                background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent)',
+                animation: `${shimmer} 3s infinite`,
+              },
+            }}
           >
-            Back
-          </Button>
-          <Box>
-            {renderActionButtons()}
-          </Box>
-          {/* Show Next button only if not on Profile step (handled by form) and not on the last step */}
-          {activeStep !== 0 && activeStep < steps.length - 1 && ( 
-          <Button
-            variant="contained"
-                onClick={handleNext}
-                disabled={loading || generatingRecipes || 
-                    (activeStep === 0 && !userProfile) || // Ensure profile is set before allowing next from step 0 if it were shown
-                    (activeStep === 1 && (!editableMealPlan || !mealPlan)) || // Disable if on meal plan step and no meal plan confirmed
-                    (activeStep === 2 && (!recipes || recipes.length === 0)) // Disable if on recipe step and no recipes
-                }
-                endIcon={<NavigateNextIcon />}
-                sx={{ borderRadius: '20px', px: 3 }}
-             >
-                Next
-          </Button>
-          )}
-        </Box>
-      </Paper>
-    </Container>
+            <Slide direction="down" in={loaded} timeout={1200}>
+              <Typography 
+                variant="h3" 
+                component="h1" 
+                gutterBottom 
+                align="center" 
+                sx={{ 
+                  fontWeight: 800,
+                  mb: 4,
+                  background: `linear-gradient(45deg, ${theme.palette.primary.main}, ${theme.palette.secondary.main})`,
+                  backgroundClip: 'text',
+                  WebkitBackgroundClip: 'text',
+                  WebkitTextFillColor: 'transparent',
+                  textShadow: '0 4px 8px rgba(0,0,0,0.1)',
+                }}
+              >
+                🍽️ Personalized Meal Plan Generator
+              </Typography>
+            </Slide>
+
+            <Zoom in={loaded} timeout={1500}>
+              <Card
+                sx={{
+                  mb: 4,
+                  borderRadius: 3,
+                  background: 'rgba(255,255,255,0.8)',
+                  border: `2px solid ${theme.palette.primary.main}20`,
+                  transition: 'all 0.3s ease',
+                  '&:hover': {
+                    transform: 'translateY(-2px)',
+                    boxShadow: '0 8px 25px rgba(0,0,0,0.1)',
+                  },
+                }}
+              >
+                <CardContent>
+                  <Stepper 
+                    activeStep={activeStep} 
+                    alternativeLabel 
+                    sx={{ 
+                      '& .MuiStepIcon-root': {
+                        transition: 'all 0.3s ease',
+                        '&.Mui-active': {
+                          animation: `${pulse} 2s ease-in-out infinite`,
+                        },
+                      },
+                    }}
+                  >
+                    {steps.map((label, index) => (
+                      <Step key={label}>
+                        <StepLabel
+                          sx={{
+                            '& .MuiStepLabel-label': {
+                              fontWeight: activeStep === index ? 'bold' : 'normal',
+                              transition: 'all 0.3s ease',
+                            },
+                          }}
+                        >
+                          {label}
+                        </StepLabel>
+                      </Step>
+                    ))}
+                  </Stepper>
+                </CardContent>
+              </Card>
+            </Zoom>
+
+            {/* Toggle for 70/30 similarity - only show on meal plan step */}
+            {activeStep === 1 && (
+              <Fade in={loaded} timeout={2000}>
+                <Card
+                  sx={{
+                    mb: 3,
+                    borderRadius: 4,
+                    background: usePreviousPlan 
+                      ? `linear-gradient(135deg, ${theme.palette.success.main}20, ${theme.palette.success.main}10)`
+                      : `linear-gradient(135deg, ${theme.palette.info.main}15, ${theme.palette.info.main}08)`,
+                    border: usePreviousPlan
+                      ? `2px solid ${theme.palette.success.main}40`
+                      : `2px solid ${theme.palette.info.main}30`,
+                    transition: 'all 0.3s ease',
+                    animation: `${float} 4s ease-in-out infinite`,
+                    '&:hover': {
+                      transform: 'translateY(-3px)',
+                      boxShadow: usePreviousPlan
+                        ? `0 8px 20px ${theme.palette.success.main}30`
+                        : `0 8px 20px ${theme.palette.info.main}30`,
+                    },
+                  }}
+                >
+                  <CardContent sx={{ py: 3, px: 4 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <Box sx={{ flex: 1 }}>
+                        <Typography 
+                          variant="h6" 
+                          fontWeight="bold"
+                          sx={{ 
+                            color: usePreviousPlan ? theme.palette.success.main : theme.palette.info.main,
+                            mb: 1,
+                          }}
+                        >
+                          {usePreviousPlan ? '🔄 Similar to Previous Plan' : '🆕 Fresh Start'}
+                        </Typography>
+                        <Typography 
+                          variant="body2" 
+                          color="text.secondary"
+                          sx={{ lineHeight: 1.5 }}
+                        >
+                          {usePreviousPlan 
+                            ? 'Generate a new meal plan similar to your most recent plan, with some variety for new experiences'
+                            : 'Create a completely new meal plan from scratch based on your preferences'
+                          }
+                        </Typography>
+                      </Box>
+                      <Switch 
+                        checked={usePreviousPlan}
+                        onChange={(e) => setUsePreviousPlan(e.target.checked)}
+                        color="primary"
+                        sx={{
+                          ml: 3,
+                          transform: 'scale(1.2)',
+                          '& .MuiSwitch-thumb': {
+                            backgroundColor: usePreviousPlan ? theme.palette.success.main : theme.palette.info.main,
+                          },
+                          '& .MuiSwitch-track': {
+                            backgroundColor: usePreviousPlan ? theme.palette.success.light : theme.palette.info.light,
+                          },
+                        }}
+                      />
+                    </Box>
+                  </CardContent>
+                </Card>
+              </Fade>
+            )}
+
+            {error && (
+              <Slide direction="down" in={true} timeout={500}>
+                <Alert 
+                  severity="error" 
+                  sx={{ 
+                    mb: 2, 
+                    borderRadius: 3,
+                    animation: `${pulse} 1s ease`,
+                  }} 
+                  onClose={() => setError(null)}
+                >
+                  {error}
+                </Alert>
+              </Slide>
+            )}
+
+            {saveStatus && (
+              <Slide direction="down" in={true} timeout={500}>
+                <Alert 
+                  severity={saveStatus.severity} 
+                  sx={{ 
+                    mt: 2, 
+                    mb: 2, 
+                    borderRadius: 3,
+                    animation: `${pulse} 1s ease`,
+                  }} 
+                  onClose={() => setSaveStatus(null)}
+                >
+                  {saveStatus.message}
+                </Alert>
+              </Slide>
+            )}
+
+            <Fade in={loaded} timeout={2500}>
+              <Card
+                sx={{
+                  mt: 3, 
+                  mb: 3,
+                  borderRadius: 4,
+                  background: 'rgba(255,255,255,0.9)',
+                  border: `1px solid ${theme.palette.divider}`,
+                  minHeight: '400px',
+                  transition: 'all 0.3s ease',
+                  '&:hover': {
+                    boxShadow: '0 8px 25px rgba(0,0,0,0.1)',
+                  },
+                }}
+              >
+                <CardContent sx={{ p: 4 }}>
+                  {renderStepContent(activeStep)}
+                </CardContent>
+              </Card>
+            </Fade>
+            
+            {generatingRecipes && activeStep === 2 && (
+              <Zoom in={true} timeout={300}>
+                <Card
+                  sx={{
+                    mb: 3,
+                    borderRadius: 3,
+                    background: `linear-gradient(135deg, ${theme.palette.success.main}15, ${theme.palette.success.main}08)`,
+                    border: `2px solid ${theme.palette.success.main}30`,
+                  }}
+                >
+                  <CardContent sx={{ textAlign: 'center' }}>
+                    <Typography 
+                      variant="h6" 
+                      gutterBottom
+                      sx={{ 
+                        color: theme.palette.success.main,
+                        fontWeight: 'bold',
+                      }}
+                    >
+                      🍳 Generating Recipes... {recipeProgress.toFixed(0)}%
+                    </Typography>
+                    <LinearProgress 
+                      variant="determinate" 
+                      value={recipeProgress}
+                      sx={{
+                        height: 8,
+                        borderRadius: 4,
+                        '& .MuiLinearProgress-bar': {
+                          borderRadius: 4,
+                          background: `linear-gradient(45deg, ${theme.palette.success.main}, ${theme.palette.success.light})`,
+                        },
+                      }}
+                    />
+                  </CardContent>
+                </Card>
+              </Zoom>
+            )}
+
+            <Slide direction="up" in={loaded} timeout={3000}>
+              <Card
+                sx={{
+                  borderRadius: 4,
+                  background: `linear-gradient(135deg, ${theme.palette.grey[50]}, ${theme.palette.grey[100]})`,
+                  border: `1px solid ${theme.palette.divider}`,
+                  transition: 'all 0.3s ease',
+                  '&:hover': {
+                    transform: 'translateY(-2px)',
+                    boxShadow: '0 8px 25px rgba(0,0,0,0.1)',
+                  },
+                }}
+              >
+                <CardContent>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 2 }}>
+                    <Button
+                      color="inherit"
+                      disabled={activeStep === 0 || loading || generatingRecipes}
+                      onClick={handleBack}
+                      variant="outlined"
+                      startIcon={<NavigateBeforeIcon />}
+                      sx={{ 
+                        borderRadius: 3, 
+                        px: 3,
+                        transition: 'all 0.3s ease',
+                        '&:hover': {
+                          transform: 'translateY(-2px)',
+                          boxShadow: '0 6px 16px rgba(0,0,0,0.1)',
+                        },
+                      }}
+                    >
+                      Back
+                    </Button>
+                    
+                    <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', justifyContent: 'center' }}>
+                      {renderActionButtons()}
+                    </Box>
+                    
+                    {activeStep !== 0 && activeStep < steps.length - 1 && ( 
+                      <Button
+                        variant="contained"
+                        onClick={handleNext}
+                        disabled={loading || generatingRecipes || 
+                          (activeStep === 0 && !userProfile) ||
+                          (activeStep === 1 && (!editableMealPlan || !mealPlan)) ||
+                          (activeStep === 2 && (!recipes || recipes.length === 0))
+                        }
+                        endIcon={<NavigateNextIcon />}
+                        sx={{ 
+                          borderRadius: 3, 
+                          px: 3,
+                          background: `linear-gradient(45deg, ${theme.palette.primary.main}, ${theme.palette.primary.dark})`,
+                          transition: 'all 0.3s ease',
+                          '&:hover': {
+                            transform: 'translateY(-2px)',
+                            boxShadow: '0 8px 20px rgba(0,0,0,0.15)',
+                          },
+                        }}
+                      >
+                        Next
+                      </Button>
+                    )}
+                  </Box>
+                </CardContent>
+              </Card>
+            </Slide>
+          </Paper>
+        </Fade>
+      </Container>
+    </Box>
   );
 };
 

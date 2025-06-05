@@ -27,6 +27,11 @@ import {
   AccordionSummary,
   AccordionDetails,
   Avatar,
+  Fade,
+  Slide,
+  Zoom,
+  useTheme,
+  keyframes,
 } from '@mui/material';
 import {
   Timeline,
@@ -43,6 +48,30 @@ import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import TrendingDownIcon from '@mui/icons-material/TrendingDown';
 import LocalFireDepartmentIcon from '@mui/icons-material/LocalFireDepartment';
 import { useNavigate } from 'react-router-dom';
+
+// Animations
+const float = keyframes`
+  0% { transform: translateY(0px); }
+  50% { transform: translateY(-5px); }
+  100% { transform: translateY(0px); }
+`;
+
+const pulse = keyframes`
+  0% { transform: scale(1); }
+  50% { transform: scale(1.05); }
+  100% { transform: scale(1); }
+`;
+
+const shimmer = keyframes`
+  0% { background-position: -200px 0; }
+  100% { background-position: calc(200px + 100%) 0; }
+`;
+
+const gradientShift = keyframes`
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+`;
 
 interface ConsumptionRecord {
   id: string;
@@ -83,6 +112,8 @@ interface Analytics {
 }
 
 const ConsumptionHistory = () => {
+  const theme = useTheme();
+  const [loaded, setLoaded] = useState(false);
   const [consumptionHistory, setConsumptionHistory] = useState<ConsumptionRecord[]>([]);
   const [analytics, setAnalytics] = useState<Analytics | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -90,6 +121,10 @@ const ConsumptionHistory = () => {
   const [error, setError] = useState<string | null>(null);
   const [analyticsPeriod, setAnalyticsPeriod] = useState(7);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    setLoaded(true);
+  }, []);
 
   useEffect(() => {
     fetchConsumptionHistory();
@@ -213,30 +248,113 @@ const ConsumptionHistory = () => {
 
   if (isLoading) {
     return (
-      <Container maxWidth="lg" sx={{ py: 4 }}>
-        <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
-          <CircularProgress />
-        </Box>
-      </Container>
+      <Box
+        sx={{
+          minHeight: '100vh',
+          background: `linear-gradient(-45deg, ${theme.palette.primary.main}08, ${theme.palette.secondary.main}08, ${theme.palette.primary.main}05, ${theme.palette.secondary.main}05)`,
+          backgroundSize: '400% 400%',
+          animation: `${gradientShift} 15s ease infinite`,
+          py: 4,
+        }}
+      >
+        <Container maxWidth="lg">
+          <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
+            <CircularProgress 
+              size={60}
+              sx={{
+                animation: `${pulse} 2s ease-in-out infinite`,
+              }}
+            />
+          </Box>
+        </Container>
+      </Box>
     );
   }
 
   if (error) {
     return (
-      <Container maxWidth="lg" sx={{ py: 4 }}>
-        <Alert severity="error">{error}</Alert>
-      </Container>
+      <Box
+        sx={{
+          minHeight: '100vh',
+          background: `linear-gradient(-45deg, ${theme.palette.primary.main}08, ${theme.palette.secondary.main}08, ${theme.palette.primary.main}05, ${theme.palette.secondary.main}05)`,
+          backgroundSize: '400% 400%',
+          animation: `${gradientShift} 15s ease infinite`,
+          py: 4,
+        }}
+      >
+        <Container maxWidth="lg">
+          <Alert 
+            severity="error"
+            sx={{
+              borderRadius: 3,
+              animation: `${pulse} 1s ease`,
+            }}
+          >
+            {error}
+          </Alert>
+        </Container>
+      </Box>
     );
   }
 
   return (
-    <Container maxWidth="lg" sx={{ py: 4 }}>
-      <Typography variant="h4" component="h1" gutterBottom>
-        Consumption History
-      </Typography>
+    <Box
+      sx={{
+        minHeight: '100vh',
+        background: `linear-gradient(-45deg, ${theme.palette.primary.main}08, ${theme.palette.secondary.main}08, ${theme.palette.primary.main}05, ${theme.palette.secondary.main}05)`,
+        backgroundSize: '400% 400%',
+        animation: `${gradientShift} 15s ease infinite`,
+        py: 4,
+      }}
+    >
+      <Container maxWidth="lg">
+        <Fade in={loaded} timeout={1000}>
+          <Typography 
+            variant="h3" 
+            component="h1" 
+            gutterBottom
+            align="center"
+            sx={{
+              fontWeight: 800,
+              mb: 4,
+              background: `linear-gradient(45deg, ${theme.palette.primary.main}, ${theme.palette.secondary.main})`,
+              backgroundClip: 'text',
+              WebkitBackgroundClip: 'text',
+              WebkitTextFillColor: 'transparent',
+              textShadow: '0 4px 8px rgba(0,0,0,0.1)',
+            }}
+          >
+            📊 Consumption History
+          </Typography>
+        </Fade>
 
-      {/* Analytics Overview */}
-      <Paper elevation={3} sx={{ p: 3, mb: 4 }}>
+        {/* Analytics Overview */}
+        <Slide direction="down" in={loaded} timeout={1200}>
+          <Box>
+            <Paper 
+              elevation={0}
+              sx={{ 
+                p: 4, 
+                mb: 4,
+                borderRadius: 4,
+                background: 'rgba(255,255,255,0.95)',
+                backdropFilter: 'blur(20px)',
+                border: '1px solid rgba(255,255,255,0.3)',
+                boxShadow: '0 8px 32px rgba(0,0,0,0.1)',
+                position: 'relative',
+                overflow: 'hidden',
+                '&::before': {
+                  content: '""',
+                  position: 'absolute',
+                  top: 0,
+                  left: '-200px',
+                  width: '200px',
+                  height: '100%',
+                  background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent)',
+                  animation: `${shimmer} 3s infinite`,
+                },
+              }}
+            >
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
           <Typography variant="h5" component="h2">
             Analytics Overview
@@ -321,21 +439,50 @@ const ConsumptionHistory = () => {
               </Card>
             </Grid>
           </Grid>
-        ) : null}
-      </Paper>
+            ) : null}
+            </Paper>
 
-      {/* Consumption History Timeline */}
-      <Paper elevation={3} sx={{ p: 3 }}>
-        <Typography variant="h5" component="h2" gutterBottom>
-          Recent Consumption
-        </Typography>
+            {/* Consumption History Timeline */}
+            <Paper 
+              elevation={0}
+              sx={{ 
+                p: 4,
+                borderRadius: 4,
+                background: 'rgba(255,255,255,0.95)',
+                backdropFilter: 'blur(15px)',
+                border: '1px solid rgba(255,255,255,0.3)',
+                boxShadow: '0 8px 32px rgba(0,0,0,0.1)',
+                transition: 'all 0.3s ease',
+                '&:hover': {
+                  boxShadow: '0 12px 40px rgba(0,0,0,0.15)',
+                },
+              }}
+            >
+              <Typography 
+                variant="h5" 
+                component="h2" 
+                gutterBottom
+                sx={{
+                  fontWeight: 700,
+                  color: theme.palette.primary.main,
+                  mb: 3,
+                }}
+              >
+                📋 Recent Consumption
+              </Typography>
 
-        {consumptionHistory.length === 0 ? (
-          <Alert severity="info">
-            No consumption records found. Start recording your meals using the "Record Food" feature in the chat!
-          </Alert>
-        ) : (
-          <Timeline>
+              {consumptionHistory.length === 0 ? (
+                <Alert 
+                  severity="info"
+                  sx={{
+                    borderRadius: 3,
+                    animation: `${pulse} 1s ease`,
+                  }}
+                >
+                  No consumption records found. Start recording your meals using the "Record Food" feature in the chat!
+                </Alert>
+              ) : (
+                <Timeline>
             {consumptionHistory.map((record, index) => (
               <TimelineItem key={record.id}>
                 <TimelineOppositeContent sx={{ m: 'auto 0' }} color="text.secondary">
@@ -463,15 +610,32 @@ const ConsumptionHistory = () => {
               </TimelineItem>
             ))}
           </Timeline>
-        )}
-      </Paper>
+                      )}
+            </Paper>
 
-      <Box sx={{ mt: 3, display: 'flex', justifyContent: 'center' }}>
-        <Button variant="outlined" onClick={() => navigate('/chat')}>
-          Record New Consumption
-        </Button>
-      </Box>
-    </Container>
+            <Box sx={{ mt: 3, display: 'flex', justifyContent: 'center' }}>
+              <Button 
+                variant="outlined" 
+                onClick={() => navigate('/chat')}
+                sx={{
+                  borderRadius: 3,
+                  px: 3,
+                  transition: 'all 0.3s ease',
+                  '&:hover': {
+                    transform: 'translateY(-2px)',
+                    backgroundColor: theme.palette.primary.main,
+                    color: 'white',
+                    boxShadow: '0 6px 16px rgba(0,0,0,0.1)',
+                  },
+                }}
+              >
+                📝 Record New Consumption
+              </Button>
+            </Box>
+          </Box>
+        </Slide>
+      </Container>
+    </Box>
   );
 };
 

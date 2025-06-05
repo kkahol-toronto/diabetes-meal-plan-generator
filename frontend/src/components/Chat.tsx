@@ -23,6 +23,13 @@ import {
   DialogContent,
   DialogActions,
   Alert,
+  Card,
+  CardContent,
+  Fade,
+  Slide,
+  Zoom,
+  useTheme,
+  keyframes,
 } from '@mui/material';
 import SendIcon from '@mui/icons-material/Send';
 import AddCommentIcon from '@mui/icons-material/AddComment';
@@ -31,6 +38,35 @@ import RestaurantIcon from '@mui/icons-material/Restaurant';
 import { useNavigate } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import { v4 as uuidv4 } from 'uuid';
+
+// Animations
+const float = keyframes`
+  0% { transform: translateY(0px); }
+  50% { transform: translateY(-3px); }
+  100% { transform: translateY(0px); }
+`;
+
+const pulse = keyframes`
+  0% { transform: scale(1); }
+  50% { transform: scale(1.02); }
+  100% { transform: scale(1); }
+`;
+
+const shimmer = keyframes`
+  0% { background-position: -200px 0; }
+  100% { background-position: calc(200px + 100%) 0; }
+`;
+
+const gradientShift = keyframes`
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+`;
+
+const typewriter = keyframes`
+  from { width: 0; }
+  to { width: 100%; }
+`;
 
 interface Message {
   id: string;
@@ -48,6 +84,8 @@ interface Session {
 }
 
 const Chat = () => {
+  const theme = useTheme();
+  const [loaded, setLoaded] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [currentSession, setCurrentSession] = useState<string>('');
@@ -475,6 +513,10 @@ const Chat = () => {
     setRecordFoodDialog(false);
     setRecordFoodResult(null);
   };
+
+  useEffect(() => {
+    setLoaded(true);
+  }, []);
 
   return (
     <Container maxWidth="md" sx={{ py: 4 }}>

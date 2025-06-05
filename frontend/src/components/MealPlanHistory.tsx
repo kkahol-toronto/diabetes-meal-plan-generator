@@ -20,6 +20,11 @@ import {
   Snackbar,
   Tooltip,
   Collapse,
+  Fade,
+  Slide,
+  Zoom,
+  useTheme,
+  keyframes,
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
 import DeleteIcon from '@mui/icons-material/Delete';
@@ -28,7 +33,33 @@ import { useNavigate } from 'react-router-dom';
 import { MealPlanData } from '../types';
 import { handleAuthError, getAuthHeaders } from '../utils/auth';
 
+// Animations
+const float = keyframes`
+  0% { transform: translateY(0px); }
+  50% { transform: translateY(-5px); }
+  100% { transform: translateY(0px); }
+`;
+
+const pulse = keyframes`
+  0% { transform: scale(1); }
+  50% { transform: scale(1.05); }
+  100% { transform: scale(1); }
+`;
+
+const shimmer = keyframes`
+  0% { background-position: -200px 0; }
+  100% { background-position: calc(200px + 100%) 0; }
+`;
+
+const gradientShift = keyframes`
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+`;
+
 const MealPlanHistory = () => {
+  const theme = useTheme();
+  const [loaded, setLoaded] = useState(false);
   console.log("MealPlanHistory component loaded");
   console.log('MealPlanHistory component mounted');
   const [mealPlans, setMealPlans] = useState<MealPlanData[]>([]);
