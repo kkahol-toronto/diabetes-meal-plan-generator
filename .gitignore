@@ -12,6 +12,7 @@ __pycache__/
 # Virtual environments
 env/
 venv/
+diab_env/
 .ddp_env/
 .ddp_env*/
 .ddp_env\*

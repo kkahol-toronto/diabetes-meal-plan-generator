@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends, status, Request, Body
+from fastapi import FastAPI, HTTPException, Depends, status, Request, Body, File, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel, EmailStr, Field
@@ -31,6 +31,9 @@ from database import (
     view_meal_plans,
     delete_meal_plan_by_id,
     delete_all_user_meal_plans,
+    save_consumption_record,
+    get_user_consumption_history,
+    get_consumption_analytics,
 )
 import uuid
 from io import BytesIO
@@ -44,6 +47,8 @@ import re
 import traceback
 import sys
 from fastapi import Request as FastAPIRequest
+from PIL import Image
+import base64
 
 # Load environment variables
 load_dotenv()
@@ -143,6 +148,9 @@ class RegistrationData(BaseModel):
     registration_code: str
     email: EmailStr
     password: str
+
+class ImageAnalysisRequest(BaseModel):
+    prompt: str
 
 def get_password_hash(password: str) -> str:
     """Hash a password using bcrypt"""
@@ -745,15 +753,15 @@ async def generate_shopping_list(
                         *Assume 1 bunch ≈ 30 g; round ⭡ to the nearest whole bunch.*
                     – **Loose fruit & veg** commonly weighed at checkout (apples, oranges, onions, potatoes, carrots, etc.): use pounds (lb).  
                         *Round ⭡ to the nearest 1 lb, minimum 1 lb.*
-                    – **Packaged produce** (bags of spinach, baby carrots, etc.): round ⭡ to the nearest 250 g (≈ ½ lb) or to the nearest package size you specify in the item name (e.g., “1 × 250 g bag baby spinach”).
+                    – **Packaged produce** (bags of spinach, baby carrots, etc.): round ⭡ to the nearest 250 g (≈ ½ lb) or to the nearest package size you specify in the item name (e.g., "1 × 250 g bag baby spinach").
                     – **Liquids**: keep ml/l, but round ⭡ to the nearest 100 ml (or common bottle size) if <1 l; use whole litres if ≥1 l.
                     – **Dry pantry staples** (rice, flour, sugar, pasta, beans, nuts, etc.): use grams/kilograms, rounded ⭡ to the nearest 100 g for ≤1 kg or to the nearest 0.5 kg for >1 kg.
-                    – If an item is only sold by count (e.g., eggs, garlic bulbs, lemons), use “pieces”.
-                    – Avoid descriptors like “large” or “medium”; only use count-based units when weight/volume makes no sense.
+                    – If an item is only sold by count (e.g., eggs, garlic bulbs, lemons), use "pieces".
+                    – Avoid descriptors like "large" or "medium"; only use count-based units when weight/volume makes no sense.
 
                     ––––– SANITY CHECK –––––
                     After calculating totals, scan the list for obviously implausible amounts (e.g., >2 bunches of coriander for ≤8 servings, >5 lb of garlic, etc.).  
-                    If an amount seems unrealistic, recompute or cap it to a reasonable upper bound and add a “_note” field explaining the adjustment.
+                    If an amount seems unrealistic, recompute or cap it to a reasonable upper bound and add a "note" field explaining the adjustment.
 
                     ––––– ROUNDING GRID (CANADIAN GROCERY) –––––
                     When you finish aggregating all recipes, convert each total to the **next-larger** purchasable size:
@@ -1675,6 +1683,295 @@ async def debug_meal_plans(current_user: User = Depends(get_current_user)):
         print(f"[DEBUG] Error in /debug/meal_plans: {e}")
         import traceback
         traceback.print_exc()
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@app.post("/consumption/analyze-and-record")
+async def analyze_and_record_food(
+    image: UploadFile = File(...),
+    session_id: str = Form(None),
+    current_user: User = Depends(get_current_user)
+):
+    """Analyze food image and optionally record to consumption history"""
+    try:
+        print(f"[analyze_and_record_food] Starting analysis for user {current_user['id']}")
+        
+        # Read and validate image
+        contents = await image.read()
+        img = Image.open(BytesIO(contents))
+        
+        # Convert image to base64
+        buffered = BytesIO()
+        img.save(buffered, format="JPEG")
+        img_str = base64.b64encode(buffered.getvalue()).decode()
+        
+        print("[analyze_and_record_food] Image processed and converted to base64")
+        
+        # Generate structured analysis using OpenAI
+        response = client.chat.completions.create(
+            model=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
+            messages=[
+                {
+                    "role": "system",
+                    "content": """You are a nutrition analysis expert for diabetes patients. 
+                    Analyze the food image and return a structured JSON response with the following format:
+                    {
+                        "food_name": "descriptive name of the food",
+                        "estimated_portion": "portion size estimate",
+                        "nutritional_info": {
+                            "calories": number,
+                            "carbohydrates": number (in grams),
+                            "protein": number (in grams),
+                            "fat": number (in grams),
+                            "fiber": number (in grams),
+                            "sugar": number (in grams),
+                            "sodium": number (in mg)
+                        },
+                        "medical_rating": {
+                            "diabetes_suitability": "high/medium/low",
+                            "glycemic_impact": "low/medium/high",
+                            "recommended_frequency": "daily/weekly/occasional/avoid",
+                            "portion_recommendation": "recommended portion size for diabetes patients"
+                        },
+                        "analysis_notes": "detailed explanation of nutritional analysis and diabetes considerations"
+                    }
+                    Provide realistic estimates based on visual analysis. Be conservative with diabetes suitability ratings."""
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": "Analyze this food image and provide detailed nutritional information and diabetes suitability rating."
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/jpeg;base64,{img_str}"
+                            }
+                        }
+                    ]
+                }
+            ],
+            max_tokens=800,
+            temperature=0.3
+        )
+        
+        print("[analyze_and_record_food] Received analysis from OpenAI")
+        
+        # Get the response content
+        analysis_text = response.choices[0].message.content
+        
+        # Try to parse JSON from the response
+        try:
+            import json
+            # Extract JSON from response (in case there's additional text)
+            start_idx = analysis_text.find('{')
+            end_idx = analysis_text.rfind('}') + 1
+            json_str = analysis_text[start_idx:end_idx]
+            analysis_data = json.loads(json_str)
+            print(f"[analyze_and_record_food] Successfully parsed analysis data: {analysis_data}")
+        except (json.JSONDecodeError, ValueError) as e:
+            print(f"[analyze_and_record_food] Error parsing analysis data: {str(e)}")
+            # If JSON parsing fails, create a structured response from the text
+            analysis_data = {
+                "food_name": "Unknown food item",
+                "estimated_portion": "Unable to determine",
+                "nutritional_info": {
+                    "calories": 0,
+                    "carbohydrates": 0,
+                    "protein": 0,
+                    "fat": 0,
+                    "fiber": 0,
+                    "sugar": 0,
+                    "sodium": 0
+                },
+                "medical_rating": {
+                    "diabetes_suitability": "unknown",
+                    "glycemic_impact": "unknown",
+                    "recommended_frequency": "consult nutritionist",
+                    "portion_recommendation": "consult nutritionist"
+                },
+                "analysis_notes": analysis_text
+            }
+        
+        # Prepare consumption data
+        consumption_data = {
+            "food_name": analysis_data.get("food_name"),
+            "estimated_portion": analysis_data.get("estimated_portion"),
+            "nutritional_info": analysis_data.get("nutritional_info", {}),
+            "medical_rating": analysis_data.get("medical_rating", {}),
+            "image_analysis": analysis_data.get("analysis_notes"),
+            "image_url": img_str
+        }
+        
+        print(f"[analyze_and_record_food] Prepared consumption data: {consumption_data}")
+        
+        # Save to consumption history
+        print(f"[analyze_and_record_food] Attempting to save consumption record for user {current_user['id']}")
+        consumption_record = await save_consumption_record(current_user["id"], consumption_data)
+        print(f"[analyze_and_record_food] Successfully saved consumption record with ID: {consumption_record['id']}")
+        
+        # Also save to chat if session_id is provided
+        if session_id:
+            print(f"[analyze_and_record_food] Saving to chat with session_id: {session_id}")
+            # Save user message with image
+            await save_chat_message(
+                current_user["id"],
+                "Recorded food consumption",
+                is_user=True,
+                session_id=session_id,
+                image_url=img_str
+            )
+            
+            # Save assistant response
+            summary_message = f"**Food Recorded: {analysis_data.get('food_name')}**\n\n"
+            summary_message += f"📊 **Nutritional Info (per {analysis_data.get('estimated_portion')}):**\n"
+            summary_message += f"- Calories: {analysis_data.get('nutritional_info', {}).get('calories', 'N/A')}\n"
+            summary_message += f"- Carbs: {analysis_data.get('nutritional_info', {}).get('carbohydrates', 'N/A')}g\n"
+            summary_message += f"- Protein: {analysis_data.get('nutritional_info', {}).get('protein', 'N/A')}g\n"
+            summary_message += f"- Fat: {analysis_data.get('nutritional_info', {}).get('fat', 'N/A')}g\n\n"
+            summary_message += f"🩺 **Diabetes Suitability:** {analysis_data.get('medical_rating', {}).get('diabetes_suitability', 'N/A').title()}\n"
+            summary_message += f"📈 **Glycemic Impact:** {analysis_data.get('medical_rating', {}).get('glycemic_impact', 'N/A').title()}\n\n"
+            summary_message += f"💡 **Notes:** {analysis_data.get('analysis_notes', '')}"
+            
+            await save_chat_message(
+                current_user["id"],
+                summary_message,
+                is_user=False,
+                session_id=session_id
+            )
+            print("[analyze_and_record_food] Successfully saved chat messages")
+        
+        return {
+            "success": True,
+            "consumption_record_id": consumption_record["id"],
+            "analysis": analysis_data
+        }
+        
+    except Exception as e:
+        print(f"[analyze_and_record_food] Error: {str(e)}")
+        print(f"[analyze_and_record_food] Full error details:", traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/consumption/history")
+async def get_consumption_history(
+    limit: int = 50,
+    current_user: User = Depends(get_current_user)
+):
+    """Get user's consumption history"""
+    try:
+        print(f"[get_consumption_history] Starting request for user {current_user['id']}")
+        print(f"[get_consumption_history] User data: {current_user}")
+        
+        history = await get_user_consumption_history(current_user["id"], limit)
+        print(f"[get_consumption_history] Retrieved {len(history)} records")
+        print(f"[get_consumption_history] First record (if any): {history[0] if history else 'No records'}")
+        
+        return history  # Return the records directly
+    except Exception as e:
+        print(f"[get_consumption_history] Error: {str(e)}")
+        print(f"[get_consumption_history] Full error details:", traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/consumption/analytics")
+async def get_consumption_analytics_endpoint(
+    days: int = 7,
+    current_user: User = Depends(get_current_user)
+):
+    """Get consumption analytics for specified period"""
+    try:
+        analytics = await get_consumption_analytics(current_user["id"], days)
+        return analytics
+    except Exception as e:
+        print(f"Error getting consumption analytics: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/chat/analyze-image")
+async def analyze_image(
+    image: UploadFile = File(...),
+    prompt: str = Form(...),
+    current_user: User = Depends(get_current_user)
+):
+    try:
+        # Read and validate image
+        contents = await image.read()
+        img = Image.open(BytesIO(contents))
+        
+        # Convert image to base64
+        buffered = BytesIO()
+        img.save(buffered, format="JPEG")
+        img_str = base64.b64encode(buffered.getvalue()).decode()
+        
+        # Save user message with image
+        user_message = await save_chat_message(
+            current_user["id"],
+            "Analyzing food image...",
+            is_user=True,
+            session_id=None,  # You might want to handle session_id differently
+            image_url=img_str
+        )
+        
+        # Generate response using OpenAI with image
+        response = client.chat.completions.create(
+            model=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are a helpful diet assistant for diabetes patients. Analyze the food image and provide detailed nutritional information, including estimated calories, macronutrients, and any relevant dietary considerations for diabetes patients."
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": prompt
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/jpeg;base64,{img_str}"
+                            }
+                        }
+                    ]
+                }
+            ],
+            max_tokens=500,
+            temperature=0.7,
+            stream=True
+        )
+        
+        # Stream the response
+        async def generate():
+            full_message = ""
+            try:
+                for chunk in response:
+                    if not chunk.choices:
+                        continue
+                    if not chunk.choices[0].delta:
+                        continue
+                    content = chunk.choices[0].delta.content
+                    if content:
+                        full_message += content
+                        yield content
+            except Exception as e:
+                print(f"Error in streaming response: {str(e)}")
+                if full_message:
+                    yield full_message
+            
+            # Save the complete assistant message after streaming
+            if full_message:
+                await save_chat_message(
+                    current_user["id"],
+                    full_message,
+                    is_user=False,
+                    session_id=user_message["session_id"],
+                    image_url=img_str
+                )
+        
+        return StreamingResponse(generate(), media_type="text/plain")
+        
+    except Exception as e:
+        print(f"Error in image analysis: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":

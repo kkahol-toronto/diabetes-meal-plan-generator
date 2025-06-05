@@ -16,9 +16,18 @@ import {
   FormControl,
   InputLabel,
   SelectChangeEvent,
+  IconButton,
+  Tooltip,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Alert,
 } from '@mui/material';
 import SendIcon from '@mui/icons-material/Send';
 import AddCommentIcon from '@mui/icons-material/AddComment';
+import ImageIcon from '@mui/icons-material/Image';
+import RestaurantIcon from '@mui/icons-material/Restaurant';
 import { useNavigate } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import { v4 as uuidv4 } from 'uuid';
@@ -29,6 +38,7 @@ interface Message {
   is_user: boolean;
   timestamp: string;
   session_id: string;
+  imageUrl?: string;
 }
 
 interface Session {
@@ -38,7 +48,7 @@ interface Session {
 }
 
 const Chat = () => {
-  const [messages, setMessages] = useState<Array<{ role: string; content: string }>>([]);
+  const [messages, setMessages] = useState<Message[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [currentSession, setCurrentSession] = useState<string>('');
   const [input, setInput] = useState('');
@@ -48,14 +58,30 @@ const Chat = () => {
   const prevMessagesLengthRef = useRef<number>(messages.length);
   const userScrolledRef = useRef<boolean>(false); // Flag to indicate user has scrolled manually
   const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null); // Timeout for resetting userScrolledRef
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const recordFoodInputRef = useRef<HTMLInputElement>(null);
+  const navigate = useNavigate();
+  const [isMobile, setIsMobile] = useState(false);
+  const [recordFoodDialog, setRecordFoodDialog] = useState(false);
+  const [recordFoodResult, setRecordFoodResult] = useState<any>(null);
 
   const handleNewChat = () => {
     const newSessionId = uuidv4();
     console.log("Creating new chat session:", newSessionId);
+    
+    // Create the new session object
+    const newSession = {
+      session_id: newSessionId,
+      timestamp: new Date().toISOString(),
+      messages: []
+    };
+    
+    // Add the new session to the sessions list first
+    setSessions(prev => [...prev, newSession]);
+    
+    // Then set it as the current session
     setCurrentSession(newSessionId);
     setMessages([]);
-    // Add the new (empty) session to the dropdown temporarily, or wait for backend to confirm
-    // For simplicity now, we let it be selected, and it will become persistent/appear in list on next fetchSessions after a message is sent.
   };
 
   useEffect(() => {
@@ -139,6 +165,11 @@ const Chat = () => {
     }
   }, []); // Empty dependency array, runs once on mount and cleanup on unmount
 
+  useEffect(() => {
+    // Check if device is mobile
+    setIsMobile(/iPhone|iPad|iPod|Android/i.test(navigator.userAgent));
+  }, []);
+
   const fetchSessions = async () => {
     try {
       const response = await fetch('http://localhost:8000/chat/sessions', {
@@ -182,7 +213,14 @@ const Chat = () => {
 
       if (response.ok) {
         const data = await response.json();
-        setMessages(data.map((msg: Message) => ({ role: msg.is_user ? 'user' : 'assistant', content: msg.message })));
+        setMessages(data.map((msg: any) => ({
+          id: msg.id,
+          message: msg.message_content,
+          is_user: msg.is_user,
+          timestamp: msg.timestamp,
+          session_id: msg.session_id,
+          imageUrl: msg.imageUrl
+        })));
       }
     } catch (error) {
       console.error('Failed to fetch chat history:', error);
@@ -192,7 +230,13 @@ const Chat = () => {
   const handleSendMessage = async () => {
     if (!input.trim()) return;
 
-    const userMessage = { role: 'user', content: input };
+    const userMessage: Message = {
+      id: uuidv4(),
+      message: input,
+      is_user: true,
+      timestamp: new Date().toISOString(),
+      session_id: currentSession
+    };
     setMessages((prev) => [...prev, userMessage]);
     const currentInput = input;
     setInput('');
@@ -220,7 +264,14 @@ const Chat = () => {
           let isStreaming = true;
           const revealSpeed = 40; // characters per second
 
-          setMessages((prev) => [...prev, { role: 'assistant', content: '' }]);
+          const assistantInitialMessage: Message = {
+            id: uuidv4(),
+            message: '',
+            is_user: false,
+            timestamp: new Date().toISOString(),
+            session_id: currentSession
+          };
+          setMessages((prev) => [...prev, assistantInitialMessage]);
 
           // Reveal characters at a constant rate (typewriter effect)
           const revealCharacters = () => {
@@ -234,8 +285,8 @@ const Chat = () => {
               setMessages((prev) => {
                 const newMessages = [...prev];
                 const lastMessage = newMessages[newMessages.length - 1];
-                if (lastMessage && lastMessage.role === 'assistant') {
-                  lastMessage.content = assistantMessage;
+                if (lastMessage && !lastMessage.is_user) {
+                  lastMessage.message = assistantMessage;
                 }
                 return newMessages;
               });
@@ -285,6 +336,144 @@ const Chat = () => {
     } catch (error) {
       console.error('Failed to clear chat history:', error);
     }
+  };
+
+  const handleImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    // Create a temporary URL for the image
+    const imageUrl = URL.createObjectURL(file);
+    
+    // Add user message with image
+    const userMessage = {
+      id: uuidv4(),
+      message: 'Analyzing this image...',
+      is_user: true,
+      timestamp: new Date().toISOString(),
+      session_id: currentSession,
+      imageUrl
+    };
+    setMessages(prev => [...prev, userMessage]);
+    setIsLoading(true);
+
+    try {
+      const formData = new FormData();
+      formData.append('image', file);
+      formData.append('prompt', 'Analyze the calorie content and nutritional information of this food image.');
+
+      const response = await fetch('http://localhost:8000/chat/analyze-image', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+        },
+        body: formData
+      });
+
+      if (response.ok) {
+        const reader = response.body?.getReader();
+        if (reader) {
+          const decoder = new TextDecoder();
+          let assistantMessage = '';
+
+          // Add initial empty assistant message
+          setMessages(prev => [...prev, {
+            id: uuidv4(),
+            message: '',
+            is_user: false,
+            timestamp: new Date().toISOString(),
+            session_id: currentSession
+          }]);
+
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            const chunk = decoder.decode(value, { stream: true });
+            assistantMessage += chunk;
+            
+            // Update the last message (assistant's message) with the new content
+            setMessages(prev => {
+              const newMessages = [...prev];
+              const lastMessage = newMessages[newMessages.length - 1];
+              if (lastMessage && !lastMessage.is_user) {
+                lastMessage.message = assistantMessage;
+              }
+              return newMessages;
+            });
+          }
+        }
+      } else {
+        console.error('Failed to analyze image');
+      }
+    } catch (error) {
+      console.error('Error analyzing image:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleRecordFood = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      setIsLoading(true);
+      const formData = new FormData();
+      formData.append('image', file);
+      if (currentSession) {
+        formData.append('session_id', currentSession);
+      }
+
+      const response = await fetch('http://localhost:8000/consumption/analyze-and-record', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+        },
+        body: formData,
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        setRecordFoodResult(result);
+        setRecordFoodDialog(true);
+        
+        // Dispatch event to notify ConsumptionHistory component
+        window.dispatchEvent(new Event('consumptionRecorded'));
+        
+        // Also, refresh chat history for the current session if a session_id was sent
+        // This will show the newly recorded food item in the chat
+        if (currentSession) {
+          await fetchChatHistory(); // Re-fetch chat history for the current session
+        }
+
+      } else {
+        console.error('Failed to analyze and record food', response.status, response.statusText);
+        const errorText = await response.text();
+        console.error('Error response from analyze-and-record:', errorText);
+      }
+    } catch (error) {
+      console.error('Error analyzing and recording food:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleImageButtonClick = () => {
+    if (fileInputRef.current) {
+      fileInputRef.current.click();
+    }
+  };
+
+  const handleRecordFoodButtonClick = () => {
+    if (recordFoodInputRef.current) {
+      recordFoodInputRef.current.click();
+    }
+  };
+
+  const handleCloseRecordDialog = () => {
+    setRecordFoodDialog(false);
+    setRecordFoodResult(null);
   };
 
   return (
@@ -338,7 +527,7 @@ const Chat = () => {
               <React.Fragment key={index}>
                 <ListItem
                   sx={{
-                    justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start',
+                    justifyContent: msg.is_user ? 'flex-end' : 'flex-start',
                   }}
                 >
                   <Paper
@@ -346,14 +535,23 @@ const Chat = () => {
                     sx={{
                       p: 2,
                       maxWidth: '70%',
-                      backgroundColor: msg.role === 'user' ? 'primary.light' : 'grey.100',
-                      color: msg.role === 'user' ? 'white' : 'text.primary',
+                      backgroundColor: msg.is_user ? 'primary.light' : 'grey.100',
+                      color: msg.is_user ? 'white' : 'text.primary',
                     }}
                   >
                     <Typography variant="subtitle2" color="textSecondary">
-                      {msg.role === 'user' ? 'You' : 'Assistant'}:
+                      {msg.is_user ? 'You' : 'Assistant'}:
                     </Typography>
-                    <ReactMarkdown>{msg.content}</ReactMarkdown>
+                    {msg.imageUrl && (
+                      <Box sx={{ mb: 2 }}>
+                        <img 
+                          src={msg.imageUrl} 
+                          alt="Uploaded food" 
+                          style={{ maxWidth: '100%', maxHeight: '200px', borderRadius: '8px' }} 
+                        />
+                      </Box>
+                    )}
+                    <ReactMarkdown>{msg.message}</ReactMarkdown>
                   </Paper>
                 </ListItem>
                 <Divider />
@@ -364,6 +562,32 @@ const Chat = () => {
         </Box>
 
         <Box component="form" onSubmit={(e) => { e.preventDefault(); handleSendMessage(); }} sx={{ display: 'flex', gap: 1 }}>
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleImageUpload}
+            accept="image/*"
+            capture={isMobile ? "environment" : undefined}
+            style={{ display: 'none' }}
+          />
+          <input
+            type="file"
+            ref={recordFoodInputRef}
+            onChange={handleRecordFood}
+            accept="image/*"
+            capture={isMobile ? "environment" : undefined}
+            style={{ display: 'none' }}
+          />
+          <Tooltip title="Analyze image (chat only)">
+            <IconButton onClick={handleImageButtonClick} color="primary">
+              <ImageIcon />
+            </IconButton>
+          </Tooltip>
+          <Tooltip title="Record food consumption">
+            <IconButton onClick={handleRecordFoodButtonClick} color="secondary">
+              <RestaurantIcon />
+            </IconButton>
+          </Tooltip>
           <TextField
             fullWidth
             variant="outlined"
@@ -384,6 +608,72 @@ const Chat = () => {
           </Button>
         </Box>
       </Paper>
+
+      {/* Record Food Result Dialog */}
+      <Dialog open={recordFoodDialog} onClose={handleCloseRecordDialog} maxWidth="md" fullWidth>
+        <DialogTitle>Food Analysis Result</DialogTitle>
+        <DialogContent>
+          {isLoading ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
+              <CircularProgress />
+            </Box>
+          ) : recordFoodResult?.error ? (
+            <Alert severity="error">{recordFoodResult.error}</Alert>
+          ) : recordFoodResult?.analysis ? (
+            <Box>
+              <Typography variant="h6" gutterBottom>
+                {recordFoodResult.analysis.food_name}
+              </Typography>
+              <Typography variant="body2" color="textSecondary" gutterBottom>
+                Estimated Portion: {recordFoodResult.analysis.estimated_portion}
+              </Typography>
+              
+              <Box sx={{ mt: 2 }}>
+                <Typography variant="subtitle1" gutterBottom>
+                  Nutritional Information:
+                </Typography>
+                <Box sx={{ pl: 2 }}>
+                  <Typography>• Calories: {recordFoodResult.analysis.nutritional_info?.calories || 'N/A'}</Typography>
+                  <Typography>• Carbohydrates: {recordFoodResult.analysis.nutritional_info?.carbohydrates || 'N/A'}g</Typography>
+                  <Typography>• Protein: {recordFoodResult.analysis.nutritional_info?.protein || 'N/A'}g</Typography>
+                  <Typography>• Fat: {recordFoodResult.analysis.nutritional_info?.fat || 'N/A'}g</Typography>
+                  <Typography>• Fiber: {recordFoodResult.analysis.nutritional_info?.fiber || 'N/A'}g</Typography>
+                  <Typography>• Sugar: {recordFoodResult.analysis.nutritional_info?.sugar || 'N/A'}g</Typography>
+                </Box>
+              </Box>
+
+              <Box sx={{ mt: 2 }}>
+                <Typography variant="subtitle1" gutterBottom>
+                  Diabetes Suitability Rating:
+                </Typography>
+                <Box sx={{ pl: 2 }}>
+                  <Typography>• Overall Suitability: <strong>{recordFoodResult.analysis.medical_rating?.diabetes_suitability || 'N/A'}</strong></Typography>
+                  <Typography>• Glycemic Impact: {recordFoodResult.analysis.medical_rating?.glycemic_impact || 'N/A'}</Typography>
+                  <Typography>• Recommended Frequency: {recordFoodResult.analysis.medical_rating?.recommended_frequency || 'N/A'}</Typography>
+                </Box>
+              </Box>
+
+              {recordFoodResult.analysis.analysis_notes && (
+                <Box sx={{ mt: 2 }}>
+                  <Typography variant="subtitle1" gutterBottom>
+                    Analysis Notes:
+                  </Typography>
+                  <Typography variant="body2" sx={{ backgroundColor: 'grey.100', p: 2, borderRadius: 1 }}>
+                    {recordFoodResult.analysis.analysis_notes}
+                  </Typography>
+                </Box>
+              )}
+
+              <Alert severity="success" sx={{ mt: 2 }}>
+                Food consumption has been recorded to your history!
+              </Alert>
+            </Box>
+          ) : null}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseRecordDialog}>Close</Button>
+        </DialogActions>
+      </Dialog>
     </Container>
   );
 };

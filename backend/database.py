@@ -6,6 +6,7 @@ from datetime import datetime
 import uuid
 import tiktoken
 import json
+import traceback
 
 # Load environment variables
 load_dotenv()
@@ -236,7 +237,6 @@ async def delete_meal_plan_by_id(plan_id: str, user_id: str):
         return False
     except Exception as e:
         print(f"[delete_meal_plan_by_id] Error deleting meal plan {plan_id} for user {user_id}: {e}")
-        import traceback
         traceback.print_exc()
         raise Exception(f"Failed to delete meal plan: {str(e)}")
 
@@ -294,7 +294,6 @@ async def delete_all_user_meal_plans(user_id: str):
     except Exception as e:
         print(f"[delete_all_user_meal_plans] Error deleting all meal plans for user {user_id}: {e}")
         # Log the full traceback for better debugging
-        import traceback
         traceback.print_exc()
         raise Exception(f"Failed to delete all meal plans: {str(e)}")
 
@@ -318,7 +317,7 @@ async def get_user_shopping_lists(user_id: str):
     except Exception as e:
         raise Exception(f"Failed to get shopping lists: {str(e)}")
 
-async def save_chat_message(user_id: str, message: str, is_user: bool, session_id: str = None):
+async def save_chat_message(user_id: str, message: str, is_user: bool, session_id: str = None, image_url: str = None):
     """Save a chat message to the database"""
     try:
         if not session_id:
@@ -331,7 +330,8 @@ async def save_chat_message(user_id: str, message: str, is_user: bool, session_i
             "is_user": is_user,
             "timestamp": datetime.utcnow().isoformat(),
             "session_id": session_id,
-            "id": f"chat_{session_id}_{datetime.utcnow().timestamp()}"
+            "id": f"chat_{session_id}_{datetime.utcnow().timestamp()}",
+            "image_url": image_url
         }
         return interactions_container.create_item(body=chat_data)
     except Exception as e:
@@ -534,22 +534,165 @@ async def get_context_history(
         return [] # Fallback to empty list on error 
 
 async def view_meal_plans(user_id: str):
-    """View all meal plans for a user directly from Cosmos DB"""
+    """View all meal plans for a user - returns simple view without recipes/shopping"""
     try:
-        query = f"""
-        SELECT c.id, c.created_at, c.breakfast, c.lunch, c.dinner, c.snacks, 
-               c.dailyCalories, c.macronutrients
-        FROM c
-        WHERE c.type = 'meal_plan'
-        AND c.user_id = '{user_id}'
-        ORDER BY c.created_at DESC
-        """
-        return list(interactions_container.query_items(
+        if not user_id:
+            raise ValueError("User ID is required")
+
+        query = f"SELECT c.id, c.created_at, c.dailyCalories, c.macronutrients FROM c WHERE c.type = 'meal_plan' AND c.user_id = '{user_id}' ORDER BY c.created_at DESC"
+        meal_plans = list(interactions_container.query_items(
             query=query,
             enable_cross_partition_query=True
         ))
+
+        return meal_plans
+    except ValueError as e:
+        raise ValueError(f"Invalid request: {str(e)}")
     except Exception as e:
         raise Exception(f"Failed to view meal plans: {str(e)}")
 
 def log_debug(msg):
     print(f"[DEBUG] {msg}") 
+
+async def save_consumption_record(user_id: str, consumption_data: dict):
+    """Save a consumption history record to the database"""
+    try:
+        print(f"[save_consumption_record] Starting save for user {user_id}")
+        print(f"[save_consumption_record] Consumption data: {consumption_data}")
+        
+        # Generate a unique session ID for this consumption record
+        session_id = f"consumption_{user_id}_{datetime.utcnow().timestamp()}"
+        
+        consumption_record = {
+            "type": "consumption_record",
+            "user_id": user_id,
+            "id": session_id,
+            "session_id": session_id,  # This is the partition key
+            "timestamp": datetime.utcnow().isoformat(),
+            "food_name": consumption_data.get("food_name"),
+            "estimated_portion": consumption_data.get("estimated_portion"),
+            "nutritional_info": consumption_data.get("nutritional_info", {}),
+            "medical_rating": consumption_data.get("medical_rating", {}),
+            "image_analysis": consumption_data.get("image_analysis"),
+            "image_url": consumption_data.get("image_url")
+        }
+        
+        print(f"[save_consumption_record] Created record with ID: {consumption_record['id']}")
+        print(f"[save_consumption_record] Full record: {consumption_record}")
+        
+        result = interactions_container.upsert_item(body=consumption_record)
+        print(f"[save_consumption_record] Successfully saved record with ID: {result['id']}")
+        return result
+    except Exception as e:
+        print(f"[save_consumption_record] Error saving record: {str(e)}")
+        print(f"[save_consumption_record] Full error details:", traceback.format_exc())
+        raise Exception(f"Failed to save consumption record: {str(e)}")
+
+async def get_user_consumption_history(user_id: str, limit: int = 50):
+    """Get consumption history for a user"""
+    try:
+        if not user_id:
+            raise ValueError("User ID is required")
+
+        print(f"[get_user_consumption_history] Querying consumption records for user {user_id}")
+        # Use a more specific query to ensure we get all fields
+        query = (
+            "SELECT c.id, c.timestamp, c.food_name, c.estimated_portion, "
+            "c.nutritional_info, c.medical_rating, c.image_analysis, c.image_url "
+            "FROM c WHERE c.type = 'consumption_record' "
+            f"AND c.user_id = '{user_id}' "
+            "ORDER BY c.timestamp DESC"
+        )
+        print(f"[get_user_consumption_history] Query: {query}")
+        
+        try:
+            # Use cross-partition query since records are partitioned by session_id
+            consumption_records = list(interactions_container.query_items(
+                query=query,
+                enable_cross_partition_query=True
+            ))
+            print(f"[get_user_consumption_history] Query executed successfully")
+        except Exception as query_error:
+            print(f"[get_user_consumption_history] Error executing query: {str(query_error)}")
+            print(f"[get_user_consumption_history] Query error details:", traceback.format_exc())
+            raise
+        
+        print(f"[get_user_consumption_history] Raw consumption records count: {len(consumption_records)}")
+        if consumption_records:
+            print(f"[get_user_consumption_history] First record: {consumption_records[0]}")
+            print(f"[get_user_consumption_history] First record type: {type(consumption_records[0])}")
+            print(f"[get_user_consumption_history] First record keys: {list(consumption_records[0].keys())}")
+        else:
+            print("[get_user_consumption_history] No records found")
+        
+        # Apply limit
+        limited_records = consumption_records[:limit] if limit else consumption_records
+        print(f"[get_user_consumption_history] Returning {len(limited_records)} records after applying limit")
+        return limited_records
+        
+    except ValueError as e:
+        print(f"[get_user_consumption_history] ValueError: {str(e)}")
+        raise ValueError(f"Invalid request: {str(e)}")
+    except Exception as e:
+        print(f"[get_user_consumption_history] Exception: {str(e)}")
+        print(f"[get_user_consumption_history] Full error details:", traceback.format_exc())
+        raise Exception(f"Failed to get consumption history: {str(e)}")
+
+async def get_consumption_analytics(user_id: str, days: int = 7):
+    """Get consumption analytics for a user over specified days"""
+    try:
+        if not user_id:
+            raise ValueError("User ID is required")
+            
+        # Calculate date threshold
+        from datetime import datetime, timedelta
+        threshold_date = (datetime.utcnow() - timedelta(days=days)).isoformat()
+        
+        query = f"SELECT * FROM c WHERE c.type = 'consumption_record' AND c.user_id = '{user_id}' AND c.timestamp >= '{threshold_date}' ORDER BY c.timestamp DESC"
+        
+        consumption_records = list(interactions_container.query_items(
+            query=query,
+            enable_cross_partition_query=True
+        ))
+        
+        # Calculate analytics
+        total_calories = 0
+        total_carbs = 0
+        total_protein = 0
+        total_fat = 0
+        diabetes_suitable_count = 0
+        total_records = len(consumption_records)
+        
+        for record in consumption_records:
+            nutritional_info = record.get("nutritional_info", {})
+            medical_rating = record.get("medical_rating", {})
+            
+            total_calories += nutritional_info.get("calories", 0)
+            total_carbs += nutritional_info.get("carbohydrates", 0)
+            total_protein += nutritional_info.get("protein", 0)
+            total_fat += nutritional_info.get("fat", 0)
+            
+            diabetes_suitability = medical_rating.get("diabetes_suitability", "").lower()
+            if diabetes_suitability in ["high", "good", "suitable"]:
+                diabetes_suitable_count += 1
+        
+        analytics = {
+            "period_days": days,
+            "total_records": total_records,
+            "total_calories": total_calories,
+            "average_daily_calories": total_calories / days if days > 0 else 0,
+            "total_macronutrients": {
+                "carbohydrates": total_carbs,
+                "protein": total_protein,
+                "fat": total_fat
+            },
+            "diabetes_suitable_percentage": (diabetes_suitable_count / total_records * 100) if total_records > 0 else 0,
+            "consumption_records": consumption_records
+        }
+        
+        return analytics
+        
+    except ValueError as e:
+        raise ValueError(f"Invalid request: {str(e)}")
+    except Exception as e:
+        raise Exception(f"Failed to get consumption analytics: {str(e)}") 

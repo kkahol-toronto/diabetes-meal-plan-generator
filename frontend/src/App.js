@@ -11,6 +11,7 @@ import Chat from './components/Chat';
 import AdminLogin from './components/AdminLogin';
 import AdminPanel from './components/AdminPanel';
 import Navigation from './components/Navigation';
+import ConsumptionHistory from './components/ConsumptionHistory';
 
 // Create a theme instance
 const theme = createTheme({
@@ -108,6 +109,14 @@ function App() {
             element={
               <ProtectedRoute>
                 <Chat />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/consumption-history"
+            element={
+              <ProtectedRoute>
+                <ConsumptionHistory />
               </ProtectedRoute>
             }
           />
