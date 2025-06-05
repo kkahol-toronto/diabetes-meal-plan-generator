@@ -29,6 +29,7 @@ import MealPlan from './MealPlan';
 import RecipeList from './RecipeList';
 import ShoppingList from './ShoppingList';
 import { UserProfile, MealPlanData, Recipe, ShoppingItem } from '../types';
+import { PatientProfile } from '../types/PatientProfile';
 
 // Import icons
 import NavigateNextIcon from '@mui/icons-material/NavigateNext';
@@ -71,6 +72,57 @@ const editableMealTypes: EditableMealType[] = ['breakfast', 'lunch', 'dinner', '
 
 function stripDayPrefix(meal: string) {
   return meal.replace(/^Day \d+:\s*/, '');
+}
+
+// Convert UserProfile to PatientProfile for the UserProfileForm
+function convertUserProfileToPatientProfile(userProfile: UserProfile): PatientProfile {
+  return {
+    fullName: userProfile.name,
+    age: userProfile.age,
+    sex: userProfile.gender as 'Male' | 'Female' | 'Other',
+    ethnicity: userProfile.ethnicity ? [userProfile.ethnicity] : [],
+    vitalSigns: {
+      weightKg: userProfile.weight,
+      heightCm: userProfile.height,
+      bloodPressureSystolic: userProfile.systolicBP,
+      bloodPressureDiastolic: userProfile.diastolicBP,
+      heartRateBpm: userProfile.heartRate,
+    },
+    dietaryInfo: {
+      dietType: userProfile.dietType?.[0],
+      dietFeatures: userProfile.dietFeatures,
+      allergies: userProfile.allergies?.join(', '),
+    },
+    medicalHistory: userProfile.medicalConditions,
+    mealPlanTargeting: {
+      wantsWeightLoss: userProfile.wantsWeightLoss,
+      calorieTarget: userProfile.calorieTarget ? parseInt(userProfile.calorieTarget) : undefined,
+    },
+  };
+}
+
+// Convert PatientProfile back to UserProfile for the meal plan generation
+function convertPatientProfileToUserProfile(patientProfile: PatientProfile): UserProfile {
+  return {
+    name: patientProfile.fullName || '',
+    age: patientProfile.age,
+    gender: patientProfile.sex,
+    weight: patientProfile.vitalSigns?.weightKg || 0,
+    height: patientProfile.vitalSigns?.heightCm || 0,
+    waistCircumference: 0, // Default since not in PatientProfile
+    systolicBP: patientProfile.vitalSigns?.bloodPressureSystolic,
+    diastolicBP: patientProfile.vitalSigns?.bloodPressureDiastolic,
+    heartRate: patientProfile.vitalSigns?.heartRateBpm,
+    ethnicity: patientProfile.ethnicity?.[0],
+    dietType: patientProfile.dietaryInfo?.dietType ? [patientProfile.dietaryInfo.dietType] : [],
+    calorieTarget: patientProfile.mealPlanTargeting?.calorieTarget?.toString(),
+    dietFeatures: patientProfile.dietaryInfo?.dietFeatures || [],
+    medicalConditions: patientProfile.medicalHistory || [],
+    wantsWeightLoss: patientProfile.mealPlanTargeting?.wantsWeightLoss || false,
+    dietaryRestrictions: [],
+    foodPreferences: [],
+    allergies: patientProfile.dietaryInfo?.allergies ? [patientProfile.dietaryInfo.allergies] : [],
+  };
 }
 
 const MealPlanRequest: React.FC = () => {
@@ -121,8 +173,10 @@ const MealPlanRequest: React.FC = () => {
     loadSavedProfile();
   }, []);
 
-  const handleProfileSubmit = async (profile: UserProfile) => {
-    setUserProfile(profile);
+  const handleProfileSubmit = async (profile: PatientProfile) => {
+    // Convert PatientProfile back to UserProfile for internal use
+    const userProfile = convertPatientProfileToUserProfile(profile);
+    setUserProfile(userProfile);
     setActiveStep(1);
     setHasGeneratedMealPlan(false);
     setMealPlan(null);
@@ -639,7 +693,10 @@ const MealPlanRequest: React.FC = () => {
   const renderStepContent = (step: number) => {
     switch (step) {
       case 0:
-        return <UserProfileForm onSubmit={handleProfileSubmit} initialProfile={userProfile || undefined} />;
+        return <UserProfileForm 
+          onSubmit={handleProfileSubmit} 
+          initialProfile={userProfile ? convertUserProfileToPatientProfile(userProfile) : undefined} 
+        />;
       case 1:
         return (
           <Box>
