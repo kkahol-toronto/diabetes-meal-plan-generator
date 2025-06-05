@@ -2,7 +2,7 @@ import os
 from azure.cosmos import CosmosClient
 from azure.cosmos.exceptions import CosmosResourceNotFoundError
 from dotenv import load_dotenv
-from datetime import datetime
+from datetime import datetime, timedelta
 import uuid
 import tiktoken
 import json
@@ -458,12 +458,23 @@ async def get_user_recipes(user_id: str):
         raise Exception(f"Failed to get recipes: {str(e)}")
 
 def count_tokens(text, model="gpt-3.5-turbo"):
+    """Count the number of tokens in a text string."""
     try:
-        enc = tiktoken.encoding_for_model(model)
-        return len(enc.encode(text))
+        encoding = tiktoken.encoding_for_model(model)
+        return len(encoding.encode(text))
     except Exception:
-        # Fallback: rough word count
-        return len(text.split())
+        # Fallback to rough estimation
+        return len(text.split()) * 1.3
+
+def extract_numeric_value(value_string):
+    """Extract numeric value from strings like '115 kcal' or '3g'"""
+    if not value_string:
+        return 0
+    
+    # Extract numbers from string
+    import re
+    numbers = re.findall(r'\d+\.?\d*', str(value_string))
+    return float(numbers[0]) if numbers else 0
 
 async def get_context_history(
     user_id: str,
@@ -639,60 +650,140 @@ async def get_user_consumption_history(user_id: str, limit: int = 50):
         raise Exception(f"Failed to get consumption history: {str(e)}")
 
 async def get_consumption_analytics(user_id: str, days: int = 7):
-    """Get consumption analytics for a user over specified days"""
+    """Get consumption analytics for a specified number of days"""
     try:
-        if not user_id:
-            raise ValueError("User ID is required")
-            
-        # Calculate date threshold
-        from datetime import datetime, timedelta
-        threshold_date = (datetime.utcnow() - timedelta(days=days)).isoformat()
+        end_date = datetime.utcnow()
+        start_date = end_date - timedelta(days=days)
         
-        query = f"SELECT * FROM c WHERE c.type = 'consumption_record' AND c.user_id = '{user_id}' AND c.timestamp >= '{threshold_date}' ORDER BY c.timestamp DESC"
+        query = f"""
+        SELECT * FROM c 
+        WHERE c.type = 'consumption' 
+        AND c.user_id = '{user_id}' 
+        AND c.timestamp >= '{start_date.isoformat()}'
+        ORDER BY c.timestamp DESC
+        """
         
-        consumption_records = list(interactions_container.query_items(
+        records = list(interactions_container.query_items(
             query=query,
             enable_cross_partition_query=True
         ))
         
+        if not records:
+            return {
+                "total_records": 0,
+                "average_calories": 0,
+                "total_calories": 0,
+                "macronutrient_averages": {
+                    "protein": 0,
+                    "carbs": 0,
+                    "fat": 0
+                },
+                "daily_breakdown": []
+            }
+        
         # Calculate analytics
         total_calories = 0
-        total_carbs = 0
         total_protein = 0
+        total_carbs = 0
         total_fat = 0
-        diabetes_suitable_count = 0
-        total_records = len(consumption_records)
+        daily_data = {}
         
-        for record in consumption_records:
-            nutritional_info = record.get("nutritional_info", {})
-            medical_rating = record.get("medical_rating", {})
+        for record in records:
+            date = record.get('timestamp', '').split('T')[0]
+            nutrition = record.get('analysis', {}).get('nutritional_info', {})
             
-            total_calories += nutritional_info.get("calories", 0)
-            total_carbs += nutritional_info.get("carbohydrates", 0)
-            total_protein += nutritional_info.get("protein", 0)
-            total_fat += nutritional_info.get("fat", 0)
+            # Extract numeric values from strings like "115 kcal"
+            calories = extract_numeric_value(nutrition.get('calories', '0'))
+            protein = extract_numeric_value(nutrition.get('protein', '0'))
+            carbs = extract_numeric_value(nutrition.get('carbs', '0'))
+            fat = extract_numeric_value(nutrition.get('fat', '0'))
             
-            diabetes_suitability = medical_rating.get("diabetes_suitability", "").lower()
-            if diabetes_suitability in ["high", "good", "suitable"]:
-                diabetes_suitable_count += 1
+            total_calories += calories
+            total_protein += protein
+            total_carbs += carbs
+            total_fat += fat
+            
+            if date not in daily_data:
+                daily_data[date] = {
+                    "date": date,
+                    "calories": 0,
+                    "protein": 0,
+                    "carbs": 0,
+                    "fat": 0,
+                    "records": 0
+                }
+            
+            daily_data[date]["calories"] += calories
+            daily_data[date]["protein"] += protein
+            daily_data[date]["carbs"] += carbs
+            daily_data[date]["fat"] += fat
+            daily_data[date]["records"] += 1
         
-        analytics = {
-            "period_days": days,
-            "total_records": total_records,
+        num_records = len(records)
+        
+        return {
+            "total_records": num_records,
+            "average_calories": round(total_calories / num_records, 1) if num_records > 0 else 0,
             "total_calories": total_calories,
-            "average_daily_calories": total_calories / days if days > 0 else 0,
-            "total_macronutrients": {
-                "carbohydrates": total_carbs,
-                "protein": total_protein,
-                "fat": total_fat
+            "macronutrient_averages": {
+                "protein": round(total_protein / num_records, 1) if num_records > 0 else 0,
+                "carbs": round(total_carbs / num_records, 1) if num_records > 0 else 0,
+                "fat": round(total_fat / num_records, 1) if num_records > 0 else 0
             },
-            "diabetes_suitable_percentage": (diabetes_suitable_count / total_records * 100) if total_records > 0 else 0,
-            "consumption_records": consumption_records
+            "daily_breakdown": list(daily_data.values())
         }
         
-        return analytics
-        
-    except ValueError as e:
-        raise ValueError(f"Invalid request: {str(e)}")
     except Exception as e:
-        raise Exception(f"Failed to get consumption analytics: {str(e)}") 
+        print(f"Error getting consumption analytics: {str(e)}")
+        raise Exception(f"Failed to get consumption analytics: {str(e)}")
+
+async def save_patient_profile(user_id: str, profile_data: dict):
+    """Save patient profile data"""
+    try:
+        if not user_id:
+            raise ValueError("User ID is required")
+        if not profile_data:
+            raise ValueError("Profile data is required")
+
+        # Add type and partition key
+        profile_data["type"] = "patient_profile"
+        profile_data["id"] = user_id
+        profile_data["_partitionKey"] = user_id
+        profile_data["updated_at"] = datetime.utcnow().isoformat()
+
+        return user_container.upsert_item(body=profile_data)
+    except Exception as e:
+        print(f"Failed to save patient profile: {str(e)}")
+        raise
+
+async def get_patient_profile(user_id: str):
+    """Get patient profile data"""
+    try:
+        if not user_id:
+            raise ValueError("User ID is required")
+
+        query = f"SELECT * FROM c WHERE c.type = 'patient_profile' AND c.id = '{user_id}'"
+        items = list(user_container.query_items(
+            query=query,
+            enable_cross_partition_query=True
+        ))
+        return items[0] if items else None
+    except Exception as e:
+        print(f"Failed to get patient profile: {str(e)}")
+        raise
+
+async def get_user_email_by_patient_id(patient_id: str):
+    """Get user email by patient registration code"""
+    try:
+        # First, get the patient record
+        patient = await get_patient_by_registration_code(patient_id)
+        if not patient:
+            return None
+        
+        # Find the user associated with this registration code
+        query = f"SELECT * FROM c WHERE c.type = 'user' AND c.registration_code = '{patient_id}'"
+        items = list(user_container.query_items(query=query, enable_cross_partition_query=True))
+        return items[0]["email"] if items else None
+    except Exception as e:
+        print(f"Failed to get user email by patient ID: {str(e)}")
+        raise 

@@ -34,6 +34,9 @@ from database import (
     save_consumption_record,
     get_user_consumption_history,
     get_consumption_analytics,
+    save_patient_profile,
+    get_patient_profile,
+    get_user_email_by_patient_id,
 )
 import uuid
 from io import BytesIO
@@ -151,6 +154,69 @@ class RegistrationData(BaseModel):
 
 class ImageAnalysisRequest(BaseModel):
     prompt: str
+
+class PatientProfile(BaseModel):
+    # Date of Intake
+    intakeDate: Optional[str] = None
+    intakeDateUpdatedBy: Optional[str] = None
+
+    # Patient Demographics
+    fullName: Optional[str] = None
+    fullNameUpdatedBy: Optional[str] = None
+    dateOfBirth: Optional[str] = None
+    dateOfBirthUpdatedBy: Optional[str] = None
+    age: Optional[int] = None
+    ageUpdatedBy: Optional[str] = None
+    sex: Optional[str] = None
+    sexUpdatedBy: Optional[str] = None
+    ethnicity: Optional[List[str]] = None
+    ethnicityUpdatedBy: Optional[str] = None
+    ethnicityOther: Optional[str] = None
+    ethnicityOtherUpdatedBy: Optional[str] = None
+
+    # Medical History
+    medicalHistory: Optional[List[str]] = None
+    medicalHistoryUpdatedBy: Optional[str] = None
+    medicalHistoryOther: Optional[str] = None
+    medicalHistoryOtherUpdatedBy: Optional[str] = None
+
+    # Current Medications
+    medications: Optional[List[str]] = None
+    medicationsUpdatedBy: Optional[str] = None
+    medicationsOther: Optional[str] = None
+    medicationsOtherUpdatedBy: Optional[str] = None
+
+    # Lab Values
+    labValues: Optional[Dict[str, Any]] = None
+    labValuesUpdatedBy: Optional[str] = None
+
+    # Vital Signs
+    vitalSigns: Optional[Dict[str, Any]] = None
+    vitalSignsUpdatedBy: Optional[str] = None
+
+    # Dietary Information
+    dietaryInfo: Optional[Dict[str, Any]] = None
+    dietaryInfoUpdatedBy: Optional[str] = None
+
+    # Physical Activity
+    physicalActivity: Optional[Dict[str, Any]] = None
+    physicalActivityUpdatedBy: Optional[str] = None
+
+    # Lifestyle
+    lifestyle: Optional[Dict[str, Any]] = None
+    lifestyleUpdatedBy: Optional[str] = None
+
+    # Goals
+    goals: Optional[List[str]] = None
+    goalsUpdatedBy: Optional[str] = None
+    goalsOther: Optional[str] = None
+    goalsOtherUpdatedBy: Optional[str] = None
+    readiness: Optional[str] = None
+    readinessUpdatedBy: Optional[str] = None
+
+    # Meal Plan Targeting
+    mealPlanTargeting: Optional[Dict[str, Any]] = None
+    mealPlanTargetingUpdatedBy: Optional[str] = None
 
 def get_password_hash(password: str) -> str:
     """Hash a password using bcrypt"""
@@ -2049,6 +2115,70 @@ async def analyze_image(
     except Exception as e:
         print(f"Error in image analysis: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/profile/save")
+async def save_profile(
+    profile: PatientProfile,
+    current_user: User = Depends(get_current_user)
+):
+    """Save or update a patient's profile."""
+    try:
+        # Convert Pydantic model to dict
+        profile_data = profile.dict(exclude_none=True)
+        
+        # Add updated_by information for each field
+        is_admin = current_user.get("is_admin", False)
+        updated_by = "admin" if is_admin else "user"
+        
+        # Get existing profile to merge with
+        existing_profile = await get_patient_profile(current_user["email"])
+        
+        # Update the updated_by fields for changed values
+        for key, value in profile_data.items():
+            if not key.endswith("UpdatedBy") and value is not None:
+                updated_by_key = f"{key}UpdatedBy"
+                profile_data[updated_by_key] = updated_by
+        
+        # Merge with existing profile
+        if existing_profile:
+            merged_data = {**existing_profile, **profile_data}
+        else:
+            merged_data = profile_data
+        
+        # Save to database
+        saved_profile = await save_patient_profile(current_user["email"], merged_data)
+        
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={"message": "Profile saved successfully", "profile": saved_profile}
+        )
+    except Exception as e:
+        print(f"Error saving profile: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to save profile: {str(e)}"
+        )
+
+@app.get("/api/profile/get")
+async def get_profile(current_user: User = Depends(get_current_user)):
+    """Get a patient's profile."""
+    try:
+        profile = await get_patient_profile(current_user["email"])
+        if not profile:
+            return JSONResponse(
+                status_code=status.HTTP_404_NOT_FOUND,
+                content={"message": "Profile not found"}
+            )
+        
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={"profile": profile}
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get profile: {str(e)}"
+        )
 
 if __name__ == "__main__":
     import uvicorn
