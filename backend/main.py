@@ -49,6 +49,7 @@ import sys
 from fastapi import Request as FastAPIRequest
 from PIL import Image
 import base64
+from models import ExtendedUserProfile
 
 # Load environment variables
 load_dotenv()
@@ -470,7 +471,7 @@ async def generate_meal_plan(
         previous_meal_plan = data.get('previous_meal_plan')
         
         # Validate required user profile fields
-        required_fields = ['name', 'age', 'gender', 'weight', 'height']
+        required_fields = ['fullName', 'age', 'sex', 'weight', 'height']
         missing_fields = [field for field in required_fields if not user_profile.get(field)]
         if missing_fields:
             raise HTTPException(
@@ -2049,6 +2050,27 @@ async def analyze_image(
     except Exception as e:
         print(f"Error in image analysis: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+# In-memory storage for demonstration
+SAVED_PROFILES = {}
+
+@app.get("/api/profile/get")
+async def get_profile(current_user: User = Depends(get_current_user)):
+    """Get the user's profile. Returns 404 if no profile exists."""
+    user_id = current_user.email
+    if user_id not in SAVED_PROFILES:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    return SAVED_PROFILES[user_id]
+
+@app.post("/api/profile/save")
+async def save_profile(
+    profile: ExtendedUserProfile,
+    current_user: User = Depends(get_current_user)
+):
+    """Save the user's profile. Creates a new profile or updates an existing one."""
+    user_id = current_user.email
+    SAVED_PROFILES[user_id] = profile.dict()
+    return {"status": "saved"}
 
 if __name__ == "__main__":
     import uvicorn

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { ReactNode } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { ThemeProvider, createTheme, CssBaseline } from '@mui/material';
 import HomePage from './components/HomePage';
@@ -14,6 +14,7 @@ import AllRecipesPage from './pages/AllRecipesPage';
 import AllShoppingListsPage from './pages/AllShoppingListsPage';
 import MealPlanHistory from './components/MealPlanHistory';
 import ConsumptionHistory from './components/ConsumptionHistory';
+import UserProfileForm from './components/UserProfileForm/index';
 
 // Create a theme instance
 const theme = createTheme({
@@ -36,8 +37,12 @@ const theme = createTheme({
   },
 });
 
+interface ProtectedRouteProps {
+  children: ReactNode;
+}
+
 // Protected Route component
-const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
+const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
   const token = localStorage.getItem('token');
   if (!token) {
     return <Navigate to="/login" />;
@@ -46,7 +51,7 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
 };
 
 // Admin Route component
-const AdminRoute = ({ children }: { children: React.ReactNode }) => {
+const AdminRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
   const token = localStorage.getItem('token');
   const isAdmin = localStorage.getItem('isAdmin') === 'true';
   if (!token || !isAdmin) {
@@ -55,7 +60,7 @@ const AdminRoute = ({ children }: { children: React.ReactNode }) => {
   return <>{children}</>;
 };
 
-function App() {
+const App: React.FC = () => {
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
@@ -127,11 +132,44 @@ function App() {
             </ProtectedRoute>
           }
         />
+        <Route
+          path="/profile"
+          element={
+            <ProtectedRoute>
+              <UserProfileForm onSubmit={async (profile) => {
+                // Handle profile submission
+                try {
+                  const response = await fetch('http://localhost:8000/user/profile', {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': 'application/json',
+                      'Authorization': `Bearer ${localStorage.getItem('token')}`,
+                    },
+                    body: JSON.stringify(profile),
+                  });
+                  if (!response.ok) {
+                    throw new Error('Failed to save profile');
+                  }
+                } catch (error) {
+                  console.error('Error saving profile:', error);
+                  throw error;
+                }
+              }} />
+            </ProtectedRoute>
+          }
+        />
         
-        <Route path="*" element={<div>404 - Page Not Found or Route Not Matched</div>} />
+        <Route 
+          path="*" 
+          element={
+            <div style={{ padding: '2rem', textAlign: 'center' }}>
+              404 - Page Not Found or Route Not Matched
+            </div>
+          } 
+        />
       </Routes>
     </ThemeProvider>
   );
-}
+};
 
 export default App; 

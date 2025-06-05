@@ -24,7 +24,7 @@ import {
   CardContent,
 } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
-import UserProfileForm from './UserProfileForm';
+import UserProfileForm from './UserProfileForm/index';
 import MealPlan from './MealPlan';
 import RecipeList from './RecipeList';
 import ShoppingList from './ShoppingList';
@@ -639,7 +639,12 @@ const MealPlanRequest: React.FC = () => {
   const renderStepContent = (step: number) => {
     switch (step) {
       case 0:
-        return <UserProfileForm onSubmit={handleProfileSubmit} initialProfile={userProfile || undefined} />;
+        return (
+          <UserProfileForm 
+            onSubmit={handleProfileSubmit} 
+            initialProfile={userProfile || undefined} 
+          />
+        );
       case 1:
         return (
           <Box>

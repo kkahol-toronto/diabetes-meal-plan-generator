@@ -18,6 +18,7 @@ import {
   FormControlLabel,
   Checkbox,
   Switch,
+  ListItemText,
 } from '@mui/material';
 import { UserProfile } from '../types';
 
@@ -146,19 +147,19 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
       return initialProfile;
     }
     return {
-      name: '',
+      fullName: '',
       age: undefined,
-      gender: '',
+      sex: '',
       weight: undefined,
       height: undefined,
       waistCircumference: undefined,
       systolicBP: undefined,
       diastolicBP: undefined,
       heartRate: undefined,
-      ethnicity: '',
+      ethnicity: [],
       dietType: [],
       calorieTarget: '',
-      dietFeatures: [],
+      dietaryFeatures: [],
       medicalConditions: [],
       wantsWeightLoss: false,
       dietaryRestrictions: [],
@@ -353,10 +354,12 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
   const handleMultiSelectChange = (field: keyof UserProfile) => (
     event: SelectChangeEvent<string[]>
   ) => {
-    const value = event.target.value as string[];
-    setFormData((prev) => ({
+    const {
+      target: { value },
+    } = event;
+    setFormData(prev => ({
       ...prev,
-      [field]: value,
+      [field]: typeof value === 'string' ? value.split(',') : value,
     }));
   };
 
@@ -375,8 +378,8 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
     const newErrors: Partial<Record<keyof UserProfile, string>> = {};
 
     // Validate required fields
-    if (!formData.name?.trim()) {
-      newErrors.name = 'Name is required';
+    if (!formData.fullName?.trim()) {
+      newErrors.fullName = 'Name is required';
     }
     if (!formData.height || formData.height <= 0) {
       newErrors.height = 'Height is required and must be greater than 0';
@@ -384,8 +387,8 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
     if (!formData.weight || formData.weight <= 0) {
       newErrors.weight = 'Weight is required and must be greater than 0';
     }
-    if (!formData.gender) {
-      newErrors.gender = 'Gender is required';
+    if (!formData.sex) {
+      newErrors.sex = 'Gender is required';
     }
 
     if (Object.keys(newErrors).length > 0) {
@@ -410,9 +413,19 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
     } catch (error) {
       console.error('Error creating profile:', error);
       setErrors({
-        name: 'Failed to generate meal plan. Please check your inputs and try again.'
+        fullName: 'Failed to generate meal plan. Please check your inputs and try again.'
       });
     }
+  };
+
+  const handleDietaryFeaturesChange = (event: SelectChangeEvent<string[]>) => {
+    const {
+      target: { value },
+    } = event;
+    setFormData(prev => ({
+      ...prev,
+      dietaryFeatures: typeof value === 'string' ? value.split(',') : value,
+    }));
   };
 
   return (
@@ -432,10 +445,10 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
                 fullWidth
                 required
                 label="Name"
-                value={formData.name}
-                onChange={handleInputChange('name')}
-                error={!!errors.name}
-                helperText={errors.name}
+                value={formData.fullName}
+                onChange={handleInputChange('fullName')}
+                error={!!errors.fullName}
+                helperText={errors.fullName}
               />
             </Grid>
 
@@ -455,8 +468,8 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
               <FormControl fullWidth required>
                 <InputLabel>Gender</InputLabel>
                 <Select
-                  value={formData.gender}
-                  onChange={handleSelectChange('gender')}
+                  value={formData.sex}
+                  onChange={handleSelectChange('sex')}
                   label="Gender"
                 >
                   {genderOptions.map((option) => (
@@ -747,13 +760,30 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
               <FormControl fullWidth>
                 <InputLabel>Ethnicity</InputLabel>
                 <Select
-                  value={formData.ethnicity}
-                  onChange={handleSelectChange('ethnicity')}
-                  label="Ethnicity"
+                  multiple
+                  value={formData.ethnicity || []}
+                  onChange={handleMultiSelectChange('ethnicity')}
+                  input={<OutlinedInput label="Ethnicity" />}
+                  renderValue={(selected) => (
+                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                      {(selected as string[]).map((value) => (
+                        <Chip key={value} label={value} />
+                      ))}
+                    </Box>
+                  )}
+                  MenuProps={{
+                    PaperProps: {
+                      style: {
+                        maxHeight: 48 * 4.5,
+                        width: 250,
+                      },
+                    },
+                  }}
                 >
                   {ethnicities.map((ethnicity) => (
                     <MenuItem key={ethnicity} value={ethnicity}>
-                      {ethnicity}
+                      <Checkbox checked={(formData.ethnicity || []).indexOf(ethnicity) > -1} />
+                      <ListItemText primary={ethnicity} />
                     </MenuItem>
                   ))}
                 </Select>
@@ -808,20 +838,29 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
                 <InputLabel>Features of Diet</InputLabel>
                 <Select
                   multiple
-                  value={formData.dietFeatures || []}
-                  onChange={handleMultiSelectChange('dietFeatures')}
+                  value={formData.dietaryFeatures || []}
+                  onChange={handleDietaryFeaturesChange}
                   input={<OutlinedInput label="Features of Diet" />}
                   renderValue={(selected) => (
                     <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                      {selected.map((value) => (
+                      {(selected as string[]).map((value) => (
                         <Chip key={value} label={value} />
                       ))}
                     </Box>
                   )}
+                  MenuProps={{
+                    PaperProps: {
+                      style: {
+                        maxHeight: 48 * 4.5,
+                        width: 250,
+                      },
+                    },
+                  }}
                 >
                   {dietFeatures.map((feature) => (
                     <MenuItem key={feature} value={feature}>
-                      {feature}
+                      <Checkbox checked={(formData.dietaryFeatures || []).indexOf(feature) > -1} />
+                      <ListItemText primary={feature} />
                     </MenuItem>
                   ))}
                 </Select>

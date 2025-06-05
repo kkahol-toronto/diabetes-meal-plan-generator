@@ -61,7 +61,7 @@ const MealPlan = ({ mealPlan }: MealPlanProps) => {
   const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
   const mealTypes: Array<{ 
     name: keyof Pick<MealPlanData, 'breakfast' | 'lunch' | 'dinner' | 'snacks'>; 
-    icon: JSX.Element; 
+    icon: React.ReactElement; 
     label: string;
     color: string;
   }> = [

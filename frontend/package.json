@@ -9,8 +9,6 @@
     "@mui/lab": "^5.0.0-alpha.157",
     "@mui/material": "^5.17.1",
     "@types/node": "^16.18.68",
-    "@types/react": "^18.2.42",
-    "@types/react-dom": "^18.2.17",
     "axios": "^1.6.2",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
@@ -46,6 +44,9 @@
     ]
   },
   "devDependencies": {
+    "@types/react": "^19.1.6",
+    "@types/react-dom": "^19.1.6",
+    "@types/react-router-dom": "^5.3.3",
     "@types/uuid": "^10.0.0"
   }
 }

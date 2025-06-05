@@ -1,23 +1,5 @@
-export interface UserProfile {
-  name: string;
-  age?: number;
-  gender?: string;
-  weight: number;
-  height: number;
-  waistCircumference?: number;
-  systolicBP?: number;
-  diastolicBP?: number;
-  heartRate?: number;
-  ethnicity?: string;
-  dietType?: string[];
-  calorieTarget?: string;
-  dietFeatures?: string[];
-  medicalConditions?: string[];
-  wantsWeightLoss: boolean;
-  dietaryRestrictions?: string[];
-  foodPreferences?: string[];
-  allergies?: string[];
-}
+import type { UserProfile } from './UserProfile';
+export type { UserProfile };
 
 export interface MealPlanData {
   id?: string;
