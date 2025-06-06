@@ -1793,18 +1793,18 @@ async def save_profile(
         # Convert Pydantic model to dict
         profile_data = profile.dict(exclude_none=True)
         
-        # Add updated_by information for each field
-        is_admin = current_user.get("is_admin", False)
-        updated_by = "admin" if is_admin else "user"
-        
-        # Get existing profile to merge with
-        existing_profile = await get_patient_profile(current_user["email"])
-        
-        # Update the updated_by fields for changed values
+        # Collect updates in a separate dictionary
+        updates = {}
         for key, value in profile_data.items():
             if not key.endswith("UpdatedBy") and value is not None:
                 updated_by_key = f"{key}UpdatedBy"
-                profile_data[updated_by_key] = updated_by
+                updates[updated_by_key] = "admin"
+        
+        # Update profile_data after the loop
+        profile_data.update(updates)
+        
+        # Get existing profile to merge with
+        existing_profile = await get_patient_profile(current_user["email"])
         
         # Merge with existing profile
         if existing_profile:
@@ -1923,40 +1923,55 @@ async def save_admin_user_profile(
         )
     
     try:
-        # Resolve patient ID (registration code) to user email
+        # First, try to find a registered user with this patient_id
+        print(f"[ADMIN SAVE] Looking up user email for patient ID: {user_id}")
         user_email = await get_user_email_by_patient_id(user_id)
-        if not user_email:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="User not found for this patient ID"
-            )
+        print(f"[ADMIN SAVE] Found user email: {user_email}")
         
-        # Convert Pydantic model to dict
-        profile_data = profile.dict(exclude_none=True)
+        profile_data = profile.dict()
         
-        # Add admin as the updater for all fields
+        # Collect updates in a separate dictionary
+        updates = {}
         for key, value in profile_data.items():
             if not key.endswith("UpdatedBy") and value is not None:
                 updated_by_key = f"{key}UpdatedBy"
-                profile_data[updated_by_key] = "admin"
+                updates[updated_by_key] = "admin"
         
-        # Get existing profile to merge with
-        existing_profile = await get_patient_profile(user_email)
+        # Update profile_data after the loop
+        profile_data.update(updates)
         
-        # Merge with existing profile
-        if existing_profile:
-            merged_data = {**existing_profile, **profile_data}
+        # Filter out empty fields
+        filtered_data = {k: v for k, v in profile_data.items() if v is not None and v != ""}
+        
+        if user_email:
+            # User is registered - save profile using their email
+            print(f"[ADMIN SAVE] User is registered, saving profile with email: {user_email}")
+            saved_profile = await save_patient_profile(user_email, filtered_data, is_admin_update=True)
         else:
-            merged_data = profile_data
+            # User not registered yet - check if patient exists and save profile using patient_id
+            print(f"[ADMIN SAVE] User not registered, checking if patient exists: {user_id}")
+            patient = await get_patient_by_registration_code(user_id)
+            if not patient:
+                print(f"[ADMIN SAVE] Patient with registration code {user_id} not found")
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Patient with this registration code not found"
+                )
+            
+            print(f"[ADMIN SAVE] Patient exists, saving profile using patient_id: {user_id}")
+            # Save profile using the patient_id directly
+            saved_profile = await save_patient_profile(user_id, filtered_data, is_admin_update=True)
         
-        # Save to database
-        saved_profile = await save_patient_profile(user_email, merged_data)
+        print(f"[ADMIN SAVE] Profile saved successfully")
+        return {"message": "Profile saved successfully", "profile": saved_profile}
         
-        return JSONResponse(
-            status_code=status.HTTP_200_OK,
-            content={"message": "Profile saved successfully", "profile": saved_profile}
-        )
+    except HTTPException:
+        # Re-raise HTTP exceptions as-is
+        raise
     except Exception as e:
+        print(f"[ADMIN SAVE] Unexpected error: {str(e)}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to save profile: {str(e)}"

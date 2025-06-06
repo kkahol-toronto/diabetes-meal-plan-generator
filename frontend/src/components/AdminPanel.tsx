@@ -19,7 +19,7 @@ import {
   DialogActions,
   Snackbar,
 } from '@mui/material';
-import { useNavigate, Link, Outlet } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 
 interface Patient {
   id: string;
@@ -128,6 +128,13 @@ const AdminPanel = () => {
     }));
   };
 
+  const handleRowClick = (patient: Patient) => {
+    const isRegistered = patient.email && patient.email !== 'Not registered' && patient.email !== 'Error fetching email';
+    if (isRegistered) {
+      navigate(`/admin/users/${patient.id}`);
+    }
+  };
+
   return (
     <Container maxWidth="lg" sx={{ py: 4 }}>
       <Paper elevation={3} sx={{ p: 4 }}>
@@ -152,7 +159,7 @@ const AdminPanel = () => {
 
         <Alert severity="info" sx={{ mb: 2 }}>
           <Typography variant="body2">
-            <strong>💡 Tip:</strong> Click on a patient row to view and edit their profile. 
+            <strong>💡 Tip:</strong> Click on a registered patient's row to view and edit their profile at /admin/users/[patientId]. 
             Only patients who have registered with their email can have their profiles viewed.
           </Typography>
         </Alert>
@@ -177,6 +184,7 @@ const AdminPanel = () => {
                 return (
                   <TableRow 
                     key={patient.id}
+                    onClick={() => handleRowClick(patient)}
                     sx={{ 
                       cursor: isRegistered ? 'pointer' : 'default',
                       opacity: isRegistered ? 1 : 0.6,
@@ -262,7 +270,6 @@ const AdminPanel = () => {
             {success}
           </Alert>
         </Snackbar>
-        <Outlet />
       </Paper>
     </Container>
   );

@@ -104,11 +104,60 @@ const AdminProfileForm: React.FC<AdminProfileFormProps> = ({ userId }) => {
             setError(null);
             setSuccess(null);
             
-            await axios.post(`/admin/profile/${userId}`, profile);
+            console.log('Original profile data:', profile);
+            
+            // Clean the profile data - remove empty strings and null values for optional fields
+            const cleanedProfile = Object.entries(profile).reduce((acc, [key, value]) => {
+                // Keep all non-empty values
+                if (value !== '' && value !== null && value !== undefined) {
+                    // For arrays, keep them even if empty (they might be intentionally empty)
+                    if (Array.isArray(value)) {
+                        acc[key] = value;
+                    }
+                    // For objects, only include if they have meaningful content
+                    else if (typeof value === 'object' && value !== null) {
+                        const cleanedObj = Object.entries(value).reduce((objAcc, [objKey, objValue]) => {
+                            if (objValue !== '' && objValue !== null && objValue !== undefined) {
+                                objAcc[objKey] = objValue;
+                            }
+                            return objAcc;
+                        }, {} as any);
+                        // Include the object even if empty (for proper structure)
+                        acc[key] = cleanedObj;
+                    } else {
+                        acc[key] = value;
+                    }
+                }
+                return acc;
+            }, {} as any);
+            
+            console.log('Cleaned profile data:', cleanedProfile);
+            console.log('Required fields check:');
+            console.log('- fullName:', cleanedProfile.fullName);
+            console.log('- dateOfBirth:', cleanedProfile.dateOfBirth);
+            console.log('- sex:', cleanedProfile.sex);
+            
+            // Only validate required fields for completely new/empty profiles
+            // Let the backend handle validation and merging for existing profiles
+            const hasAnyData = Object.keys(cleanedProfile).length > 0;
+            
+            if (!hasAnyData) {
+                setError('Please fill in at least one field before saving.');
+                return;
+            }
+            
+            console.log('Sending cleaned profile data to backend:', cleanedProfile);
+            const response = await axios.post(`/admin/profile/${userId}`, cleanedProfile);
+            console.log('Backend response:', response.data);
             setSuccess('Profile saved successfully');
-        } catch (error) {
+        } catch (error: any) {
             console.error('Error saving profile:', error);
-            setError('Failed to save profile. Please try again.');
+            console.error('Error response:', error.response?.data);
+            if (error.response?.data?.detail) {
+                setError(`Failed to save profile: ${error.response.data.detail}`);
+            } else {
+                setError('Failed to save profile. Please try again.');
+            }
         } finally {
             setLoading(false);
         }

@@ -73,28 +73,101 @@ async def get_user_by_email(email: str):
         raise
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
-async def save_patient_profile(user_id: str, profile_data: dict):
+async def save_patient_profile(user_id: str, profile_data: dict, is_admin_update: bool = False):
     """Save patient profile data"""
     try:
+        print(f"[SAVE_PROFILE] Starting save for user_id: {user_id}")
+        print(f"[SAVE_PROFILE] Input profile_data keys: {list(profile_data.keys())}")
+        print(f"[SAVE_PROFILE] Input profile_data: {profile_data}")
+        print(f"[SAVE_PROFILE] Is admin update: {is_admin_update}")
+        
         if not user_id:
             raise ValueError("User ID is required")
         if not profile_data:
             raise ValueError("Profile data is required")
 
+        # Make a copy to avoid modifying the original
+        data_to_save = profile_data.copy()
+        
         # Add type and partition key
-        profile_data["type"] = "patient_profile"
-        profile_data["id"] = user_id
-        profile_data["_partitionKey"] = user_id
-        profile_data["updated_at"] = datetime.utcnow().isoformat()
+        data_to_save["type"] = "patient_profile"
+        data_to_save["id"] = user_id
+        data_to_save["_partitionKey"] = user_id
+        data_to_save["updated_at"] = datetime.utcnow().isoformat()
 
-        # Validate required fields
-        required_fields = ["fullName", "dateOfBirth", "sex"]
-        missing_fields = [field for field in required_fields if field not in profile_data]
-        if missing_fields:
-            raise ValueError(f"Missing required fields: {', '.join(missing_fields)}")
+        # Check for existing profile first
+        existing_profile = None
+        try:
+            existing_profile = await get_patient_profile(user_id)
+            print(f"[SAVE_PROFILE] Existing profile found: {existing_profile is not None}")
+        except Exception as e:
+            print(f"[SAVE_PROFILE] Error checking existing profile: {e}")
+            # Continue with save attempt
 
-        return await user_container.upsert_item(body=profile_data)
+        # For admin updates, always allow partial updates
+        if is_admin_update:
+            print(f"[SAVE_PROFILE] Admin update - allowing partial data")
+            if existing_profile:
+                # Merge with existing data
+                merged_data = existing_profile.copy()
+                # Update only non-empty fields from the new data
+                for key, value in profile_data.items():
+                    if value is not None and value != "":
+                        merged_data[key] = value
+                
+                # Re-add required metadata
+                merged_data["type"] = "patient_profile"
+                merged_data["id"] = user_id
+                merged_data["_partitionKey"] = user_id
+                merged_data["updated_at"] = datetime.utcnow().isoformat()
+                
+                data_to_save = merged_data
+                print(f"[SAVE_PROFILE] Merged data keys: {list(data_to_save.keys())}")
+        else:
+            # For non-admin updates, validate required fields only for new profiles
+            required_fields = ["fullName", "dateOfBirth", "sex"]
+            missing_fields = []
+            for field in required_fields:
+                if field not in data_to_save or not data_to_save[field] or data_to_save[field] == "":
+                    missing_fields.append(field)
+            
+            print(f"[SAVE_PROFILE] Missing fields: {missing_fields}")
+            
+            if missing_fields and not existing_profile:
+                # New profile, require all fields
+                print(f"[SAVE_PROFILE] New profile detected, all fields required")
+                raise ValueError(f"Missing required fields: {', '.join(missing_fields)}")
+            elif missing_fields and existing_profile:
+                # Existing profile, merge with existing data and only update non-empty fields
+                print(f"[SAVE_PROFILE] Existing profile detected, allowing partial update")
+                logger.warning(f"Updating profile with incomplete data. Missing: {', '.join(missing_fields)}")
+                
+                # Start with existing profile data
+                merged_data = existing_profile.copy()
+                
+                # Update only non-empty fields from the new data
+                for key, value in profile_data.items():
+                    if value is not None and value != "":
+                        merged_data[key] = value
+                
+                # Re-add required metadata
+                merged_data["type"] = "patient_profile"
+                merged_data["id"] = user_id
+                merged_data["_partitionKey"] = user_id
+                merged_data["updated_at"] = datetime.utcnow().isoformat()
+                
+                data_to_save = merged_data
+                print(f"[SAVE_PROFILE] Merged data keys: {list(data_to_save.keys())}")
+
+        print(f"[SAVE_PROFILE] Final data_to_save keys: {list(data_to_save.keys())}")
+        print(f"[SAVE_PROFILE] Calling upsert_item...")
+        
+        result = user_container.upsert_item(body=data_to_save)
+        print(f"[SAVE_PROFILE] Successfully saved profile for user: {user_id}")
+        return result
+        
     except Exception as e:
+        print(f"[SAVE_PROFILE] Error in save_patient_profile: {str(e)}")
         logger.error(f"Failed to save patient profile: {str(e)}")
         raise
 
@@ -154,12 +227,17 @@ async def get_patient_by_id(patient_id: str):
 async def get_user_email_by_patient_id(patient_id: str):
     """Get user email by patient ID (registration code)"""
     try:
+        print(f"[GET_USER_EMAIL] Looking for patient_id: {patient_id}")
         query = f"SELECT * FROM c WHERE c.type = 'user' AND c.patient_id = '{patient_id}'"
+        print(f"[GET_USER_EMAIL] Query: {query}")
         items = list(user_container.query_items(query=query, enable_cross_partition_query=True))
+        print(f"[GET_USER_EMAIL] Found {len(items)} items")
         if items:
+            print(f"[GET_USER_EMAIL] First item: {items[0]}")
             return items[0].get('email')
         return None
     except Exception as e:
+        print(f"[GET_USER_EMAIL] Exception: {str(e)}")
         raise Exception(f"Failed to get user email by patient ID: {str(e)}")
 
 async def save_meal_plan(user_id: str, meal_plan_data: dict):

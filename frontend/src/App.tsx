@@ -78,8 +78,10 @@ function App() {
           {/* Admin Protected Routes - Nested */}
           <Route path="/admin" element={<AdminRoute><AdminPanel /></AdminRoute>}>
             <Route index element={<AdminDashboard />} />
-            <Route path="users/:userId" element={<AdminUserProfile />} />
           </Route>
+          
+          {/* Standalone Admin User Profile Route */}
+          <Route path="/admin/users/:userId" element={<AdminRoute><AdminUserProfile /></AdminRoute>} />
           
           <Route path="/debug/:userId" element={<RouteDebugger />} />
           <Route path="/auth-debug" element={<AdminAuthDebugger />} />
