@@ -19,7 +19,7 @@ import {
   DialogActions,
   Snackbar,
 } from '@mui/material';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 
 interface Patient {
   id: string;
@@ -28,9 +28,11 @@ interface Patient {
   condition: string;
   registration_code: string;
   created_at: string;
+  email?: string; // Optional email field that will be populated
 }
 
 const AdminPanel = () => {
+  console.log('AdminPanel component rendered');
   const navigate = useNavigate();
   const [patients, setPatients] = useState<Patient[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -126,6 +128,13 @@ const AdminPanel = () => {
     }));
   };
 
+  const handleRowClick = (patient: Patient) => {
+    const isRegistered = patient.email && patient.email !== 'Not registered' && patient.email !== 'Error fetching email';
+    if (isRegistered) {
+      navigate(`/admin/users/${patient.id}`);
+    }
+  };
+
   return (
     <Container maxWidth="lg" sx={{ py: 4 }}>
       <Paper elevation={3} sx={{ p: 4 }}>
@@ -148,12 +157,20 @@ const AdminPanel = () => {
           </Alert>
         )}
 
+        <Alert severity="info" sx={{ mb: 2 }}>
+          <Typography variant="body2">
+            <strong>💡 Tip:</strong> Click on a registered patient's row to view and edit their profile at /admin/users/[patientId]. 
+            Only patients who have registered with their email can have their profiles viewed.
+          </Typography>
+        </Alert>
+
         <TableContainer>
           <Table>
             <TableHead>
               <TableRow>
                 <TableCell>Name</TableCell>
                 <TableCell>Phone</TableCell>
+                <TableCell>Email</TableCell>
                 <TableCell>Condition</TableCell>
                 <TableCell>Registration Code</TableCell>
                 <TableCell>Created At</TableCell>
@@ -161,26 +178,46 @@ const AdminPanel = () => {
               </TableRow>
             </TableHead>
             <TableBody>
-              {patients.map((patient) => (
-                <TableRow key={patient.id}>
-                  <TableCell>{patient.name}</TableCell>
-                  <TableCell>{patient.phone}</TableCell>
-                  <TableCell>{patient.condition}</TableCell>
-                  <TableCell>{patient.registration_code}</TableCell>
-                  <TableCell>
-                    {new Date(patient.created_at).toLocaleString()}
-                  </TableCell>
-                  <TableCell>
-                    <Button
-                      variant="outlined"
-                      color="primary"
-                      onClick={() => handleResendCode(patient.id)}
-                    >
-                      Resend Code
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))}
+              {patients.map((patient) => {
+                const isRegistered = patient.email && patient.email !== 'Not registered' && patient.email !== 'Error fetching email';
+                
+                return (
+                  <TableRow 
+                    key={patient.id}
+                    onClick={() => handleRowClick(patient)}
+                    sx={{ 
+                      cursor: isRegistered ? 'pointer' : 'default',
+                      opacity: isRegistered ? 1 : 0.6,
+                      '&:hover': isRegistered ? {
+                        backgroundColor: 'rgba(0, 0, 0, 0.04)',
+                      } : {}
+                    }}
+                  >
+                    <TableCell>{patient.name}</TableCell>
+                    <TableCell>{patient.phone}</TableCell>
+                    <TableCell>
+                      <span style={{ 
+                        color: isRegistered ? 'inherit' : '#666',
+                        fontStyle: isRegistered ? 'normal' : 'italic'
+                      }}>
+                        {patient.email || 'Not registered'}
+                      </span>
+                    </TableCell>
+                    <TableCell>{patient.condition}</TableCell>
+                    <TableCell>{patient.registration_code}</TableCell>
+                    <TableCell>
+                      {new Date(patient.created_at).toLocaleString()}
+                    </TableCell>
+                    <TableCell>
+                      {isRegistered ? (
+                        <Link to={`/admin/users/${patient.id}`}>Edit</Link>
+                      ) : (
+                        <span style={{ color: '#666', fontStyle: 'italic' }}>Not registered</span>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
             </TableBody>
           </Table>
         </TableContainer>

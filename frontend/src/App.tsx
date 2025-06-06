@@ -8,6 +8,13 @@ import Register from './components/Register';
 import Chat from './components/Chat';
 import AdminLogin from './components/AdminLogin';
 import AdminPanel from './components/AdminPanel';
+import AdminUserProfile from './components/AdminUserProfile';
+import AdminDashboard from './components/AdminDashboard';
+// Debug imports - can remove these later
+import RouteDebugger from './components/RouteDebugger';
+import AdminAuthDebugger from './components/AdminAuthDebugger';
+import TempAdminUserProfile from './components/TempAdminUserProfile';
+import SimpleAdminProfile from './components/SimpleAdminProfile';
 import Navigation from './components/Navigation';
 import ThankYou from './components/ThankYou';
 import AllRecipesPage from './pages/AllRecipesPage';
@@ -76,15 +83,20 @@ function App() {
         <Route path="/admin/login" element={<AdminLogin />} />
         <Route path="/thank-you" element={<ThankYou />} />
 
-        {/* Admin Protected Route */}
-        <Route
-          path="/admin"
-          element={
-            <AdminRoute>
-              <AdminPanel />
-            </AdminRoute>
-          }
-        />
+        {/* Admin Protected Routes - Nested */}
+        <Route path="/admin" element={<AdminRoute><AdminPanel /></AdminRoute>}>
+          <Route index element={<AdminDashboard />} />
+        </Route>
+        
+        {/* Standalone Admin User Profile Route */}
+        <Route path="/admin/users/:userId" element={<AdminRoute><AdminUserProfile /></AdminRoute>} />
+        
+        {/* Debug Routes */}
+        <Route path="/debug/:userId" element={<RouteDebugger />} />
+        <Route path="/auth-debug" element={<AdminAuthDebugger />} />
+        <Route path="/temp-admin/:userId" element={<TempAdminUserProfile />} />
+        <Route path="/simple/:userId" element={<SimpleAdminProfile />} />
+        <Route path="/emergency/:userId" element={<div style={{padding: '20px'}}><h1>🚨 EMERGENCY ROUTE WORKS!</h1><p>UserId: {window.location.pathname.split('/')[2]}</p></div>} />
         
         {/* Other User Protected Routes */}
         <Route

@@ -34,6 +34,9 @@ from database import (
     save_consumption_record,
     get_user_consumption_history,
     get_consumption_analytics,
+    get_user_email_by_patient_id,
+    save_patient_profile,
+    get_patient_profile,
 )
 import uuid
 from io import BytesIO
@@ -197,6 +200,94 @@ class RegistrationData(BaseModel):
 
 class ImageAnalysisRequest(BaseModel):
     prompt: str
+
+class PatientProfile(BaseModel):
+    # Date of Intake
+    intakeDate: Optional[str] = None
+    intakeDateUpdatedBy: Optional[str] = None  # 'admin' or 'user'
+
+    # Patient Demographics
+    fullName: Optional[str] = None
+    fullNameUpdatedBy: Optional[str] = None
+    dateOfBirth: Optional[str] = None
+    dateOfBirthUpdatedBy: Optional[str] = None
+    age: Optional[int] = None
+    ageUpdatedBy: Optional[str] = None
+    sex: Optional[str] = None
+    sexUpdatedBy: Optional[str] = None
+    ethnicity: Optional[List[str]] = None
+    ethnicityUpdatedBy: Optional[str] = None
+    ethnicityOther: Optional[str] = None
+    ethnicityOtherUpdatedBy: Optional[str] = None
+
+    # Medical History
+    medicalHistory: Optional[List[str]] = None
+    medicalHistoryUpdatedBy: Optional[str] = None
+    medicalHistoryOther: Optional[str] = None
+    medicalHistoryOtherUpdatedBy: Optional[str] = None
+
+    # Current Medications
+    medications: Optional[List[str]] = None
+    medicationsUpdatedBy: Optional[str] = None
+    medicationsOther: Optional[str] = None
+    medicationsOtherUpdatedBy: Optional[str] = None
+
+    # Most Recent Lab Values
+    labValues: Optional[Dict[str, Optional[float]]] = None
+    labValuesUpdatedBy: Optional[str] = None
+
+    # Vital Signs
+    vitalSigns: Optional[Dict[str, Optional[float]]] = None
+    vitalSignsUpdatedBy: Optional[str] = None
+
+    # Dietary Information
+    dietaryInfo: Optional[Dict[str, Any]] = None
+    dietaryInfoUpdatedBy: Optional[str] = None
+
+    # Physical Activity Profile
+    physicalActivity: Optional[Dict[str, Any]] = None
+    physicalActivityUpdatedBy: Optional[str] = None
+
+    # Lifestyle & Preferences
+    lifestyle: Optional[Dict[str, Any]] = None
+    lifestyleUpdatedBy: Optional[str] = None
+
+    # Goals & Readiness to Change
+    goals: Optional[List[str]] = None
+    goalsUpdatedBy: Optional[str] = None
+    goalsOther: Optional[str] = None
+    goalsOtherUpdatedBy: Optional[str] = None
+    readiness: Optional[str] = None
+    readinessUpdatedBy: Optional[str] = None
+
+    # Meal Plan Targeting
+    mealPlanTargeting: Optional[Dict[str, Any]] = None
+    mealPlanTargetingUpdatedBy: Optional[str] = None
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "intakeDate": "2024-01-15",
+                "fullName": "John Doe",
+                "age": 45,
+                "sex": "Male",
+                "ethnicity": ["Caucasian"],
+                "medicalHistory": ["Type 2 Diabetes", "Hypertension"],
+                "medications": ["Metformin", "Lisinopril"],
+                "labValues": {
+                    "hba1c": 7.2,
+                    "glucose": 140,
+                    "cholesterol": 200
+                },
+                "vitalSigns": {
+                    "height": 175,
+                    "weight": 80,
+                    "bmi": 26.1,
+                    "systolic_bp": 130,
+                    "diastolic_bp": 85
+                }
+            }
+        }
 
 def get_password_hash(password: str) -> str:
     """Hash a password using bcrypt"""
@@ -779,7 +870,7 @@ async def generate_shopping_list(
                     Group items by category (e.g., Produce, Dairy, Meat, etc.) and combine quantities for the same items.
 
                     ––––– UNIT RULES –––––
-                    • Express quantities in units a Canadian grocery shopper can actually buy (“purchasable quantity”).
+                    • Express quantities in units a Canadian grocery shopper can actually buy ("purchasable quantity").
                     – **Fresh herbs** (cilantro/coriander, parsley, mint, dill, etc.): use whole bunches.  
                         *Assume 1 bunch ≈ 30 g; round ⭡ to the nearest whole bunch.*
                     – **Loose fruit & veg** commonly weighed at checkout (apples, oranges, onions, potatoes, carrots, etc.): use pounds (lb).  
@@ -2298,6 +2389,141 @@ async def analyze_image(
     except Exception as e:
         print(f"Error in image analysis: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/admin/profile/{user_id}")
+async def get_admin_user_profile(
+    user_id: str,
+    current_user: User = Depends(get_current_user)
+):
+    """Admin endpoint to get a specific user's profile by patient ID (registration code)."""
+    print(f"🔥 DEBUG: get_admin_user_profile called with user_id={user_id}")
+    print(f"🔥 DEBUG: current_user={current_user.get('email')} is_admin={current_user.get('is_admin')}")
+    
+    if not current_user.get("is_admin"):
+        print(f"🔥 DEBUG: Access denied - user is not admin")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to access user profiles"
+        )
+    
+    print(f"🔥 DEBUG: Admin access granted, proceeding with profile lookup")
+    try:
+        # Resolve patient ID (registration code) to user email
+        print(f"🔥 DEBUG: Looking up user email for patient ID: {user_id}")
+        user_email = await get_user_email_by_patient_id(user_id)
+        print(f"🔥 DEBUG: Found user email: {user_email}")
+        
+        if not user_email:
+            print(f"🔥 DEBUG: No user email found, returning 404")
+            return JSONResponse(
+                status_code=status.HTTP_404_NOT_FOUND,
+                content={"message": "User not found for this patient ID"}
+            )
+        
+        print(f"🔥 DEBUG: Getting patient profile for email: {user_email}")
+        profile = await get_patient_profile(user_email)
+        print(f"🔥 DEBUG: Profile result: {profile}")
+        
+        if not profile:
+            print(f"🔥 DEBUG: No profile found, returning 404")
+            return JSONResponse(
+                status_code=status.HTTP_404_NOT_FOUND,
+                content={"message": "Profile not found"}
+            )
+        
+        print(f"🔥 DEBUG: Returning successful profile response")
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={"profile": profile}
+        )
+    except Exception as e:
+        print(f"🔥 DEBUG: Exception occurred: {str(e)}")
+        print(f"🔥 DEBUG: Exception type: {type(e).__name__}")
+        import traceback
+        print(f"🔥 DEBUG: Full traceback: {traceback.format_exc()}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get profile: {str(e)}"
+        )
+
+@app.post("/admin/profile/{user_id}")
+async def save_admin_user_profile(
+    user_id: str,
+    profile: PatientProfile,
+    current_user: User = Depends(get_current_user)
+):
+    """Admin endpoint to save a specific user's profile by patient ID (registration code)."""
+    print(f"[ADMIN SAVE] Received request for user_id: {user_id}")
+    print(f"[ADMIN SAVE] Current user: {current_user.get('email')}")
+    print(f"[ADMIN SAVE] Profile data keys: {list(profile.dict().keys()) if profile else 'None'}")
+    
+    if not current_user.get("is_admin"):
+        print(f"[ADMIN SAVE] Access denied - user is not admin")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to modify user profiles"
+        )
+    
+    try:
+        # First, try to find a registered user with this patient_id
+        print(f"[ADMIN SAVE] Looking up user email for patient ID: {user_id}")
+        user_email = await get_user_email_by_patient_id(user_id)
+        print(f"[ADMIN SAVE] Found user email: {user_email}")
+        
+        profile_data = profile.dict()
+        
+        # Collect updates in a separate dictionary
+        updates = {}
+        for key, value in profile_data.items():
+            if not key.endswith("UpdatedBy") and value is not None:
+                updated_by_key = f"{key}UpdatedBy"
+                updates[updated_by_key] = "admin"
+        
+        # Update profile_data after the loop
+        profile_data.update(updates)
+        
+        # Filter out empty fields
+        filtered_data = {k: v for k, v in profile_data.items() if v is not None and v != ""}
+        
+        if user_email:
+            # User is registered - save profile using their email
+            print(f"[ADMIN SAVE] User is registered, saving profile with email: {user_email}")
+            saved_profile = await save_patient_profile(user_email, filtered_data, is_admin_update=True)
+        else:
+            # User not registered yet - check if patient exists and save profile using patient_id
+            print(f"[ADMIN SAVE] User not registered, checking if patient exists: {user_id}")
+            patient = await get_patient_by_registration_code(user_id)
+            if not patient:
+                print(f"[ADMIN SAVE] Patient with registration code {user_id} not found")
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Patient with this registration code not found"
+                )
+            
+            print(f"[ADMIN SAVE] Patient exists, saving profile using patient_id: {user_id}")
+            # Save profile using the patient_id directly
+            saved_profile = await save_patient_profile(user_id, filtered_data, is_admin_update=True)
+        
+        print(f"[ADMIN SAVE] Profile saved successfully")
+        return {"message": "Profile saved successfully", "profile": saved_profile}
+        
+    except HTTPException:
+        # Re-raise HTTP exceptions as-is
+        raise
+    except Exception as e:
+        print(f"[ADMIN SAVE] Unexpected error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to save profile: {str(e)}"
+        )
+
+@app.get("/admin/test")
+async def test_admin_route(current_user: User = Depends(get_current_user)):
+    """Simple test route to verify admin routing works"""
+    print(f"🔥 TEST: Admin test route called by {current_user.get('email')}")
+    return {"message": "Admin test route works!", "user": current_user.get('email'), "is_admin": current_user.get('is_admin')}
 
 if __name__ == "__main__":
     import uvicorn

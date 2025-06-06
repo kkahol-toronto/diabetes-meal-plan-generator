@@ -695,4 +695,96 @@ async def get_consumption_analytics(user_id: str, days: int = 7):
     except ValueError as e:
         raise ValueError(f"Invalid request: {str(e)}")
     except Exception as e:
-        raise Exception(f"Failed to get consumption analytics: {str(e)}") 
+        raise Exception(f"Failed to get consumption analytics: {str(e)}")
+
+async def save_patient_profile(user_id: str, profile_data: dict, is_admin_update: bool = False):
+    """Save patient profile data"""
+    try:
+        print(f"[SAVE_PROFILE] Starting save for user_id: {user_id}")
+        print(f"[SAVE_PROFILE] Input profile_data keys: {list(profile_data.keys())}")
+        print(f"[SAVE_PROFILE] Is admin update: {is_admin_update}")
+        
+        if not user_id:
+            raise ValueError("User ID is required")
+        if not profile_data:
+            raise ValueError("Profile data is required")
+
+        # Make a copy to avoid modifying the original
+        data_to_save = profile_data.copy()
+        
+        # Add type and partition key
+        data_to_save["type"] = "patient_profile"
+        data_to_save["id"] = user_id
+        data_to_save["_partitionKey"] = user_id
+        data_to_save["updated_at"] = datetime.utcnow().isoformat()
+
+        # Check for existing profile first
+        existing_profile = None
+        try:
+            existing_profile = await get_patient_profile(user_id)
+            print(f"[SAVE_PROFILE] Existing profile found: {existing_profile is not None}")
+        except Exception as e:
+            print(f"[SAVE_PROFILE] Error checking existing profile: {e}")
+            # Continue with save attempt
+
+        # For admin updates, always allow partial updates
+        if is_admin_update:
+            print(f"[SAVE_PROFILE] Admin update - allowing partial data")
+            if existing_profile:
+                # Merge with existing data
+                merged_data = existing_profile.copy()
+                # Update only non-empty fields from the new data
+                for key, value in profile_data.items():
+                    if value is not None and value != "":
+                        merged_data[key] = value
+                
+                # Re-add required metadata
+                merged_data["type"] = "patient_profile"
+                merged_data["id"] = user_id
+                merged_data["_partitionKey"] = user_id
+                merged_data["updated_at"] = datetime.utcnow().isoformat()
+                
+                data_to_save = merged_data
+                print(f"[SAVE_PROFILE] Merged data keys: {list(data_to_save.keys())}")
+
+        print(f"[SAVE_PROFILE] Final data_to_save keys: {list(data_to_save.keys())}")
+        print(f"[SAVE_PROFILE] Calling upsert_item...")
+        
+        result = user_container.upsert_item(body=data_to_save)
+        print(f"[SAVE_PROFILE] Successfully saved profile for user: {user_id}")
+        return result
+        
+    except Exception as e:
+        print(f"[SAVE_PROFILE] Error in save_patient_profile: {str(e)}")
+        raise
+
+async def get_patient_profile(user_id: str):
+    """Get patient profile data"""
+    try:
+        if not user_id:
+            raise ValueError("User ID is required")
+
+        query = f"SELECT * FROM c WHERE c.type = 'patient_profile' AND c.id = '{user_id}'"
+        items = list(user_container.query_items(
+            query=query,
+            enable_cross_partition_query=True
+        ))
+        return items[0] if items else None
+    except Exception as e:
+        raise
+
+async def get_user_email_by_patient_id(patient_id: str):
+    """Get user email by patient ID (registration code)"""
+    try:
+        print(f"[GET_USER_EMAIL] Looking for patient_id: {patient_id}")
+        query = f"SELECT * FROM c WHERE c.type = 'user' AND c.patient_id = '{patient_id}'"
+        print(f"[GET_USER_EMAIL] Query: {query}")
+        items = list(user_container.query_items(query=query, enable_cross_partition_query=True))
+        print(f"[GET_USER_EMAIL] Found {len(items)} items")
+        if items:
+            print(f"[GET_USER_EMAIL] First item: {items[0]}")
+            return items[0].get('email')
+        return None
+    except Exception as e:
+        print(f"[GET_USER_EMAIL] Exception: {str(e)}")
+        raise Exception(f"Failed to get user email by patient ID: {str(e)}") 
