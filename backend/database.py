@@ -253,6 +253,11 @@ async def get_patient_profile(user_id: str):
 async def create_patient(patient_data: dict):
     """Create a new patient record"""
     try:
+        # Check for duplicate phone number
+        existing_patient_phone = await get_patient_by_phone(patient_data["phone"])
+        if existing_patient_phone:
+            raise Exception(f"A patient with phone number {patient_data['phone']} already exists: {existing_patient_phone.get('name', 'Unknown')}")
+        
         # Add type field for querying and set partition key
         patient_data["type"] = "patient"
         patient_data["id"] = patient_data["registration_code"]  # Use registration code as partition key
@@ -769,4 +774,62 @@ async def view_meal_plans(user_id: str):
             enable_cross_partition_query=True
         ))
     except Exception as e:
-        raise Exception(f"Failed to view meal plans: {str(e)}") 
+        raise Exception(f"Failed to view meal plans: {str(e)}")
+
+async def get_patient_by_email(email: str):
+    """Get patient by email - check if they have registered"""
+    try:
+        # First check if there's a user with this email
+        user = await get_user_by_email(email)
+        if user:
+            # Check if this user has a patient_id (registration code)
+            patient_id = user.get('patient_id')
+            if patient_id:
+                # Get the patient record
+                return await get_patient_by_registration_code(patient_id)
+        return None
+    except Exception as e:
+        raise Exception(f"Failed to get patient by email: {str(e)}")
+
+async def get_patient_by_phone(phone: str):
+    """Get patient by phone number"""
+    try:
+        query = f"SELECT * FROM c WHERE c.type = 'patient' AND c.phone = '{phone}'"
+        items = list(user_container.query_items(query=query, enable_cross_partition_query=True))
+        return items[0] if items else None
+    except Exception as e:
+        raise Exception(f"Failed to get patient by phone: {str(e)}")
+
+async def delete_patient(patient_id: str):
+    """Delete a patient and all associated data"""
+    try:
+        # First get the patient to verify it exists
+        patient = await get_patient_by_registration_code(patient_id)
+        if not patient:
+            raise Exception(f"Patient with ID {patient_id} not found")
+        
+        # Delete the patient record
+        user_container.delete_item(item=patient_id, partition_key=patient_id)
+        
+        # Also delete any associated profile data
+        try:
+            profile_query = f"SELECT * FROM c WHERE c.type = 'patient_profile' AND (c.id = '{patient_id}' OR c.user_id = '{patient_id}')"
+            profile_items = list(user_container.query_items(query=profile_query, enable_cross_partition_query=True))
+            for profile in profile_items:
+                user_container.delete_item(item=profile['id'], partition_key=profile['id'])
+        except Exception as profile_error:
+            print(f"Warning: Could not delete profile for patient {patient_id}: {profile_error}")
+        
+        # If patient has registered (has email), also delete user account
+        try:
+            # Check if there's a user account linked to this patient
+            user_query = f"SELECT * FROM c WHERE c.type = 'user' AND c.patient_id = '{patient_id}'"
+            user_items = list(user_container.query_items(query=user_query, enable_cross_partition_query=True))
+            for user in user_items:
+                user_container.delete_item(item=user['id'], partition_key=user['id'])
+        except Exception as user_error:
+            print(f"Warning: Could not delete user account for patient {patient_id}: {user_error}")
+        
+        return True
+    except Exception as e:
+        raise Exception(f"Failed to delete patient: {str(e)}") 

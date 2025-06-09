@@ -54,7 +54,9 @@ from database import (
     delete_all_user_meal_plans,
     interactions_container,
     get_user_email_by_patient_id,
-    user_container
+    user_container,
+    get_patient_by_phone,
+    delete_patient
 )
 
 # Configure logging
@@ -456,6 +458,14 @@ async def create_patient_endpoint(
         raise HTTPException(status_code=403, detail="Not authorized")
     
     try:
+        # Check for duplicate phone number
+        existing_patient_phone = await get_patient_by_phone(patient.phone)
+        if existing_patient_phone:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"A patient with phone number {patient.phone} already exists: {existing_patient_phone.get('name', 'Unknown')}"
+            )
+        
         registration_code = generate_registration_code()
         patient_data = {
             "name": patient.name,
@@ -480,6 +490,25 @@ async def create_patient_endpoint(
                 "message": "Patient created successfully. Please note down the registration code as SMS could not be sent.",
                 "registration_code": registration_code
             }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/admin/patients/{patient_id}")
+async def delete_patient_endpoint(
+    patient_id: str,
+    current_user: User = Depends(get_current_user)
+):
+    if not current_user.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    try:
+        success = await delete_patient(patient_id)
+        if success:
+            return {"message": f"Patient {patient_id} and all associated data deleted successfully"}
+        else:
+            raise HTTPException(status_code=404, detail="Patient not found")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

@@ -18,7 +18,10 @@ import {
   DialogContent,
   DialogActions,
   Snackbar,
+  IconButton,
+  Tooltip,
 } from '@mui/material';
+import { Delete as DeleteIcon } from '@mui/icons-material';
 import { useNavigate, Link } from 'react-router-dom';
 
 interface Patient {
@@ -38,6 +41,10 @@ const AdminPanel = () => {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [openDialog, setOpenDialog] = useState(false);
+  const [deleteDialog, setDeleteDialog] = useState<{open: boolean, patient: Patient | null}>({
+    open: false,
+    patient: null
+  });
   const [newPatient, setNewPatient] = useState({
     name: '',
     phone: '',
@@ -67,8 +74,30 @@ const AdminPanel = () => {
     }
   };
 
+  const checkForDuplicates = (phone: string, email?: string) => {
+    const duplicatePhone = patients.find(p => p.phone === phone);
+    const duplicateEmail = email ? patients.find(p => p.email === email && p.email !== 'Not registered') : null;
+    
+    if (duplicatePhone) {
+      return `A patient with phone number ${phone} already exists: ${duplicatePhone.name}`;
+    }
+    
+    if (duplicateEmail) {
+      return `A patient with email ${email} already exists: ${duplicateEmail.name}`;
+    }
+    
+    return null;
+  };
+
   const handleCreatePatient = async () => {
     try {
+      // Check for duplicates before sending to backend
+      const duplicateError = checkForDuplicates(newPatient.phone);
+      if (duplicateError) {
+        setError(duplicateError);
+        return;
+      }
+
       const response = await fetch('http://localhost:8000/admin/create-patient', {
         method: 'POST',
         headers: {
@@ -96,6 +125,29 @@ const AdminPanel = () => {
       }
     } catch (err) {
       setError('Failed to create patient');
+    }
+  };
+
+  const handleDeletePatient = async (patient: Patient) => {
+    try {
+      const response = await fetch(`http://localhost:8000/admin/patients/${patient.id}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setSuccess(data.message);
+        setDeleteDialog({ open: false, patient: null });
+        fetchPatients();
+      } else {
+        const errorData = await response.json();
+        setError(errorData.detail || 'Failed to delete patient');
+      }
+    } catch (err) {
+      setError('Failed to delete patient');
     }
   };
 
@@ -128,7 +180,12 @@ const AdminPanel = () => {
     }));
   };
 
-  const handleRowClick = (patient: Patient) => {
+  const handleRowClick = (patient: Patient, event: React.MouseEvent) => {
+    // Don't navigate if clicking on action buttons
+    if ((event.target as HTMLElement).closest('button') || (event.target as HTMLElement).closest('a')) {
+      return;
+    }
+    
     const isRegistered = patient.email && patient.email !== 'Not registered' && patient.email !== 'Error fetching email';
     if (isRegistered) {
       navigate(`/admin/users/${patient.id}`);
@@ -159,9 +216,14 @@ const AdminPanel = () => {
 
         <Alert severity="info" sx={{ mb: 2 }}>
           <Typography variant="body2">
-            <strong>💡 Tip:</strong> Click on a registered patient's row to view and edit their profile at /admin/users/[patientId]. 
-            Only patients who have registered with their email can have their profiles viewed.
+            <strong>💡 Tips:</strong>
           </Typography>
+          <ul style={{ margin: '4px 0', paddingLeft: '20px' }}>
+            <li>Click on a registered patient's row to view and edit their profile</li>
+            <li>Only patients who have registered with their email can have profiles viewed</li>
+            <li>Phone numbers and email addresses must be unique - duplicates are not allowed</li>
+            <li>Use the delete button (🗑️) to permanently remove patients and all their data</li>
+          </ul>
         </Alert>
 
         <TableContainer>
@@ -184,7 +246,7 @@ const AdminPanel = () => {
                 return (
                   <TableRow 
                     key={patient.id}
-                    onClick={() => handleRowClick(patient)}
+                    onClick={(event) => handleRowClick(patient, event)}
                     sx={{ 
                       cursor: isRegistered ? 'pointer' : 'default',
                       opacity: isRegistered ? 1 : 0.6,
@@ -209,11 +271,31 @@ const AdminPanel = () => {
                       {new Date(patient.created_at).toLocaleString()}
                     </TableCell>
                     <TableCell>
-                      {isRegistered ? (
-                        <Link to={`/admin/users/${patient.id}`}>Edit</Link>
-                      ) : (
-                        <span style={{ color: '#666', fontStyle: 'italic' }}>Not registered</span>
-                      )}
+                      <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                        {isRegistered ? (
+                          <Link to={`/admin/users/${patient.id}`} style={{ textDecoration: 'none' }}>
+                            <Button size="small" variant="outlined">
+                              Edit
+                            </Button>
+                          </Link>
+                        ) : (
+                          <span style={{ color: '#666', fontStyle: 'italic', fontSize: '0.875rem' }}>
+                            Not registered
+                          </span>
+                        )}
+                        <Tooltip title="Delete Patient">
+                          <IconButton
+                            size="small"
+                            color="error"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setDeleteDialog({ open: true, patient });
+                            }}
+                          >
+                            <DeleteIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      </Box>
                     </TableCell>
                   </TableRow>
                 );
@@ -222,7 +304,8 @@ const AdminPanel = () => {
           </Table>
         </TableContainer>
 
-        <Dialog open={openDialog} onClose={() => setOpenDialog(false)}>
+        {/* Create Patient Dialog */}
+        <Dialog open={openDialog} onClose={() => setOpenDialog(false)} maxWidth="sm" fullWidth>
           <DialogTitle>Create New Patient</DialogTitle>
           <DialogContent>
             <TextField
@@ -242,6 +325,7 @@ const AdminPanel = () => {
               onChange={handleChange}
               margin="normal"
               required
+              helperText="Phone numbers must be unique"
             />
             <TextField
               fullWidth
@@ -257,6 +341,44 @@ const AdminPanel = () => {
             <Button onClick={() => setOpenDialog(false)}>Cancel</Button>
             <Button onClick={handleCreatePatient} variant="contained" color="primary">
               Create
+            </Button>
+          </DialogActions>
+        </Dialog>
+
+        {/* Delete Confirmation Dialog */}
+        <Dialog 
+          open={deleteDialog.open} 
+          onClose={() => setDeleteDialog({ open: false, patient: null })}
+          maxWidth="sm"
+          fullWidth
+        >
+          <DialogTitle>Confirm Delete</DialogTitle>
+          <DialogContent>
+            <Typography>
+              Are you sure you want to delete patient <strong>{deleteDialog.patient?.name}</strong>?
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
+              This will permanently delete:
+            </Typography>
+            <ul style={{ margin: '8px 0', paddingLeft: '20px' }}>
+              <li>Patient record</li>
+              <li>Associated profile data</li>
+              <li>User account (if registered)</li>
+            </ul>
+            <Typography variant="body2" color="error" sx={{ mt: 2 }}>
+              <strong>This action cannot be undone.</strong>
+            </Typography>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setDeleteDialog({ open: false, patient: null })}>
+              Cancel
+            </Button>
+            <Button 
+              onClick={() => deleteDialog.patient && handleDeletePatient(deleteDialog.patient)} 
+              variant="contained" 
+              color="error"
+            >
+              Delete
             </Button>
           </DialogActions>
         </Dialog>
