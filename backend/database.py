@@ -7,7 +7,7 @@ import uuid
 import tiktoken
 import json
 import traceback
-from retrying import retry, stop_after_attempt, wait_exponential
+from retrying import retry
 
 # Load environment variables
 load_dotenv()
@@ -719,7 +719,7 @@ async def get_user_email_by_patient_id(patient_id: str):
         print(f"[GET_USER_EMAIL] Error: {str(e)}")
         raise Exception(f"Failed to get user email by patient ID: {str(e)}")
 
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
+@retry(stop_max_attempt_number=3, wait_exponential_multiplier=1000, wait_exponential_max=10000)
 async def get_patient_profile(user_id: str):
     """Get patient profile data"""
     try:
@@ -746,7 +746,7 @@ async def get_patient_profile(user_id: str):
         print(f"[GET_PROFILE] Error: {str(e)}")
         raise Exception(f"Failed to get patient profile: {str(e)}")
 
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
+@retry(stop_max_attempt_number=3, wait_exponential_multiplier=1000, wait_exponential_max=10000)
 async def save_patient_profile(user_id: str, profile_data: dict, is_admin_update: bool = False):
     """Save patient profile data"""
     try:
