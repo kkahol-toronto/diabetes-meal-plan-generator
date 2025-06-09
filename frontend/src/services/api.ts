@@ -136,8 +136,6 @@ export const getAdminUserProfile = async (userId: string): Promise<PatientProfil
   }
 
   const token = localStorage.getItem('token');
-  console.log('🔍 DEBUG: Token being sent:', token ? `${token.substring(0, 20)}...` : 'NO TOKEN');
-  console.log('🔍 DEBUG: Requesting URL:', `${API_BASE_URL}/admin/profile/${userId}`);
 
   try {
     const response = await fetchWithRetry(
@@ -150,15 +148,11 @@ export const getAdminUserProfile = async (userId: string): Promise<PatientProfil
     );
 
     const data = await handleResponse<{ profile: PatientProfile }>(response);
-    console.log('🔍 DEBUG: Profile received:', data);
     return data.profile || null;
   } catch (error) {
-    console.log('🔍 DEBUG: Error details:', error);
     if (error instanceof APIError && error.status === 401) {
-      console.log('🔍 DEBUG: 401 error - token might be expired or invalid');
       handleAuthError();
     } else if (error instanceof APIError && error.status === 403) {
-      console.log('🔍 DEBUG: 403 error - not authorized');
       throw new Error('You are not authorized to access user profiles');
     }
     console.error('Error fetching user profile for admin:', error);
@@ -173,31 +167,6 @@ export const saveAdminUserProfile = async (userId: string, profile: Partial<Pati
   }
   
   try {
-    console.log('🔍 DEBUG: Profile data being sent:', profile);
-    console.log('🔍 DEBUG: Profile keys:', Object.keys(profile));
-    
-    // First try the debug endpoint to see what's wrong
-    const debugResponse = await fetchWithRetry(
-      `${API_BASE_URL}/debug/profile`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
-        },
-        body: JSON.stringify(profile),
-      }
-    );
-    
-    const debugResult = await handleResponse<any>(debugResponse);
-    console.log('🔍 DEBUG: Debug endpoint response:', debugResult);
-    
-    if (debugResult.status === 'validation_error') {
-      console.error('❌ Validation errors:', debugResult.errors);
-      throw new Error(`Validation failed: ${JSON.stringify(debugResult.errors)}`);
-    }
-    
-    // If debug passes, try the real endpoint
     const response = await fetchWithRetry(
       `${API_BASE_URL}/admin/profile/${userId}`,
       {

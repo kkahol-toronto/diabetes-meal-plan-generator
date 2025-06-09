@@ -139,10 +139,23 @@ async def save_patient_profile(user_id: str, profile_data: dict, is_admin_update
             if existing_profile:
                 # Merge with existing data
                 merged_data = existing_profile.copy()
-                # Update only non-empty fields from the new data
+                print(f"[SAVE_PROFILE] Existing profile has {len(existing_profile)} fields")
+                print(f"[SAVE_PROFILE] New profile_data has {len(profile_data)} fields")
+                
+                # Update fields from the new data, including empty strings and empty lists
+                # Only skip None values (which indicate field wasn't sent)
+                updated_fields = []
                 for key, value in profile_data.items():
-                    if value is not None and value != "":
+                    if value is not None:
+                        old_value = merged_data.get(key)
                         merged_data[key] = value
+                        updated_fields.append(key)
+                        if old_value != value:
+                            print(f"[SAVE_PROFILE] Field {key}: '{old_value}' -> '{value}'")
+                        else:
+                            print(f"[SAVE_PROFILE] Field {key}: unchanged ('{value}')")
+                
+                print(f"[SAVE_PROFILE] Updated {len(updated_fields)} fields: {updated_fields}")
                 
                 # Re-add required metadata with collision-safe IDs
                 merged_data["type"] = "patient_profile"
@@ -175,10 +188,12 @@ async def save_patient_profile(user_id: str, profile_data: dict, is_admin_update
                 # Start with existing profile data
                 merged_data = existing_profile.copy()
                 
-                # Update only non-empty fields from the new data
+                # Update fields from the new data, including empty strings and empty lists
+                # Only skip None values (which indicate field wasn't sent)
                 for key, value in profile_data.items():
-                    if value is not None and value != "":
+                    if value is not None:
                         merged_data[key] = value
+                        print(f"[SAVE_PROFILE] Non-admin updating field {key} with value: {value}")
                 
                 # Re-add required metadata with collision-safe IDs
                 merged_data["type"] = "patient_profile"
@@ -222,7 +237,15 @@ async def get_patient_profile(user_id: str):
             query=query,
             enable_cross_partition_query=True
         ))
-        return items[0] if items else None
+        
+        if items:
+            profile = items[0]
+            print(f"[GET_PROFILE] Found profile with {len(profile)} fields")
+            print(f"[GET_PROFILE] Profile ID: {profile.get('id')}, User ID: {profile.get('user_id')}")
+            return profile
+        else:
+            print(f"[GET_PROFILE] No profile found for user_id: {user_id}")
+            return None
     except Exception as e:
         logger.error(f"Failed to get patient profile: {str(e)}")
         raise

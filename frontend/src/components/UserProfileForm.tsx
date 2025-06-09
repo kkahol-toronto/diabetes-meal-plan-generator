@@ -433,14 +433,17 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
   const [errors, setErrors] = useState<FormErrors>({});
   const [loading, setLoading] = useState(false);
   const [alert, setAlert] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [ageManuallyEdited, setAgeManuallyEdited] = useState(false);
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
     demographics: true,
-    medical: true,
-    vitals: true,
-    dietary: true,
-    physical: true,
-    lifestyle: true,
-    goals: true,
+    medical: false,
+    medications: false,
+    vitals: false,
+    labs: false,
+    dietary: false,
+    physical: false,
+    lifestyle: false,
+    goals: false,
   });
   const [formDataLoaded, setFormDataLoaded] = useState(false);
   const [heightUnit, setHeightUnit] = useState('cm');
@@ -583,7 +586,7 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
               exerciseTypes: formData.physicalActivity?.exerciseTypes || [],
               exerciseTypesOther: formData.physicalActivity?.exerciseTypesOther || undefined,
               exerciseTypesOtherUpdatedBy: formData.physicalActivity?.exerciseTypesOtherUpdatedBy || undefined,
-              mobilityIssues: formData.physicalActivity?.mobilityIssues || undefined,
+              mobilityIssues: formData.physicalActivity?.mobilityIssues !== undefined ? formData.physicalActivity.mobilityIssues : undefined,
           },
           lifestyle: {
               mealPrepMethod: formData.lifestyle?.mealPrepMethod || undefined,
@@ -596,10 +599,17 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
           readiness: formData.readiness || undefined,
 
           mealPlanTargeting: {
-              wantsWeightLoss: formData.mealPlanTargeting?.wantsWeightLoss || undefined,
+              wantsWeightLoss: formData.mealPlanTargeting?.wantsWeightLoss !== undefined ? formData.mealPlanTargeting.wantsWeightLoss : undefined,
               calorieTarget: formData.mealPlanTargeting?.calorieTarget || undefined,
           },
         };
+
+        // Debug logging for wantsWeightLoss
+        console.log('🔍 DEBUG wantsWeightLoss:', {
+          formDataValue: formData.mealPlanTargeting?.wantsWeightLoss,
+          submittedValue: profileToSubmit.mealPlanTargeting?.wantsWeightLoss,
+          type: typeof formData.mealPlanTargeting?.wantsWeightLoss
+        });
 
         await onSubmit(profileToSubmit);
         setAlert({ type: 'success', message: 'Profile saved successfully!' });
@@ -709,6 +719,16 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
     }
   }, [formData, formDataLoaded, mode]);
 
+  // Auto-calculate age when dateOfBirth changes, but only if age hasn't been manually edited
+  useEffect(() => {
+    if (formData.dateOfBirth && !ageManuallyEdited) {
+      const calculatedAge = calculateAge(formData.dateOfBirth);
+      if (calculatedAge !== formData.age) {
+        updateFormData({ age: calculatedAge });
+      }
+    }
+  }, [formData.dateOfBirth, formData.age, updateFormData, ageManuallyEdited]);
+
   return (
     <Container maxWidth="md">
       <Paper elevation={3} sx={{ p: 4, mt: 4 }}>
@@ -753,9 +773,14 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
                             type="date"
                             name="dateOfBirth"
                             value={formData.dateOfBirth || ''}
-                            onChange={handleInputChange}
-                            InputLabelProps={{ shrink: true }}
-                             error={!!errors.dateOfBirth}
+                            onChange={(e) => {
+                                setAgeManuallyEdited(false);
+                                updateFormData({ dateOfBirth: e.target.value });
+                            }}
+                            InputLabelProps={{
+                                shrink: true,
+                            }}
+                            error={!!errors.dateOfBirth}
                             helperText={`Last updated by: ${formData.dateOfBirthUpdatedBy || 'Not set'}`}
                         />
                     </Grid>
@@ -766,8 +791,9 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
                             type="number"
                             name="age"
                             value={formData.age || ''}
-                            InputProps={{
-                                readOnly: true,
+                            onChange={(e) => {
+                                setAgeManuallyEdited(true);
+                                updateFormData({ age: parseInt(e.target.value) || undefined });
                             }}
                             error={!!errors.age}
                             helperText={`Last updated by: ${formData.ageUpdatedBy || 'Not set'}`}
@@ -1078,8 +1104,8 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
             {/* Lab Values Section */}
             <Section
                 title="Lab Values"
-                expanded={expandedSections.vitals}
-                onToggle={() => handleSectionToggle('vitals')}
+                expanded={expandedSections.labs}
+                onToggle={() => handleSectionToggle('labs')}
             >
                 <Grid container spacing={2}>
                     <Grid item xs={12} sm={6}>
@@ -1425,7 +1451,7 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
                             <FormLabel>Mobility Issues</FormLabel>
                             <Select
                                 name="mobilityIssues"
-                                value={formData.physicalActivity?.mobilityIssues === undefined ? '' : formData.physicalActivity.mobilityIssues}
+                                value={formData.physicalActivity?.mobilityIssues === undefined ? '' : formData.physicalActivity.mobilityIssues.toString()}
                                 label="Mobility Issues"
                                 onChange={(e) => {
                                     const value = e.target.value;
@@ -1438,8 +1464,8 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
                                 }}
                             >
                                 <MenuItem value=""><em>None</em></MenuItem>
-                                <MenuItem value={true as any}>Yes</MenuItem> {/* Use any for boolean value in Select */}
-                                <MenuItem value={false as any}>No</MenuItem> {/* Use any for boolean value in Select */}
+                                <MenuItem value="true">Yes</MenuItem>
+                                <MenuItem value="false">No</MenuItem>
                             </Select>
                             <FormHelperText>
                                 Last updated by: {formData.physicalActivityUpdatedBy || 'Not set'}
@@ -1613,7 +1639,7 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
                                 ))}
                             </Select>
                             <FormHelperText>
-                                Last updated by: {formData.goalsUpdatedBy || 'Not set'}
+                                Last updated by: {formData.readinessUpdatedBy || 'Not set'}
                             </FormHelperText>
                         </FormControl>
                     </Grid>
@@ -1632,7 +1658,7 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
                             <FormLabel>Wants Weight Loss</FormLabel>
                             <Select
                                 name="wantsWeightLoss"
-                                value={formData.mealPlanTargeting?.wantsWeightLoss === undefined ? '' : formData.mealPlanTargeting.wantsWeightLoss}
+                                value={formData.mealPlanTargeting?.wantsWeightLoss === undefined ? '' : formData.mealPlanTargeting.wantsWeightLoss.toString()}
                                 label="Wants Weight Loss"
                                 onChange={(e) => {
                                     const value = e.target.value;
@@ -1645,11 +1671,11 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
                                 }}
                             >
                                 <MenuItem value=""><em>None</em></MenuItem>
-                                <MenuItem value={true as any}>Yes</MenuItem> {/* Use any for boolean value in Select */}
-                                <MenuItem value={false as any}>No</MenuItem> {/* Use any for boolean value in Select */}
+                                <MenuItem value="true">Yes</MenuItem>
+                                <MenuItem value="false">No</MenuItem>
                             </Select>
                             <FormHelperText>
-                                Last updated by: {formData.goalsUpdatedBy || 'Not set'}
+                                Last updated by: {formData.mealPlanTargetingUpdatedBy || 'Not set'}
                             </FormHelperText>
                         </FormControl>
                     </Grid>
@@ -1662,7 +1688,7 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
                             value={formData.mealPlanTargeting?.calorieTarget || ''}
                             onChange={(e) => updateFormData({ mealPlanTargeting: { ...formData.mealPlanTargeting, calorieTarget: parseFloat(e.target.value) } })} // Store as number
                             error={!!errors.mealPlanTargeting?.calorieTarget}
-                            helperText={`Last updated by: ${formData.goalsUpdatedBy || 'Not set'}`}
+                            helperText={`Last updated by: ${formData.mealPlanTargetingUpdatedBy || 'Not set'}`}
                         />
                     </Grid>
                 </Grid>

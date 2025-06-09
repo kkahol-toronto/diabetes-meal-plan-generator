@@ -200,36 +200,6 @@ const AdminUserProfile: React.FC = () => {
           </Box>
         )}
 
-        {/* Debug Section */}
-        <Box sx={{ mb: 3, p: 2, backgroundColor: '#f5f5f5', borderRadius: 1 }}>
-          <Typography variant="h6" gutterBottom>
-            🔍 Debug Information
-          </Typography>
-          <Button
-            variant="outlined"
-            onClick={() => {
-              console.log('📊 Current profile data:', profile);
-              console.log('📊 Profile keys:', profile ? Object.keys(profile) : 'No profile');
-              alert('Check browser console (F12) for debug info');
-            }}
-            sx={{ mr: 2 }}
-          >
-            Show Profile Data
-          </Button>
-          <Button
-            variant="outlined"
-            color="secondary"
-            onClick={() => {
-              console.log('🔍 LocalStorage token:', localStorage.getItem('token'));
-              console.log('🔍 LocalStorage isAdmin:', localStorage.getItem('isAdmin'));
-              console.log('🔍 Current URL params:', { userId });
-              alert('Check browser console (F12) for auth debug info');
-            }}
-          >
-            Show Auth Data
-          </Button>
-        </Box>
-
         {/* Profile Form */}
         <UserProfileForm
           onSubmit={handleProfileSubmit}

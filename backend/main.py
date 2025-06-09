@@ -32,7 +32,7 @@ import random
 import string
 
 # Import database functions
-from backend.database import (
+from database import (
     create_user,
     get_user_by_email,
     get_patient_by_registration_code,
@@ -243,6 +243,9 @@ class PatientProfile(BaseModel):
     mealPlanTargetingUpdatedBy: Optional[str] = None
 
     class Config:
+        # Ensure we don't exclude any fields during serialization
+        validate_assignment = True
+        use_enum_values = True
         json_schema_extra = {
             "example": {
                 "intakeDate": "2024-03-20",
@@ -1834,12 +1837,55 @@ async def save_profile(
         # Convert Pydantic model to dict
         profile_data = profile.dict(exclude_none=True)
         
+        # Auto-calculate age if dateOfBirth is provided
+        if profile_data.get('dateOfBirth'):
+            try:
+                from datetime import datetime
+                birth_date = datetime.strptime(profile_data['dateOfBirth'], '%Y-%m-%d')
+                today = datetime.now()
+                calculated_age = today.year - birth_date.year - ((today.month, today.day) < (birth_date.month, birth_date.day))
+                profile_data['age'] = calculated_age
+                print(f"[USER SAVE] Auto-calculated age: {calculated_age}")
+            except Exception as e:
+                print(f"[USER SAVE] Error calculating age: {e}")
+        
+        # Special handling for nested objects that contain boolean values
+        # Fix physicalActivity mobilityIssues boolean handling
+        if 'physicalActivity' in profile_data and profile_data['physicalActivity']:
+            pa = profile_data['physicalActivity']
+            if isinstance(pa, dict):
+                # Ensure mobilityIssues is properly handled as boolean
+                if 'mobilityIssues' in pa:
+                    mobility = pa['mobilityIssues']
+                    if mobility == 'true' or mobility == True:
+                        pa['mobilityIssues'] = True
+                    elif mobility == 'false' or mobility == False:
+                        pa['mobilityIssues'] = False
+                    elif mobility == '' or mobility is None:
+                        pa['mobilityIssues'] = None
+                print(f"[USER SAVE] Physical Activity data: {pa}")
+        
+        # Fix mealPlanTargeting wantsWeightLoss boolean handling
+        if 'mealPlanTargeting' in profile_data and profile_data['mealPlanTargeting']:
+            mpt = profile_data['mealPlanTargeting']
+            if isinstance(mpt, dict):
+                # Ensure wantsWeightLoss is properly handled as boolean
+                if 'wantsWeightLoss' in mpt:
+                    wants_weight_loss = mpt['wantsWeightLoss']
+                    if wants_weight_loss == 'true' or wants_weight_loss == True:
+                        mpt['wantsWeightLoss'] = True
+                    elif wants_weight_loss == 'false' or wants_weight_loss == False:
+                        mpt['wantsWeightLoss'] = False
+                    elif wants_weight_loss == '' or wants_weight_loss is None:
+                        mpt['wantsWeightLoss'] = None
+                print(f"[USER SAVE] Meal Plan Targeting data: {mpt}")
+        
         # Collect updates in a separate dictionary
         updates = {}
         for key, value in profile_data.items():
             if not key.endswith("UpdatedBy") and value is not None:
                 updated_by_key = f"{key}UpdatedBy"
-                updates[updated_by_key] = "admin"
+                updates[updated_by_key] = "user"  # Changed from "admin" to "user"
         
         # Update profile_data after the loop
         profile_data.update(updates)
@@ -1969,20 +2015,74 @@ async def save_admin_user_profile(
         user_email = await get_user_email_by_patient_id(user_id)
         print(f"[ADMIN SAVE] Found user email: {user_email}")
         
-        profile_data = profile.dict()
+        # Use exclude_unset=True to only get fields that were actually provided
+        profile_data = profile.dict(exclude_unset=False)  # Include all fields, even unset ones
+        
+        print(f"[ADMIN SAVE] Raw profile_data from Pydantic: {profile_data}")
+        print(f"[ADMIN SAVE] Profile_data keys count: {len(profile_data)}")
+        
+        # Auto-calculate age if dateOfBirth is provided
+        if profile_data.get('dateOfBirth'):
+            try:
+                from datetime import datetime
+                birth_date = datetime.strptime(profile_data['dateOfBirth'], '%Y-%m-%d')
+                today = datetime.now()
+                calculated_age = today.year - birth_date.year - ((today.month, today.day) < (birth_date.month, birth_date.day))
+                profile_data['age'] = calculated_age
+                print(f"[ADMIN SAVE] Auto-calculated age: {calculated_age}")
+            except Exception as e:
+                print(f"[ADMIN SAVE] Error calculating age: {e}")
         
         # Collect updates in a separate dictionary
         updates = {}
         for key, value in profile_data.items():
-            if not key.endswith("UpdatedBy") and value is not None:
+            if not key.endswith("UpdatedBy"):
+                # Set UpdatedBy for all fields that are being sent (even if None or empty)
+                # This ensures we track what admin touched, regardless of value
                 updated_by_key = f"{key}UpdatedBy"
                 updates[updated_by_key] = "admin"
         
         # Update profile_data after the loop
         profile_data.update(updates)
+        print(f"[ADMIN SAVE] Profile_data after adding UpdatedBy fields: {len(profile_data)} keys")
         
-        # Filter out empty fields
-        filtered_data = {k: v for k, v in profile_data.items() if v is not None and v != ""}
+        # Special handling for nested objects that contain boolean values
+        # Fix physicalActivity mobilityIssues boolean handling
+        if 'physicalActivity' in profile_data and profile_data['physicalActivity']:
+            pa = profile_data['physicalActivity']
+            if isinstance(pa, dict):
+                # Ensure mobilityIssues is properly handled as boolean
+                if 'mobilityIssues' in pa:
+                    mobility = pa['mobilityIssues']
+                    if mobility == 'true' or mobility == True:
+                        pa['mobilityIssues'] = True
+                    elif mobility == 'false' or mobility == False:
+                        pa['mobilityIssues'] = False
+                    elif mobility == '' or mobility is None:
+                        pa['mobilityIssues'] = None
+                print(f"[ADMIN SAVE] Physical Activity data: {pa}")
+        
+        # Fix mealPlanTargeting wantsWeightLoss boolean handling
+        if 'mealPlanTargeting' in profile_data and profile_data['mealPlanTargeting']:
+            mpt = profile_data['mealPlanTargeting']
+            if isinstance(mpt, dict):
+                # Ensure wantsWeightLoss is properly handled as boolean
+                if 'wantsWeightLoss' in mpt:
+                    wants_weight_loss = mpt['wantsWeightLoss']
+                    if wants_weight_loss == 'true' or wants_weight_loss == True:
+                        mpt['wantsWeightLoss'] = True
+                    elif wants_weight_loss == 'false' or wants_weight_loss == False:
+                        mpt['wantsWeightLoss'] = False
+                    elif wants_weight_loss == '' or wants_weight_loss is None:
+                        mpt['wantsWeightLoss'] = None
+                print(f"[ADMIN SAVE] Meal Plan Targeting data: {mpt}")
+        
+        # Filter out only None values, but keep empty strings and empty lists
+        # as they might be intentional (e.g., clearing a field)
+        filtered_data = {k: v for k, v in profile_data.items() if v is not None}
+        
+        print(f"[ADMIN SAVE] Filtered_data keys count: {len(filtered_data)}")
+        print(f"[ADMIN SAVE] Sample filtered_data: {dict(list(filtered_data.items())[:5])}")
         
         if user_email:
             # User is registered - save profile using their email
