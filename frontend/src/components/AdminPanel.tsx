@@ -66,6 +66,13 @@ const AdminPanel = () => {
   };
 
   const handleCreatePatient = async () => {
+    // Check for duplicate phone number
+    const existingPatientWithPhone = patients.find(patient => patient.phone === newPatient.phone);
+    if (existingPatientWithPhone) {
+      setError(`A patient with phone number ${newPatient.phone} already exists (${existingPatientWithPhone.name})`);
+      return;
+    }
+
     try {
       const response = await fetch('http://localhost:8000/admin/create-patient', {
         method: 'POST',

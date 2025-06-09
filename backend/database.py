@@ -48,9 +48,23 @@ async def get_user_by_email(email: str):
     except Exception as e:
         raise Exception(f"Failed to get user: {str(e)}")
 
+async def get_patient_by_phone(phone: str):
+    """Get patient by phone number"""
+    try:
+        query = f"SELECT * FROM c WHERE c.type = 'patient' AND c.phone = '{phone}'"
+        items = list(user_container.query_items(query=query, enable_cross_partition_query=True))
+        return items[0] if items else None
+    except Exception as e:
+        raise Exception(f"Failed to get patient by phone: {str(e)}")
+
 async def create_patient(patient_data: dict):
     """Create a new patient record"""
     try:
+        # Check for duplicate phone number
+        existing_patient = await get_patient_by_phone(patient_data["phone"])
+        if existing_patient:
+            raise Exception(f"A patient with phone number {patient_data['phone']} already exists: {existing_patient.get('name', 'Unknown')}")
+        
         # Add type field for querying and set partition key
         patient_data["type"] = "patient"
         patient_data["id"] = patient_data["registration_code"]  # Use registration code as partition key

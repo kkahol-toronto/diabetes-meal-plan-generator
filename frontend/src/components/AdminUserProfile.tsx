@@ -11,7 +11,7 @@ import {
   Chip,
 } from '@mui/material';
 import { ArrowBack as ArrowBackIcon } from '@mui/icons-material';
-import PatientProfileForm from './PatientProfileForm';
+import UserProfileForm from './UserProfileForm';
 import { getAdminUserProfile, saveAdminUserProfile } from '../services/api';
 import { PatientProfile } from '../types/PatientProfile';
 
@@ -171,7 +171,7 @@ const AdminUserProfile: React.FC = () => {
         )}
 
         {/* Profile Form */}
-        <PatientProfileForm
+        <UserProfileForm
           onSubmit={handleProfileSubmit}
           initialProfile={profile || undefined}
           mode="admin"
