@@ -14,13 +14,141 @@ import { ArrowBack as ArrowBackIcon } from '@mui/icons-material';
 import UserProfileForm from './UserProfileForm';
 import { getAdminUserProfile, saveAdminUserProfile } from '../services/api';
 import { PatientProfile } from '../types/PatientProfile';
+import { UserProfile } from '../types';
+
+// Adapter functions to convert between UserProfile and PatientProfile
+const convertPatientProfileToUserProfile = (patientProfile: PatientProfile): UserProfile => {
+  return {
+    name: patientProfile.fullName || '',
+    dateOfBirth: patientProfile.dateOfBirth || '',
+    age: patientProfile.age,
+    gender: patientProfile.sex || '',
+    ethnicity: patientProfile.ethnicity || [],
+    medicalConditions: patientProfile.medicalHistory || [],
+    currentMedications: patientProfile.medications || [],
+    labValues: patientProfile.labValues ? {
+      a1c: patientProfile.labValues.a1c?.toString(),
+      fastingGlucose: patientProfile.labValues.fastingGlucose?.toString(),
+      ldlCholesterol: patientProfile.labValues.ldlC?.toString(),
+      hdlCholesterol: patientProfile.labValues.hdlC?.toString(),
+      triglycerides: patientProfile.labValues.triglycerides?.toString(),
+      totalCholesterol: patientProfile.labValues.totalCholesterol?.toString(),
+      egfr: patientProfile.labValues.egfr?.toString(),
+      creatinine: patientProfile.labValues.creatinine?.toString(),
+      potassium: patientProfile.labValues.potassium?.toString(),
+      uacr: patientProfile.labValues.uacr?.toString(),
+      alt: patientProfile.labValues.alt?.toString(),
+      ast: patientProfile.labValues.ast?.toString(),
+      vitaminD: patientProfile.labValues.vitaminD?.toString(),
+      b12: patientProfile.labValues.vitaminB12?.toString(),
+    } : {},
+    height: patientProfile.vitalSigns?.heightCm || 0,
+    weight: patientProfile.vitalSigns?.weightKg || 0,
+    bmi: patientProfile.vitalSigns?.bmi,
+    waistCircumference: undefined, // Not in PatientProfile
+    systolicBP: patientProfile.vitalSigns?.bloodPressureSystolic,
+    diastolicBP: patientProfile.vitalSigns?.bloodPressureDiastolic,
+    heartRate: patientProfile.vitalSigns?.heartRateBpm,
+    dietType: patientProfile.dietaryInfo?.dietType ? [patientProfile.dietaryInfo.dietType] : [],
+    dietaryFeatures: patientProfile.dietaryInfo?.dietFeatures || [],
+    dietaryRestrictions: [],
+    foodPreferences: [],
+    allergies: patientProfile.dietaryInfo?.allergies ? [patientProfile.dietaryInfo.allergies] : [],
+    strongDislikes: patientProfile.dietaryInfo?.dislikes ? [patientProfile.dietaryInfo.dislikes] : [],
+    workActivityLevel: patientProfile.physicalActivity?.workActivityLevel || '',
+    exerciseFrequency: patientProfile.physicalActivity?.exerciseFrequency || '',
+    exerciseTypes: patientProfile.physicalActivity?.exerciseTypes || [],
+    mobilityIssues: patientProfile.physicalActivity?.mobilityIssues || false,
+    mealPrepCapability: patientProfile.lifestyle?.mealPrepMethod || '',
+    availableAppliances: patientProfile.lifestyle?.availableAppliances || [],
+    eatingSchedule: patientProfile.lifestyle?.eatingSchedule || '',
+    primaryGoals: patientProfile.goals || [],
+    readinessToChange: patientProfile.readiness || '',
+    wantsWeightLoss: patientProfile.mealPlanTargeting?.wantsWeightLoss || false,
+    calorieTarget: patientProfile.mealPlanTargeting?.calorieTarget?.toString() || '',
+  };
+};
+
+const convertUserProfileToPatientProfile = (userProfile: UserProfile): PatientProfile => {
+  return {
+    fullName: userProfile.name,
+    fullNameUpdatedBy: 'admin',
+    dateOfBirth: userProfile.dateOfBirth,
+    dateOfBirthUpdatedBy: 'admin',
+    age: userProfile.age,
+    ageUpdatedBy: 'admin',
+    sex: userProfile.gender as 'Male' | 'Female' | 'Other',
+    sexUpdatedBy: 'admin',
+    ethnicity: userProfile.ethnicity,
+    ethnicityUpdatedBy: 'admin',
+    medicalHistory: userProfile.medicalConditions,
+    medicalHistoryUpdatedBy: 'admin',
+    medications: userProfile.currentMedications,
+    medicationsUpdatedBy: 'admin',
+    labValues: userProfile.labValues ? {
+      a1c: userProfile.labValues.a1c ? parseFloat(userProfile.labValues.a1c) : undefined,
+      fastingGlucose: userProfile.labValues.fastingGlucose ? parseFloat(userProfile.labValues.fastingGlucose) : undefined,
+      ldlC: userProfile.labValues.ldlCholesterol ? parseFloat(userProfile.labValues.ldlCholesterol) : undefined,
+      hdlC: userProfile.labValues.hdlCholesterol ? parseFloat(userProfile.labValues.hdlCholesterol) : undefined,
+      triglycerides: userProfile.labValues.triglycerides ? parseFloat(userProfile.labValues.triglycerides) : undefined,
+      totalCholesterol: userProfile.labValues.totalCholesterol ? parseFloat(userProfile.labValues.totalCholesterol) : undefined,
+      egfr: userProfile.labValues.egfr ? parseFloat(userProfile.labValues.egfr) : undefined,
+      creatinine: userProfile.labValues.creatinine ? parseFloat(userProfile.labValues.creatinine) : undefined,
+      potassium: userProfile.labValues.potassium ? parseFloat(userProfile.labValues.potassium) : undefined,
+      uacr: userProfile.labValues.uacr ? parseFloat(userProfile.labValues.uacr) : undefined,
+      alt: userProfile.labValues.alt ? parseFloat(userProfile.labValues.alt) : undefined,
+      ast: userProfile.labValues.ast ? parseFloat(userProfile.labValues.ast) : undefined,
+      vitaminD: userProfile.labValues.vitaminD ? parseFloat(userProfile.labValues.vitaminD) : undefined,
+      vitaminB12: userProfile.labValues.b12 ? parseFloat(userProfile.labValues.b12) : undefined,
+    } : undefined,
+    labValuesUpdatedBy: 'admin',
+    vitalSigns: {
+      heightCm: userProfile.height,
+      weightKg: userProfile.weight,
+      bmi: userProfile.bmi,
+      bloodPressureSystolic: userProfile.systolicBP,
+      bloodPressureDiastolic: userProfile.diastolicBP,
+      heartRateBpm: userProfile.heartRate,
+    },
+    vitalSignsUpdatedBy: 'admin',
+    dietaryInfo: {
+      dietType: userProfile.dietType?.[0] || '',
+      dietFeatures: userProfile.dietaryFeatures,
+      allergies: userProfile.allergies?.join(', ') || '',
+      dislikes: userProfile.strongDislikes?.join(', ') || '',
+    },
+    dietaryInfoUpdatedBy: 'admin',
+    physicalActivity: {
+      workActivityLevel: userProfile.workActivityLevel as 'Sedentary' | 'Light' | 'Moderate' | 'Heavy',
+      exerciseFrequency: userProfile.exerciseFrequency as 'None' | '1-2 times/week' | '3-4 times/week' | '5+ times/week',
+      exerciseTypes: userProfile.exerciseTypes,
+      mobilityIssues: userProfile.mobilityIssues,
+    },
+    physicalActivityUpdatedBy: 'admin',
+    lifestyle: {
+      mealPrepMethod: userProfile.mealPrepCapability as 'Own' | 'Assisted' | 'Caregiver' | 'Delivery',
+      availableAppliances: userProfile.availableAppliances,
+      eatingSchedule: userProfile.eatingSchedule as '3 meals' | '2 meals + snack' | 'Fasting' | 'Night Shift' | 'Other',
+    },
+    lifestyleUpdatedBy: 'admin',
+    goals: userProfile.primaryGoals,
+    goalsUpdatedBy: 'admin',
+    readiness: userProfile.readinessToChange as 'Not ready' | 'Thinking about it' | 'Getting started' | 'Already making changes',
+    readinessUpdatedBy: 'admin',
+    mealPlanTargeting: {
+      wantsWeightLoss: userProfile.wantsWeightLoss,
+      calorieTarget: userProfile.calorieTarget ? parseInt(userProfile.calorieTarget) : undefined,
+    },
+    mealPlanTargetingUpdatedBy: 'admin',
+  };
+};
 
 const AdminUserProfile: React.FC = () => {
   console.log('AdminUserProfile component rendered');
   const { userId } = useParams<{ userId: string }>();
   console.log("userId param:", userId);
   const navigate = useNavigate();
-  const [profile, setProfile] = useState<PatientProfile | null>(null);
+  const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -45,8 +173,13 @@ const AdminUserProfile: React.FC = () => {
       setLoading(true);
       setError(null);
       
-      const userProfile = await getAdminUserProfile(userId);
-      setProfile(userProfile);
+      const patientProfile = await getAdminUserProfile(userId);
+      if (patientProfile) {
+        const userProfile = convertPatientProfileToUserProfile(patientProfile);
+        setProfile(userProfile);
+      } else {
+        setProfile(null);
+      }
     } catch (err) {
       console.error('Error fetching user profile:', err);
       
@@ -65,7 +198,7 @@ const AdminUserProfile: React.FC = () => {
     }
   };
 
-  const handleProfileSubmit = async (updatedProfile: PatientProfile) => {
+  const handleProfileSubmit = async (updatedProfile: UserProfile) => {
     if (!userId) return;
 
     try {
@@ -73,7 +206,9 @@ const AdminUserProfile: React.FC = () => {
       setError(null);
       setSaveSuccess(false);
 
-      const success = await saveAdminUserProfile(userId, updatedProfile);
+      // Convert UserProfile to PatientProfile for the API
+      const patientProfile = convertUserProfileToPatientProfile(updatedProfile);
+      const success = await saveAdminUserProfile(userId, patientProfile);
       
       if (success) {
         setSaveSuccess(true);
@@ -157,9 +292,9 @@ const AdminUserProfile: React.FC = () => {
                   sx={{ ml: 2 }}
                 />
               </Box>
-              {profile?.fullName ? (
+              {profile?.name ? (
                 <Typography variant="subtitle1" color="text.secondary">
-                  Name: {profile.fullName}
+                  Name: {profile.name}
                 </Typography>
               ) : (
                 <Typography variant="subtitle1" color="text.secondary" sx={{ fontStyle: 'italic' }}>
@@ -204,7 +339,6 @@ const AdminUserProfile: React.FC = () => {
         <UserProfileForm
           onSubmit={handleProfileSubmit}
           initialProfile={profile || undefined}
-          mode="admin"
         />
       </Paper>
     </Container>
