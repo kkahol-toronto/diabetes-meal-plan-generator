@@ -15,6 +15,7 @@ from docx import Document
 from docx.shared import Inches, Pt
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from logging.handlers import RotatingFileHandler
+from tenacity import RetryError
 import os
 import json
 import openai
@@ -31,7 +32,7 @@ import random
 import string
 
 # Import database functions
-from database import (
+from backend.database import (
     create_user,
     get_user_by_email,
     get_patient_by_registration_code,
@@ -52,7 +53,8 @@ from database import (
     delete_meal_plan_by_id,
     delete_all_user_meal_plans,
     interactions_container,
-    get_user_email_by_patient_id
+    get_user_email_by_patient_id,
+    user_container
 )
 
 # Configure logging
@@ -352,8 +354,22 @@ def send_registration_code(phone: str, code: str):
 @app.post("/login", response_model=Token)
 async def login(form_data: OAuth2PasswordRequestForm = Depends()):
     try:
+        logger.info(f"Login attempt for email: {form_data.username}")
         user = await get_user_by_email(form_data.username)
-        if not user or not verify_password(form_data.password, user["hashed_password"]):
+        logger.info(f"User found: {user is not None}")
+        
+        if not user:
+            logger.warning(f"No user found for email: {form_data.username}")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Incorrect username or password",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        
+        logger.info(f"User data keys: {list(user.keys()) if user else 'None'}")
+        
+        if not verify_password(form_data.password, user["hashed_password"]):
+            logger.warning(f"Password verification failed for user: {form_data.username}")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Incorrect username or password",
@@ -368,13 +384,20 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
         access_token = create_access_token(data=token_data)
         refresh_token = create_refresh_token(data=token_data)
         
+        logger.info(f"Login successful for user: {form_data.username}")
         return {
             "access_token": access_token,
             "refresh_token": refresh_token,
             "token_type": "bearer"
         }
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
     except Exception as e:
-        logger.error(f"Login error: {str(e)}")
+        logger.error(f"Login error for {form_data.username}: {str(e)}")
+        logger.error(f"Login error type: {type(e)}")
+        import traceback
+        logger.error(f"Login error traceback: {traceback.format_exc()}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An error occurred during login"
@@ -400,8 +423,26 @@ async def register(data: RegistrationData):
         "patient_id": patient["id"]
     }
     
-    await create_user(user_data)
-    return {"message": "Registration successful"}
+    try:
+        await create_user(user_data)
+        return {"message": "Registration successful"}
+    except RetryError as e:
+        # Extract the original exception from the RetryError
+        original_exception = e.last_attempt.exception()
+        if isinstance(original_exception, ValueError) and "already exists" in str(original_exception):
+            raise HTTPException(status_code=400, detail="Email already registered")
+        else:
+            logger.error(f"Unexpected error during registration: {str(e)}")
+            raise HTTPException(status_code=500, detail="An error occurred during registration")
+    except ValueError as e:
+        # Handle user already exists error (direct ValueError)
+        if "already exists" in str(e):
+            raise HTTPException(status_code=400, detail="Email already registered")
+        else:
+            raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Unexpected error during registration: {str(e)}")
+        raise HTTPException(status_code=500, detail="An error occurred during registration")
 
 @app.post("/admin/create-patient")
 async def create_patient_endpoint(
@@ -1982,6 +2023,258 @@ async def test_admin_route(current_user: User = Depends(get_current_user)):
     """Simple test route to verify admin routing works"""
     print(f"🔥 TEST: Admin test route called by {current_user.get('email')}")
     return {"message": "Admin test route works!", "user": current_user.get('email'), "is_admin": current_user.get('is_admin')}
+
+@app.get("/debug/user/{email}")
+async def debug_user_lookup(email: str):
+    """Debug endpoint to check user state in database"""
+    try:
+        # Try to get user
+        user = await get_user_by_email(email)
+        
+        # Also try a direct query to see all user records
+        query = f"SELECT * FROM c WHERE c.type = 'user'"
+        all_users = list(user_container.query_items(query=query, enable_cross_partition_query=True))
+        
+        # Find users that match this email in any field
+        matching_users = []
+        for u in all_users:
+            if u.get('email') == email or u.get('id') == email or u.get('username') == email:
+                matching_users.append(u)
+        
+        # Also check if there are any records with this email regardless of type
+        query_all = f"SELECT * FROM c WHERE c.email = '{email}'"
+        all_matching = list(user_container.query_items(query=query_all, enable_cross_partition_query=True))
+        
+        return {
+            "searched_email": email,
+            "user_found_by_get_user_by_email": user is not None,
+            "user_data": user,
+            "total_users_in_db": len(all_users),
+            "matching_users": matching_users,
+            "all_records_with_email": all_matching,
+            "all_user_ids": [u.get('id') for u in all_users],
+            "all_user_emails": [u.get('email') for u in all_users]
+        }
+    except Exception as e:
+        return {
+            "error": str(e),
+            "type": str(type(e))
+        }
+
+@app.get("/debug/cleanup/{email}")
+async def cleanup_corrupted_user(email: str):
+    """Cleanup endpoint to remove corrupted user records"""
+    try:
+        cleanup_results = []
+        
+        # Search for ALL records with this email regardless of type or structure
+        query_variants = [
+            f"SELECT * FROM c WHERE c.email = '{email}'",
+            f"SELECT * FROM c WHERE c.id = '{email}'", 
+            f"SELECT * FROM c WHERE c.username = '{email}'",
+            f"SELECT * FROM c WHERE CONTAINS(c.email, '{email}', true)",
+            f"SELECT * FROM c WHERE CONTAINS(c.id, '{email}', true)"
+        ]
+        
+        all_found_records = []
+        for query in query_variants:
+            try:
+                results = list(user_container.query_items(query=query, enable_cross_partition_query=True))
+                for record in results:
+                    if record not in all_found_records:  # Avoid duplicates
+                        all_found_records.append(record)
+                cleanup_results.append(f"Query '{query}' found {len(results)} records")
+            except Exception as query_error:
+                cleanup_results.append(f"Query '{query}' failed: {str(query_error)}")
+        
+        # Try to delete all found records
+        deleted_count = 0
+        for record in all_found_records:
+            try:
+                # Try to delete using record id and determine partition key
+                record_id = record.get('id')
+                partition_key = record.get('id')  # Assuming id is the partition key for users
+                
+                user_container.delete_item(item=record_id, partition_key=partition_key)
+                deleted_count += 1
+                cleanup_results.append(f"Deleted record with id: {record_id}")
+            except Exception as delete_error:
+                cleanup_results.append(f"Failed to delete record {record.get('id', 'unknown')}: {str(delete_error)}")
+        
+        return {
+            "email": email,
+            "total_found_records": len(all_found_records),
+            "deleted_count": deleted_count,
+            "cleanup_results": cleanup_results,
+            "found_records": all_found_records
+        }
+        
+    except Exception as e:
+        return {
+            "error": str(e),
+            "type": str(type(e))
+        }
+
+@app.get("/debug/record-collision/{email}")
+async def debug_record_collision(email: str):
+    """Debug endpoint to examine record collision issue"""
+    try:
+        results = {
+            "email": email,
+            "collision_analysis": {},
+            "records_found": {},
+            "fix_strategy": {}
+        }
+        
+        # Check what records exist with this email as ID
+        query_all = f"SELECT * FROM c WHERE c.id = '{email}'"
+        records_with_email_id = list(user_container.query_items(query=query_all, enable_cross_partition_query=True))
+        
+        results["records_found"] = {
+            "records_with_email_as_id": records_with_email_id,
+            "record_count": len(records_with_email_id),
+            "record_types": [r.get('type') for r in records_with_email_id] if records_with_email_id else []
+        }
+        
+        # Check if user exists
+        user = await get_user_by_email(email)
+        results["records_found"]["user_exists"] = user is not None
+        results["records_found"]["user_data"] = user
+        
+        # Check if profile exists using NEW strategy
+        profile = await get_patient_profile(email)
+        results["records_found"]["profile_exists"] = profile is not None
+        results["records_found"]["profile_data"] = profile
+        
+        # Analyze collision
+        user_record = None
+        profile_record = None
+        for record in records_with_email_id:
+            if record.get('type') == 'user':
+                user_record = record
+            elif record.get('type') == 'patient_profile':
+                profile_record = record
+        
+        results["collision_analysis"] = {
+            "collision_detected": user_record is not None and profile_record is not None,
+            "user_record_with_email_id": user_record,
+            "profile_record_with_email_id": profile_record,
+            "explanation": "If both exist with same ID, profile overwrote user during save!"
+        }
+        
+        results["fix_strategy"] = {
+            "current_user_id": email,
+            "new_profile_id": f"profile_{email}",
+            "explanation": "User keeps email as ID, profile gets 'profile_' prefix to prevent collision"
+        }
+        
+        return results
+        
+    except Exception as e:
+        return {
+            "error": str(e),
+            "type": str(type(e))
+        }
+
+@app.post("/debug/migrate-profile/{email}")
+async def migrate_profile_to_fix_collision(email: str):
+    """Migrate existing profile records to use collision-safe IDs"""
+    try:
+        results = {
+            "email": email,
+            "migration_steps": [],
+            "success": False
+        }
+        
+        # Step 1: Check if there's a profile record with email as ID (collision scenario)
+        query = f"SELECT * FROM c WHERE c.id = '{email}' AND c.type = 'patient_profile'"
+        profile_records = list(user_container.query_items(query=query, enable_cross_partition_query=True))
+        
+        if profile_records:
+            profile_record = profile_records[0]
+            results["migration_steps"].append(f"Found profile record with colliding ID: {email}")
+            
+            # Step 2: Create new record with safe ID
+            new_profile_data = profile_record.copy()
+            new_profile_data["id"] = f"profile_{email}"
+            new_profile_data["user_id"] = email
+            new_profile_data["_partitionKey"] = f"profile_{email}"
+            new_profile_data["migrated_at"] = datetime.utcnow().isoformat()
+            
+            # Save the new record
+            user_container.upsert_item(body=new_profile_data)
+            results["migration_steps"].append(f"Created new profile record with safe ID: profile_{email}")
+            
+            # Step 3: Delete the old colliding record
+            user_container.delete_item(item=email, partition_key=email)
+            results["migration_steps"].append(f"Deleted old colliding profile record with ID: {email}")
+            
+            results["success"] = True
+            results["migration_steps"].append("Migration completed successfully!")
+        else:
+            results["migration_steps"].append("No colliding profile record found - no migration needed")
+            results["success"] = True
+        
+        return results
+        
+    except Exception as e:
+        return {
+            "error": str(e),
+            "type": str(type(e)),
+            "migration_steps": results.get("migration_steps", [])
+        }
+
+@app.post("/debug/restore-user/{email}")
+async def restore_user_from_backup(email: str):
+    """Restore user record if it was overwritten by profile collision"""
+    try:
+        results = {
+            "email": email,
+            "restoration_steps": [],
+            "success": False
+        }
+        
+        # Step 1: Check if user record exists
+        user = await get_user_by_email(email)
+        if user:
+            results["restoration_steps"].append("User record already exists - no restoration needed")
+            results["success"] = True
+            return results
+        
+        # Step 2: Try to find the patient_id from any patient records
+        # Look for patients that might be associated with this email
+        query_patients = "SELECT * FROM c WHERE c.type = 'patient'"
+        all_patients = list(user_container.query_items(query=query_patients, enable_cross_partition_query=True))
+        
+        # For now, we'll need manual intervention to restore users
+        # This is a placeholder for the restoration logic
+        results["restoration_steps"].append("User record is missing - manual restoration required")
+        results["restoration_steps"].append("Check admin records to determine patient_id for this email")
+        results["success"] = False
+        
+        return results
+        
+    except Exception as e:
+        return {
+            "error": str(e),
+            "type": str(type(e)),
+            "restoration_steps": results.get("restoration_steps", [])
+        }
+
+@app.get("/debug/all-patients")
+async def debug_list_all_patients():
+    """Debug endpoint to list all patients without authentication"""
+    try:
+        patients = await get_all_patients()
+        return {
+            "total_patients": len(patients),
+            "patients": patients
+        }
+    except Exception as e:
+        return {
+            "error": str(e),
+            "type": str(type(e))
+        }
 
 if __name__ == "__main__":
     import uvicorn

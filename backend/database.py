@@ -1,6 +1,6 @@
 import os
 from azure.cosmos import CosmosClient
-from azure.cosmos.exceptions import CosmosResourceNotFoundError
+from azure.cosmos.exceptions import CosmosResourceNotFoundError, CosmosResourceExistsError
 from dotenv import load_dotenv
 from datetime import datetime
 import uuid
@@ -53,9 +53,28 @@ async def create_user(user_data: dict):
         user_data["id"] = user_data["email"]  # Use email as partition key
         user_data["created_at"] = datetime.utcnow().isoformat()
         
-        return user_container.create_item(body=user_data)
+        # Add detailed logging
+        logger.info(f"[CREATE_USER] Attempting to create user with email: {user_data.get('email')}")
+        logger.info(f"[CREATE_USER] User data keys: {list(user_data.keys())}")
+        logger.info(f"[CREATE_USER] User ID being set to: {user_data.get('id')}")
+        
+        # First, let's double-check if user already exists with a direct query
+        existing_check_query = f"SELECT * FROM c WHERE c.id = '{user_data['email']}'"
+        existing_items = list(user_container.query_items(query=existing_check_query, enable_cross_partition_query=True))
+        logger.info(f"[CREATE_USER] Pre-creation check found {len(existing_items)} existing items")
+        if existing_items:
+            logger.error(f"[CREATE_USER] Found existing items: {existing_items}")
+        
+        result = user_container.create_item(body=user_data)
+        logger.info(f"[CREATE_USER] Successfully created user: {user_data.get('email')}")
+        return result
+    except CosmosResourceExistsError as e:
+        logger.error(f"[CREATE_USER] CosmosResourceExistsError for email {user_data.get('email')}: {str(e)}")
+        logger.error(f"[CREATE_USER] Full Cosmos error details: {e}")
+        raise ValueError(f"User with email {user_data.get('email')} already exists")
     except Exception as e:
-        logger.error(f"Failed to create user: {str(e)}")
+        logger.error(f"[CREATE_USER] Failed to create user {user_data.get('email')}: {str(e)}")
+        logger.error(f"[CREATE_USER] Exception type: {type(e)}")
         raise
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
@@ -78,7 +97,6 @@ async def save_patient_profile(user_id: str, profile_data: dict, is_admin_update
     try:
         print(f"[SAVE_PROFILE] Starting save for user_id: {user_id}")
         print(f"[SAVE_PROFILE] Input profile_data keys: {list(profile_data.keys())}")
-        print(f"[SAVE_PROFILE] Input profile_data: {profile_data}")
         print(f"[SAVE_PROFILE] Is admin update: {is_admin_update}")
         
         if not user_id:
@@ -89,10 +107,21 @@ async def save_patient_profile(user_id: str, profile_data: dict, is_admin_update
         # Make a copy to avoid modifying the original
         data_to_save = profile_data.copy()
         
+        # 🚨 FIX: Use composite ID to prevent collision with user records
+        # If user_id looks like an email, create a profile-specific ID
+        if "@" in user_id:
+            profile_id = f"profile_{user_id}"
+        else:
+            # For patient registration codes, use the code directly
+            profile_id = user_id
+        
+        print(f"[SAVE_PROFILE] Using profile_id: {profile_id} (original user_id: {user_id})")
+        
         # Add type and partition key
         data_to_save["type"] = "patient_profile"
-        data_to_save["id"] = user_id
-        data_to_save["_partitionKey"] = user_id
+        data_to_save["id"] = profile_id  # Use the collision-safe ID
+        data_to_save["user_id"] = user_id  # Store the original user_id for lookups
+        data_to_save["_partitionKey"] = profile_id
         data_to_save["updated_at"] = datetime.utcnow().isoformat()
 
         # Check for existing profile first
@@ -115,10 +144,11 @@ async def save_patient_profile(user_id: str, profile_data: dict, is_admin_update
                     if value is not None and value != "":
                         merged_data[key] = value
                 
-                # Re-add required metadata
+                # Re-add required metadata with collision-safe IDs
                 merged_data["type"] = "patient_profile"
-                merged_data["id"] = user_id
-                merged_data["_partitionKey"] = user_id
+                merged_data["id"] = profile_id
+                merged_data["user_id"] = user_id
+                merged_data["_partitionKey"] = profile_id
                 merged_data["updated_at"] = datetime.utcnow().isoformat()
                 
                 data_to_save = merged_data
@@ -150,17 +180,18 @@ async def save_patient_profile(user_id: str, profile_data: dict, is_admin_update
                     if value is not None and value != "":
                         merged_data[key] = value
                 
-                # Re-add required metadata
+                # Re-add required metadata with collision-safe IDs
                 merged_data["type"] = "patient_profile"
-                merged_data["id"] = user_id
-                merged_data["_partitionKey"] = user_id
+                merged_data["id"] = profile_id
+                merged_data["user_id"] = user_id
+                merged_data["_partitionKey"] = profile_id
                 merged_data["updated_at"] = datetime.utcnow().isoformat()
                 
                 data_to_save = merged_data
                 print(f"[SAVE_PROFILE] Merged data keys: {list(data_to_save.keys())}")
 
         print(f"[SAVE_PROFILE] Final data_to_save keys: {list(data_to_save.keys())}")
-        print(f"[SAVE_PROFILE] Calling upsert_item...")
+        print(f"[SAVE_PROFILE] Calling upsert_item with profile_id: {profile_id}")
         
         result = user_container.upsert_item(body=data_to_save)
         print(f"[SAVE_PROFILE] Successfully saved profile for user: {user_id}")
@@ -178,7 +209,15 @@ async def get_patient_profile(user_id: str):
         if not user_id:
             raise ValueError("User ID is required")
 
-        query = f"SELECT * FROM c WHERE c.type = 'patient_profile' AND c.id = '{user_id}'"
+        # 🚨 FIX: Handle the composite ID strategy
+        if "@" in user_id:
+            profile_id = f"profile_{user_id}"
+            query = f"SELECT * FROM c WHERE c.type = 'patient_profile' AND c.id = '{profile_id}'"
+        else:
+            # For patient registration codes, first try the code directly, then try user_id lookup
+            query = f"SELECT * FROM c WHERE c.type = 'patient_profile' AND (c.id = '{user_id}' OR c.user_id = '{user_id}')"
+        
+        print(f"[GET_PROFILE] Query: {query}")
         items = list(user_container.query_items(
             query=query,
             enable_cross_partition_query=True
