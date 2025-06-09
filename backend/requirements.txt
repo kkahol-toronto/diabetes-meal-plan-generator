@@ -79,3 +79,4 @@ structlog>=23.2.0
 # - Performance optimizations with caching
 # - Production-ready monitoring and health checks
 # ==========================================
+retrying==1.3.4

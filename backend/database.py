@@ -7,6 +7,7 @@ import uuid
 import tiktoken
 import json
 import traceback
+from retrying import retry, stop_after_attempt, wait_exponential
 
 # Load environment variables
 load_dotenv()
@@ -695,4 +696,113 @@ async def get_consumption_analytics(user_id: str, days: int = 7):
     except ValueError as e:
         raise ValueError(f"Invalid request: {str(e)}")
     except Exception as e:
-        raise Exception(f"Failed to get consumption analytics: {str(e)}") 
+        raise Exception(f"Failed to get consumption analytics: {str(e)}")
+
+async def get_user_email_by_patient_id(patient_id: str):
+    """Get user email by patient ID (registration code)"""
+    try:
+        print(f"[GET_USER_EMAIL] Looking for patient_id: {patient_id}")
+        query = f"SELECT * FROM c WHERE c.type = 'user' AND c.patient_id = '{patient_id}'"
+        print(f"[GET_USER_EMAIL] Query: {query}")
+        
+        items = list(user_container.query_items(query=query, enable_cross_partition_query=True))
+        print(f"[GET_USER_EMAIL] Found {len(items)} users")
+        
+        if items:
+            user_email = items[0].get('email')
+            print(f"[GET_USER_EMAIL] Found user email: {user_email}")
+            return user_email
+        else:
+            print(f"[GET_USER_EMAIL] No user found with patient_id: {patient_id}")
+            return None
+    except Exception as e:
+        print(f"[GET_USER_EMAIL] Error: {str(e)}")
+        raise Exception(f"Failed to get user email by patient ID: {str(e)}")
+
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
+async def get_patient_profile(user_id: str):
+    """Get patient profile data"""
+    try:
+        if not user_id:
+            raise ValueError("User ID is required")
+
+        print(f"[GET_PROFILE] Looking for profile for user_id: {user_id}")
+        
+        # Try to find profile by user_id (email) first
+        query = f"SELECT * FROM c WHERE c.type = 'patient_profile' AND c.user_id = '{user_id}'"
+        print(f"[GET_PROFILE] Query: {query}")
+        
+        items = list(user_container.query_items(query=query, enable_cross_partition_query=True))
+        print(f"[GET_PROFILE] Found {len(items)} profiles")
+        
+        if items:
+            profile = items[0]
+            print(f"[GET_PROFILE] Found profile with keys: {list(profile.keys())}")
+            return profile
+        else:
+            print(f"[GET_PROFILE] No profile found for user_id: {user_id}")
+            return None
+    except Exception as e:
+        print(f"[GET_PROFILE] Error: {str(e)}")
+        raise Exception(f"Failed to get patient profile: {str(e)}")
+
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
+async def save_patient_profile(user_id: str, profile_data: dict, is_admin_update: bool = False):
+    """Save patient profile data"""
+    try:
+        print(f"[SAVE_PROFILE] Starting save for user_id: {user_id}")
+        print(f"[SAVE_PROFILE] Input profile_data keys: {list(profile_data.keys())}")
+        print(f"[SAVE_PROFILE] Is admin update: {is_admin_update}")
+        
+        # Create the base document structure
+        data_to_save = {
+            "type": "patient_profile",
+            "user_id": user_id,
+            "id": f"profile_{user_id}",
+        }
+        
+        # Check for existing profile first
+        existing_profile = None
+        try:
+            existing_profile = await get_patient_profile(user_id)
+            print(f"[SAVE_PROFILE] Existing profile found: {existing_profile is not None}")
+        except Exception as e:
+            print(f"[SAVE_PROFILE] Error checking existing profile: {e}")
+            # Continue with save attempt
+
+        # If we have an existing profile, merge the data intelligently
+        if existing_profile:
+            print(f"[SAVE_PROFILE] Merging with existing profile")
+            # Start with existing profile data
+            merged_data = existing_profile.copy()
+            
+            # Update with new data, but be careful about nested objects
+            for key, value in profile_data.items():
+                if value is not None:  # Only update if new value is not None
+                    if isinstance(value, dict) and key in merged_data and isinstance(merged_data[key], dict):
+                        # For nested objects, merge recursively
+                        merged_data[key] = {**merged_data[key], **value}
+                    else:
+                        # For simple values, replace
+                        merged_data[key] = value
+            
+            data_to_save.update(merged_data)
+        else:
+            print(f"[SAVE_PROFILE] Creating new profile")
+            # No existing profile, use all provided data
+            data_to_save.update(profile_data)
+        
+        # Always update the timestamp
+        data_to_save["updated_at"] = datetime.utcnow().isoformat()
+
+        print(f"[SAVE_PROFILE] Final data_to_save keys: {list(data_to_save.keys())}")
+        print(f"[SAVE_PROFILE] Sample data: {dict(list(data_to_save.items())[:5])}")
+        
+        result = user_container.upsert_item(body=data_to_save)
+        print(f"[SAVE_PROFILE] Successfully saved profile for user: {user_id}")
+        return result
+        
+    except Exception as e:
+        print(f"[SAVE_PROFILE] Error in save_patient_profile: {str(e)}")
+        logger.error(f"Failed to save patient profile: {str(e)}")
+        raise 

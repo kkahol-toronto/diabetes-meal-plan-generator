@@ -8,6 +8,7 @@ import Register from './components/Register';
 import Chat from './components/Chat';
 import AdminLogin from './components/AdminLogin';
 import AdminPanel from './components/AdminPanel';
+import AdminUserProfile from './components/AdminUserProfile';
 import Navigation from './components/Navigation';
 import ThankYou from './components/ThankYou';
 import AllRecipesPage from './pages/AllRecipesPage';
@@ -82,6 +83,16 @@ function App() {
           element={
             <AdminRoute>
               <AdminPanel />
+            </AdminRoute>
+          }
+        />
+        
+        {/* Admin User Profile Route */}
+        <Route
+          path="/admin/users/:userId"
+          element={
+            <AdminRoute>
+              <AdminUserProfile />
             </AdminRoute>
           }
         />
