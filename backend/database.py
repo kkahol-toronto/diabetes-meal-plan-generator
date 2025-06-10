@@ -660,6 +660,9 @@ async def get_consumption_analytics(user_id: str, days: int = 7):
         total_carbs = 0
         total_protein = 0
         total_fat = 0
+        total_fiber = 0
+        total_sugar = 0
+        total_sodium = 0
         diabetes_suitable_count = 0
         total_records = len(consumption_records)
         
@@ -671,10 +674,20 @@ async def get_consumption_analytics(user_id: str, days: int = 7):
             total_carbs += nutritional_info.get("carbohydrates", 0)
             total_protein += nutritional_info.get("protein", 0)
             total_fat += nutritional_info.get("fat", 0)
+            total_fiber += nutritional_info.get("fiber", 0)
+            total_sugar += nutritional_info.get("sugar", 0)
+            total_sodium += nutritional_info.get("sodium", 0)
             
             diabetes_suitability = medical_rating.get("diabetes_suitability", "").lower()
             if diabetes_suitability in ["high", "good", "suitable"]:
                 diabetes_suitable_count += 1
+        
+        # Define recommended daily values (in mg unless specified)
+        recommended_values = {
+            "fiber": 25000,  # 25g
+            "sugar": 25000,  # 25g (WHO recommendation)
+            "sodium": 2300,  # 2.3g
+        }
         
         analytics = {
             "period_days": days,
@@ -685,6 +698,20 @@ async def get_consumption_analytics(user_id: str, days: int = 7):
                 "carbohydrates": total_carbs,
                 "protein": total_protein,
                 "fat": total_fat
+            },
+            "micronutrients": {
+                "fiber": {
+                    "consumed": total_fiber * 1000,  # Convert to mg
+                    "recommended": recommended_values["fiber"] * days
+                },
+                "sugar": {
+                    "consumed": total_sugar * 1000,  # Convert to mg
+                    "recommended": recommended_values["sugar"] * days
+                },
+                "sodium": {
+                    "consumed": total_sodium,
+                    "recommended": recommended_values["sodium"] * days
+                }
             },
             "diabetes_suitable_percentage": (diabetes_suitable_count / total_records * 100) if total_records > 0 else 0,
             "consumption_records": consumption_records

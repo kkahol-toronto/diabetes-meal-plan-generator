@@ -48,6 +48,8 @@ import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import TrendingDownIcon from '@mui/icons-material/TrendingDown';
 import LocalFireDepartmentIcon from '@mui/icons-material/LocalFireDepartment';
 import { useNavigate } from 'react-router-dom';
+import ConsumptionCharts from './ConsumptionCharts';
+import MicronutrientBars from './MicronutrientBars';
 
 // Animations
 const float = keyframes`
@@ -106,6 +108,12 @@ interface Analytics {
     carbohydrates: number;
     protein: number;
     fat: number;
+  };
+  micronutrients: {
+    [key: string]: {
+      consumed: number;
+      recommended: number;
+    };
   };
   diabetes_suitable_percentage: number;
   consumption_records: ConsumptionRecord[];
@@ -405,69 +413,84 @@ const ConsumptionHistory = () => {
             <CircularProgress />
           </Box>
         ) : analytics ? (
-          <Grid container spacing={3}>
-            <Grid item xs={12} sm={6} md={3}>
-              <Card>
-                <CardContent>
-                  <Typography color="textSecondary" gutterBottom>
-                    Total Records
-                  </Typography>
-                  <Typography variant="h4">
-                    {analytics.total_records}
-                  </Typography>
-                </CardContent>
-              </Card>
-            </Grid>
-            <Grid item xs={12} sm={6} md={3}>
-              <Card>
-                <CardContent>
-                  <Typography color="textSecondary" gutterBottom>
-                    Total Calories
-                  </Typography>
-                  <Typography variant="h4">
-                    <LocalFireDepartmentIcon color="warning" sx={{ mr: 1 }} />
-                    {Math.round(analytics.total_calories)}
-                  </Typography>
-                  <Typography variant="body2" color="textSecondary">
-                    Avg: {Math.round(analytics.average_daily_calories)}/day
-                  </Typography>
-                </CardContent>
-              </Card>
-            </Grid>
-            <Grid item xs={12} sm={6} md={3}>
-              <Card>
-                <CardContent>
-                  <Typography color="textSecondary" gutterBottom>
-                    Diabetes Suitable
-                  </Typography>
-                  <Typography variant="h4" color={analytics.diabetes_suitable_percentage >= 70 ? 'success.main' : 'warning.main'}>
-                    {Math.round(analytics.diabetes_suitable_percentage)}%
-                  </Typography>
-                </CardContent>
-              </Card>
-            </Grid>
-            <Grid item xs={12} sm={6} md={3}>
-              <Card>
-                <CardContent>
-                  <Typography color="textSecondary" gutterBottom>
-                    Macronutrients
-                  </Typography>
-                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                    <Typography variant="h6" color="textPrimary">
-                      Carbs: {Math.round(analytics.total_macronutrients.carbohydrates)}g
+          <>
+            {/* Summary Cards */}
+            <Grid container spacing={3} sx={{ mb: 4 }}>
+              <Grid item xs={12} sm={6} md={3}>
+                <Card>
+                  <CardContent>
+                    <Typography color="textSecondary" gutterBottom>
+                      Total Records
                     </Typography>
-                    <Typography variant="h6" color="textPrimary">
-                      Protein: {Math.round(analytics.total_macronutrients.protein)}g
+                    <Typography variant="h4">
+                      {analytics.total_records}
                     </Typography>
-                    <Typography variant="h6" color="textPrimary">
-                      Fat: {Math.round(analytics.total_macronutrients.fat)}g
+                  </CardContent>
+                </Card>
+              </Grid>
+              <Grid item xs={12} sm={6} md={3}>
+                <Card>
+                  <CardContent>
+                    <Typography color="textSecondary" gutterBottom>
+                      Total Calories
                     </Typography>
-                  </Box>
-                </CardContent>
-              </Card>
+                    <Typography variant="h4">
+                      <LocalFireDepartmentIcon color="warning" sx={{ mr: 1 }} />
+                      {Math.round(analytics.total_calories)}
+                    </Typography>
+                    <Typography variant="body2" color="textSecondary">
+                      Avg: {Math.round(analytics.average_daily_calories)}/day
+                    </Typography>
+                  </CardContent>
+                </Card>
+              </Grid>
+              <Grid item xs={12} sm={6} md={3}>
+                <Card>
+                  <CardContent>
+                    <Typography color="textSecondary" gutterBottom>
+                      Diabetes Suitable
+                    </Typography>
+                    <Typography variant="h4" color={analytics.diabetes_suitable_percentage >= 70 ? 'success.main' : 'warning.main'}>
+                      {Math.round(analytics.diabetes_suitable_percentage)}%
+                    </Typography>
+                  </CardContent>
+                </Card>
+              </Grid>
+              <Grid item xs={12} sm={6} md={3}>
+                <Card>
+                  <CardContent>
+                    <Typography color="textSecondary" gutterBottom>
+                      Macronutrients
+                    </Typography>
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                      <Typography variant="h6" color="textPrimary">
+                        Carbs: {Math.round(analytics.total_macronutrients.carbohydrates)}g
+                      </Typography>
+                      <Typography variant="h6" color="textPrimary">
+                        Protein: {Math.round(analytics.total_macronutrients.protein)}g
+                      </Typography>
+                      <Typography variant="h6" color="textPrimary">
+                        Fat: {Math.round(analytics.total_macronutrients.fat)}g
+                      </Typography>
+                    </Box>
+                  </CardContent>
+                </Card>
+              </Grid>
             </Grid>
-          </Grid>
-            ) : null}
+
+            {/* Charts Section */}
+            <Typography variant="h5" sx={{ mb: 3 }}>
+              📊 Nutrition Analytics
+            </Typography>
+            <ConsumptionCharts 
+              analytics={analytics} 
+              targetCalories={2000} // You might want to make this configurable per user
+            />
+            
+            {/* Add MicronutrientBars component */}
+            <MicronutrientBars analytics={analytics} />
+          </>
+        ) : null}
             </Paper>
 
             {/* Consumption History Timeline */}
