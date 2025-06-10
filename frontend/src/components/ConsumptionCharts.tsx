@@ -51,6 +51,7 @@ interface ConsumptionChartsProps {
         fat: number;
       };
     }>;
+    period_days?: number;
   };
   targetCalories?: number;
 }
@@ -95,20 +96,34 @@ const ConsumptionCharts: React.FC<ConsumptionChartsProps> = ({ analytics, target
     { name: 'Fat', value: analytics.total_macronutrients.fat }
   ];
 
-  // Prepare data for calories chart with hourly breakdown
+  // Function to format date based on period
+  const formatDate = (timestamp: string) => {
+    const date = new Date(timestamp);
+    if (!analytics.period_days || analytics.period_days <= 1) {
+      // For single day, show time
+      return date.toLocaleString('en-US', {
+        hour: 'numeric',
+        minute: 'numeric',
+        hour12: true
+      });
+    } else {
+      // For multiple days, show date
+      return date.toLocaleString('en-US', {
+        weekday: 'short',
+        month: 'short',
+        day: 'numeric'
+      });
+    }
+  };
+
+  // Prepare data for calories chart based on period
   const caloriesData = analytics.consumption_records.reduce((acc: any[], record) => {
-    const date = new Date(record.timestamp);
-    const timeKey = date.toLocaleString('en-US', {
-      hour: 'numeric',
-      minute: 'numeric',
-      hour12: true
-    });
+    const timeKey = formatDate(record.timestamp);
+    const existingEntry = acc.find(item => item.time === timeKey);
     
-    const existingTime = acc.find(item => item.time === timeKey);
-    
-    if (existingTime) {
-      existingTime.calories += record.nutritional_info.calories;
-      existingTime.cumulative += record.nutritional_info.calories;
+    if (existingEntry) {
+      existingEntry.calories += record.nutritional_info.calories;
+      existingEntry.cumulative = (acc[acc.indexOf(existingEntry) - 1]?.cumulative || 0) + existingEntry.calories;
     } else {
       // Get cumulative calories up to this point
       const cumulative = (acc[acc.length - 1]?.cumulative || 0) + record.nutritional_info.calories;
@@ -120,7 +135,12 @@ const ConsumptionCharts: React.FC<ConsumptionChartsProps> = ({ analytics, target
     }
     
     return acc;
-  }, []).sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+  }, []).sort((a, b) => {
+    // Sort by timestamp
+    const dateA = new Date(a.time);
+    const dateB = new Date(b.time);
+    return dateA.getTime() - dateB.getTime();
+  });
 
   // Render calorie chart based on selected type
   const renderCalorieChart = () => {
@@ -136,6 +156,10 @@ const ConsumptionCharts: React.FC<ConsumptionChartsProps> = ({ analytics, target
       }
     };
 
+    // Calculate appropriate angle for x-axis labels based on period
+    const xAxisAngle = !analytics.period_days || analytics.period_days <= 1 ? -45 : 0;
+    const xAxisHeight = !analytics.period_days || analytics.period_days <= 1 ? 60 : 30;
+
     switch (calorieChartType) {
       case 'line':
         return (
@@ -143,9 +167,9 @@ const ConsumptionCharts: React.FC<ConsumptionChartsProps> = ({ analytics, target
             <CartesianGrid strokeDasharray="3 3" stroke="#E0E0E0" />
             <XAxis
               dataKey="time"
-              angle={-45}
-              textAnchor="end"
-              height={60}
+              angle={xAxisAngle}
+              textAnchor={xAxisAngle === 0 ? "middle" : "end"}
+              height={xAxisHeight}
               tick={commonAxisProps}
             />
             <YAxis
@@ -189,9 +213,9 @@ const ConsumptionCharts: React.FC<ConsumptionChartsProps> = ({ analytics, target
             <CartesianGrid strokeDasharray="3 3" stroke="#E0E0E0" />
             <XAxis
               dataKey="time"
-              angle={-45}
-              textAnchor="end"
-              height={60}
+              angle={xAxisAngle}
+              textAnchor={xAxisAngle === 0 ? "middle" : "end"}
+              height={xAxisHeight}
               tick={commonAxisProps}
             />
             <YAxis
@@ -237,9 +261,9 @@ const ConsumptionCharts: React.FC<ConsumptionChartsProps> = ({ analytics, target
             <CartesianGrid strokeDasharray="3 3" stroke="#E0E0E0" />
             <XAxis
               dataKey="time"
-              angle={-45}
-              textAnchor="end"
-              height={60}
+              angle={xAxisAngle}
+              textAnchor={xAxisAngle === 0 ? "middle" : "end"}
+              height={xAxisHeight}
               tick={commonAxisProps}
             />
             <YAxis
@@ -335,7 +359,7 @@ const ConsumptionCharts: React.FC<ConsumptionChartsProps> = ({ analytics, target
                 mb: 3
               }}>
                 <Typography variant="h6" sx={styles.title}>
-                  Daily Calorie Intake
+                  {analytics.period_days && analytics.period_days > 1 ? 'Period Calorie Intake' : 'Daily Calorie Intake'}
                 </Typography>
                 <FormControl size="small" sx={{ minWidth: 150, ...styles.select }}>
                   <InputLabel>Chart Type</InputLabel>
