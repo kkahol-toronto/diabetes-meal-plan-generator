@@ -1938,6 +1938,7 @@ async def debug_meal_plans(current_user: User = Depends(get_current_user)):
 async def analyze_and_record_food(
     image: UploadFile = File(...),
     session_id: str = Form(None),
+    meal_category: str = Form("other"),  # Add meal category parameter
     current_user: User = Depends(get_current_user)
 ):
     """Analyze food image and optionally record to consumption history"""
@@ -2088,7 +2089,8 @@ async def analyze_and_record_food(
             "nutritional_info": analysis_data.get("nutritional_info", {}),
             "medical_rating": analysis_data.get("medical_rating", {}),
             "image_analysis": analysis_data.get("analysis_notes"),
-            "image_url": img_str
+            "image_url": img_str,
+            "meal_category": meal_category  # Add meal category to consumption data
         }
         
         print(f"[analyze_and_record_food] Prepared consumption data: {consumption_data}")

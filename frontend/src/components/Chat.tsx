@@ -30,6 +30,7 @@ import {
   Zoom,
   useTheme,
   keyframes,
+  Stack,
 } from '@mui/material';
 import SendIcon from '@mui/icons-material/Send';
 import AddCommentIcon from '@mui/icons-material/AddComment';
@@ -38,6 +39,10 @@ import RestaurantIcon from '@mui/icons-material/Restaurant';
 import { useNavigate } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import { v4 as uuidv4 } from 'uuid';
+import BreakfastDiningIcon from '@mui/icons-material/BreakfastDining';
+import LunchDiningIcon from '@mui/icons-material/LunchDining';
+import DinnerDiningIcon from '@mui/icons-material/DinnerDining';
+import IcecreamIcon from '@mui/icons-material/Icecream';
 
 // Animations
 const float = keyframes`
@@ -102,6 +107,9 @@ const Chat = () => {
   const [isMobile, setIsMobile] = useState(false);
   const [recordFoodDialog, setRecordFoodDialog] = useState(false);
   const [recordFoodResult, setRecordFoodResult] = useState<any>(null);
+  const [selectedMealCategory, setSelectedMealCategory] = useState('');
+  const [showMealCategoryDialog, setShowMealCategoryDialog] = useState(false);
+  const [pendingImageFile, setPendingImageFile] = useState<File | null>(null);
 
   const handleNewChat = () => {
     const newSessionId = uuidv4();
@@ -454,11 +462,22 @@ const Chat = () => {
   const handleRecordFood = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
+    
+    setPendingImageFile(file);
+    setShowMealCategoryDialog(true);
+  };
+
+  const handleMealCategorySelect = async () => {
+    if (!pendingImageFile || !selectedMealCategory) return;
 
     try {
       setIsLoading(true);
+      setShowMealCategoryDialog(false);
+      setRecordFoodDialog(true);
+
       const formData = new FormData();
-      formData.append('image', file);
+      formData.append('image', pendingImageFile);
+      formData.append('meal_category', selectedMealCategory);
       if (currentSession) {
         formData.append('session_id', currentSession);
       }
@@ -474,17 +493,14 @@ const Chat = () => {
       if (response.ok) {
         const result = await response.json();
         setRecordFoodResult(result);
-        setRecordFoodDialog(true);
         
         // Dispatch event to notify ConsumptionHistory component
         window.dispatchEvent(new Event('consumptionRecorded'));
         
         // Also, refresh chat history for the current session if a session_id was sent
-        // This will show the newly recorded food item in the chat
         if (currentSession) {
-          await fetchChatHistory(); // Re-fetch chat history for the current session
+          await fetchChatHistory();
         }
-
       } else {
         console.error('Failed to analyze and record food', response.status, response.statusText);
         const errorText = await response.text();
@@ -494,19 +510,14 @@ const Chat = () => {
       console.error('Error analyzing and recording food:', error);
     } finally {
       setIsLoading(false);
+      setPendingImageFile(null);
     }
   };
 
-  const handleImageButtonClick = () => {
-    if (fileInputRef.current) {
-      fileInputRef.current.click();
-    }
-  };
-
-  const handleRecordFoodButtonClick = () => {
-    if (recordFoodInputRef.current) {
-      recordFoodInputRef.current.click();
-    }
+  const handleCloseMealCategoryDialog = () => {
+    setShowMealCategoryDialog(false);
+    setPendingImageFile(null);
+    setSelectedMealCategory('');
   };
 
   const handleCloseRecordDialog = () => {
@@ -615,18 +626,17 @@ const Chat = () => {
           <input
             type="file"
             ref={recordFoodInputRef}
+            style={{ display: 'none' }}
             onChange={handleRecordFood}
             accept="image/*"
-            capture={isMobile ? "environment" : undefined}
-            style={{ display: 'none' }}
           />
           <Tooltip title="Analyze image (chat only)">
-            <IconButton onClick={handleImageButtonClick} color="primary">
+            <IconButton onClick={() => fileInputRef.current?.click()} color="primary">
               <ImageIcon />
             </IconButton>
           </Tooltip>
           <Tooltip title="Record food consumption">
-            <IconButton onClick={handleRecordFoodButtonClick} color="secondary">
+            <IconButton onClick={() => recordFoodInputRef.current?.click()} color="secondary">
               <RestaurantIcon />
             </IconButton>
           </Tooltip>
@@ -651,37 +661,100 @@ const Chat = () => {
         </Box>
       </Paper>
 
-      {/* Record Food Result Dialog */}
-      <Dialog open={recordFoodDialog} onClose={handleCloseRecordDialog} maxWidth="md" fullWidth>
+      {/* Meal Category Selection Dialog */}
+      <Dialog 
+        open={showMealCategoryDialog} 
+        onClose={handleCloseMealCategoryDialog}
+        PaperProps={{
+          sx: {
+            borderRadius: 2,
+            p: 2,
+            minWidth: '300px'
+          }
+        }}
+      >
+        <DialogTitle sx={{ textAlign: 'center', pb: 2 }}>
+          Select Meal Type
+        </DialogTitle>
+        <DialogContent>
+          <Stack spacing={2}>
+            {[
+              { value: 'breakfast', label: 'Breakfast', icon: <BreakfastDiningIcon /> },
+              { value: 'lunch', label: 'Lunch', icon: <LunchDiningIcon /> },
+              { value: 'dinner', label: 'Dinner', icon: <DinnerDiningIcon /> },
+              { value: 'snacks', label: 'Snack', icon: <IcecreamIcon /> }
+            ].map((option) => (
+              <Button
+                key={option.value}
+                variant={selectedMealCategory === option.value ? 'contained' : 'outlined'}
+                onClick={() => setSelectedMealCategory(option.value)}
+                startIcon={option.icon}
+                fullWidth
+                sx={{
+                  justifyContent: 'flex-start',
+                  py: 1.5,
+                  borderRadius: 2
+                }}
+              >
+                {option.label}
+              </Button>
+            ))}
+          </Stack>
+        </DialogContent>
+        <DialogActions sx={{ justifyContent: 'center', pt: 2 }}>
+          <Button 
+            onClick={handleCloseMealCategoryDialog} 
+            color="inherit"
+          >
+            Cancel
+          </Button>
+          <Button 
+            onClick={handleMealCategorySelect}
+            variant="contained"
+            disabled={!selectedMealCategory}
+          >
+            Continue
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Food Analysis Results Dialog */}
+      <Dialog
+        open={recordFoodDialog}
+        onClose={handleCloseRecordDialog}
+        maxWidth="md"
+        fullWidth
+      >
         <DialogTitle>Food Analysis Result</DialogTitle>
         <DialogContent>
           {isLoading ? (
             <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
               <CircularProgress />
             </Box>
-          ) : recordFoodResult?.error ? (
-            <Alert severity="error">{recordFoodResult.error}</Alert>
-          ) : recordFoodResult?.analysis ? (
+          ) : recordFoodResult ? (
             <Box>
               <Typography variant="h6" gutterBottom>
-                {recordFoodResult.analysis.food_name}
+                I have recorded your {selectedMealCategory}: {recordFoodResult.analysis.food_name}
               </Typography>
-              <Typography variant="body2" color="textSecondary" gutterBottom>
+
+              <Typography variant="subtitle1" gutterBottom>
                 Estimated Portion: {recordFoodResult.analysis.estimated_portion}
               </Typography>
-              
-              <Box sx={{ mt: 2 }}>
-                <Typography variant="subtitle1" gutterBottom>
-                  Nutritional Information:
-                </Typography>
-                <Box sx={{ pl: 2 }}>
-                  <Typography>• Calories: {recordFoodResult.analysis.nutritional_info?.calories || 'N/A'}</Typography>
-                  <Typography>• Carbohydrates: {recordFoodResult.analysis.nutritional_info?.carbohydrates || 'N/A'}g</Typography>
-                  <Typography>• Protein: {recordFoodResult.analysis.nutritional_info?.protein || 'N/A'}g</Typography>
-                  <Typography>• Fat: {recordFoodResult.analysis.nutritional_info?.fat || 'N/A'}g</Typography>
-                  <Typography>• Fiber: {recordFoodResult.analysis.nutritional_info?.fiber || 'N/A'}g</Typography>
-                  <Typography>• Sugar: {recordFoodResult.analysis.nutritional_info?.sugar || 'N/A'}g</Typography>
-                </Box>
+
+              <Typography variant="subtitle1" gutterBottom>
+                Nutritional Information:
+              </Typography>
+              <Box sx={{ pl: 2 }}>
+                <Typography>• Calories: {recordFoodResult.analysis.nutritional_info?.calories || 0}</Typography>
+                <Typography>• Carbohydrates: {recordFoodResult.analysis.nutritional_info?.carbohydrates || 0}g</Typography>
+                <Typography>• Protein: {recordFoodResult.analysis.nutritional_info?.protein || 0}g</Typography>
+                <Typography>• Fat: {recordFoodResult.analysis.nutritional_info?.fat || 0}g</Typography>
+                {recordFoodResult.analysis.nutritional_info?.fiber && (
+                  <Typography>• Fiber: {recordFoodResult.analysis.nutritional_info.fiber}g</Typography>
+                )}
+                {recordFoodResult.analysis.nutritional_info?.sugar && (
+                  <Typography>• Sugar: {recordFoodResult.analysis.nutritional_info.sugar}g</Typography>
+                )}
               </Box>
 
               <Box sx={{ mt: 2 }}>
@@ -707,7 +780,7 @@ const Chat = () => {
               )}
 
               <Alert severity="success" sx={{ mt: 2 }}>
-                Food consumption has been recorded to your history!
+                Your {selectedMealCategory} has been recorded to your history!
               </Alert>
             </Box>
           ) : null}

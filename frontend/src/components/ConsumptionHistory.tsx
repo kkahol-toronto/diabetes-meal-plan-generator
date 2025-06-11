@@ -47,6 +47,10 @@ import RestaurantIcon from '@mui/icons-material/Restaurant';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import TrendingDownIcon from '@mui/icons-material/TrendingDown';
 import LocalFireDepartmentIcon from '@mui/icons-material/LocalFireDepartment';
+import BreakfastDiningIcon from '@mui/icons-material/BreakfastDining';
+import LunchDiningIcon from '@mui/icons-material/LunchDining';
+import DinnerDiningIcon from '@mui/icons-material/DinnerDining';
+import IcecreamIcon from '@mui/icons-material/Icecream';
 import { useNavigate } from 'react-router-dom';
 
 // Animations
@@ -95,6 +99,7 @@ interface ConsumptionRecord {
   };
   image_analysis: string;
   image_url: string;
+  meal_category: string;
 }
 
 interface Analytics {
@@ -269,6 +274,42 @@ const ConsumptionHistory = () => {
       });
     } catch (e) {
       return 'Invalid Date';
+    }
+  };
+
+  const formatMealCategory = (category?: string) => {
+    if (!category) return 'other';
+    const trimmedCategory = category.trim();
+    return trimmedCategory === '' ? 'other' : trimmedCategory;
+  };
+
+  const getMealCategoryIcon = (category?: string) => {
+    switch (formatMealCategory(category)) {
+      case 'breakfast':
+        return <BreakfastDiningIcon />;
+      case 'lunch':
+        return <LunchDiningIcon />;
+      case 'dinner':
+        return <DinnerDiningIcon />;
+      case 'snacks':
+        return <IcecreamIcon />;
+      default:
+        return <RestaurantIcon />;
+    }
+  };
+
+  const getMealCategoryColor = (category?: string) => {
+    switch (formatMealCategory(category)) {
+      case 'breakfast':
+        return 'primary';
+      case 'lunch':
+        return 'secondary';
+      case 'dinner':
+        return 'success';
+      case 'snacks':
+        return 'warning';
+      default:
+        return 'default';
     }
   };
 
@@ -518,7 +559,7 @@ const ConsumptionHistory = () => {
                 </TimelineOppositeContent>
                 <TimelineSeparator>
                   <TimelineDot color="primary">
-                    <RestaurantIcon />
+                    {getMealCategoryIcon(record.meal_category)}
                   </TimelineDot>
                   {index < consumptionHistory.length - 1 && <TimelineConnector />}
                 </TimelineSeparator>
@@ -526,9 +567,15 @@ const ConsumptionHistory = () => {
                   <Accordion>
                     <AccordionSummary expandIcon={<ExpandMoreIcon />}>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, width: '100%' }}>
-                        <Typography variant="h6" component="span">
-                          {record.food_name}
-                        </Typography>
+                                      <Typography variant="h6" component="span">
+                {record.food_name}
+              </Typography>
+              <Chip
+                label={`${formatMealCategory(record.meal_category).charAt(0).toUpperCase()}${formatMealCategory(record.meal_category).slice(1)}`}
+                color={getMealCategoryColor(record.meal_category)}
+                size="small"
+                sx={{ mr: 1 }}
+              />
                         <Chip
                           label={record.medical_rating?.diabetes_suitability || 'Unknown'}
                           color={getSuitabilityColor(record.medical_rating?.diabetes_suitability) as any}

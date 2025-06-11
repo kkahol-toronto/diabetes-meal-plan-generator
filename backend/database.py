@@ -563,6 +563,11 @@ async def save_consumption_record(user_id: str, consumption_data: dict):
         # Generate a unique session ID for this consumption record
         session_id = f"consumption_{user_id}_{datetime.utcnow().timestamp()}"
         
+        # Ensure meal_category has a default value
+        meal_category = consumption_data.get("meal_category", "other")
+        if not meal_category or meal_category.strip() == "":
+            meal_category = "other"
+        
         consumption_record = {
             "type": "consumption_record",
             "user_id": user_id,
@@ -574,7 +579,8 @@ async def save_consumption_record(user_id: str, consumption_data: dict):
             "nutritional_info": consumption_data.get("nutritional_info", {}),
             "medical_rating": consumption_data.get("medical_rating", {}),
             "image_analysis": consumption_data.get("image_analysis"),
-            "image_url": consumption_data.get("image_url")
+            "image_url": consumption_data.get("image_url"),
+            "meal_category": meal_category  # Always include meal_category with a default value
         }
         
         print(f"[save_consumption_record] Created record with ID: {consumption_record['id']}")
@@ -598,7 +604,8 @@ async def get_user_consumption_history(user_id: str, limit: int = 50):
         # Use a more specific query to ensure we get all fields
         query = (
             "SELECT c.id, c.timestamp, c.food_name, c.estimated_portion, "
-            "c.nutritional_info, c.medical_rating, c.image_analysis, c.image_url "
+            "c.nutritional_info, c.medical_rating, c.image_analysis, c.image_url, "
+            "c.meal_category "  # Add meal_category to the query
             "FROM c WHERE c.type = 'consumption_record' "
             f"AND c.user_id = '{user_id}' "
             "ORDER BY c.timestamp DESC"
