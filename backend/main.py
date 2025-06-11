@@ -425,9 +425,14 @@ async def generate_meal_plan(
         data = await request.json()
         user_profile = data.get("user_profile")
         previous_meal_plan = data.get("previous_meal_plan")
+        days = data.get("days", 7)  # Default to 7 days if not provided
 
         if not user_profile:
             raise HTTPException(status_code=400, detail="User profile is required")
+        
+        # Validate days parameter
+        if not isinstance(days, int) or days < 1 or days > 7:
+            raise HTTPException(status_code=400, detail="Days must be an integer between 1 and 7")
 
         # Get the user's document
         user_doc = await get_user_by_email(current_user["email"])
@@ -510,20 +515,36 @@ async def generate_meal_plan(
 
             return prev_sample + new_sample
 
-        # Define a simpler JSON structure
-        json_structure = """
-{
-    "breakfast": ["Oatmeal with berries", "Whole grain toast with eggs"],
-    "lunch": ["Grilled chicken salad", "Quinoa bowl"],
-    "dinner": ["Baked salmon", "Steamed vegetables"],
-    "snacks": ["Apple with almonds", "Greek yogurt"],
+        # Define a simpler JSON structure based on selected days
+        example_meals = {
+            "breakfast": ["Oatmeal with berries", "Whole grain toast with eggs"],
+            "lunch": ["Grilled chicken salad", "Quinoa bowl"],
+            "dinner": ["Baked salmon", "Steamed vegetables"],
+            "snacks": ["Apple with almonds", "Greek yogurt"]
+        }
+        
+        # Adjust example structure based on number of days
+        json_structure_meals = {}
+        for meal_type, examples in example_meals.items():
+            if days <= 2:
+                json_structure_meals[meal_type] = examples[:days]
+            else:
+                # For more than 2 days, provide appropriate number of examples
+                json_structure_meals[meal_type] = examples + [f"Day {i+3} {meal_type}" for i in range(max(0, days - 2))]
+        
+        json_structure = f"""
+{{
+    "breakfast": {json_structure_meals["breakfast"]},
+    "lunch": {json_structure_meals["lunch"]},
+    "dinner": {json_structure_meals["dinner"]},
+    "snacks": {json_structure_meals["snacks"]},
     "dailyCalories": 2000,
-    "macronutrients": {
+    "macronutrients": {{
         "protein": 100,
         "carbs": 250,
         "fats": 70
-    }
-}"""
+    }}
+}}"""
 
         # Helper function to get profile value with fallbacks
         def get_profile_value(profile, new_key, old_key=None, default='Not provided'):
@@ -560,7 +581,7 @@ LAB VALUES (if available):
 {json.dumps(user_profile.get('labValues', {}), indent=2) if user_profile.get('labValues') else 'Not provided'}
 
 DIETARY INFORMATION:
-Diet Type: {get_profile_value(user_profile, 'dietType', 'diet_type', 'Not specified')}
+**PREFERRED CUISINE TYPE: {get_profile_value(user_profile, 'dietType', 'diet_type', 'Not specified')}** ⭐ MUST FOLLOW THIS CUISINE STYLE ⭐
 Dietary Features: {get_profile_value(user_profile, 'dietaryFeatures', 'diet_features', 'None specified')}
 Dietary Restrictions: {get_profile_value(user_profile, 'dietaryRestrictions', default='None specified')}
 Food Preferences: {get_profile_value(user_profile, 'foodPreferences', default='None specified')}
@@ -599,16 +620,27 @@ Here is the previous week's meal plan (for each meal type, 7 days):
 CRITICAL INSTRUCTIONS:
 1. MEDICAL SAFETY: Carefully consider all medical conditions, medications, and lab values. Ensure meals are appropriate for diabetes management and any other health conditions.
 2. DIETARY COMPLIANCE: Strictly follow dietary restrictions, allergies, and food preferences.
-3. CULTURAL CONSIDERATIONS: Incorporate ethnicity and cultural food preferences where specified.
-4. ACTIVITY ALIGNMENT: Consider physical activity level for calorie and macronutrient targets.
-5. MEAL CONTINUITY: For each meal type (breakfast, lunch, dinner, snacks), reuse about 70% of meals from the previous plan and create 30% new similar meals.
-6. APPLIANCE CONSTRAINTS: Only suggest meals that can be prepared with available appliances.
+3. DIET TYPE ADHERENCE: **CRITICALLY IMPORTANT** - Follow the specified Diet Type exactly:
+   - If "Western" or "European": MUST include traditional European/Western dishes such as:
+     * BREAKFAST: Scrambled eggs with toast, pancakes, French toast, English breakfast, cereal with milk, bagels with cream cheese
+     * LUNCH: Sandwiches (turkey, ham, BLT), burgers, pizza slices, pasta salads, chicken Caesar salad, club sandwiches  
+     * DINNER: Spaghetti with meatballs, grilled chicken with mashed potatoes, beef steak with vegetables, baked fish with rice, pizza, lasagna, roast beef
+     * SNACKS: Cheese and crackers, nuts, yogurt, fruit, granola bars
+   - If "Mediterranean": Focus on Mediterranean cuisine with olive oil, fish, vegetables, legumes, etc.
+   - If "South Asian": Include curries, rice dishes, lentils, chapati, etc.
+   - If "East Asian": Include stir-fries, rice, noodles, steamed dishes, etc.
+   - If "Caribbean": Include rice and beans, plantains, jerk seasonings, etc.
+   - DO NOT substitute with health food alternatives unless specifically requested - give authentic traditional dishes
+4. CULTURAL CONSIDERATIONS: Incorporate ethnicity and cultural food preferences where specified.
+5. ACTIVITY ALIGNMENT: Consider physical activity level for calorie and macronutrient targets.
+6. MEAL CONTINUITY: For each meal type (breakfast, lunch, dinner, snacks), reuse about 70% of meals from the previous plan and create 30% new similar meals.
+7. APPLIANCE CONSTRAINTS: Only suggest meals that can be prepared with available appliances.
 
 Return a JSON object with exactly this structure:
 {json_structure}
 
 REQUIREMENTS:
-- Each meal array must have exactly 7 items (one for each day)
+- Each meal array must have exactly {days} items (one for each day of the {days}-day meal plan)
 - Consider medical conditions for ingredient selection
 - Match calorie target and dietary features
 - Keep meal names concise but descriptive
@@ -622,16 +654,27 @@ REQUIREMENTS:
 CRITICAL INSTRUCTIONS:
 1. MEDICAL SAFETY: Carefully consider all medical conditions, medications, and lab values. Ensure meals are appropriate for diabetes management and any other health conditions.
 2. DIETARY COMPLIANCE: Strictly follow dietary restrictions, allergies, and food preferences.
-3. CULTURAL CONSIDERATIONS: Incorporate ethnicity and cultural food preferences where specified.
-4. ACTIVITY ALIGNMENT: Consider physical activity level for calorie and macronutrient targets.
-5. APPLIANCE CONSTRAINTS: Only suggest meals that can be prepared with available appliances.
-6. PERSONALIZATION: Use lifestyle preferences and eating schedule to optimize meal timing and preparation.
+3. DIET TYPE ADHERENCE: **CRITICALLY IMPORTANT** - Follow the specified Diet Type exactly:
+   - If "Western" or "European": MUST include traditional European/Western dishes such as:
+     * BREAKFAST: Scrambled eggs with toast, pancakes, French toast, English breakfast, cereal with milk, bagels with cream cheese
+     * LUNCH: Sandwiches (turkey, ham, BLT), burgers, pizza slices, pasta salads, chicken Caesar salad, club sandwiches  
+     * DINNER: Spaghetti with meatballs, grilled chicken with mashed potatoes, beef steak with vegetables, baked fish with rice, pizza, lasagna, roast beef
+     * SNACKS: Cheese and crackers, nuts, yogurt, fruit, granola bars
+   - If "Mediterranean": Focus on Mediterranean cuisine with olive oil, fish, vegetables, legumes, etc.
+   - If "South Asian": Include curries, rice dishes, lentils, chapati, etc.
+   - If "East Asian": Include stir-fries, rice, noodles, steamed dishes, etc.
+   - If "Caribbean": Include rice and beans, plantains, jerk seasonings, etc.
+   - DO NOT substitute with health food alternatives unless specifically requested - give authentic traditional dishes
+4. CULTURAL CONSIDERATIONS: Incorporate ethnicity and cultural food preferences where specified.
+5. ACTIVITY ALIGNMENT: Consider physical activity level for calorie and macronutrient targets.
+6. APPLIANCE CONSTRAINTS: Only suggest meals that can be prepared with available appliances.
+7. PERSONALIZATION: Use lifestyle preferences and eating schedule to optimize meal timing and preparation.
 
 Return a JSON object with exactly this structure:
 {json_structure}
 
 REQUIREMENTS:
-- Each meal array must have exactly 7 items (one for each day)
+- Each meal array must have exactly {days} items (one for each day of the {days}-day meal plan)
 - Consider medical conditions for ingredient selection
 - Match calorie target and dietary features
 - Keep meal names concise but descriptive
@@ -647,7 +690,7 @@ REQUIREMENTS:
                 messages=[
                     {
                         "role": "system",
-                        "content": "You are a meal planning assistant. Always respond with valid JSON matching the exact structure requested. No explanations or markdown."
+                        "content": "You are a meal planning assistant specializing in culturally authentic cuisine. When a user specifies 'Western' or 'European' diet type, you MUST provide traditional Western/European dishes like pizza (regular crust), pasta (wheat-based), sandwiches, burgers, steaks, etc. AVOID health substitutions like gluten-free, quinoa, cauliflower crust, zucchini noodles unless specifically requested. Include 5 healthy traditional meals and 2 indulgent traditional meals per week for balance. Always respond with valid JSON matching the exact structure requested. No explanations or markdown."
                     },
                     {"role": "user", "content": prompt}
                 ],
@@ -682,13 +725,13 @@ REQUIREMENTS:
                         detail=f"Invalid meal plan format. Missing keys: {', '.join(missing_keys)}"
                     )
 
-                # Ensure arrays have 7 items
+                # Ensure arrays have the correct number of items based on selected days
                 for meal_type in ['breakfast', 'lunch', 'dinner', 'snacks']:
                     if not isinstance(meal_plan[meal_type], list):
-                        meal_plan[meal_type] = ["Not specified"] * 7
-                    while len(meal_plan[meal_type]) < 7:
+                        meal_plan[meal_type] = ["Not specified"] * days
+                    while len(meal_plan[meal_type]) < days:
                         meal_plan[meal_type].append("Not specified")
-                    meal_plan[meal_type] = meal_plan[meal_type][:7]  # Trim if too long
+                    meal_plan[meal_type] = meal_plan[meal_type][:days]  # Trim if too long
 
                 # Ensure macronutrients are numbers
                 macro_keys = ['protein', 'carbs', 'fats']
@@ -704,7 +747,7 @@ REQUIREMENTS:
                     for meal_type in ['breakfast', 'lunch', 'dinner', 'snacks']:
                         prev_meals = previous_meal_plan.get(meal_type, [])
                         new_meals = meal_plan.get(meal_type, [])
-                        if isinstance(prev_meals, list) and isinstance(new_meals, list) and len(new_meals) == 7:
+                        if isinstance(prev_meals, list) and isinstance(new_meals, list) and len(new_meals) == days:
                             meal_plan[meal_type] = get_overlap_meals(prev_meals, new_meals)
 
                 # Explicitly convert the returned meal_plan to a plain dictionary
@@ -1361,7 +1404,7 @@ CURRENT MEDICATIONS: {get_profile_value(user_profile, 'currentMedications', defa
 DIETARY RESTRICTIONS: {get_profile_value(user_profile, 'dietaryRestrictions', default='None')}
 FOOD ALLERGIES: {get_profile_value(user_profile, 'allergies', default='None')}
 FOOD DISLIKES: {get_profile_value(user_profile, 'strongDislikes', default='None')}
-DIET TYPE: {get_profile_value(user_profile, 'dietType', 'diet_type', 'Standard')}
+**PREFERRED CUISINE TYPE: {get_profile_value(user_profile, 'dietType', 'diet_type', 'Standard')}** ⭐ MUST FOLLOW THIS CUISINE STYLE ⭐
 DIETARY FEATURES: {get_profile_value(user_profile, 'dietaryFeatures', 'diet_features', 'None')}
 AVAILABLE APPLIANCES: {get_profile_value(user_profile, 'availableAppliances', default='Standard kitchen equipment')}
 MEAL PREP CAPABILITY: {get_profile_value(user_profile, 'mealPrepCapability', default='Self-prepared')}
@@ -1376,8 +1419,14 @@ CRITICAL REQUIREMENTS:
 1. MEDICAL SAFETY: Ensure recipe is safe for all listed medical conditions
 2. MEDICATION INTERACTIONS: Avoid ingredients that may interact with medications
 3. DIETARY COMPLIANCE: Strictly adhere to dietary restrictions and allergies
-4. EQUIPMENT CONSTRAINTS: Only use available appliances and match meal prep capability
-5. DIABETES-FRIENDLY: Ensure appropriate carbohydrate content and glycemic index
+4. CUISINE TYPE ADHERENCE: **CRITICALLY IMPORTANT** - Follow the specified cuisine type exactly:
+   - If "Western" or "European": Use Western/European cooking methods, ingredients, and flavors
+   - If "Mediterranean": Use Mediterranean ingredients like olive oil, herbs, fish, vegetables
+   - If "South Asian": Use appropriate spices, cooking methods, and traditional ingredients
+   - If "East Asian": Use Asian cooking techniques, sauces, and ingredients
+   - If "Caribbean": Use Caribbean spices, cooking methods, and traditional ingredients
+5. EQUIPMENT CONSTRAINTS: Only use available appliances and match meal prep capability
+6. DIABETES-FRIENDLY: Ensure appropriate carbohydrate content and glycemic index
 
 Please provide:
 1. A list of ingredients with precise quantities

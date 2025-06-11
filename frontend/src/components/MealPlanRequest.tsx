@@ -22,11 +22,12 @@ import {
   keyframes,
   Card,
   CardContent,
+  Slider,
+  Chip,
 } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 import { isValidToken } from '../utils/auth';
 import UserProfileForm from './UserProfileForm';
-import MealPlan from './MealPlan';
 import RecipeList from './RecipeList';
 import ShoppingList from './ShoppingList';
 import { UserProfile, MealPlanData, Recipe, ShoppingItem } from '../types';
@@ -90,6 +91,7 @@ const MealPlanRequest: React.FC = () => {
   const [saveStatus, setSaveStatus] = useState<{ message: string; severity: 'success' | 'error' | 'info' } | null>(null);
   const [usePreviousPlan, setUsePreviousPlan] = useState(false);
   const [hasGeneratedMealPlan, setHasGeneratedMealPlan] = useState(false);
+  const [selectedDays, setSelectedDays] = useState(7); // Default to 7 days
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -236,7 +238,11 @@ const MealPlanRequest: React.FC = () => {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`,
         },
-        body: JSON.stringify({ user_profile: profileToUse, previous_meal_plan: previousMealPlan }),
+        body: JSON.stringify({ 
+          user_profile: profileToUse, 
+          previous_meal_plan: previousMealPlan,
+          days: selectedDays 
+        }),
       });
 
       if (response.status === 401) {
@@ -647,7 +653,10 @@ const MealPlanRequest: React.FC = () => {
 
   const renderEditableMealPlan = () => {
     if (!editableMealPlan) return null;
-    const daysOfWeek = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+    
+    // Generate day labels based on selected number of days
+    const dayLabels = Array.from({ length: selectedDays }, (_, i) => `Day ${i + 1}`);
+    
     return (
       <Box sx={{ mt: 2 }}>
         {editableMealTypes.map((mealType) => (
@@ -673,7 +682,7 @@ const MealPlanRequest: React.FC = () => {
             >
               {mealType.charAt(0).toUpperCase() + mealType.slice(1)}
             </Typography>
-            {daysOfWeek.map((day, idx) => (
+            {dayLabels.map((day, idx) => (
               <Box key={day} sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
                 <Typography sx={{ width: 100, fontWeight: 500 }}>{day}:</Typography>
                 <input
@@ -1127,6 +1136,119 @@ const MealPlanRequest: React.FC = () => {
                           },
                         }}
                       />
+                    </Box>
+                  </CardContent>
+                </Card>
+              </Fade>
+            )}
+
+            {/* Day Selector - only show on meal plan step */}
+            {activeStep === 1 && (
+              <Fade in={loaded} timeout={2200}>
+                <Card
+                  sx={{
+                    mb: 3,
+                    borderRadius: 4,
+                    background: `linear-gradient(135deg, ${theme.palette.primary.main}15, ${theme.palette.primary.main}08)`,
+                    border: `2px solid ${theme.palette.primary.main}30`,
+                    transition: 'all 0.3s ease',
+                    animation: `${float} 4s ease-in-out infinite`,
+                    '&:hover': {
+                      transform: 'translateY(-3px)',
+                      boxShadow: `0 8px 20px ${theme.palette.primary.main}30`,
+                    },
+                  }}
+                >
+                  <CardContent sx={{ py: 3, px: 4 }}>
+                    <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                      <Typography 
+                        variant="h6" 
+                        fontWeight="bold"
+                        sx={{ 
+                          color: theme.palette.primary.main,
+                          mb: 2,
+                          textAlign: 'center',
+                        }}
+                      >
+                        📅 Select Meal Plan Duration
+                      </Typography>
+                      <Typography 
+                        variant="body2" 
+                        color="text.secondary"
+                        sx={{ mb: 3, textAlign: 'center', lineHeight: 1.5 }}
+                      >
+                        Choose how many days you want your meal plan to cover (1-7 days)
+                      </Typography>
+                      
+                      {/* Day Selector Slider */}
+                      <Box sx={{ width: '100%', maxWidth: 400, px: 2 }}>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                          {[1, 2, 3, 4, 5, 6, 7].map((day) => (
+                            <Typography
+                              key={day}
+                              variant="caption"
+                              sx={{
+                                color: selectedDays === day ? theme.palette.primary.main : theme.palette.text.secondary,
+                                fontWeight: selectedDays === day ? 'bold' : 'normal',
+                                transition: 'all 0.2s ease',
+                              }}
+                            >
+                              {day}
+                            </Typography>
+                          ))}
+                        </Box>
+                                                 <Slider
+                           value={selectedDays}
+                           onChange={(_: Event, newValue: number | number[]) => setSelectedDays(newValue as number)}
+                           min={1}
+                           max={7}
+                           step={1}
+                           marks
+                           valueLabelDisplay="auto"
+                           valueLabelFormat={(value: number) => `${value} day${value > 1 ? 's' : ''}`}
+                          sx={{
+                            color: theme.palette.primary.main,
+                            '& .MuiSlider-thumb': {
+                              backgroundColor: theme.palette.primary.main,
+                              border: `3px solid ${theme.palette.background.paper}`,
+                              boxShadow: `0 0 0 8px ${theme.palette.primary.main}20`,
+                              '&:hover': {
+                                boxShadow: `0 0 0 12px ${theme.palette.primary.main}30`,
+                              },
+                            },
+                            '& .MuiSlider-track': {
+                              backgroundColor: theme.palette.primary.main,
+                              height: 6,
+                            },
+                            '& .MuiSlider-rail': {
+                              backgroundColor: theme.palette.primary.light,
+                              height: 6,
+                            },
+                            '& .MuiSlider-mark': {
+                              backgroundColor: theme.palette.primary.main,
+                              height: 8,
+                              width: 8,
+                              borderRadius: '50%',
+                            },
+                            '& .MuiSlider-markActive': {
+                              backgroundColor: theme.palette.primary.dark,
+                            },
+                          }}
+                        />
+                        <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2 }}>
+                          <Chip
+                            label={`${selectedDays} day${selectedDays > 1 ? 's' : ''} meal plan`}
+                            color="primary"
+                            variant="filled"
+                            sx={{
+                              fontWeight: 'bold',
+                              fontSize: '0.9rem',
+                              px: 2,
+                              background: `linear-gradient(45deg, ${theme.palette.primary.main}, ${theme.palette.primary.dark})`,
+                            }}
+                          />
+                        </Box>
+                      </Box>
                     </Box>
                   </CardContent>
                 </Card>

@@ -111,7 +111,16 @@ const MealPlanDetails: React.FC = () => {
      );
   }
 
-  const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+  // Determine the number of days based on the meal plan data
+  const getNumberOfDays = () => {
+    if (!mealPlan) return 7;
+    // Check the length of any meal type array to determine the number of days
+    const breakfastLength = mealPlan.breakfast?.length || 0;
+    return Math.max(1, Math.min(7, breakfastLength)); // Ensure it's between 1 and 7
+  };
+  
+  const numberOfDays = getNumberOfDays();
+  const days = Array.from({ length: numberOfDays }, (_, i) => `Day ${i + 1}`);
   const mealTypes = ['breakfast', 'lunch', 'dinner', 'snacks'] as const;
 
   return (

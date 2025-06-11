@@ -48,9 +48,10 @@ const shimmer = keyframes`
 
 interface MealPlanProps {
   mealPlan: MealPlanData;
+  selectedDays?: number;
 }
 
-const MealPlan = ({ mealPlan }: MealPlanProps) => {
+const MealPlan = ({ mealPlan, selectedDays = 7 }: MealPlanProps) => {
   const theme = useTheme();
   const [loaded, setLoaded] = useState(false);
 
@@ -58,7 +59,8 @@ const MealPlan = ({ mealPlan }: MealPlanProps) => {
     setLoaded(true);
   }, []);
 
-  const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+  // Generate day labels based on selected number of days
+  const days = Array.from({ length: selectedDays }, (_, i) => `Day ${i + 1}`);
   const mealTypes: Array<{ 
     name: keyof Pick<MealPlanData, 'breakfast' | 'lunch' | 'dinner' | 'snacks'>; 
     icon: JSX.Element; 
@@ -126,7 +128,7 @@ const MealPlan = ({ mealPlan }: MealPlanProps) => {
             textShadow: '0 4px 8px rgba(0,0,0,0.1)',
           }}
         >
-          🍽️ Your Weekly Meal Plan
+          🍽️ Your {selectedDays}-Day Meal Plan
         </Typography>
       </Fade>
 

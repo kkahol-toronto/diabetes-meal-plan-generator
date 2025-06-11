@@ -13,6 +13,7 @@ import ThankYou from './components/ThankYou';
 import AllRecipesPage from './pages/AllRecipesPage';
 import AllShoppingListsPage from './pages/AllShoppingListsPage';
 import MealPlanHistory from './components/MealPlanHistory';
+import MealPlanDetails from './components/MealPlanDetails';
 import ConsumptionHistory from './components/ConsumptionHistory';
 
 // Create a theme instance
@@ -124,6 +125,14 @@ function App() {
           element={
             <ProtectedRoute>
               <MealPlanHistory />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/meal-plan/:id"
+          element={
+            <ProtectedRoute>
+              <MealPlanDetails />
             </ProtectedRoute>
           }
         />
