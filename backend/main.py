@@ -35,6 +35,9 @@ from database import (
     get_user_consumption_history,
     get_consumption_analytics,
 )
+from goal_recalibration import recalibrate_all_users_goals
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
 import uuid
 from io import BytesIO
 from reportlab.lib.pagesizes import letter, landscape
@@ -64,6 +67,30 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Initialize scheduler
+scheduler = AsyncIOScheduler()
+
+# Add scheduled task for goal recalibration
+@scheduler.scheduled_job(CronTrigger(hour=0, minute=0))  # Run at midnight
+async def scheduled_goal_recalibration():
+    """Scheduled task to recalibrate all users' goals at midnight"""
+    try:
+        success_count = await recalibrate_all_users_goals()
+        print(f"Successfully recalibrated goals for {success_count} users")
+    except Exception as e:
+        print(f"Error in scheduled goal recalibration: {str(e)}")
+
+# Start the scheduler when the app starts
+@app.on_event("startup")
+async def startup_event():
+    scheduler.start()
+    print("🚀 Scheduler started")
+
+# Stop the scheduler when the app shuts down
+@app.on_event("shutdown")
+async def shutdown_event():
+    scheduler.shutdown()
 
 # Configure OpenAI
 client = AzureOpenAI(
@@ -1291,12 +1318,26 @@ async def save_user_profile(
     profile = data.get("profile")
     if not profile:
         raise HTTPException(status_code=400, detail="No profile data provided")
+    
     user_doc = await get_user_by_email(current_user["email"])
     if not user_doc:
         raise HTTPException(status_code=404, detail="User not found")
-    user_doc["profile"] = profile
+    
+    # Ensure profile exists
+    if "profile" not in user_doc:
+        user_doc["profile"] = {}
+    
+    # Update the profile with the new data
+    user_doc["profile"].update(profile)
+    
+    # Ensure calorie target is saved as a string
+    if "calorieTarget" in profile:
+        user_doc["profile"]["calorieTarget"] = str(profile["calorieTarget"])
+    
+    # Save the updated profile
     user_container.replace_item(item=user_doc["id"], body=user_doc)
-    return {"message": "Profile saved"}
+    
+    return {"message": "Profile saved successfully"}
 
 @app.get("/user/profile")
 async def get_user_profile(current_user: User = Depends(get_current_user)):
@@ -2531,113 +2572,148 @@ async def get_consumption_progress(current_user: User = Depends(get_current_user
     Returns user's daily calorie/macro goals, today's progress, and weekly/monthly averages.
     Always returns a valid set of goals, using smart defaults if needed.
     """
-    # 1. Get user profile (for goals)
-    user_doc = await get_user_by_email(current_user["email"])
-    if not user_doc or "profile" not in user_doc:
-        raise HTTPException(status_code=404, detail="User profile not found")
-    profile = user_doc["profile"]
+    print(f"Processing progress request for user: {current_user['email']}")
+    
+    try:
+        # 1. Get user profile (for goals)
+        user_doc = await get_user_by_email(current_user["email"])
+        if not user_doc or "profile" not in user_doc:
+            print(f"User profile not found for: {current_user['email']}")
+            raise HTTPException(status_code=404, detail="User profile not found")
+        profile = user_doc["profile"]
+        print(f"Found profile for user: {current_user['email']}")
 
-    # --- Try to get most recent meal plan for fallback ---
-    recent_meal_plan = None
-    meal_plans = await get_user_meal_plans(current_user["id"])
-    if meal_plans and isinstance(meal_plans, list):
-        # Assume sorted by created_at DESC
-        recent_meal_plan = meal_plans[0] if meal_plans else None
+        # --- Try to get most recent meal plan for fallback ---
+        recent_meal_plan = None
+        meal_plans = await get_user_meal_plans(current_user["id"])
+        if meal_plans and isinstance(meal_plans, list):
+            # Assume sorted by created_at DESC
+            recent_meal_plan = meal_plans[0] if meal_plans else None
+            print(f"Found recent meal plan: {recent_meal_plan is not None}")
 
-    # Smart defaults
-    smart_defaults = {
-        "calories": 2000,
-        "macronutrients": {
-            "carbohydrates": 250,
-            "protein": 100,
-            "fat": 66
-        }
-    }
-
-    def parse_int(val, default):
-        try:
-            return int(val)
-        except Exception:
-            return default
-
-    # 1. Try to get calorie goal from profile, then meal plan, then default
-    calorie_goal = None
-    if profile.get("calorieTarget"):
-        calorie_goal = parse_int(profile.get("calorieTarget"), smart_defaults["calories"])
-    elif profile.get("calories_target"):
-        calorie_goal = parse_int(profile.get("calories_target"), smart_defaults["calories"])
-    elif recent_meal_plan and recent_meal_plan.get("dailyCalories"):
-        calorie_goal = parse_int(recent_meal_plan.get("dailyCalories"), smart_defaults["calories"])
-    else:
-        calorie_goal = smart_defaults["calories"]
-
-    # 2. Try to get macro goals from profile, then meal plan, then default
-    macro_goals = profile.get("macroGoals")
-    macro_from_meal_plan = recent_meal_plan.get("macronutrients") if recent_meal_plan else None
-    macro_goal = None
-    if macro_goals and isinstance(macro_goals, dict) and all(k in macro_goals for k in ["protein", "carbs", "fat"]):
-        macro_goal = {
-            "protein": parse_int(macro_goals.get("protein"), smart_defaults["macronutrients"]["protein"]),
-            "carbs": parse_int(macro_goals.get("carbs"), smart_defaults["macronutrients"]["carbohydrates"]),
-            "fat": parse_int(macro_goals.get("fat"), smart_defaults["macronutrients"]["fat"])
-        }
-    elif macro_from_meal_plan and all(k in macro_from_meal_plan for k in ["protein", "carbs", "fats"]):
-        macro_goal = {
-            "protein": parse_int(macro_from_meal_plan.get("protein"), smart_defaults["macronutrients"]["protein"]),
-            "carbs": parse_int(macro_from_meal_plan.get("carbs"), smart_defaults["macronutrients"]["carbohydrates"]),
-            "fat": parse_int(macro_from_meal_plan.get("fats"), smart_defaults["macronutrients"]["fat"])
-        }
-    else:
-        macro_goal = {
-            "protein": smart_defaults["macronutrients"]["protein"],
-            "carbs": smart_defaults["macronutrients"]["carbohydrates"],
-            "fat": smart_defaults["macronutrients"]["fat"]
+        # Smart defaults
+        smart_defaults = {
+            "calories": 2000,
+            "macronutrients": {
+                "carbohydrates": 250,
+                "protein": 100,
+                "fat": 66
+            }
         }
 
-    # 3. (Future extensibility) Consider dietary info and physical activity for smarter defaults
-    # For now, just use the above logic
+        def parse_int(val, default):
+            try:
+                if isinstance(val, str):
+                    # Remove any non-numeric characters except decimal point
+                    val = ''.join(c for c in val if c.isdigit() or c == '.')
+                return int(float(val)) if val else default
+            except Exception as e:
+                print(f"Error parsing value {val} to int: {str(e)}")
+                return default
 
-    # 4. Get today's consumption records
-    today = datetime.utcnow().date()
-    tomorrow = today + timedelta(days=1)
-    query = (
-        "SELECT c.nutritional_info FROM c WHERE c.type = 'consumption_record' "
-        f"AND c.user_id = '{current_user['id']}' "
-        f"AND c.timestamp >= '{today.isoformat()}' AND c.timestamp < '{tomorrow.isoformat()}'"
-    )
-    records = list(interactions_container.query_items(query=query, enable_cross_partition_query=True))
-    today_totals = {"calories": 0, "protein": 0, "carbs": 0, "fat": 0}
-    for rec in records:
-        ni = rec.get("nutritional_info", {})
-        today_totals["calories"] += ni.get("calories", 0)
-        today_totals["protein"] += ni.get("protein", 0)
-        today_totals["carbs"] += ni.get("carbohydrates", 0)
-        today_totals["fat"] += ni.get("fat", 0)
+        # Get today's date in ISO format
+        today = str(datetime.utcnow().date())
+        print(f"Checking for adjusted goals on date: {today}")
 
-    # 5. Weekly and monthly averages (reuse analytics logic)
-    weekly = await get_consumption_analytics(current_user["id"], days=7)
-    monthly = await get_consumption_analytics(current_user["id"], days=30)
+        # Try to get adjusted goals for today
+        adjusted_goals = profile.get("adjusted_goals", {}).get(today)
+        if adjusted_goals:
+            print(f"Found adjusted goals for today: {adjusted_goals}")
+            calorie_goal = adjusted_goals.get("calorieTarget")
+            macro_goal = adjusted_goals.get("macroGoals")
+            print(f"Using adjusted goals - calories: {calorie_goal}, macros: {macro_goal}")
+        else:
+            print("No adjusted goals found, using profile goals")
+            calorie_goal = profile.get("calorieTarget")
+            macro_goal = profile.get("macroGoals")
 
-    def macro_avg(analytics):
-        days = analytics.get("period_days", 1)
-        return {
-            "calories": round(analytics.get("total_calories", 0) / days, 1),
-            "protein": round(analytics.get("total_macronutrients", {}).get("protein", 0) / days, 1),
-            "carbs": round(analytics.get("total_macronutrients", {}).get("carbohydrates", 0) / days, 1),
-            "fat": round(analytics.get("total_macronutrients", {}).get("fat", 0) / days, 1),
+        # If no profile goals, try meal plan
+        if not calorie_goal and recent_meal_plan and recent_meal_plan.get("dailyCalories"):
+            print(f"Falling back to meal plan dailyCalories: {recent_meal_plan.get('dailyCalories')}")
+            calorie_goal = parse_int(recent_meal_plan.get("dailyCalories"), smart_defaults["calories"])
+        elif not calorie_goal:
+            print(f"Using default calorie goal: {smart_defaults['calories']}")
+            calorie_goal = smart_defaults["calories"]
+
+        # If no macro goals, try meal plan or defaults
+        if not macro_goal:
+            macro_from_meal_plan = recent_meal_plan.get("macronutrients") if recent_meal_plan else None
+            
+            if macro_from_meal_plan and all(k in macro_from_meal_plan for k in ["protein", "carbs", "fats"]):
+                print(f"Falling back to meal plan macronutrients: {macro_from_meal_plan}")
+                macro_goal = {
+                    "protein": parse_int(macro_from_meal_plan.get("protein"), smart_defaults["macronutrients"]["protein"]),
+                    "carbs": parse_int(macro_from_meal_plan.get("carbs"), smart_defaults["macronutrients"]["carbohydrates"]),
+                    "fat": parse_int(macro_from_meal_plan.get("fats"), smart_defaults["macronutrients"]["fat"])
+                }
+            else:
+                print(f"Using default macro goals: {smart_defaults['macronutrients']}")
+                macro_goal = {
+                    "protein": smart_defaults["macronutrients"]["protein"],
+                    "carbs": smart_defaults["macronutrients"]["carbohydrates"],
+                    "fat": smart_defaults["macronutrients"]["fat"]
+                }
+
+        # 3. Get today's consumption records
+        today_date = datetime.utcnow().date()
+        tomorrow = today_date + timedelta(days=1)
+        query = (
+            "SELECT c.nutritional_info FROM c WHERE c.type = 'consumption_record' "
+            f"AND c.user_id = '{current_user['id']}' "
+            f"AND c.timestamp >= '{today_date.isoformat()}' AND c.timestamp < '{tomorrow.isoformat()}'"
+        )
+        records = list(interactions_container.query_items(query=query, enable_cross_partition_query=True))
+        print(f"Found {len(records)} consumption records for today")
+        
+        today_totals = {"calories": 0, "protein": 0, "carbs": 0, "fat": 0}
+        for rec in records:
+            ni = rec.get("nutritional_info", {})
+            today_totals["calories"] += ni.get("calories", 0)
+            today_totals["protein"] += ni.get("protein", 0)
+            today_totals["carbs"] += ni.get("carbohydrates", 0)
+            today_totals["fat"] += ni.get("fat", 0)
+
+        # 4. Weekly and monthly averages
+        weekly = await get_consumption_analytics(current_user["id"], days=7)
+        monthly = await get_consumption_analytics(current_user["id"], days=30)
+
+        def macro_avg(analytics):
+            days = analytics.get("period_days", 1)
+            return {
+                "calories": round(analytics.get("total_calories", 0) / days, 1),
+                "protein": round(analytics.get("total_macronutrients", {}).get("protein", 0) / days, 1),
+                "carbs": round(analytics.get("total_macronutrients", {}).get("carbohydrates", 0) / days, 1),
+                "fat": round(analytics.get("total_macronutrients", {}).get("fat", 0) / days, 1),
+            }
+
+        response_data = {
+            "goals": {
+                "calories": parse_int(calorie_goal, smart_defaults["calories"]),
+                "protein": parse_int(macro_goal.get("protein"), smart_defaults["macronutrients"]["protein"]),
+                "carbs": parse_int(macro_goal.get("carbs"), smart_defaults["macronutrients"]["carbohydrates"]),
+                "fat": parse_int(macro_goal.get("fat"), smart_defaults["macronutrients"]["fat"])
+            },
+            "today": today_totals,
+            "weekly_avg": macro_avg(weekly),
+            "monthly_avg": macro_avg(monthly)
         }
+        
+        print(f"Returning progress data for user {current_user['email']}:")
+        print(f"- Final calorie goal: {response_data['goals']['calories']}")
+        print(f"- Final macro goals: {response_data['goals']}")
+        print(f"- Today's totals: {today_totals}")
+        print(f"- Weekly avg: {response_data['weekly_avg']}")
+        print(f"- Monthly avg: {response_data['monthly_avg']}")
+        
+        return response_data
 
-    return {
-        "goals": {
-            "calories": calorie_goal,
-            "protein": macro_goal["protein"],
-            "carbs": macro_goal["carbs"],
-            "fat": macro_goal["fat"]
-        },
-        "today": today_totals,
-        "weekly_avg": macro_avg(weekly),
-        "monthly_avg": macro_avg(monthly)
-    }
+    except Exception as e:
+        print(f"Error processing progress request for user {current_user['email']}: {str(e)}")
+        print(f"Full error details: {traceback.format_exc()}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error processing progress request: {str(e)}"
+        )
 
 if __name__ == "__main__":
     import uvicorn

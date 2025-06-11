@@ -299,9 +299,35 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (validateForm()) {
-      onSubmit(profile);
+      try {
+        const token = localStorage.getItem('token');
+        if (!token) {
+          console.error('No authentication token found');
+          return;
+        }
+
+        // Save profile to backend first
+        const response = await fetch('http://localhost:8000/user/profile', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+          },
+          body: JSON.stringify({ profile }),
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to save profile');
+        }
+
+        // If successful, proceed with the original onSubmit
+        onSubmit(profile);
+      } catch (error) {
+        console.error('Error saving profile:', error);
+        // You might want to show an error message to the user here
+      }
     }
   };
 

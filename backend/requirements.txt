@@ -52,6 +52,9 @@ orjson>=3.9.12
 gunicorn>=21.2.0
 prometheus-client>=0.19.0
 
+# Task scheduling
+APScheduler>=3.10.4
+
 # Additional utilities
 python-json-logger>=2.0.7
 redis>=5.0.1
@@ -78,4 +81,5 @@ structlog>=23.2.0
 # - Enhanced error handling and logging
 # - Performance optimizations with caching
 # - Production-ready monitoring and health checks
+# - Added task scheduling with APScheduler
 # ==========================================

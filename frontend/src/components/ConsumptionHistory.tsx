@@ -218,27 +218,53 @@ const ConsumptionHistory = () => {
   };
 
   const fetchProgress = async () => {
-    setProgressLoading(true);
     try {
+      setProgressLoading(true);
       const token = localStorage.getItem('token');
+      if (!token) {
+        console.log('No token found, redirecting to login');
+        window.location.href = '/login';
+        return;
+      }
+
       console.log('Fetching progress with token:', token ? 'Token exists' : 'No token found');
       
       const response = await fetch('http://localhost:8000/consumption/progress', {
         headers: {
           'Authorization': `Bearer ${token}`,
-        },
+          'Content-Type': 'application/json'
+        }
       });
+
       console.log('Progress response status:', response.status);
-      if (response.ok) {
-        const data = await response.json();
-        console.log("Progress response:", data);
-        setProgress(data);
-      } else {
-        const errorText = await response.text();
-        console.error('Progress fetch error:', errorText);
+      
+      // Check if response is JSON
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        const text = await response.text();
+        console.error('Received non-JSON response:', text);
+        setError('Received invalid response from server');
+        return;
       }
-    } catch (e) {
-      console.error('Progress fetch exception:', e);
+
+      const data = await response.json();
+      
+      // Check for authentication error
+      if (data.detail === "Not authenticated" || response.status === 401) {
+        console.log('Authentication required, redirecting to login');
+        // Clear invalid token
+        localStorage.removeItem('token');
+        // Redirect to login
+        window.location.href = '/login';
+        return;
+      }
+
+      console.log('Progress data from API:', data);
+      setProgress(data);
+      setError(null);
+    } catch (error) {
+      console.error('Error fetching progress:', error);
+      setError('Failed to load progress data');
     } finally {
       setProgressLoading(false);
     }
@@ -429,7 +455,7 @@ const ConsumptionHistory = () => {
                 <Box sx={{ display: 'flex', justifyContent: 'center', p: 2 }}>
                   <CircularProgress />
                 </Box>
-              ) : (progress && typeof progress === 'object') ? (
+              ) : (progress && progress.goals && progress.today) ? (
                 <Grid container spacing={3}>
                   {(() => {
                     let data: any, label: string;
