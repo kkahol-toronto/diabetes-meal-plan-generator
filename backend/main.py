@@ -49,6 +49,7 @@ import sys
 from fastapi import Request as FastAPIRequest
 from PIL import Image
 import base64
+from fastapi import APIRouter
 
 # Load environment variables
 load_dotenv()
@@ -421,6 +422,35 @@ async def generate_meal_plan(
     current_user: User = Depends(get_current_user)
 ):
     try:
+        data = await request.json()
+        user_profile = data.get("user_profile")
+        previous_meal_plan = data.get("previous_meal_plan")
+
+        if not user_profile:
+            raise HTTPException(status_code=400, detail="User profile is required")
+
+        # Get the user's document
+        user_doc = await get_user_by_email(current_user["email"])
+        if not user_doc:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        # Update the user's profile with the calorie and macro goals
+        if "profile" not in user_doc:
+            user_doc["profile"] = {}
+        
+        # Update the profile with the goals from the meal plan
+        user_doc["profile"]["calorieTarget"] = user_profile.get("calorieTarget", "2000")
+        user_doc["profile"]["macroGoals"] = {
+            "protein": user_profile.get("macroGoals", {}).get("protein", 100),
+            "carbs": user_profile.get("macroGoals", {}).get("carbs", 250),
+            "fat": user_profile.get("macroGoals", {}).get("fat", 66)
+        }
+
+        # Save the updated profile
+        user_container.replace_item(item=user_doc["id"], body=user_doc)
+
+        # Continue with meal plan generation...
+
         # Check required environment variables
         required_env_vars = [
             "AZURE_OPENAI_KEY",
@@ -433,19 +463,6 @@ async def generate_meal_plan(
             raise HTTPException(
                 status_code=500,
                 detail=f"Missing required environment variables: {', '.join(missing_vars)}"
-            )
-
-        data = await request.json()
-        user_profile = data.get('user_profile', {})
-        previous_meal_plan = data.get('previous_meal_plan')
-        
-        # Validate required user profile fields
-        required_fields = ['name', 'age', 'gender', 'weight', 'height']
-        missing_fields = [field for field in required_fields if not user_profile.get(field)]
-        if missing_fields:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Missing required user profile fields: {', '.join(missing_fields)}"
             )
 
         print('user_profile received:', user_profile)
@@ -779,7 +796,7 @@ async def generate_shopping_list(
                     Group items by category (e.g., Produce, Dairy, Meat, etc.) and combine quantities for the same items.
 
                     ––––– UNIT RULES –––––
-                    • Express quantities in units a Canadian grocery shopper can actually buy (“purchasable quantity”).
+                    • Express quantities in units a Canadian grocery shopper can actually buy ("purchasable quantity").
                     – **Fresh herbs** (cilantro/coriander, parsley, mint, dill, etc.): use whole bunches.  
                         *Assume 1 bunch ≈ 30 g; round ⭡ to the nearest whole bunch.*
                     – **Loose fruit & veg** commonly weighed at checkout (apples, oranges, onions, potatoes, carrots, etc.): use pounds (lb).  
@@ -2298,6 +2315,329 @@ async def analyze_image(
     except Exception as e:
         print(f"Error in image analysis: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+# Helper for intent detection
+def has_logging_intent(message: str) -> bool:
+    logging_intents = [
+        "log this", "add this to my history", "record this", "save this",
+        "log it", "add this meal", "add this food", "log meal", "log food"
+    ]
+    return any(kw in message.lower() for kw in logging_intents)
+
+# Add this helper near the top of the file
+import re
+
+def extract_nutrition_question(message: str):
+    """
+    Returns the nutrition field(s) the user is asking about, or None if not found.
+    Supports: calories, protein, carbs, fat, fiber, sugar, sodium.
+    """
+    nutrition_keywords = {
+        'calories': ['calorie', 'calories', 'kcal'],
+        'protein': ['protein', 'proteins'],
+        'carbohydrates': ['carb', 'carbs', 'carbohydrate', 'carbohydrates'],
+        'fat': ['fat', 'fats'],
+        'fiber': ['fiber', 'fibre'],
+        'sugar': ['sugar', 'sugars'],
+        'sodium': ['sodium', 'salt'],
+    }
+    found = []
+    msg = message.lower()
+    for field, keywords in nutrition_keywords.items():
+        for kw in keywords:
+            if re.search(rf'\b{re.escape(kw)}\b', msg):
+                found.append(field)
+                break
+    return found if found else None
+
+@app.post("/chat/message-with-image")
+async def chat_message_with_image(
+    message: str = Form(...),
+    image: UploadFile = File(None),
+    session_id: str = Form(None),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Accepts a chat message with optional image.
+    If logging intent is detected, logs the meal after image analysis.
+    """
+    image_url = None
+    img_str = None
+    analysis_data = None
+
+    # If image is present, process it
+    if image:
+        contents = await image.read()
+        try:
+            img = Image.open(BytesIO(contents))
+            if img.mode in ('RGBA', 'LA', 'P'):
+                background = Image.new('RGB', img.size, (255, 255, 255))
+                if img.mode == 'P':
+                    img = img.convert('RGBA')
+                background.paste(img, mask=img.split()[-1] if img.mode == 'RGBA' else None)
+                img = background
+            elif img.mode != 'RGB':
+                img = img.convert('RGB')
+            max_size = 1024
+            if img.width > max_size or img.height > max_size:
+                img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
+            buffered = BytesIO()
+            img.save(buffered, format="JPEG", quality=85, optimize=True)
+            img_str = base64.b64encode(buffered.getvalue()).decode()
+            image_url = img_str
+        except Exception as img_error:
+            raise HTTPException(status_code=400, detail="Invalid or corrupted image file.")
+
+    # Save user message (with or without image)
+    user_message = await save_chat_message(
+        current_user["id"],
+        message,
+        is_user=True,
+        session_id=session_id,
+        image_url=image_url
+    )
+
+    # If there's an image, analyze it (reuse logic from /consumption/analyze-and-record)
+    if img_str:
+        # Generate structured analysis using OpenAI (copied from /consumption/analyze-and-record)
+        response = client.chat.completions.create(
+            model=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
+            messages=[
+                {
+                    "role": "system",
+                    "content": """You are a nutrition analysis expert for diabetes patients. 
+                    Analyze the food image and return a structured JSON response with the following format:
+                    {
+                        "food_name": "descriptive name of the food",
+                        "estimated_portion": "portion size estimate",
+                        "nutritional_info": {
+                            "calories": number,
+                            "carbohydrates": number (in grams),
+                            "protein": number (in grams),
+                            "fat": number (in grams),
+                            "fiber": number (in grams),
+                            "sugar": number (in grams),
+                            "sodium": number (in mg)
+                        },
+                        "medical_rating": {
+                            "diabetes_suitability": "high/medium/low",
+                            "glycemic_impact": "low/medium/high",
+                            "recommended_frequency": "daily/weekly/occasional/avoid",
+                            "portion_recommendation": "recommended portion size for diabetes patients"
+                        },
+                        "analysis_notes": "detailed explanation of nutritional analysis and diabetes considerations"
+                    }
+                    Provide realistic estimates based on visual analysis. Be conservative with diabetes suitability ratings."""
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": "Analyze this food image and provide detailed nutritional information and diabetes suitability rating."
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/jpeg;base64,{img_str}"
+                            }
+                        }
+                    ]
+                }
+            ],
+            max_tokens=800,
+            temperature=0.3
+        )
+        analysis_text = response.choices[0].message.content
+        try:
+            import json
+            start_idx = analysis_text.find('{')
+            end_idx = analysis_text.rfind('}') + 1
+            json_str = analysis_text[start_idx:end_idx]
+            analysis_data = json.loads(json_str)
+        except Exception:
+            analysis_data = None
+
+    # Nutrition question intent detection
+    nutrition_fields = extract_nutrition_question(message)
+
+    # Detect logging intent in the message
+    if has_logging_intent(message) and analysis_data:
+        # Prepare consumption data (copied from /consumption/analyze-and-record)
+        consumption_data = {
+            "food_name": analysis_data.get("food_name"),
+            "estimated_portion": analysis_data.get("estimated_portion"),
+            "nutritional_info": analysis_data.get("nutritional_info", {}),
+            "medical_rating": analysis_data.get("medical_rating", {}),
+            "image_analysis": analysis_data.get("analysis_notes"),
+            "image_url": img_str
+        }
+        await save_consumption_record(current_user["id"], consumption_data)
+        # Optionally, save a chat message confirming the log
+        summary_message = f"**Food Recorded: {analysis_data.get('food_name')}**\n\n"
+        summary_message += f"📊 **Nutritional Info (per {analysis_data.get('estimated_portion')}):**\n"
+        summary_message += f"- Calories: {analysis_data.get('nutritional_info', {}).get('calories', 'N/A')}\n"
+        summary_message += f"- Carbs: {analysis_data.get('nutritional_info', {}).get('carbohydrates', 'N/A')}g\n"
+        summary_message += f"- Protein: {analysis_data.get('nutritional_info', {}).get('protein', 'N/A')}g\n"
+        summary_message += f"- Fat: {analysis_data.get('nutritional_info', {}).get('fat', 'N/A')}g\n\n"
+        summary_message += f"🩺 **Diabetes Suitability:** {analysis_data.get('medical_rating', {}).get('diabetes_suitability', 'N/A').title()}\n"
+        summary_message += f"📈 **Glycemic Impact:** {analysis_data.get('medical_rating', {}).get('glycemic_impact', 'N/A').title()}\n\n"
+        summary_message += f"💡 **Notes:** {analysis_data.get('analysis_notes', '')}"
+        await save_chat_message(
+            current_user["id"],
+            summary_message,
+            is_user=False,
+            session_id=session_id
+        )
+
+    # Generate assistant response
+    assistant_message = None
+    if img_str and analysis_data:
+        if nutrition_fields:
+            # Focused answer for specific nutrition question(s)
+            nutri = analysis_data.get('nutritional_info', {})
+            food_name = analysis_data.get('food_name', 'this food')
+            portion = analysis_data.get('estimated_portion', '')
+            responses = []
+            for field in nutrition_fields:
+                value = nutri.get(field, None)
+                if value is not None:
+                    # Friendly field name
+                    field_label = field.capitalize()
+                    unit = 'mg' if field == 'sodium' else 'g' if field in ['protein', 'carbohydrates', 'fat', 'fiber', 'sugar'] else 'kcal' if field == 'calories' else ''
+                    responses.append(f"{field_label} in {food_name} ({portion}): {value} {unit}".strip())
+            if responses:
+                assistant_message = '\n'.join(responses)
+            else:
+                assistant_message = "Sorry, I couldn't find that nutrition info for this food."
+        else:
+            # Full analysis as before
+            assistant_message = f"Here's the analysis for your image:\n\n{analysis_data}"
+    else:
+        assistant_message = "Message received."
+
+    await save_chat_message(
+        current_user["id"],
+        assistant_message,
+        is_user=False,
+        session_id=session_id
+    )
+
+    return {"success": True}
+
+@app.get("/consumption/progress")
+async def get_consumption_progress(current_user: User = Depends(get_current_user)):
+    """
+    Returns user's daily calorie/macro goals, today's progress, and weekly/monthly averages.
+    Always returns a valid set of goals, using smart defaults if needed.
+    """
+    # 1. Get user profile (for goals)
+    user_doc = await get_user_by_email(current_user["email"])
+    if not user_doc or "profile" not in user_doc:
+        raise HTTPException(status_code=404, detail="User profile not found")
+    profile = user_doc["profile"]
+
+    # --- Try to get most recent meal plan for fallback ---
+    recent_meal_plan = None
+    meal_plans = await get_user_meal_plans(current_user["id"])
+    if meal_plans and isinstance(meal_plans, list):
+        # Assume sorted by created_at DESC
+        recent_meal_plan = meal_plans[0] if meal_plans else None
+
+    # Smart defaults
+    smart_defaults = {
+        "calories": 2000,
+        "macronutrients": {
+            "carbohydrates": 250,
+            "protein": 100,
+            "fat": 66
+        }
+    }
+
+    def parse_int(val, default):
+        try:
+            return int(val)
+        except Exception:
+            return default
+
+    # 1. Try to get calorie goal from profile, then meal plan, then default
+    calorie_goal = None
+    if profile.get("calorieTarget"):
+        calorie_goal = parse_int(profile.get("calorieTarget"), smart_defaults["calories"])
+    elif profile.get("calories_target"):
+        calorie_goal = parse_int(profile.get("calories_target"), smart_defaults["calories"])
+    elif recent_meal_plan and recent_meal_plan.get("dailyCalories"):
+        calorie_goal = parse_int(recent_meal_plan.get("dailyCalories"), smart_defaults["calories"])
+    else:
+        calorie_goal = smart_defaults["calories"]
+
+    # 2. Try to get macro goals from profile, then meal plan, then default
+    macro_goals = profile.get("macroGoals")
+    macro_from_meal_plan = recent_meal_plan.get("macronutrients") if recent_meal_plan else None
+    macro_goal = None
+    if macro_goals and isinstance(macro_goals, dict) and all(k in macro_goals for k in ["protein", "carbs", "fat"]):
+        macro_goal = {
+            "protein": parse_int(macro_goals.get("protein"), smart_defaults["macronutrients"]["protein"]),
+            "carbs": parse_int(macro_goals.get("carbs"), smart_defaults["macronutrients"]["carbohydrates"]),
+            "fat": parse_int(macro_goals.get("fat"), smart_defaults["macronutrients"]["fat"])
+        }
+    elif macro_from_meal_plan and all(k in macro_from_meal_plan for k in ["protein", "carbs", "fats"]):
+        macro_goal = {
+            "protein": parse_int(macro_from_meal_plan.get("protein"), smart_defaults["macronutrients"]["protein"]),
+            "carbs": parse_int(macro_from_meal_plan.get("carbs"), smart_defaults["macronutrients"]["carbohydrates"]),
+            "fat": parse_int(macro_from_meal_plan.get("fats"), smart_defaults["macronutrients"]["fat"])
+        }
+    else:
+        macro_goal = {
+            "protein": smart_defaults["macronutrients"]["protein"],
+            "carbs": smart_defaults["macronutrients"]["carbohydrates"],
+            "fat": smart_defaults["macronutrients"]["fat"]
+        }
+
+    # 3. (Future extensibility) Consider dietary info and physical activity for smarter defaults
+    # For now, just use the above logic
+
+    # 4. Get today's consumption records
+    today = datetime.utcnow().date()
+    tomorrow = today + timedelta(days=1)
+    query = (
+        "SELECT c.nutritional_info FROM c WHERE c.type = 'consumption_record' "
+        f"AND c.user_id = '{current_user['id']}' "
+        f"AND c.timestamp >= '{today.isoformat()}' AND c.timestamp < '{tomorrow.isoformat()}'"
+    )
+    records = list(interactions_container.query_items(query=query, enable_cross_partition_query=True))
+    today_totals = {"calories": 0, "protein": 0, "carbs": 0, "fat": 0}
+    for rec in records:
+        ni = rec.get("nutritional_info", {})
+        today_totals["calories"] += ni.get("calories", 0)
+        today_totals["protein"] += ni.get("protein", 0)
+        today_totals["carbs"] += ni.get("carbohydrates", 0)
+        today_totals["fat"] += ni.get("fat", 0)
+
+    # 5. Weekly and monthly averages (reuse analytics logic)
+    weekly = await get_consumption_analytics(current_user["id"], days=7)
+    monthly = await get_consumption_analytics(current_user["id"], days=30)
+
+    def macro_avg(analytics):
+        days = analytics.get("period_days", 1)
+        return {
+            "calories": round(analytics.get("total_calories", 0) / days, 1),
+            "protein": round(analytics.get("total_macronutrients", {}).get("protein", 0) / days, 1),
+            "carbs": round(analytics.get("total_macronutrients", {}).get("carbohydrates", 0) / days, 1),
+            "fat": round(analytics.get("total_macronutrients", {}).get("fat", 0) / days, 1),
+        }
+
+    return {
+        "goals": {
+            "calories": calorie_goal,
+            "protein": macro_goal["protein"],
+            "carbs": macro_goal["carbs"],
+            "fat": macro_goal["fat"]
+        },
+        "today": today_totals,
+        "weekly_avg": macro_avg(weekly),
+        "monthly_avg": macro_avg(monthly)
+    }
 
 if __name__ == "__main__":
     import uvicorn

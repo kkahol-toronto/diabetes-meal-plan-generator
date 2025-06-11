@@ -48,6 +48,11 @@ import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import TrendingDownIcon from '@mui/icons-material/TrendingDown';
 import LocalFireDepartmentIcon from '@mui/icons-material/LocalFireDepartment';
 import { useNavigate } from 'react-router-dom';
+import LinearProgress from '@mui/material/LinearProgress';
+import FitnessCenterIcon from '@mui/icons-material/FitnessCenter';
+import BoltIcon from '@mui/icons-material/Bolt';
+import GrainIcon from '@mui/icons-material/Grain';
+import OilIcon from '@mui/icons-material/Opacity';
 
 // Animations
 const float = keyframes`
@@ -120,6 +125,9 @@ const ConsumptionHistory = () => {
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [analyticsPeriod, setAnalyticsPeriod] = useState(7);
+  const [progress, setProgress] = useState<any>(null);
+  const [progressView, setProgressView] = useState<'today' | 'weekly' | 'monthly'>('today');
+  const [progressLoading, setProgressLoading] = useState(true);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -129,11 +137,13 @@ const ConsumptionHistory = () => {
   useEffect(() => {
     fetchConsumptionHistory();
     fetchAnalytics(analyticsPeriod);
+    fetchProgress();
 
     // Add event listener for consumption record updates
     const handleConsumptionRecorded = () => {
       fetchConsumptionHistory();
       fetchAnalytics(analyticsPeriod);
+      fetchProgress();
     };
 
     window.addEventListener('consumptionRecorded', handleConsumptionRecorded);
@@ -204,6 +214,33 @@ const ConsumptionHistory = () => {
       console.error('Error fetching analytics:', error);
     } finally {
       setAnalyticsLoading(false);
+    }
+  };
+
+  const fetchProgress = async () => {
+    setProgressLoading(true);
+    try {
+      const token = localStorage.getItem('token');
+      console.log('Fetching progress with token:', token ? 'Token exists' : 'No token found');
+      
+      const response = await fetch('http://localhost:8000/consumption/progress', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+      console.log('Progress response status:', response.status);
+      if (response.ok) {
+        const data = await response.json();
+        console.log("Progress response:", data);
+        setProgress(data);
+      } else {
+        const errorText = await response.text();
+        console.error('Progress fetch error:', errorText);
+      }
+    } catch (e) {
+      console.error('Progress fetch exception:', e);
+    } finally {
+      setProgressLoading(false);
     }
   };
 
@@ -352,6 +389,105 @@ const ConsumptionHistory = () => {
           >
             📊 Consumption History
           </Typography>
+        </Fade>
+
+        {/* Goal Tracking Summary */}
+        <Fade in={loaded} timeout={900}>
+          <Box sx={{ mb: 4 }}>
+            <Paper elevation={2} sx={{ p: 4, borderRadius: 4, mb: 2, background: 'rgba(255,255,255,0.98)' }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+                <Typography variant="h5" fontWeight={700}>
+                  Goal Tracking
+                </Typography>
+                <Box>
+                  <Button
+                    variant={progressView === 'today' ? 'contained' : 'outlined'}
+                    onClick={() => setProgressView('today')}
+                    sx={{ mr: 1 }}
+                    size="small"
+                  >
+                    Today
+                  </Button>
+                  <Button
+                    variant={progressView === 'weekly' ? 'contained' : 'outlined'}
+                    onClick={() => setProgressView('weekly')}
+                    sx={{ mr: 1 }}
+                    size="small"
+                  >
+                    Weekly Avg
+                  </Button>
+                  <Button
+                    variant={progressView === 'monthly' ? 'contained' : 'outlined'}
+                    onClick={() => setProgressView('monthly')}
+                    size="small"
+                  >
+                    Monthly Avg
+                  </Button>
+                </Box>
+              </Box>
+              {progressLoading ? (
+                <Box sx={{ display: 'flex', justifyContent: 'center', p: 2 }}>
+                  <CircularProgress />
+                </Box>
+              ) : (progress && typeof progress === 'object') ? (
+                <Grid container spacing={3}>
+                  {(() => {
+                    let data: any, label: string;
+                    if (progressView === 'today') {
+                      data = progress.today;
+                      label = 'Today';
+                    } else if (progressView === 'weekly') {
+                      data = progress.weekly_avg;
+                      label = 'Weekly Avg';
+                    } else {
+                      data = progress.monthly_avg;
+                      label = 'Monthly Avg';
+                    }
+                    const goals = progress.goals;
+                    const items = [
+                      {
+                        icon: <FitnessCenterIcon color="error" />, label: 'Calories', value: data.calories, goal: goals.calories, color: '#FF6B6B', unit: 'kcal'
+                      },
+                      {
+                        icon: <BoltIcon color="primary" />, label: 'Protein', value: data.protein, goal: goals.protein, color: '#4ECDC4', unit: 'g'
+                      },
+                      {
+                        icon: <GrainIcon color="info" />, label: 'Carbs', value: data.carbs, goal: goals.carbs, color: '#45B7D1', unit: 'g'
+                      },
+                      {
+                        icon: <OilIcon color="success" />, label: 'Fat', value: data.fat, goal: goals.fat, color: '#96CEB4', unit: 'g'
+                      },
+                    ];
+                    return items.map((item, idx) => (
+                      <Grid item xs={12} sm={6} md={3} key={item.label}>
+                        <Card sx={{ borderRadius: 3, background: `${item.color}10` }}>
+                          <CardContent>
+                            <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                              {item.icon}
+                              <Typography variant="h6" sx={{ ml: 1 }}>{item.label}</Typography>
+                            </Box>
+                            <Typography variant="body1" fontWeight={700}>
+                              {Math.round(item.value)}/{item.goal} {item.unit}
+                            </Typography>
+                            <LinearProgress
+                              variant="determinate"
+                              value={Math.min(100, (item.value / item.goal) * 100)}
+                              sx={{ height: 10, borderRadius: 5, background: '#eee', my: 1, '& .MuiLinearProgress-bar': { background: item.color } }}
+                            />
+                            <Typography variant="caption" color="text.secondary">
+                              {label}
+                            </Typography>
+                          </CardContent>
+                        </Card>
+                      </Grid>
+                    ));
+                  })()}
+                </Grid>
+              ) : (
+                <Alert severity="info">No goal/progress data available.</Alert>
+              )}
+            </Paper>
+          </Box>
         </Fade>
 
         {/* Analytics Overview */}

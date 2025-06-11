@@ -35,6 +35,7 @@ import SendIcon from '@mui/icons-material/Send';
 import AddCommentIcon from '@mui/icons-material/AddComment';
 import ImageIcon from '@mui/icons-material/Image';
 import RestaurantIcon from '@mui/icons-material/Restaurant';
+import CloseIcon from '@mui/icons-material/Close';
 import { useNavigate } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import { v4 as uuidv4 } from 'uuid';
@@ -102,6 +103,8 @@ const Chat = () => {
   const [isMobile, setIsMobile] = useState(false);
   const [recordFoodDialog, setRecordFoodDialog] = useState(false);
   const [recordFoodResult, setRecordFoodResult] = useState<any>(null);
+  const [selectedImage, setSelectedImage] = useState<File | null>(null);
+  const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
 
   const handleNewChat = () => {
     const newSessionId = uuidv4();
@@ -265,90 +268,33 @@ const Chat = () => {
     }
   };
 
-  const handleSendMessage = async () => {
-    if (!input.trim()) return;
+  const handleSendCombinedMessage = async () => {
+    if (!input.trim() && !selectedImage) return;
 
-    const userMessage: Message = {
-      id: uuidv4(),
-      message: input,
-      is_user: true,
-      timestamp: new Date().toISOString(),
-      session_id: currentSession
-    };
-    setMessages((prev) => [...prev, userMessage]);
-    const currentInput = input;
-    setInput('');
     setIsLoading(true);
 
+    const formData = new FormData();
+    formData.append('message', input);
+    if (selectedImage) {
+      formData.append('image', selectedImage);
+    }
+    formData.append('session_id', currentSession);
+
     try {
-      const response = await fetch('http://localhost:8000/chat/message', {
+      const response = await fetch('http://localhost:8000/chat/message-with-image', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
           'Authorization': `Bearer ${localStorage.getItem('token')}`,
         },
-        body: JSON.stringify({
-          message: currentInput,
-          session_id: currentSession
-        }),
+        body: formData,
       });
 
-      if (response.ok) {
-        const reader = response.body?.getReader();
-        if (reader) {
-          const decoder = new TextDecoder();
-          let assistantMessage = '';
-          let buffer = '';
-          let isStreaming = true;
-          const revealSpeed = 40; // characters per second
-
-          const assistantInitialMessage: Message = {
-            id: uuidv4(),
-            message: '',
-            is_user: false,
-            timestamp: new Date().toISOString(),
-            session_id: currentSession
-          };
-          setMessages((prev) => [...prev, assistantInitialMessage]);
-
-          // Reveal characters at a constant rate (typewriter effect)
-          const revealCharacters = () => {
-            if (buffer.length > 0) {
-              // Reveal a fixed number of characters per frame
-              const charsPerFrame = revealSpeed / 60; // 60fps
-              const revealCount = Math.max(1, Math.floor(charsPerFrame));
-              assistantMessage += buffer.slice(0, revealCount);
-              buffer = buffer.slice(revealCount);
-
-              setMessages((prev) => {
-                const newMessages = [...prev];
-                const lastMessage = newMessages[newMessages.length - 1];
-                if (lastMessage && !lastMessage.is_user) {
-                  lastMessage.message = assistantMessage;
-                }
-                return newMessages;
-              });
-            }
-            if (isStreaming || buffer.length > 0) {
-              requestAnimationFrame(revealCharacters);
-            }
-          };
-          requestAnimationFrame(revealCharacters);
-
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            const chunk = decoder.decode(value, { stream: true });
-            buffer += chunk;
-          }
-
-          isStreaming = false;
-        }
-      } else {
-        console.error('Failed to send message');
-      }
+      // Optionally handle streaming or just refresh chat history
+      await fetchChatHistory();
+      setInput('');
+      setSelectedImage(null);
     } catch (error) {
-      console.error('Error sending message:', error);
+      console.error('Error sending combined message:', error);
     } finally {
       setIsLoading(false);
     }
@@ -518,6 +464,17 @@ const Chat = () => {
     setLoaded(true);
   }, []);
 
+  // Show preview when image is selected
+  useEffect(() => {
+    if (selectedImage) {
+      const url = URL.createObjectURL(selectedImage);
+      setImagePreviewUrl(url);
+      return () => URL.revokeObjectURL(url);
+    } else {
+      setImagePreviewUrl(null);
+    }
+  }, [selectedImage]);
+
   return (
     <Container maxWidth="md" sx={{ py: 4 }}>
       <Paper elevation={3} sx={{ p: 4, height: '80vh', display: 'flex', flexDirection: 'column' }}>
@@ -603,51 +560,54 @@ const Chat = () => {
           </List>
         </Box>
 
-        <Box component="form" onSubmit={(e) => { e.preventDefault(); handleSendMessage(); }} sx={{ display: 'flex', gap: 1 }}>
-          <input
-            type="file"
-            ref={fileInputRef}
-            onChange={handleImageUpload}
-            accept="image/*"
-            capture={isMobile ? "environment" : undefined}
-            style={{ display: 'none' }}
-          />
-          <input
-            type="file"
-            ref={recordFoodInputRef}
-            onChange={handleRecordFood}
-            accept="image/*"
-            capture={isMobile ? "environment" : undefined}
-            style={{ display: 'none' }}
-          />
-          <Tooltip title="Analyze image (chat only)">
-            <IconButton onClick={handleImageButtonClick} color="primary">
-              <ImageIcon />
-            </IconButton>
-          </Tooltip>
-          <Tooltip title="Record food consumption">
-            <IconButton onClick={handleRecordFoodButtonClick} color="secondary">
-              <RestaurantIcon />
-            </IconButton>
-          </Tooltip>
-          <TextField
-            fullWidth
-            variant="outlined"
-            placeholder="Type a message..."
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
-            disabled={isLoading}
-          />
-          <Button
-            type="submit"
-            variant="contained"
-            color="primary"
-            disabled={isLoading || !input.trim()}
-            endIcon={isLoading ? <CircularProgress size={20} color="inherit" /> : <SendIcon />}
-          >
-            Send
-          </Button>
+        <Box component="form" onSubmit={(e) => { e.preventDefault(); handleSendCombinedMessage(); }} sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+          {/* Image preview thumbnail */}
+          {imagePreviewUrl && (
+            <Box sx={{ display: 'flex', alignItems: 'center', mb: 1, maxWidth: 200 }}>
+              <img
+                src={imagePreviewUrl}
+                alt="Preview"
+                style={{ maxWidth: 100, maxHeight: 100, borderRadius: 8, marginRight: 8, border: '1px solid #ccc' }}
+              />
+              <IconButton size="small" onClick={() => setSelectedImage(null)} aria-label="Remove image preview">
+                <CloseIcon />
+              </IconButton>
+            </Box>
+          )}
+          <Box sx={{ display: 'flex', gap: 1 }}>
+            <input
+              type="file"
+              accept="image/*"
+              style={{ display: 'none' }}
+              id="chat-image-upload"
+              onChange={e => setSelectedImage(e.target.files?.[0] || null)}
+            />
+            <label htmlFor="chat-image-upload">
+              <Tooltip title="Attach image">
+                <IconButton component="span" color={selectedImage ? "success" : "primary"}>
+                  <ImageIcon />
+                </IconButton>
+              </Tooltip>
+            </label>
+            <TextField
+              fullWidth
+              variant="outlined"
+              placeholder="Type a message..."
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyPress={(e) => e.key === 'Enter' && handleSendCombinedMessage()}
+              disabled={isLoading}
+            />
+            <Button
+              type="submit"
+              variant="contained"
+              color="primary"
+              disabled={isLoading || (!input.trim() && !selectedImage)}
+              endIcon={isLoading ? <CircularProgress size={20} color="inherit" /> : <SendIcon />}
+            >
+              Send
+            </Button>
+          </Box>
         </Box>
       </Paper>
 
