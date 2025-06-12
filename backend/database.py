@@ -2,7 +2,7 @@ import os
 from azure.cosmos import CosmosClient
 from azure.cosmos.exceptions import CosmosResourceNotFoundError
 from dotenv import load_dotenv
-from datetime import datetime
+from datetime import datetime, timedelta
 import uuid
 import tiktoken
 import json
@@ -645,7 +645,6 @@ async def get_consumption_analytics(user_id: str, days: int = 7):
             raise ValueError("User ID is required")
             
         # Calculate date threshold
-        from datetime import datetime, timedelta
         threshold_date = (datetime.utcnow() - timedelta(days=days)).isoformat()
         
         query = f"SELECT * FROM c WHERE c.type = 'consumption_record' AND c.user_id = '{user_id}' AND c.timestamp >= '{threshold_date}' ORDER BY c.timestamp DESC"

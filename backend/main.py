@@ -35,7 +35,7 @@ from database import (
     get_user_consumption_history,
     get_consumption_analytics,
 )
-from goal_recalibration import recalibrate_all_users_goals
+from goal_recalibration import recalibrate_all_users_goals, recalibrate_all_users_weekly
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 import uuid
@@ -71,7 +71,7 @@ app.add_middleware(
 # Initialize scheduler
 scheduler = AsyncIOScheduler()
 
-# Add scheduled task for goal recalibration
+# Add scheduled task for daily goal recalibration
 @scheduler.scheduled_job(CronTrigger(hour=0, minute=0))  # Run at midnight
 async def scheduled_goal_recalibration():
     """Scheduled task to recalibrate all users' goals at midnight"""
@@ -80,6 +80,16 @@ async def scheduled_goal_recalibration():
         print(f"Successfully recalibrated goals for {success_count} users")
     except Exception as e:
         print(f"Error in scheduled goal recalibration: {str(e)}")
+
+# Add scheduled task for weekly goal recalibration
+@scheduler.scheduled_job(CronTrigger(day_of_week='sun', hour=23, minute=55))  # Run at 11:55 PM on Sunday
+async def scheduled_weekly_goal_recalibration():
+    """Scheduled task to recalibrate all users' weekly goals"""
+    try:
+        success_count = await recalibrate_all_users_weekly()
+        print(f"Successfully recalibrated weekly goals for {success_count} users")
+    except Exception as e:
+        print(f"Error in scheduled weekly goal recalibration: {str(e)}")
 
 # Start the scheduler when the app starts
 @app.on_event("startup")
