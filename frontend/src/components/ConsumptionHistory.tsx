@@ -1,89 +1,92 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Container,
-  Paper,
-  Typography,
-  Box,
-  List,
-  ListItem,
   Card,
   CardContent,
-  Grid,
+  Typography,
+  Button,
   Chip,
-  Alert,
+  Tabs,
+  Tab,
+  Box,
+  LinearProgress,
   CircularProgress,
+  Alert,
+  Grid,
+  Paper,
+  Divider,
   FormControl,
   InputLabel,
   Select,
   MenuItem,
-  Button,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
+  ToggleButton,
+  ToggleButtonGroup,
   Accordion,
   AccordionSummary,
   AccordionDetails,
+  List,
+  ListItem,
+  ListItemText,
+  ListItemIcon,
   Avatar,
-  Fade,
-  Slide,
-  Zoom,
-  useTheme,
-  keyframes,
+  Tooltip,
+  IconButton,
+  Stack,
+  Container
 } from '@mui/material';
 import {
-  Timeline,
-  TimelineItem,
-  TimelineSeparator,
-  TimelineConnector,
-  TimelineContent,
-  TimelineDot,
-  TimelineOppositeContent,
-} from '@mui/lab';
-import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
-import RestaurantIcon from '@mui/icons-material/Restaurant';
-import TrendingUpIcon from '@mui/icons-material/TrendingUp';
-import TrendingDownIcon from '@mui/icons-material/TrendingDown';
-import LocalFireDepartmentIcon from '@mui/icons-material/LocalFireDepartment';
-import { useNavigate } from 'react-router-dom';
-import LinearProgress from '@mui/material/LinearProgress';
-import FitnessCenterIcon from '@mui/icons-material/FitnessCenter';
-import BoltIcon from '@mui/icons-material/Bolt';
-import GrainIcon from '@mui/icons-material/Grain';
-import OilIcon from '@mui/icons-material/Opacity';
+  Refresh as RefreshIcon,
+  CalendarToday as CalendarIcon,
+  TrendingUp as TrendingUpIcon,
+  Apple as AppleIcon,
+  ExpandMore as ExpandMoreIcon,
+  BarChart as BarChartIcon,
+  ShowChart as LineChartIcon,
+  PieChart as PieChartIcon,
+  Timeline as TimelineIcon,
+  LocalFireDepartment as CaloriesIcon,
+  FitnessCenter as ProteinIcon,
+  Grain as CarbsIcon,
+  Opacity as FatIcon,
+  Nature as FiberIcon,
+  Cake as SugarIcon,
+  WaterDrop as SodiumIcon,
+  Restaurant as MealIcon,
+  Schedule as TimeIcon,
+  Analytics as AnalyticsIcon,
+  TrendingDown as TrendingDownIcon,
+  Assessment as AssessmentIcon
+} from '@mui/icons-material';
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  Title,
+  Tooltip as ChartTooltip,
+  Legend,
+  ArcElement,
+  PointElement,
+  LineElement,
+  Filler
+} from 'chart.js';
+import { Bar, Pie, Line, Doughnut } from 'react-chartjs-2';
 
-// Animations
-const float = keyframes`
-  0% { transform: translateY(0px); }
-  50% { transform: translateY(-5px); }
-  100% { transform: translateY(0px); }
-`;
+// Register Chart.js components
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  Title,
+  ChartTooltip,
+  Legend,
+  ArcElement,
+  PointElement,
+  LineElement,
+  Filler
+);
 
-const pulse = keyframes`
-  0% { transform: scale(1); }
-  50% { transform: scale(1.05); }
-  100% { transform: scale(1); }
-`;
-
-const shimmer = keyframes`
-  0% { background-position: -200px 0; }
-  100% { background-position: calc(200px + 100%) 0; }
-`;
-
-const gradientShift = keyframes`
-  0% { background-position: 0% 50%; }
-  50% { background-position: 100% 50%; }
-  100% { background-position: 0% 50%; }
-`;
-
-interface ConsumptionRecord {
-  id: string;
-  timestamp: string;
-  food_name: string;
-  estimated_portion: string;
-  nutritional_info: {
+// Enhanced types for comprehensive nutrition tracking
+interface NutritionalInfo {
     calories: number;
     carbohydrates: number;
     protein: number;
@@ -91,715 +94,1056 @@ interface ConsumptionRecord {
     fiber: number;
     sugar: number;
     sodium: number;
-  };
-  medical_rating: {
+  // Additional micronutrients
+  calcium?: number;
+  iron?: number;
+  potassium?: number;
+  vitamin_c?: number;
+  vitamin_d?: number;
+  vitamin_b12?: number;
+  folate?: number;
+  magnesium?: number;
+  zinc?: number;
+  saturated_fat?: number;
+  trans_fat?: number;
+  cholesterol?: number;
+}
+
+interface ChartConfig {
+  type: 'bar' | 'line' | 'pie' | 'doughnut';
+  metric: keyof NutritionalInfo;
+  title: string;
+  color: string;
+  icon: React.ReactNode;
+}
+
+interface TimeRange {
+  value: string;
+  label: string;
+  days: number;
+}
+
+interface MedicalRating {
     diabetes_suitability: string;
     glycemic_impact: string;
     recommended_frequency: string;
     portion_recommendation: string;
-  };
-  image_analysis: string;
-  image_url: string;
 }
 
-interface Analytics {
-  period_days: number;
-  total_records: number;
+interface ConsumptionRecord {
+  id: string;
+  user_id: string;
+  timestamp: string;
+  food_name: string;
+  estimated_portion: string;
+  nutritional_info: NutritionalInfo;
+  medical_rating: MedicalRating;
+  image_analysis: string;
+  meal_type: string;
+}
+
+interface ConsumptionAnalytics {
+  total_meals: number;
+  date_range: {
+    start_date: string;
+    end_date: string;
+  };
+  daily_averages: NutritionalInfo;
+  weekly_trends: {
+    calories: number[];
+    protein: number[];
+    carbohydrates: number[];
+    fat: number[];
+  };
+  meal_distribution: {
+    breakfast: number;
+    lunch: number;
+    dinner: number;
+    snack: number;
+  };
+  top_foods: Array<{
+    food: string;
+    frequency: number;
   total_calories: number;
-  average_daily_calories: number;
-  total_macronutrients: {
-    carbohydrates: number;
+  }>;
+  adherence_stats: {
+    diabetes_suitable_percentage: number;
+    calorie_goal_adherence: number;
+    protein_goal_adherence: number;
+    carb_goal_adherence: number;
+  };
+  daily_nutrition_history: Array<{
+    date: string;
+    calories: number;
     protein: number;
+    carbohydrates: number;
+    fat: number;
+    meals_count: number;
+  }>;
+}
+
+interface DailyInsights {
+  date: string;
+  goals: {
+    calories: number;
+    protein: number;
+    carbohydrates: number;
     fat: number;
   };
+  today_totals: NutritionalInfo;
+  adherence: {
+    calories: number;
+    protein: number;
+    carbohydrates: number;
+    fat: number;
+  };
+  meals_logged_today: number;
+  weekly_stats: {
+    total_meals: number;
   diabetes_suitable_percentage: number;
-  consumption_records: ConsumptionRecord[];
+    average_daily_calories: number;
+  };
+  recommendations: Array<{
+    type: string;
+    priority: string;
+    message: string;
+    action: string;
+  }>;
+  has_meal_plan: boolean;
+  latest_meal_plan_date: string | null;
 }
 
-const ConsumptionHistory = () => {
-  const theme = useTheme();
-  const [loaded, setLoaded] = useState(false);
+interface TabPanelProps {
+  children?: React.ReactNode;
+  index: number;
+  value: number;
+}
+
+function TabPanel(props: TabPanelProps) {
+  const { children, value, index, ...other } = props;
+
+  return (
+    <div
+      role="tabpanel"
+      hidden={value !== index}
+      id={`consumption-tabpanel-${index}`}
+      aria-labelledby={`consumption-tab-${index}`}
+      {...other}
+    >
+      {value === index && (
+        <Box sx={{ p: 3 }}>
+          {children}
+        </Box>
+      )}
+    </div>
+  );
+}
+
+const ConsumptionHistory: React.FC = () => {
   const [consumptionHistory, setConsumptionHistory] = useState<ConsumptionRecord[]>([]);
-  const [analytics, setAnalytics] = useState<Analytics | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [analyticsLoading, setAnalyticsLoading] = useState(false);
+  const [analytics, setAnalytics] = useState<ConsumptionAnalytics | null>(null);
+  const [dailyInsights, setDailyInsights] = useState<DailyInsights | null>(null);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [analyticsPeriod, setAnalyticsPeriod] = useState(7);
-  const [progress, setProgress] = useState<any>(null);
-  const [progressView, setProgressView] = useState<'today' | 'weekly' | 'monthly'>('today');
-  const [progressLoading, setProgressLoading] = useState(true);
-  const navigate = useNavigate();
+  const [activeTab, setActiveTab] = useState(0);
+  
+  // Enhanced state for advanced analytics
+  const [selectedTimeRange, setSelectedTimeRange] = useState('7');
+  const [selectedChartType, setSelectedChartType] = useState<'bar' | 'line' | 'pie' | 'doughnut'>('bar');
+  const [selectedMetric, setSelectedMetric] = useState<keyof NutritionalInfo>('calories');
+  const [comparisonMode, setComparisonMode] = useState(false);
+  const [expandedSections, setExpandedSections] = useState<string[]>(['overview']);
+
+  // Time range options
+  const timeRanges: TimeRange[] = [
+    { value: '1', label: 'Today', days: 1 },
+    { value: '2', label: 'Yesterday vs Today', days: 2 },
+    { value: '7', label: 'This Week', days: 7 },
+    { value: '14', label: 'Last 2 Weeks', days: 14 },
+    { value: '30', label: 'This Month', days: 30 },
+    { value: '90', label: 'Last 3 Months', days: 90 },
+    { value: '365', label: 'This Year', days: 365 }
+  ];
+
+  // Chart configurations for different metrics
+  const chartConfigs: ChartConfig[] = [
+    { type: 'bar', metric: 'calories', title: 'Calories', color: '#FF6B6B', icon: <CaloriesIcon /> },
+    { type: 'bar', metric: 'protein', title: 'Protein (g)', color: '#4ECDC4', icon: <ProteinIcon /> },
+    { type: 'bar', metric: 'carbohydrates', title: 'Carbohydrates (g)', color: '#45B7D1', icon: <CarbsIcon /> },
+    { type: 'bar', metric: 'fat', title: 'Fat (g)', color: '#FFA07A', icon: <FatIcon /> },
+    { type: 'bar', metric: 'fiber', title: 'Fiber (g)', color: '#98D8C8', icon: <FiberIcon /> },
+    { type: 'bar', metric: 'sugar', title: 'Sugar (g)', color: '#F7DC6F', icon: <SugarIcon /> },
+    { type: 'bar', metric: 'sodium', title: 'Sodium (mg)', color: '#BB8FCE', icon: <SodiumIcon /> }
+  ];
 
   useEffect(() => {
-    setLoaded(true);
-  }, []);
+    loadConsumptionData();
+  }, [selectedTimeRange]);
 
-  useEffect(() => {
-    fetchConsumptionHistory();
-    fetchAnalytics(analyticsPeriod);
-    fetchProgress();
-
-    // Add event listener for consumption record updates
-    const handleConsumptionRecorded = () => {
-      fetchConsumptionHistory();
-      fetchAnalytics(analyticsPeriod);
-      fetchProgress();
-    };
-
-    window.addEventListener('consumptionRecorded', handleConsumptionRecorded);
-
-    // Cleanup
-    return () => {
-      window.removeEventListener('consumptionRecorded', handleConsumptionRecorded);
-    };
-  }, [analyticsPeriod]);
-
-  const fetchConsumptionHistory = async () => {
+  const loadConsumptionData = async () => {
     try {
-      setIsLoading(true);
-      console.log('Fetching consumption history...');
+      setLoading(true);
+      setError(null);
+
+      const selectedDays = parseInt(selectedTimeRange);
+      const historyLimit = selectedDays === 1 ? 20 : selectedDays * 5; // More data for longer periods
+
+      // Get the auth token
       const token = localStorage.getItem('token');
-      console.log('Using token:', token ? 'Token exists' : 'No token found');
-      
-      const response = await fetch('http://localhost:8000/consumption/history?limit=50', {
-        headers: {
-          'Authorization': `Bearer ${token}`,
+      if (!token) {
+        throw new Error('No authentication token found. Please log in again.');
+      }
+
+      const headers = {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      };
+
+      // Load all data in parallel with dynamic time range (using authenticated endpoints)
+      const [historyResponse, analyticsResponse, insightsResponse] = await Promise.all([
+        fetch(`http://localhost:8000/consumption/history?limit=${historyLimit}`, { headers }),
+        fetch(`http://localhost:8000/consumption/analytics?days=${selectedDays}`, { headers }),
+        fetch('http://localhost:8000/coach/daily-insights', { headers })
+      ]);
+
+      if (!historyResponse.ok) {
+        throw new Error(`Failed to load consumption history: ${historyResponse.statusText}`);
+      }
+      if (!analyticsResponse.ok) {
+        throw new Error(`Failed to load analytics: ${analyticsResponse.statusText}`);
+      }
+      if (!insightsResponse.ok) {
+        throw new Error(`Failed to load daily insights: ${insightsResponse.statusText}`);
+      }
+
+      const historyData = await historyResponse.json();
+      const analyticsData = await analyticsResponse.json();
+      const insightsData = await insightsResponse.json();
+
+      console.log('Loaded consumption data:', { historyData, analyticsData, insightsData });
+
+      setConsumptionHistory(historyData);
+      setAnalytics(analyticsData);
+      setDailyInsights(insightsData);
+
+    } catch (err) {
+      console.error('Error loading consumption data:', err);
+      setError(err instanceof Error ? err.message : 'Failed to load consumption data');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Helper functions for chart data generation
+  const generateChartData = (metric: keyof NutritionalInfo) => {
+    if (!analytics?.daily_nutrition_history) return null;
+
+    const data = analytics.daily_nutrition_history.slice(-parseInt(selectedTimeRange));
+    const labels = data.map(day => formatDate(day.date));
+    const values = data.map(day => (day as any)[metric] || 0);
+
+    const chartConfig = chartConfigs.find(config => config.metric === metric);
+    const color = chartConfig?.color || '#45B7D1';
+
+    if (selectedChartType === 'pie' || selectedChartType === 'doughnut') {
+      // For pie charts, show distribution across meal types
+      const mealDistribution = analytics.meal_distribution;
+      return {
+        labels: Object.keys(mealDistribution),
+        datasets: [{
+          data: Object.values(mealDistribution),
+          backgroundColor: ['#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A'],
+          borderWidth: 2,
+          borderColor: '#fff'
+        }]
+      };
+    }
+
+    return {
+      labels,
+      datasets: [{
+        label: chartConfig?.title || metric,
+        data: values,
+        backgroundColor: selectedChartType === 'line' ? 'transparent' : color,
+        borderColor: color,
+        borderWidth: 2,
+        fill: selectedChartType === 'line',
+        tension: 0.4,
+        pointBackgroundColor: color,
+        pointBorderColor: '#fff',
+        pointBorderWidth: 2,
+        pointRadius: 4
+      }]
+    };
+  };
+
+  const getChartOptions = (metric: keyof NutritionalInfo) => {
+    const chartConfig = chartConfigs.find(config => config.metric === metric);
+    
+    return {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          position: 'top' as const,
+          labels: {
+            usePointStyle: true,
+            padding: 20
+          }
         },
-      });
-
-      console.log('Response status:', response.status);
-      console.log('Response headers:', Object.fromEntries(response.headers.entries()));
-
-      if (response.ok) {
-        const data = await response.json();
-        console.log('Received consumption history:', data);
-        console.log('Number of records:', data.length);
-        if (data.length > 0) {
-          console.log('First record:', data[0]);
-          console.log('First record keys:', Object.keys(data[0]));
-        } else {
-          console.log('No records found in the response');
+        title: {
+          display: true,
+          text: `${chartConfig?.title || metric} - ${timeRanges.find(r => r.value === selectedTimeRange)?.label}`,
+          font: {
+            size: 16,
+            weight: 'bold' as const
+          }
+        },
+        tooltip: {
+          backgroundColor: 'rgba(0,0,0,0.8)',
+          titleColor: '#fff',
+          bodyColor: '#fff',
+          borderColor: chartConfig?.color || '#45B7D1',
+          borderWidth: 1
         }
-        setConsumptionHistory(data);
-      } else {
-        console.error('Failed to fetch consumption history:', response.status, response.statusText);
-        const errorText = await response.text();
-        console.error('Error response:', errorText);
-        setError('Failed to fetch consumption history');
-      }
-    } catch (error) {
-      console.error('Error fetching consumption history:', error);
-      setError('Error fetching consumption history');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const fetchAnalytics = async (days: number) => {
-    try {
-      setAnalyticsLoading(true);
-      const response = await fetch(`http://localhost:8000/consumption/analytics?days=${days}`, {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+      },
+      scales: selectedChartType === 'pie' || selectedChartType === 'doughnut' ? {} : {
+        y: {
+          beginAtZero: true,
+          grid: {
+            color: 'rgba(0,0,0,0.1)'
+          },
+          ticks: {
+            font: {
+              size: 12
+            }
+          }
         },
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setAnalytics(data);
-      } else {
-        console.error('Failed to fetch analytics');
+        x: {
+          grid: {
+            color: 'rgba(0,0,0,0.1)'
+          },
+          ticks: {
+            font: {
+              size: 12
+            }
+          }
+        }
       }
-    } catch (error) {
-      console.error('Error fetching analytics:', error);
-    } finally {
-      setAnalyticsLoading(false);
+    };
+  };
+
+  const renderChart = (metric: keyof NutritionalInfo) => {
+    const data = generateChartData(metric);
+    if (!data) return <Typography>No data available</Typography>;
+
+    const options = getChartOptions(metric);
+
+    switch (selectedChartType) {
+      case 'bar':
+        return <Bar data={data} options={options} />;
+      case 'line':
+        return <Line data={data} options={options} />;
+      case 'pie':
+        return <Pie data={data} options={options} />;
+      case 'doughnut':
+        return <Doughnut data={data} options={options} />;
+      default:
+        return <Bar data={data} options={options} />;
     }
   };
 
-  const fetchProgress = async () => {
-    setProgressLoading(true);
+  const formatDate = (dateString: string) => {
     try {
-      const token = localStorage.getItem('token');
-      console.log('Fetching progress with token:', token ? 'Token exists' : 'No token found');
-      
-      const response = await fetch('http://localhost:8000/consumption/progress', {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
+      return new Date(dateString).toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
       });
-      console.log('Progress response status:', response.status);
-      if (response.ok) {
-        const data = await response.json();
-        console.log("Progress response:", data);
-        setProgress(data);
-      } else {
-        const errorText = await response.text();
-        console.error('Progress fetch error:', errorText);
-      }
-    } catch (e) {
-      console.error('Progress fetch exception:', e);
-    } finally {
-      setProgressLoading(false);
+    } catch {
+      return 'Invalid Date';
     }
   };
 
-  const handleAnalyticsPeriodChange = (event: any) => {
-    const days = event.target.value;
-    setAnalyticsPeriod(days);
-    fetchAnalytics(days);
-  };
-
-  const getSuitabilityColor = (suitability: string) => {
+  const getDiabetesSuitabilityColor = (suitability: string) => {
     switch (suitability?.toLowerCase()) {
       case 'high':
       case 'good':
-      case 'suitable':
+      case 'excellent':
         return 'success';
       case 'medium':
       case 'moderate':
         return 'warning';
       case 'low':
       case 'poor':
-      case 'avoid':
         return 'error';
       default:
         return 'default';
     }
   };
 
-  const getGlycemicImpactIcon = (impact: string) => {
-    switch (impact?.toLowerCase()) {
-      case 'low':
-        return <TrendingDownIcon color="success" />;
-      case 'high':
-        return <TrendingUpIcon color="error" />;
+  const getMealTypeIcon = (mealType: string) => {
+    switch (mealType?.toLowerCase()) {
+      case 'breakfast':
+        return '🌅';
+      case 'lunch':
+        return '🌞';
+      case 'dinner':
+        return '🌙';
+      case 'snack':
+        return '🍎';
       default:
-        return <TrendingUpIcon color="warning" />;
+        return '🍽️';
     }
   };
 
-  const formatTimestamp = (timestamp: string) => {
-    try {
-      // Handle the case where backend sends UTC timestamp without 'Z' suffix
-      let processedTimestamp = timestamp;
-      
-      // If the string doesn't end with 'Z' or timezone info, assume it's UTC
-      if (!timestamp.includes('Z') && !timestamp.includes('+') && !timestamp.includes('-', 10)) {
-        processedTimestamp = timestamp + 'Z';
-      }
-      
-      const date = new Date(processedTimestamp);
-      if (isNaN(date.getTime())) {
-        return 'Invalid Date';
-      }
-
-      // Return formatted timestamp in user's local timezone
-      return date.toLocaleString('en-US', {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: true,
-        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone
-      });
-    } catch (e) {
-      return 'Invalid Date';
-    }
+  const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
+    setActiveTab(newValue);
   };
 
-  if (isLoading) {
+  if (loading) {
     return (
-      <Box
-        sx={{
-          minHeight: '100vh',
-          background: `linear-gradient(-45deg, ${theme.palette.primary.main}08, ${theme.palette.secondary.main}08, ${theme.palette.primary.main}05, ${theme.palette.secondary.main}05)`,
-          backgroundSize: '400% 400%',
-          animation: `${gradientShift} 15s ease infinite`,
-          py: 4,
-        }}
-      >
-        <Container maxWidth="lg">
-          <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
-            <CircularProgress 
-              size={60}
-              sx={{
-                animation: `${pulse} 2s ease-in-out infinite`,
-              }}
-            />
-          </Box>
-        </Container>
+      <Box display="flex" flexDirection="column" alignItems="center" justifyContent="center" minHeight="400px">
+        <CircularProgress size={60} sx={{ mb: 2 }} />
+        <Typography color="textSecondary">Loading consumption data...</Typography>
       </Box>
     );
   }
 
   if (error) {
     return (
-      <Box
-        sx={{
-          minHeight: '100vh',
-          background: `linear-gradient(-45deg, ${theme.palette.primary.main}08, ${theme.palette.secondary.main}08, ${theme.palette.primary.main}05, ${theme.palette.secondary.main}05)`,
-          backgroundSize: '400% 400%',
-          animation: `${gradientShift} 15s ease infinite`,
-          py: 4,
-        }}
-      >
-        <Container maxWidth="lg">
-          <Alert 
-            severity="error"
-            sx={{
-              borderRadius: 3,
-              animation: `${pulse} 1s ease`,
-            }}
-          >
-            {error}
+      <Box maxWidth="600px" mx="auto" p={3}>
+        <Alert severity="error" sx={{ mb: 2 }}>
+          <Typography variant="h6" gutterBottom>Error Loading Data</Typography>
+          <Typography>{error}</Typography>
           </Alert>
-        </Container>
+        <Button variant="contained" onClick={loadConsumptionData} startIcon={<RefreshIcon />}>
+          Try Again
+        </Button>
       </Box>
     );
   }
 
   return (
-    <Box
-      sx={{
-        minHeight: '100vh',
-        background: `linear-gradient(-45deg, ${theme.palette.primary.main}08, ${theme.palette.secondary.main}08, ${theme.palette.primary.main}05, ${theme.palette.secondary.main}05)`,
-        backgroundSize: '400% 400%',
-        animation: `${gradientShift} 15s ease infinite`,
-        py: 4,
-      }}
-    >
-      <Container maxWidth="lg">
-        <Fade in={loaded} timeout={1000}>
-          <Typography 
-            variant="h3" 
-            component="h1" 
-            gutterBottom
-            align="center"
-            sx={{
-              fontWeight: 800,
-              mb: 4,
-              background: `linear-gradient(45deg, ${theme.palette.primary.main}, ${theme.palette.secondary.main})`,
-              backgroundClip: 'text',
-              WebkitBackgroundClip: 'text',
-              WebkitTextFillColor: 'transparent',
-              textShadow: '0 4px 8px rgba(0,0,0,0.1)',
-            }}
-          >
-            📊 Consumption History
+    <Container maxWidth="xl" sx={{ mt: 2, mb: 4 }}>
+      {/* Enhanced Header with Controls */}
+      <Paper elevation={2} sx={{ p: 3, mb: 3, background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: 'white' }}>
+        <Box display="flex" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={2}>
+          <Box>
+            <Typography variant="h3" component="h1" gutterBottom sx={{ fontWeight: 'bold' }}>
+              🍎 Nutrition Analytics Dashboard
           </Typography>
-        </Fade>
-
-        {/* Goal Tracking Summary */}
-        <Fade in={loaded} timeout={900}>
-          <Box sx={{ mb: 4 }}>
-            <Paper elevation={2} sx={{ p: 4, borderRadius: 4, mb: 2, background: 'rgba(255,255,255,0.98)' }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
-                <Typography variant="h5" fontWeight={700}>
-                  Goal Tracking
+            <Typography variant="h6" sx={{ opacity: 0.9 }}>
+              Advanced insights into your dietary patterns and nutritional progress
                 </Typography>
-                <Box>
+          </Box>
+          <Stack direction="row" spacing={2} alignItems="center">
                   <Button
-                    variant={progressView === 'today' ? 'contained' : 'outlined'}
-                    onClick={() => setProgressView('today')}
-                    sx={{ mr: 1 }}
-                    size="small"
-                  >
-                    Today
+              variant="contained"
+              onClick={loadConsumptionData}
+              startIcon={<RefreshIcon />}
+              sx={{ bgcolor: 'rgba(255,255,255,0.2)', '&:hover': { bgcolor: 'rgba(255,255,255,0.3)' } }}
+            >
+              Refresh Data
                   </Button>
-                  <Button
-                    variant={progressView === 'weekly' ? 'contained' : 'outlined'}
-                    onClick={() => setProgressView('weekly')}
-                    sx={{ mr: 1 }}
-                    size="small"
-                  >
-                    Weekly Avg
-                  </Button>
-                  <Button
-                    variant={progressView === 'monthly' ? 'contained' : 'outlined'}
-                    onClick={() => setProgressView('monthly')}
-                    size="small"
-                  >
-                    Monthly Avg
-                  </Button>
+          </Stack>
+        </Box>
+      </Paper>
+
+      {/* Advanced Controls Panel */}
+      <Paper elevation={1} sx={{ p: 3, mb: 3 }}>
+        <Grid container spacing={3} alignItems="center">
+          <Grid item xs={12} sm={6} md={3}>
+            <FormControl fullWidth>
+              <InputLabel>Time Period</InputLabel>
+              <Select
+                value={selectedTimeRange}
+                label="Time Period"
+                onChange={(e) => setSelectedTimeRange(e.target.value)}
+                startAdornment={<TimeIcon sx={{ mr: 1, color: 'action.active' }} />}
+              >
+                {timeRanges.map((range) => (
+                  <MenuItem key={range.value} value={range.value}>
+                    {range.label}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          </Grid>
+          
+          <Grid item xs={12} sm={6} md={3}>
+            <FormControl fullWidth>
+              <InputLabel>Chart Type</InputLabel>
+              <Select
+                value={selectedChartType}
+                label="Chart Type"
+                onChange={(e) => setSelectedChartType(e.target.value as any)}
+              >
+                <MenuItem value="bar"><BarChartIcon sx={{ mr: 1 }} />Bar Chart</MenuItem>
+                <MenuItem value="line"><LineChartIcon sx={{ mr: 1 }} />Line Chart</MenuItem>
+                <MenuItem value="pie"><PieChartIcon sx={{ mr: 1 }} />Pie Chart</MenuItem>
+                <MenuItem value="doughnut"><AnalyticsIcon sx={{ mr: 1 }} />Doughnut</MenuItem>
+              </Select>
+            </FormControl>
+          </Grid>
+
+          <Grid item xs={12} sm={6} md={3}>
+            <FormControl fullWidth>
+              <InputLabel>Metric</InputLabel>
+              <Select
+                value={selectedMetric}
+                label="Metric"
+                onChange={(e) => setSelectedMetric(e.target.value as keyof NutritionalInfo)}
+              >
+                {chartConfigs.map((config) => (
+                  <MenuItem key={config.metric} value={config.metric}>
+                    <Box display="flex" alignItems="center" gap={1}>
+                      {config.icon}
+                      {config.title}
                 </Box>
-              </Box>
-              {progressLoading ? (
-                <Box sx={{ display: 'flex', justifyContent: 'center', p: 2 }}>
-                  <CircularProgress />
-                </Box>
-              ) : (progress && typeof progress === 'object') ? (
-                <Grid container spacing={3}>
-                  {(() => {
-                    let data: any, label: string;
-                    if (progressView === 'today') {
-                      data = progress.today;
-                      label = 'Today';
-                    } else if (progressView === 'weekly') {
-                      data = progress.weekly_avg;
-                      label = 'Weekly Avg';
-                    } else {
-                      data = progress.monthly_avg;
-                      label = 'Monthly Avg';
-                    }
-                    const goals = progress.goals;
-                    const items = [
-                      {
-                        icon: <FitnessCenterIcon color="error" />, label: 'Calories', value: data.calories, goal: goals.calories, color: '#FF6B6B', unit: 'kcal'
-                      },
-                      {
-                        icon: <BoltIcon color="primary" />, label: 'Protein', value: data.protein, goal: goals.protein, color: '#4ECDC4', unit: 'g'
-                      },
-                      {
-                        icon: <GrainIcon color="info" />, label: 'Carbs', value: data.carbs, goal: goals.carbs, color: '#45B7D1', unit: 'g'
-                      },
-                      {
-                        icon: <OilIcon color="success" />, label: 'Fat', value: data.fat, goal: goals.fat, color: '#96CEB4', unit: 'g'
-                      },
-                    ];
-                    return items.map((item, idx) => (
-                      <Grid item xs={12} sm={6} md={3} key={item.label}>
-                        <Card sx={{ borderRadius: 3, background: `${item.color}10` }}>
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          </Grid>
+
+          <Grid item xs={12} sm={6} md={3}>
+            <ToggleButtonGroup
+              value={comparisonMode}
+              exclusive
+              onChange={(e, value) => setComparisonMode(value)}
+              aria-label="comparison mode"
+              fullWidth
+            >
+              <ToggleButton value={false} aria-label="single view">
+                <AssessmentIcon sx={{ mr: 1 }} />
+                Single View
+              </ToggleButton>
+              <ToggleButton value={true} aria-label="comparison view">
+                <TimelineIcon sx={{ mr: 1 }} />
+                Compare
+              </ToggleButton>
+            </ToggleButtonGroup>
+          </Grid>
+        </Grid>
+      </Paper>
+
+      {/* Enhanced Tabs with Advanced Analytics */}
+      <Paper elevation={2} sx={{ width: '100%' }}>
+        <Tabs 
+          value={activeTab} 
+          onChange={handleTabChange} 
+          aria-label="consumption tabs"
+          variant="fullWidth"
+          sx={{ 
+            borderBottom: 1, 
+            borderColor: 'divider',
+            '& .MuiTab-root': { 
+              fontWeight: 'bold',
+              fontSize: '1rem'
+            }
+          }}
+        >
+          <Tab 
+            label="📊 Daily Insights" 
+            icon={<TrendingUpIcon />}
+            iconPosition="start"
+          />
+          <Tab 
+            label="🍽️ Meal History" 
+            icon={<MealIcon />}
+            iconPosition="start"
+          />
+          <Tab 
+            label="📈 Advanced Analytics" 
+            icon={<AnalyticsIcon />}
+            iconPosition="start"
+          />
+          <Tab 
+            label="📋 Detailed Reports" 
+            icon={<AssessmentIcon />}
+            iconPosition="start"
+          />
+        </Tabs>
+
+        {/* Daily Insights Tab */}
+        <TabPanel value={activeTab} index={0}>
+          {dailyInsights && (
+            <Box>
+              {/* Today's Progress */}
+              <Card sx={{ mb: 3 }}>
                           <CardContent>
-                            <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-                              {item.icon}
-                              <Typography variant="h6" sx={{ ml: 1 }}>{item.label}</Typography>
+                  <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <CalendarIcon />
+                    Today's Progress
+                  </Typography>
+                  <Grid container spacing={3}>
+                    <Grid item xs={12} sm={6} md={3}>
+                      <Box>
+                        <Typography variant="body2" color="textSecondary">
+                          Calories: {Math.round(dailyInsights.today_totals.calories)}/{dailyInsights.goals.calories}
+                        </Typography>
+                        <LinearProgress
+                          variant="determinate"
+                          value={Math.min(100, dailyInsights.adherence.calories)}
+                          sx={{ mt: 1 }}
+                        />
                             </Box>
-                            <Typography variant="body1" fontWeight={700}>
-                              {Math.round(item.value)}/{item.goal} {item.unit}
+                    </Grid>
+                    <Grid item xs={12} sm={6} md={3}>
+                      <Box>
+                        <Typography variant="body2" color="textSecondary">
+                          Protein: {Math.round(dailyInsights.today_totals.protein)}g/{dailyInsights.goals.protein}g
                             </Typography>
                             <LinearProgress
                               variant="determinate"
-                              value={Math.min(100, (item.value / item.goal) * 100)}
-                              sx={{ height: 10, borderRadius: 5, background: '#eee', my: 1, '& .MuiLinearProgress-bar': { background: item.color } }}
-                            />
-                            <Typography variant="caption" color="text.secondary">
-                              {label}
+                          value={Math.min(100, dailyInsights.adherence.protein)}
+                          sx={{ mt: 1 }}
+                        />
+                      </Box>
+                    </Grid>
+                    <Grid item xs={12} sm={6} md={3}>
+                      <Box>
+                        <Typography variant="body2" color="textSecondary">
+                          Carbs: {Math.round(dailyInsights.today_totals.carbohydrates)}g/{dailyInsights.goals.carbohydrates}g
                             </Typography>
-                          </CardContent>
-                        </Card>
+                        <LinearProgress
+                          variant="determinate"
+                          value={Math.min(100, dailyInsights.adherence.carbohydrates)}
+                          sx={{ mt: 1 }}
+                        />
+                      </Box>
                       </Grid>
-                    ));
-                  })()}
-                </Grid>
-              ) : (
-                <Alert severity="info">No goal/progress data available.</Alert>
-              )}
-            </Paper>
+                    <Grid item xs={12} sm={6} md={3}>
+                      <Box>
+                        <Typography variant="body2" color="textSecondary">
+                          Fat: {Math.round(dailyInsights.today_totals.fat)}g/{dailyInsights.goals.fat}g
+                        </Typography>
+                        <LinearProgress
+                          variant="determinate"
+                          value={Math.min(100, dailyInsights.adherence.fat)}
+                          sx={{ mt: 1 }}
+                        />
           </Box>
-        </Fade>
+                    </Grid>
+                  </Grid>
+                </CardContent>
+              </Card>
 
-        {/* Analytics Overview */}
-        <Slide direction="down" in={loaded} timeout={1200}>
+              {/* Recommendations */}
+              {dailyInsights.recommendations.length > 0 && (
+                <Card>
+                  <CardContent>
+                    <Typography variant="h6" gutterBottom>
+                      Recommendations
+                    </Typography>
           <Box>
-            <Paper 
-              elevation={0}
-              sx={{ 
-                p: 4, 
-                mb: 4,
-                borderRadius: 4,
-                background: 'rgba(255,255,255,0.95)',
-                backdropFilter: 'blur(20px)',
-                border: '1px solid rgba(255,255,255,0.3)',
-                boxShadow: '0 8px 32px rgba(0,0,0,0.1)',
-                position: 'relative',
-                overflow: 'hidden',
-                '&::before': {
-                  content: '""',
-                  position: 'absolute',
-                  top: 0,
-                  left: '-200px',
-                  width: '200px',
-                  height: '100%',
-                  background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent)',
-                  animation: `${shimmer} 3s infinite`,
-                },
-              }}
-            >
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-          <Typography variant="h5" component="h2">
-            Analytics Overview
-          </Typography>
-          <FormControl size="small" sx={{ minWidth: 120 }}>
-            <InputLabel>Period</InputLabel>
-            <Select
-              value={analyticsPeriod}
-              label="Period"
-              onChange={handleAnalyticsPeriodChange}
-            >
-              <MenuItem value={1}>1 Day</MenuItem>
-              <MenuItem value={7}>7 Days</MenuItem>
-              <MenuItem value={14}>14 Days</MenuItem>
-              <MenuItem value={30}>30 Days</MenuItem>
-            </Select>
-          </FormControl>
+                      {dailyInsights.recommendations.map((rec, index) => (
+                        <Alert
+                          key={index}
+                          severity={rec.priority === 'high' ? 'error' : rec.priority === 'medium' ? 'warning' : 'success'}
+                          sx={{ mb: 1 }}
+                        >
+                          {rec.message}
+                        </Alert>
+                      ))}
         </Box>
-
-        {analyticsLoading ? (
-          <Box sx={{ display: 'flex', justifyContent: 'center', p: 2 }}>
-            <CircularProgress />
+                  </CardContent>
+                </Card>
+              )}
           </Box>
-        ) : analytics ? (
-          <Grid container spacing={3}>
-            <Grid item xs={12} sm={6} md={3}>
+          )}
+        </TabPanel>
+
+        {/* Meal History Tab */}
+        <TabPanel value={activeTab} index={1}>
+          {consumptionHistory.length === 0 ? (
               <Card>
                 <CardContent>
-                  <Typography color="textSecondary" gutterBottom>
-                    Total Records
+                <Box textAlign="center" py={4}>
+                  <AppleIcon sx={{ fontSize: 60, color: 'text.secondary', mb: 2 }} />
+                  <Typography variant="h6" gutterBottom>
+                    No meals logged yet
                   </Typography>
-                  <Typography variant="h4">
-                    {analytics.total_records}
+                  <Typography color="textSecondary">
+                    Start logging your meals to see your consumption history here.
                   </Typography>
+                </Box>
                 </CardContent>
               </Card>
-            </Grid>
-            <Grid item xs={12} sm={6} md={3}>
-              <Card>
-                <CardContent>
-                  <Typography color="textSecondary" gutterBottom>
-                    Total Calories
-                  </Typography>
-                  <Typography variant="h4">
-                    <LocalFireDepartmentIcon color="warning" sx={{ mr: 1 }} />
-                    {Math.round(analytics.total_calories)}
-                  </Typography>
-                  <Typography variant="body2" color="textSecondary">
-                    Avg: {Math.round(analytics.average_daily_calories)}/day
-                  </Typography>
-                </CardContent>
-              </Card>
-            </Grid>
-            <Grid item xs={12} sm={6} md={3}>
-              <Card>
-                <CardContent>
-                  <Typography color="textSecondary" gutterBottom>
-                    Diabetes Suitable
-                  </Typography>
-                  <Typography variant="h4" color={analytics.diabetes_suitable_percentage >= 70 ? 'success.main' : 'warning.main'}>
-                    {Math.round(analytics.diabetes_suitable_percentage)}%
-                  </Typography>
-                </CardContent>
-              </Card>
-            </Grid>
-            <Grid item xs={12} sm={6} md={3}>
-              <Card>
-                <CardContent>
-                  <Typography color="textSecondary" gutterBottom>
-                    Macronutrients
-                  </Typography>
-                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                    <Typography variant="h6" color="textPrimary">
-                      Carbs: {Math.round(analytics.total_macronutrients.carbohydrates)}g
+          ) : (
+            <Box>
+              {consumptionHistory.map((record) => (
+                <Card key={record.id} sx={{ mb: 2 }}>
+                  <CardContent>
+                    <Box display="flex" alignItems="center" gap={1} mb={1}>
+                      <Typography variant="h6" component="span">
+                        {getMealTypeIcon(record.meal_type)} {record.food_name}
+                      </Typography>
+                      <Chip label={record.meal_type} variant="outlined" size="small" />
+                    </Box>
+                    
+                    <Typography variant="body2" color="textSecondary" gutterBottom>
+                      {record.estimated_portion} • {formatDate(record.timestamp)}
                     </Typography>
-                    <Typography variant="h6" color="textPrimary">
-                      Protein: {Math.round(analytics.total_macronutrients.protein)}g
-                    </Typography>
-                    <Typography variant="h6" color="textPrimary">
-                      Fat: {Math.round(analytics.total_macronutrients.fat)}g
-                    </Typography>
+
+                    <Grid container spacing={2} sx={{ mb: 2 }}>
+                      <Grid item xs={6} sm={3}>
+                        <Paper sx={{ p: 1, textAlign: 'center', bgcolor: 'primary.light', color: 'primary.contrastText' }}>
+                          <Typography variant="h6">{Math.round(record.nutritional_info.calories)}</Typography>
+                          <Typography variant="caption">Calories</Typography>
+                        </Paper>
+            </Grid>
+                      <Grid item xs={6} sm={3}>
+                        <Paper sx={{ p: 1, textAlign: 'center', bgcolor: 'success.light', color: 'success.contrastText' }}>
+                          <Typography variant="h6">{Math.round(record.nutritional_info.protein)}g</Typography>
+                          <Typography variant="caption">Protein</Typography>
+                        </Paper>
+                      </Grid>
+                      <Grid item xs={6} sm={3}>
+                        <Paper sx={{ p: 1, textAlign: 'center', bgcolor: 'warning.light', color: 'warning.contrastText' }}>
+                          <Typography variant="h6">{Math.round(record.nutritional_info.carbohydrates)}g</Typography>
+                          <Typography variant="caption">Carbs</Typography>
+                        </Paper>
+                      </Grid>
+                      <Grid item xs={6} sm={3}>
+                        <Paper sx={{ p: 1, textAlign: 'center', bgcolor: 'secondary.light', color: 'secondary.contrastText' }}>
+                          <Typography variant="h6">{Math.round(record.nutritional_info.fat)}g</Typography>
+                          <Typography variant="caption">Fat</Typography>
+                        </Paper>
+                      </Grid>
+                    </Grid>
+
+                    <Box display="flex" gap={1}>
+                      <Chip
+                        label={`${record.medical_rating.diabetes_suitability} diabetes suitability`}
+                        color={getDiabetesSuitabilityColor(record.medical_rating.diabetes_suitability) as any}
+                        size="small"
+                      />
+                      <Chip
+                        label={`${record.medical_rating.glycemic_impact} glycemic impact`}
+                        variant="outlined"
+                        size="small"
+                      />
+                    </Box>
+                  </CardContent>
+                </Card>
+              ))}
+            </Box>
+          )}
+        </TabPanel>
+
+        {/* Advanced Analytics Tab */}
+        <TabPanel value={activeTab} index={2}>
+          {analytics && (
+            <Box>
+              {/* Interactive Chart Section */}
+              <Card sx={{ mb: 3 }}>
+                <CardContent>
+                  <Typography variant="h5" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    📈 Interactive Nutrition Charts
+                  </Typography>
+                  <Box sx={{ height: 400, mt: 2 }}>
+                    {renderChart(selectedMetric)}
                   </Box>
                 </CardContent>
               </Card>
-            </Grid>
-          </Grid>
-            ) : null}
-            </Paper>
 
-            {/* Consumption History Timeline */}
+              {/* Multi-Metric Comparison Grid */}
+              <Grid container spacing={3} sx={{ mb: 3 }}>
+                {chartConfigs.slice(0, 4).map((config) => (
+                  <Grid item xs={12} sm={6} md={3} key={config.metric}>
+                    <Card 
+                      sx={{ 
+                        cursor: 'pointer',
+                        transition: 'all 0.3s ease',
+                        '&:hover': { 
+                          transform: 'translateY(-4px)',
+                          boxShadow: 4
+                        },
+                        border: selectedMetric === config.metric ? 2 : 0,
+                        borderColor: 'primary.main'
+                      }}
+                      onClick={() => setSelectedMetric(config.metric)}
+                    >
+                      <CardContent sx={{ textAlign: 'center', p: 2 }}>
+                        <Box sx={{ color: config.color, mb: 1 }}>
+                          {config.icon}
+                        </Box>
+                        <Typography variant="h4" sx={{ color: config.color, fontWeight: 'bold' }}>
+                          {analytics.daily_averages[config.metric] 
+                            ? Math.round(analytics.daily_averages[config.metric] as number)
+                            : 0}
+                  </Typography>
+                  <Typography variant="body2" color="textSecondary">
+                          {config.title}
+                        </Typography>
+                        <Typography variant="caption" color="textSecondary">
+                          Daily Average
+                  </Typography>
+                </CardContent>
+              </Card>
+            </Grid>
+                ))}
+              </Grid>
+
+              {/* Expandable Sections */}
+              <Accordion 
+                expanded={expandedSections.includes('overview')}
+                onChange={() => {
+                  setExpandedSections(prev => 
+                    prev.includes('overview') 
+                      ? prev.filter(s => s !== 'overview')
+                      : [...prev, 'overview']
+                  );
+                }}
+              >
+                <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                  <Typography variant="h6">📊 Overview Statistics</Typography>
+                </AccordionSummary>
+                <AccordionDetails>
+                  <Grid container spacing={3}>
+            <Grid item xs={12} sm={6} md={3}>
+                      <Paper sx={{ p: 3, textAlign: 'center', bgcolor: 'primary.light', color: 'primary.contrastText' }}>
+                        <Typography variant="h3" fontWeight="bold">
+                          {analytics.total_meals}
+                  </Typography>
+                        <Typography variant="h6">Total Meals</Typography>
+                        <Typography variant="body2" sx={{ opacity: 0.8 }}>
+                          {timeRanges.find(r => r.value === selectedTimeRange)?.label}
+                  </Typography>
+                      </Paper>
+            </Grid>
+            <Grid item xs={12} sm={6} md={3}>
+                      <Paper sx={{ p: 3, textAlign: 'center', bgcolor: 'success.light', color: 'success.contrastText' }}>
+                        <Typography variant="h3" fontWeight="bold">
+                          {Math.round(analytics.adherence_stats.diabetes_suitable_percentage)}%
+                  </Typography>
+                        <Typography variant="h6">Diabetes Suitable</Typography>
+                        <Typography variant="body2" sx={{ opacity: 0.8 }}>
+                          Meal Quality Score
+                    </Typography>
+                      </Paper>
+                    </Grid>
+                    <Grid item xs={12} sm={6} md={3}>
+                      <Paper sx={{ p: 3, textAlign: 'center', bgcolor: 'warning.light', color: 'warning.contrastText' }}>
+                        <Typography variant="h3" fontWeight="bold">
+                          {Math.round(analytics.daily_averages.calories)}
+                    </Typography>
+                        <Typography variant="h6">Avg Calories</Typography>
+                        <Typography variant="body2" sx={{ opacity: 0.8 }}>
+                          Per Day
+                    </Typography>
+                      </Paper>
+            </Grid>
+                    <Grid item xs={12} sm={6} md={3}>
+                      <Paper sx={{ p: 3, textAlign: 'center', bgcolor: 'secondary.light', color: 'secondary.contrastText' }}>
+                        <Typography variant="h3" fontWeight="bold">
+                          {Math.round(analytics.daily_averages.protein)}g
+                        </Typography>
+                        <Typography variant="h6">Avg Protein</Typography>
+                        <Typography variant="body2" sx={{ opacity: 0.8 }}>
+                          Per Day
+                        </Typography>
+            </Paper>
+                    </Grid>
+                  </Grid>
+                </AccordionDetails>
+              </Accordion>
+
+              <Accordion 
+                expanded={expandedSections.includes('distribution')}
+                onChange={() => {
+                  setExpandedSections(prev => 
+                    prev.includes('distribution') 
+                      ? prev.filter(s => s !== 'distribution')
+                      : [...prev, 'distribution']
+                  );
+                }}
+                sx={{ mt: 2 }}
+              >
+                <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                  <Typography variant="h6">🍽️ Meal Distribution Analysis</Typography>
+                </AccordionSummary>
+                <AccordionDetails>
+                  <Grid container spacing={3}>
+                    {Object.entries(analytics.meal_distribution).map(([meal, count]) => (
+                      <Grid item xs={6} sm={3} key={meal}>
             <Paper 
-              elevation={0}
               sx={{ 
-                p: 4,
-                borderRadius: 4,
-                background: 'rgba(255,255,255,0.95)',
-                backdropFilter: 'blur(15px)',
-                border: '1px solid rgba(255,255,255,0.3)',
-                boxShadow: '0 8px 32px rgba(0,0,0,0.1)',
+                            p: 3, 
+                            textAlign: 'center', 
+                            bgcolor: 'grey.100',
                 transition: 'all 0.3s ease',
                 '&:hover': {
-                  boxShadow: '0 12px 40px rgba(0,0,0,0.15)',
-                },
-              }}
-            >
-              <Typography 
-                variant="h5" 
-                component="h2" 
-                gutterBottom
-                sx={{
-                  fontWeight: 700,
-                  color: theme.palette.primary.main,
-                  mb: 3,
-                }}
-              >
-                📋 Recent Consumption
+                              bgcolor: 'grey.200',
+                              transform: 'scale(1.05)'
+                            }
+                          }}
+                        >
+                          <Typography variant="h2" sx={{ mb: 1 }}>
+                            {getMealTypeIcon(meal)}
               </Typography>
-
-              {consumptionHistory.length === 0 ? (
-                <Alert 
-                  severity="info"
-                  sx={{
-                    borderRadius: 3,
-                    animation: `${pulse} 1s ease`,
-                  }}
-                >
-                  No consumption records found. Start recording your meals using the "Record Food" feature in the chat!
-                </Alert>
-              ) : (
-                <Timeline>
-            {consumptionHistory.map((record, index) => (
-              <TimelineItem key={record.id}>
-                <TimelineOppositeContent sx={{ m: 'auto 0' }} color="text.secondary">
-                  {formatTimestamp(record.timestamp)}
-                </TimelineOppositeContent>
-                <TimelineSeparator>
-                  <TimelineDot color="primary">
-                    <RestaurantIcon />
-                  </TimelineDot>
-                  {index < consumptionHistory.length - 1 && <TimelineConnector />}
-                </TimelineSeparator>
-                <TimelineContent sx={{ py: '12px', px: 2 }}>
-                  <Accordion>
-                    <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, width: '100%' }}>
-                        <Typography variant="h6" component="span">
-                          {record.food_name}
-                        </Typography>
-                        <Chip
-                          label={record.medical_rating?.diabetes_suitability || 'Unknown'}
-                          color={getSuitabilityColor(record.medical_rating?.diabetes_suitability) as any}
-                          size="small"
-                        />
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                          {getGlycemicImpactIcon(record.medical_rating?.glycemic_impact)}
+                          <Typography variant="h4" fontWeight="bold" color="primary">
+                            {count}
+                          </Typography>
+                          <Typography variant="h6" sx={{ textTransform: 'capitalize', fontWeight: 'medium' }}>
+                            {meal}
+                          </Typography>
                           <Typography variant="body2" color="textSecondary">
-                            {record.nutritional_info?.calories || 0} cal
+                            {Math.round((count / analytics.total_meals) * 100)}% of total
+                          </Typography>
+                        </Paper>
+                      </Grid>
+                    ))}
+                  </Grid>
+                </AccordionDetails>
+              </Accordion>
+
+              <Accordion 
+                expanded={expandedSections.includes('foods')}
+                onChange={() => {
+                  setExpandedSections(prev => 
+                    prev.includes('foods') 
+                      ? prev.filter(s => s !== 'foods')
+                      : [...prev, 'foods']
+                  );
+                }}
+                sx={{ mt: 2 }}
+              >
+                    <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                  <Typography variant="h6">🥗 Top Foods Analysis</Typography>
+                </AccordionSummary>
+                <AccordionDetails>
+                  {analytics.top_foods.length > 0 ? (
+                    <List>
+                      {analytics.top_foods.slice(0, 10).map((food, index) => (
+                        <ListItem 
+                          key={index}
+                          sx={{ 
+                            bgcolor: index % 2 === 0 ? 'grey.50' : 'transparent',
+                            borderRadius: 1,
+                            mb: 1
+                          }}
+                        >
+                          <ListItemIcon>
+                            <Avatar sx={{ bgcolor: 'primary.main' }}>
+                              {index + 1}
+                            </Avatar>
+                          </ListItemIcon>
+                          <ListItemText
+                            primary={
+                              <Typography variant="h6" fontWeight="medium">
+                                {food.food}
+                        </Typography>
+                            }
+                            secondary={
+                              <Box>
+                                <Typography variant="body2" color="textSecondary">
+                                  Consumed {food.frequency} times • {Math.round(food.total_calories)} total calories
+                                </Typography>
+                                <Typography variant="body2" color="primary">
+                                  Average: {Math.round(food.total_calories / food.frequency)} cal per serving
+                                </Typography>
+                              </Box>
+                            }
+                          />
+                          <Box textAlign="right">
+                        <Chip
+                              label={`${food.frequency}x`} 
+                              color="primary" 
+                          size="small"
+                              sx={{ mb: 1 }}
+                            />
+                            <Typography variant="caption" display="block" color="textSecondary">
+                              {Math.round((food.frequency / analytics.total_meals) * 100)}% frequency
                           </Typography>
                         </Box>
-                      </Box>
-                    </AccordionSummary>
-                    <AccordionDetails>
-                      <Grid container spacing={2}>
-                        <Grid item xs={12} md={4}>
-                          {record.image_url && (
-                            <Box sx={{ mb: 2 }}>
-                              <img
-                                src={`data:image/jpeg;base64,${record.image_url}`}
-                                alt={record.food_name}
-                                style={{ maxWidth: '100%', maxHeight: '200px', borderRadius: '8px' }}
-                              />
+                        </ListItem>
+                      ))}
+                    </List>
+                  ) : (
+                    <Typography color="textSecondary" textAlign="center" py={4}>
+                      No food data available for the selected time period.
+                    </Typography>
+                  )}
+                </AccordionDetails>
+              </Accordion>
                             </Box>
                           )}
-                          <Typography variant="body2" color="textSecondary">
-                            Portion: {record.estimated_portion}
+        </TabPanel>
+
+        {/* Detailed Reports Tab */}
+        <TabPanel value={activeTab} index={3}>
+          <Box>
+            <Typography variant="h5" gutterBottom>
+              📋 Comprehensive Nutrition Report
                           </Typography>
-                        </Grid>
-                        <Grid item xs={12} md={4}>
-                          <Typography variant="subtitle2" gutterBottom>
-                            Nutritional Information:
+            <Typography variant="body1" color="textSecondary" paragraph>
+              Detailed breakdown of your nutritional intake for {timeRanges.find(r => r.value === selectedTimeRange)?.label.toLowerCase()}
                           </Typography>
-                          <TableContainer>
-                            <Table size="small">
-                              <TableBody>
-                                <TableRow>
-                                  <TableCell>Calories</TableCell>
-                                  <TableCell>{record.nutritional_info?.calories || 'N/A'}</TableCell>
-                                </TableRow>
-                                <TableRow>
-                                  <TableCell>Carbohydrates</TableCell>
-                                  <TableCell>{record.nutritional_info?.carbohydrates || 'N/A'}g</TableCell>
-                                </TableRow>
-                                <TableRow>
-                                  <TableCell>Protein</TableCell>
-                                  <TableCell>{record.nutritional_info?.protein || 'N/A'}g</TableCell>
-                                </TableRow>
-                                <TableRow>
-                                  <TableCell>Fat</TableCell>
-                                  <TableCell>{record.nutritional_info?.fat || 'N/A'}g</TableCell>
-                                </TableRow>
-                                <TableRow>
-                                  <TableCell>Fiber</TableCell>
-                                  <TableCell>{record.nutritional_info?.fiber || 'N/A'}g</TableCell>
-                                </TableRow>
-                                <TableRow>
-                                  <TableCell>Sugar</TableCell>
-                                  <TableCell>{record.nutritional_info?.sugar || 'N/A'}g</TableCell>
-                                </TableRow>
-                              </TableBody>
-                            </Table>
-                          </TableContainer>
-                        </Grid>
-                        <Grid item xs={12} md={4}>
-                          <Typography variant="subtitle2" gutterBottom>
-                            Medical Rating:
+
+            {analytics && (
+              <Grid container spacing={3}>
+                {/* Macronutrients Breakdown */}
+                <Grid item xs={12} md={6}>
+                  <Card>
+                    <CardContent>
+                      <Typography variant="h6" gutterBottom>
+                        🥩 Macronutrients Breakdown
                           </Typography>
-                          <Box sx={{ mb: 1 }}>
-                            <Typography variant="body2">
-                              <strong>Diabetes Suitability:</strong> {record.medical_rating?.diabetes_suitability || 'N/A'}
-                            </Typography>
+                      <Box sx={{ height: 300 }}>
+                        {renderChart('calories')}
                           </Box>
-                          <Box sx={{ mb: 1 }}>
-                            <Typography variant="body2">
-                              <strong>Glycemic Impact:</strong> {record.medical_rating?.glycemic_impact || 'N/A'}
+                    </CardContent>
+                  </Card>
+                </Grid>
+
+                {/* Micronutrients */}
+                <Grid item xs={12} md={6}>
+                  <Card>
+                    <CardContent>
+                      <Typography variant="h6" gutterBottom>
+                        🌿 Micronutrients Overview
                             </Typography>
+                      <Stack spacing={2}>
+                        <Box display="flex" justifyContent="space-between" alignItems="center">
+                          <Typography>Fiber</Typography>
+                          <Typography fontWeight="bold">{Math.round(analytics.daily_averages.fiber || 0)}g/day</Typography>
                           </Box>
-                          <Box sx={{ mb: 1 }}>
-                            <Typography variant="body2">
-                              <strong>Recommended Frequency:</strong> {record.medical_rating?.recommended_frequency || 'N/A'}
-                            </Typography>
+                        <Box display="flex" justifyContent="space-between" alignItems="center">
+                          <Typography>Sugar</Typography>
+                          <Typography fontWeight="bold">{Math.round(analytics.daily_averages.sugar || 0)}g/day</Typography>
                           </Box>
-                          {record.medical_rating?.portion_recommendation && (
-                            <Box sx={{ mb: 1 }}>
-                              <Typography variant="body2">
-                                <strong>Portion Recommendation:</strong> {record.medical_rating.portion_recommendation}
-                              </Typography>
+                        <Box display="flex" justifyContent="space-between" alignItems="center">
+                          <Typography>Sodium</Typography>
+                          <Typography fontWeight="bold">{Math.round(analytics.daily_averages.sodium || 0)}mg/day</Typography>
                             </Box>
-                          )}
-                          
-                          {record.image_analysis && (
-                            <Box sx={{ mt: 2 }}>
-                              <Typography variant="subtitle2" gutterBottom>
-                                Analysis Notes:
+                      </Stack>
+                    </CardContent>
+                  </Card>
+                </Grid>
+
+                {/* Trends Analysis */}
+                <Grid item xs={12}>
+                  <Card>
+                    <CardContent>
+                      <Typography variant="h6" gutterBottom>
+                        📈 Trends Analysis
                               </Typography>
-                              <Typography variant="body2" sx={{ backgroundColor: 'grey.100', p: 1, borderRadius: 1, fontSize: '0.875rem' }}>
-                                {record.image_analysis}
-                              </Typography>
+                      <Box sx={{ height: 400 }}>
+                        {renderChart(selectedMetric)}
                             </Box>
-                          )}
+                    </CardContent>
+                  </Card>
                         </Grid>
                       </Grid>
-                    </AccordionDetails>
-                  </Accordion>
-                </TimelineContent>
-              </TimelineItem>
-            ))}
-          </Timeline>
-                      )}
-            </Paper>
-
-            <Box sx={{ mt: 3, display: 'flex', justifyContent: 'center' }}>
-              <Button 
-                variant="outlined" 
-                onClick={() => navigate('/chat')}
-                sx={{
-                  borderRadius: 3,
-                  px: 3,
-                  transition: 'all 0.3s ease',
-                  '&:hover': {
-                    transform: 'translateY(-2px)',
-                    backgroundColor: theme.palette.primary.main,
-                    color: 'white',
-                    boxShadow: '0 6px 16px rgba(0,0,0,0.1)',
-                  },
-                }}
-              >
-                📝 Record New Consumption
-              </Button>
+            )}
             </Box>
-          </Box>
-        </Slide>
+        </TabPanel>
+      </Paper>
       </Container>
-    </Box>
   );
 };
 

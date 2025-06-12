@@ -1,6 +1,7 @@
 import React from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { ThemeProvider, createTheme, CssBaseline } from '@mui/material';
+import { AppProvider } from './contexts/AppContext';
 import HomePage from './components/HomePage';
 import MealPlanRequest from './components/MealPlanRequest';
 import Login from './components/Login';
@@ -14,7 +15,9 @@ import AllRecipesPage from './pages/AllRecipesPage';
 import AllShoppingListsPage from './pages/AllShoppingListsPage';
 import MealPlanHistory from './components/MealPlanHistory';
 import MealPlanDetails from './components/MealPlanDetails';
+
 import ConsumptionHistory from './components/ConsumptionHistory';
+import NotificationSystem from './components/NotificationSystem';
 
 // Create a theme instance
 const theme = createTheme({
@@ -57,89 +60,96 @@ const AdminRoute = ({ children }: { children: React.ReactNode }) => {
 };
 
 function App() {
+  const token = localStorage.getItem('token');
+  const userId = localStorage.getItem('userId');
+  
   return (
-    <ThemeProvider theme={theme}>
-      <CssBaseline />
-      <Navigation />
-      <Routes>
-        {/* Moved Consumption History Route Up & Restored ProtectedRoute */}
-        <Route
-          path="/consumption-history"
-          element={
-            <ProtectedRoute>
-              <ConsumptionHistory />
-            </ProtectedRoute>
-          }
-        />
-        <Route path="/" element={<HomePage />} />
-        <Route path="/login" element={<Login />} />
-        <Route path="/register" element={<Register />} />
-        <Route path="/admin/login" element={<AdminLogin />} />
-        <Route path="/thank-you" element={<ThankYou />} />
+    <AppProvider>
+      <ThemeProvider theme={theme}>
+        <CssBaseline />
+        <Navigation />
+        {token && userId && <NotificationSystem userId={userId} />}
+        <Routes>
+          {/* Moved Consumption History Route Up & Restored ProtectedRoute */}
+          <Route
+            path="/consumption-history"
+            element={
+              <ProtectedRoute>
+                <ConsumptionHistory />
+              </ProtectedRoute>
+            }
+          />
+          <Route path="/" element={<HomePage />} />
+          <Route path="/login" element={<Login />} />
+          <Route path="/register" element={<Register />} />
+          <Route path="/admin/login" element={<AdminLogin />} />
+          <Route path="/thank-you" element={<ThankYou />} />
 
-        {/* Admin Protected Route */}
-        <Route
-          path="/admin"
-          element={
-            <AdminRoute>
-              <AdminPanel />
-            </AdminRoute>
-          }
-        />
-        
-        {/* Other User Protected Routes */}
-        <Route
-          path="/meal-plan"
-          element={
-            <ProtectedRoute>
-              <MealPlanRequest />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/chat"
-          element={
-            <ProtectedRoute>
-              <Chat />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/my-recipes"
-          element={
-            <ProtectedRoute>
-              <AllRecipesPage />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/my-shopping-lists"
-          element={
-            <ProtectedRoute>
-              <AllShoppingListsPage />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/meal_plans"
-          element={
-            <ProtectedRoute>
-              <MealPlanHistory />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/meal-plan/:id"
-          element={
-            <ProtectedRoute>
-              <MealPlanDetails />
-            </ProtectedRoute>
-          }
-        />
-        
-        <Route path="*" element={<div>404 - Page Not Found or Route Not Matched</div>} />
-      </Routes>
-    </ThemeProvider>
+          {/* Admin Protected Route */}
+          <Route
+            path="/admin"
+            element={
+              <AdminRoute>
+                <AdminPanel />
+              </AdminRoute>
+            }
+          />
+          
+          {/* Other User Protected Routes */}
+          <Route
+            path="/meal-plan"
+            element={
+              <ProtectedRoute>
+                <MealPlanRequest />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/chat"
+            element={
+              <ProtectedRoute>
+                <Chat />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/my-recipes"
+            element={
+              <ProtectedRoute>
+                <AllRecipesPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/my-shopping-lists"
+            element={
+              <ProtectedRoute>
+                <AllShoppingListsPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/meal_plans"
+            element={
+              <ProtectedRoute>
+                <MealPlanHistory />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/meal-plan/:id"
+            element={
+              <ProtectedRoute>
+                <MealPlanDetails />
+              </ProtectedRoute>
+            }
+          />
+
+          
+          <Route path="*" element={<div>404 - Page Not Found or Route Not Matched</div>} />
+        </Routes>
+      </ThemeProvider>
+    </AppProvider>
   );
 }
 

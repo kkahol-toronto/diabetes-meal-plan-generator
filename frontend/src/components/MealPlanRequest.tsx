@@ -325,7 +325,8 @@ const MealPlanRequest: React.FC = () => {
     setSaveStatus(null);
     setRecipes([]);
     setRecipeProgress(0);
-      const token = localStorage.getItem('token');
+    
+    const token = localStorage.getItem('token');
     if (!token) {
       setSaveStatus({ message: 'Authentication token not found. Please log in.', severity: 'error' });
       navigate('/login');
@@ -335,20 +336,37 @@ const MealPlanRequest: React.FC = () => {
 
     try {
       console.log('Token used for /generate-recipe:', token);
-      const mealItems: { mealType: EditableMealType; name: string }[] = [];
+      
+      // 🔧 FIXED: Generate unique recipes only, not duplicates for each day
+      const uniqueMeals = new Set<string>();
+      
+      // Collect all unique meals from the meal plan
       editableMealTypes.forEach((mealType) => {
         (mealPlan[mealType] as string[]).forEach((meal: string) => {
-          meal.split(',').map(dish => dish.trim()).filter(Boolean).forEach(dish => {
-            mealItems.push({ mealType, name: dish });
-          });
+          // Clean up the meal name and add to unique set
+          const cleanMeal = meal.trim()
+            .replace(/\(.*?\)/g, '') // Remove parenthetical notes like "(smaller portion)"
+            .replace(/\+.*$/g, '') // Remove additions like "+ Greek yogurt"
+            .replace(/with extra.*$/g, '') // Remove "with extra vegetables" etc.
+            .replace(/instead of.*$/g, '') // Remove "instead of rice/bread" etc.
+            .trim();
+          
+          if (cleanMeal && cleanMeal !== "Not specified") {
+            uniqueMeals.add(cleanMeal);
+          }
         });
       });
-      console.log('Meal items to generate recipes for:', mealItems);
+
+      const mealItems = Array.from(uniqueMeals).map(meal => ({ name: meal }));
+      console.log(`Generating recipes for ${mealItems.length} unique meals:`, mealItems.map(m => m.name));
+      
       const total = mealItems.length;
       const newRecipes: Recipe[] = [];
+      
       for (let i = 0; i < mealItems.length; i++) {
         const { name } = mealItems[i];
         console.log(`Requesting recipe for: ${name}`);
+        
         const response = await fetch('http://localhost:8000/generate-recipe', {
           method: 'POST',
           headers: {
@@ -357,9 +375,10 @@ const MealPlanRequest: React.FC = () => {
           },
           body: JSON.stringify({ meal_name: name, user_profile: userProfile }),
         });
+        
         console.log(`Response status for ${name}:`, response.status);
+        
         if (response.status === 401) {
-          // Token expired or invalid
           localStorage.removeItem('token');
           setError('Your session has expired. Please log in again.');
           setSaveStatus({ message: 'Session expired. Please log in again to continue generating recipes.', severity: 'error' });
@@ -367,17 +386,20 @@ const MealPlanRequest: React.FC = () => {
           navigate('/login');
           return;
         }
+        
         if (!response.ok) {
           const errorText = await response.text();
           console.error(`Failed to generate recipe for ${name}:`, errorText);
           throw new Error(`Failed to generate recipe for ${name}`);
         }
+        
         const data = await response.json();
         console.log(`Recipe for ${name}:`, data);
         newRecipes.push(data);
         setRecipes([...newRecipes]);
         setRecipeProgress(((i + 1) / total) * 100);
       }
+      
       // Save all recipes to backend
       try {
         const saveResponse = await fetch('http://localhost:8000/user/recipes', {
@@ -388,18 +410,21 @@ const MealPlanRequest: React.FC = () => {
           },
           body: JSON.stringify({ recipes: newRecipes }),
         });
+        
         if (!saveResponse.ok) {
           const errorText = await saveResponse.text();
           throw new Error(`Failed to save recipes: ${errorText}`);
         }
-        setSaveStatus({ message: 'Recipes generated and saved successfully!', severity: 'success' });
+        
+        setSaveStatus({ 
+          message: `Successfully generated ${newRecipes.length} unique recipes!`, 
+          severity: 'success' 
+        });
       } catch (saveErr) {
         const errorMessage = saveErr instanceof Error ? saveErr.message : 'Failed to save recipes';
         setError(errorMessage);
         setSaveStatus({ message: `Error saving recipes: ${errorMessage}`, severity: 'error' });
       }
-      // Do NOT advance to next step automatically
-      // setActiveStep(3);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'An error occurred during recipe generation';
       setError(errorMessage);

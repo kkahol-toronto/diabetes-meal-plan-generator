@@ -99,7 +99,7 @@ const Navigation = () => {
     { text: 'Meal Plan', icon: <RestaurantIcon />, path: '/meal-plan' },
     { text: 'Chat', icon: <ChatIcon />, path: '/chat' },
     { text: 'Consumption History', icon: <HistoryIcon />, path: '/consumption-history' },
-    { text: 'Meal Plan History', icon: <BookIcon />, path: '/meal-plan/history' },
+    { text: 'Meal Plan History', icon: <BookIcon />, path: '/meal_plans' },
   ];
 
   // Add admin panel link if user is admin

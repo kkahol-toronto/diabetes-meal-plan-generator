@@ -639,13 +639,16 @@ async def get_user_consumption_history(user_id: str, limit: int = 50):
         raise Exception(f"Failed to get consumption history: {str(e)}")
 
 async def get_consumption_analytics(user_id: str, days: int = 7):
-    """Get consumption analytics for a user over specified days"""
+    """Get comprehensive consumption analytics for a user over specified days"""
     try:
         if not user_id:
             raise ValueError("User ID is required")
             
         # Calculate date threshold
         from datetime import datetime, timedelta
+        from collections import defaultdict
+        import re
+        
         threshold_date = (datetime.utcnow() - timedelta(days=days)).isoformat()
         
         query = f"SELECT * FROM c WHERE c.type = 'consumption_record' AND c.user_id = '{user_id}' AND c.timestamp >= '{threshold_date}' ORDER BY c.timestamp DESC"
@@ -655,39 +658,205 @@ async def get_consumption_analytics(user_id: str, days: int = 7):
             enable_cross_partition_query=True
         ))
         
-        # Calculate analytics
-        total_calories = 0
-        total_carbs = 0
-        total_protein = 0
-        total_fat = 0
-        diabetes_suitable_count = 0
-        total_records = len(consumption_records)
+        if not consumption_records:
+            # Return empty analytics structure
+            return {
+                "total_meals": 0,
+                "date_range": {
+                    "start_date": threshold_date,
+                    "end_date": datetime.utcnow().isoformat()
+                },
+                "daily_averages": {
+                    "calories": 0,
+                    "protein": 0,
+                    "carbohydrates": 0,
+                    "fat": 0,
+                    "fiber": 0,
+                    "sugar": 0,
+                    "sodium": 0
+                },
+                "weekly_trends": {
+                    "calories": [0] * 7,
+                    "protein": [0] * 7,
+                    "carbohydrates": [0] * 7,
+                    "fat": [0] * 7
+                },
+                "meal_distribution": {
+                    "breakfast": 0,
+                    "lunch": 0,
+                    "dinner": 0,
+                    "snack": 0
+                },
+                "top_foods": [],
+                "adherence_stats": {
+                    "diabetes_suitable_percentage": 0,
+                    "calorie_goal_adherence": 0,
+                    "protein_goal_adherence": 0,
+                    "carb_goal_adherence": 0
+                },
+                "daily_nutrition_history": []
+            }
         
+        # Initialize tracking variables
+        daily_totals = defaultdict(lambda: {
+            "calories": 0, "protein": 0, "carbohydrates": 0, "fat": 0, 
+            "fiber": 0, "sugar": 0, "sodium": 0, "meals_count": 0
+        })
+        food_frequency = defaultdict(lambda: {"frequency": 0, "total_calories": 0})
+        meal_type_counts = {"breakfast": 0, "lunch": 0, "dinner": 0, "snack": 0}
+        diabetes_suitable_count = 0
+        
+        # Default daily goals (these should ideally come from user profile)
+        daily_goals = {
+            "calories": 2000,
+            "protein": 100,
+            "carbohydrates": 250,
+            "fat": 70
+        }
+        
+        # Process each consumption record
         for record in consumption_records:
             nutritional_info = record.get("nutritional_info", {})
             medical_rating = record.get("medical_rating", {})
+            food_name = record.get("food_name", "Unknown Food")
+            timestamp = record.get("timestamp", "")
             
-            total_calories += nutritional_info.get("calories", 0)
-            total_carbs += nutritional_info.get("carbohydrates", 0)
-            total_protein += nutritional_info.get("protein", 0)
-            total_fat += nutritional_info.get("fat", 0)
+            # Extract date for daily grouping
+            try:
+                record_date = datetime.fromisoformat(timestamp.replace('Z', '+00:00')).date().isoformat()
+            except:
+                record_date = datetime.utcnow().date().isoformat()
             
+            # Extract nutrition values
+            calories = nutritional_info.get("calories", 0)
+            protein = nutritional_info.get("protein", 0)
+            carbohydrates = nutritional_info.get("carbohydrates", nutritional_info.get("carbs", 0))
+            fat = nutritional_info.get("fat", 0)
+            fiber = nutritional_info.get("fiber", 0)
+            sugar = nutritional_info.get("sugar", 0)
+            sodium = nutritional_info.get("sodium", 0)
+            
+            # Update daily totals
+            daily_totals[record_date]["calories"] += calories
+            daily_totals[record_date]["protein"] += protein
+            daily_totals[record_date]["carbohydrates"] += carbohydrates
+            daily_totals[record_date]["fat"] += fat
+            daily_totals[record_date]["fiber"] += fiber
+            daily_totals[record_date]["sugar"] += sugar
+            daily_totals[record_date]["sodium"] += sodium
+            daily_totals[record_date]["meals_count"] += 1
+            
+            # Track food frequency
+            food_frequency[food_name]["frequency"] += 1
+            food_frequency[food_name]["total_calories"] += calories
+            
+            # Determine meal type based on time or food name
+            try:
+                record_time = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+                hour = record_time.hour
+                if 5 <= hour < 11:
+                    meal_type = "breakfast"
+                elif 11 <= hour < 16:
+                    meal_type = "lunch"
+                elif 16 <= hour < 22:
+                    meal_type = "dinner"
+                else:
+                    meal_type = "snack"
+            except:
+                # Fallback: try to guess from food name
+                food_lower = food_name.lower()
+                if any(word in food_lower for word in ["breakfast", "cereal", "oatmeal", "toast"]):
+                    meal_type = "breakfast"
+                elif any(word in food_lower for word in ["lunch", "sandwich", "salad"]):
+                    meal_type = "lunch"
+                elif any(word in food_lower for word in ["dinner", "pasta", "rice", "chicken"]):
+                    meal_type = "dinner"
+                else:
+                    meal_type = "snack"
+            
+            meal_type_counts[meal_type] += 1
+            
+            # Check diabetes suitability
             diabetes_suitability = medical_rating.get("diabetes_suitability", "").lower()
-            if diabetes_suitability in ["high", "good", "suitable"]:
+            if diabetes_suitability in ["high", "good", "suitable", "excellent"]:
                 diabetes_suitable_count += 1
         
+        total_records = len(consumption_records)
+        
+        # Calculate averages
+        total_calories = sum(day["calories"] for day in daily_totals.values())
+        total_protein = sum(day["protein"] for day in daily_totals.values())
+        total_carbohydrates = sum(day["carbohydrates"] for day in daily_totals.values())
+        total_fat = sum(day["fat"] for day in daily_totals.values())
+        total_fiber = sum(day["fiber"] for day in daily_totals.values())
+        total_sugar = sum(day["sugar"] for day in daily_totals.values())
+        total_sodium = sum(day["sodium"] for day in daily_totals.values())
+        
+        # Calculate adherence percentages
+        avg_daily_calories = total_calories / days if days > 0 else 0
+        avg_daily_protein = total_protein / days if days > 0 else 0
+        avg_daily_carbohydrates = total_carbohydrates / days if days > 0 else 0
+        
+        calorie_adherence = min(100, (avg_daily_calories / daily_goals["calories"]) * 100) if daily_goals["calories"] > 0 else 0
+        protein_adherence = min(100, (avg_daily_protein / daily_goals["protein"]) * 100) if daily_goals["protein"] > 0 else 0
+        carb_adherence = min(100, (avg_daily_carbohydrates / daily_goals["carbohydrates"]) * 100) if daily_goals["carbohydrates"] > 0 else 0
+        
+        # Prepare top foods list
+        top_foods = [
+            {
+                "food": food,
+                "frequency": data["frequency"],
+                "total_calories": data["total_calories"]
+            }
+            for food, data in sorted(food_frequency.items(), key=lambda x: x[1]["frequency"], reverse=True)
+        ][:10]
+        
+        # Prepare daily nutrition history
+        daily_nutrition_history = []
+        for date_str, totals in sorted(daily_totals.items()):
+            daily_nutrition_history.append({
+                "date": date_str,
+                "calories": totals["calories"],
+                "protein": totals["protein"],
+                "carbohydrates": totals["carbohydrates"],
+                "fat": totals["fat"],
+                "meals_count": totals["meals_count"]
+            })
+        
+        # Calculate weekly trends (last 7 days)
+        recent_days = sorted(daily_totals.items())[-7:]
+        weekly_trends = {
+            "calories": [day[1]["calories"] for day in recent_days] + [0] * (7 - len(recent_days)),
+            "protein": [day[1]["protein"] for day in recent_days] + [0] * (7 - len(recent_days)),
+            "carbohydrates": [day[1]["carbohydrates"] for day in recent_days] + [0] * (7 - len(recent_days)),
+            "fat": [day[1]["fat"] for day in recent_days] + [0] * (7 - len(recent_days))
+        }
+        
         analytics = {
-            "period_days": days,
-            "total_records": total_records,
-            "total_calories": total_calories,
-            "average_daily_calories": total_calories / days if days > 0 else 0,
-            "total_macronutrients": {
-                "carbohydrates": total_carbs,
-                "protein": total_protein,
-                "fat": total_fat
+            "total_meals": total_records,
+            "date_range": {
+                "start_date": threshold_date,
+                "end_date": datetime.utcnow().isoformat()
             },
-            "diabetes_suitable_percentage": (diabetes_suitable_count / total_records * 100) if total_records > 0 else 0,
-            "consumption_records": consumption_records
+            "daily_averages": {
+                "calories": avg_daily_calories,
+                "protein": avg_daily_protein,
+                "carbohydrates": avg_daily_carbohydrates,
+                "fat": total_fat / days if days > 0 else 0,
+                "fiber": total_fiber / days if days > 0 else 0,
+                "sugar": total_sugar / days if days > 0 else 0,
+                "sodium": total_sodium / days if days > 0 else 0
+            },
+            "weekly_trends": weekly_trends,
+            "meal_distribution": meal_type_counts,
+            "top_foods": top_foods,
+            "adherence_stats": {
+                "diabetes_suitable_percentage": (diabetes_suitable_count / total_records * 100) if total_records > 0 else 0,
+                "calorie_goal_adherence": calorie_adherence,
+                "protein_goal_adherence": protein_adherence,
+                "carb_goal_adherence": carb_adherence
+            },
+            "daily_nutrition_history": daily_nutrition_history
         }
         
         return analytics

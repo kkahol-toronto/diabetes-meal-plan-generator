@@ -30,12 +30,31 @@ import {
   Zoom,
   useTheme,
   keyframes,
+  Chip,
+  Avatar,
+  Grid,
+  ButtonGroup,
+  Fab,
+  Badge,
+  alpha,
 } from '@mui/material';
 import SendIcon from '@mui/icons-material/Send';
 import AddCommentIcon from '@mui/icons-material/AddComment';
 import ImageIcon from '@mui/icons-material/Image';
 import RestaurantIcon from '@mui/icons-material/Restaurant';
 import CloseIcon from '@mui/icons-material/Close';
+import SmartToyIcon from '@mui/icons-material/SmartToy';
+import PersonIcon from '@mui/icons-material/Person';
+import CameraAltIcon from '@mui/icons-material/CameraAlt';
+import AnalyticsIcon from '@mui/icons-material/Analytics';
+import AssignmentIcon from '@mui/icons-material/Assignment';
+import HistoryIcon from '@mui/icons-material/History';
+import LightbulbIcon from '@mui/icons-material/Lightbulb';
+import TrendingUpIcon from '@mui/icons-material/TrendingUp';
+import FavoriteIcon from '@mui/icons-material/Favorite';
+import LocalFireDepartmentIcon from '@mui/icons-material/LocalFireDepartment';
+import FitnessCenterIcon from '@mui/icons-material/FitnessCenter';
+import GrainIcon from '@mui/icons-material/Grain';
 import { useNavigate } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import { v4 as uuidv4 } from 'uuid';
@@ -76,12 +95,23 @@ interface Message {
   timestamp: string;
   session_id: string;
   imageUrl?: string;
+  metadata?: {
+    type?: 'food_analysis' | 'meal_suggestion' | 'general' | 'quick_action';
+    data?: any;
+  };
 }
 
 interface Session {
   session_id: string;
   timestamp: string;
   messages: Message[];
+}
+
+interface QuickAction {
+  label: string;
+  icon: React.ReactNode;
+  action: () => void;
+  color: 'primary' | 'secondary' | 'success' | 'warning' | 'info';
 }
 
 const Chat = () => {
@@ -95,8 +125,8 @@ const Chat = () => {
   const messagesEndRef = useRef<null | HTMLDivElement>(null);
   const chatContainerRef = useRef<null | HTMLDivElement>(null);
   const prevMessagesLengthRef = useRef<number>(messages.length);
-  const userScrolledRef = useRef<boolean>(false); // Flag to indicate user has scrolled manually
-  const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null); // Timeout for resetting userScrolledRef
+  const userScrolledRef = useRef<boolean>(false);
+  const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const recordFoodInputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
@@ -105,38 +135,68 @@ const Chat = () => {
   const [recordFoodResult, setRecordFoodResult] = useState<any>(null);
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
+  const [userStats, setUserStats] = useState<any>(null);
+  const [showQuickActions, setShowQuickActions] = useState(true);
+
+  const quickActions: QuickAction[] = [
+    {
+      label: 'Log Food',
+      icon: <RestaurantIcon />,
+      action: () => setInput("I just ate "),
+      color: 'primary'
+    },
+    {
+      label: 'Meal Suggestion',
+      icon: <LightbulbIcon />,
+      action: () => setInput("What should I eat for "),
+      color: 'secondary'
+    },
+    {
+      label: 'Create Plan',
+      icon: <AssignmentIcon />,
+      action: () => setInput("Create an adaptive meal plan for me"),
+      color: 'success'
+    },
+    {
+      label: 'My Progress',
+      icon: <TrendingUpIcon />,
+      action: () => setInput("How am I doing with my diabetes management?"),
+      color: 'info'
+    },
+    {
+      label: 'Health Tips',
+      icon: <FavoriteIcon />,
+      action: () => setInput("Give me some diabetes management tips"),
+      color: 'warning'
+    }
+  ];
 
   const handleNewChat = () => {
     const newSessionId = uuidv4();
     console.log("Creating new chat session:", newSessionId);
     
-    // Create the new session object
     const newSession = {
       session_id: newSessionId,
       timestamp: new Date().toISOString(),
       messages: []
     };
     
-    // Add the new session to the sessions list first
     setSessions(prev => [...prev, newSession]);
-    
-    // Then set it as the current session
     setCurrentSession(newSessionId);
     setMessages([]);
+    setShowQuickActions(true);
   };
 
   useEffect(() => {
-    // On initial load, fetch sessions and then decide if we need to start a new one.
     const loadSessionsAndInitialize = async () => {
-      await fetchSessions(); // This will populate the sessions dropdown
-      // After fetching, if no currentSession is set (e.g. by user selection or previous state),
-      // start a new chat. This prevents loading an old chat automatically.
-      if (!currentSession) { // Check currentSession *after* fetchSessions tried to set it from existing
+      await fetchSessions();
+      await fetchUserStats();
+      if (!currentSession) {
         handleNewChat();
       }
     };
     loadSessionsAndInitialize();
-  }, []); // Runs once on mount
+  }, []);
 
   useEffect(() => {
     if (currentSession) {
@@ -144,19 +204,38 @@ const Chat = () => {
     }
   }, [currentSession]);
 
+  const fetchUserStats = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) return;
+
+      const response = await fetch('/coach/daily-insights', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setUserStats(data);
+      }
+    } catch (error) {
+      console.error('Error fetching user stats:', error);
+    }
+  };
+
   const scrollToBottom = (behavior: ScrollBehavior = 'smooth') => {
-    if (chatContainerRef.current && !userScrolledRef.current) { // Only scroll if user hasn't manually scrolled
+    if (chatContainerRef.current && !userScrolledRef.current) {
       const { scrollTop, scrollHeight, clientHeight } = chatContainerRef.current;
-      if (scrollHeight - scrollTop - clientHeight < 150) { // Increased threshold slightly
+      if (scrollHeight - scrollTop - clientHeight < 150) {
         messagesEndRef.current?.scrollIntoView({ behavior });
       }
     }
   };
 
-  // Effect for handling auto-scroll based on message changes
   useEffect(() => {
     if (userScrolledRef.current) {
-      // If user has scrolled, don't interfere
       return;
     }
 
@@ -174,14 +253,12 @@ const Chat = () => {
     prevMessagesLengthRef.current = messages.length;
   }, [messages]);
 
-  // Effect for scrolling when loading completes
   useEffect(() => {
     if (!isLoading && messages.length > 0 && !userScrolledRef.current) {
       scrollToBottom('smooth');
     }
   }, [isLoading, messages.length]);
 
-  // Handle manual scroll by user
   const handleManualScroll = () => {
     userScrolledRef.current = true;
     if (scrollTimeoutRef.current) {
@@ -189,112 +266,191 @@ const Chat = () => {
     }
     scrollTimeoutRef.current = setTimeout(() => {
       userScrolledRef.current = false;
-    }, 1000); // Reset flag after 1 second of no scrolling from user
+    }, 1000);
   };
 
-  // Add and remove scroll listener
   useEffect(() => {
     const container = chatContainerRef.current;
     if (container) {
       container.addEventListener('scroll', handleManualScroll);
       return () => {
         container.removeEventListener('scroll', handleManualScroll);
-        if (scrollTimeoutRef.current) {
-          clearTimeout(scrollTimeoutRef.current);
-        }
       };
     }
-  }, []); // Empty dependency array, runs once on mount and cleanup on unmount
-
-  useEffect(() => {
-    // Check if device is mobile
-    setIsMobile(/iPhone|iPad|iPod|Android/i.test(navigator.userAgent));
   }, []);
 
   const fetchSessions = async () => {
     try {
-      const response = await fetch('http://localhost:8000/chat/sessions', {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
-        },
-      });
-
-      if (response.ok) {
-        const data: Session[] = await response.json();
-        setSessions(data);
-        // We no longer automatically set currentSession to data[0].session_id here.
-        // The logic in the initial useEffect will call handleNewChat if currentSession is still empty.
-        // If a currentSession *is* already set (e.g. user selected from dropdown), we keep it.
-        if (data.length > 0 && currentSession && !data.find(s => s.session_id === currentSession)) {
-          // If current session is no longer in the fetched list (e.g. deleted), start a new one.
-          console.log("Current session no longer exists, starting a new chat.");
-          handleNewChat();
-        } else if (data.length === 0 && !currentSession) {
-           // This case is now primarily handled by the initial useEffect, but good as a fallback.
-           handleNewChat();
-        }
-
+      const token = localStorage.getItem('token');
+      if (!token) {
+        console.log("No token found, redirecting to login");
+        navigate('/login');
+        return;
       }
-    } catch (error) {
-      console.error('Failed to fetch sessions:', error);
-      // If fetching sessions fails, and no current session, ensure a new chat can be started
-      if (!currentSession) {
-        handleNewChat();
-      }
-    }
-  };
 
-  const fetchChatHistory = async () => {
-    try {
-      const response = await fetch(`http://localhost:8000/chat/history?session_id=${currentSession}`, {
+      const response = await fetch('/chat/sessions', {
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
         },
       });
 
       if (response.ok) {
         const data = await response.json();
-        setMessages(data.map((msg: any) => ({
-          id: msg.id,
-          message: msg.message_content,
-          is_user: msg.is_user,
-          timestamp: msg.timestamp,
-          session_id: msg.session_id,
-          imageUrl: msg.imageUrl
-        })));
+        setSessions(data.sessions || []);
+        if (data.sessions && data.sessions.length > 0 && !currentSession) {
+          setCurrentSession(data.sessions[0].session_id);
+        }
+      } else if (response.status === 401) {
+        localStorage.removeItem('token');
+        navigate('/login');
       }
     } catch (error) {
-      console.error('Failed to fetch chat history:', error);
+      console.error('Error fetching sessions:', error);
     }
   };
 
-  const handleSendCombinedMessage = async () => {
-    if (!input.trim() && !selectedImage) return;
-
-    setIsLoading(true);
-
-    const formData = new FormData();
-    formData.append('message', input);
-    if (selectedImage) {
-      formData.append('image', selectedImage);
-    }
-    formData.append('session_id', currentSession);
-
+  const fetchChatHistory = async () => {
     try {
-      const response = await fetch('http://localhost:8000/chat/message-with-image', {
-        method: 'POST',
+      const token = localStorage.getItem('token');
+      if (!token || !currentSession) return;
+
+      const response = await fetch(`/chat/history?session_id=${currentSession}`, {
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
         },
-        body: formData,
       });
 
-      // Optionally handle streaming or just refresh chat history
-      await fetchChatHistory();
-      setInput('');
-      setSelectedImage(null);
+      if (response.ok) {
+        const data = await response.json();
+        setMessages(data.messages || []);
+        setShowQuickActions(data.messages?.length === 0);
+      }
     } catch (error) {
-      console.error('Error sending combined message:', error);
+      console.error('Error fetching chat history:', error);
+    }
+  };
+
+  const handleSendMessage = async () => {
+    if (!input.trim() && !selectedImage) return;
+
+    const token = localStorage.getItem('token');
+    if (!token) {
+      navigate('/login');
+      return;
+    }
+
+    const messageId = uuidv4();
+    const userMessage: Message = {
+      id: messageId,
+      message: input,
+      is_user: true,
+      timestamp: new Date().toISOString(),
+      session_id: currentSession,
+      imageUrl: imagePreviewUrl || undefined,
+    };
+
+    setMessages(prev => [...prev, userMessage]);
+    setInput('');
+    setSelectedImage(null);
+    setImagePreviewUrl(null);
+    setIsLoading(true);
+    setShowQuickActions(false);
+
+    try {
+      let response;
+      
+      if (selectedImage) {
+        // Handle image + message
+        const formData = new FormData();
+        formData.append('message', input);
+        formData.append('image', selectedImage);
+        formData.append('session_id', currentSession);
+
+        response = await fetch('/chat/message-with-image', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+          },
+          body: formData,
+        });
+      } else {
+        // Handle text-only message
+        response = await fetch('/chat/message', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            message: input,
+            session_id: currentSession,
+          }),
+        });
+      }
+
+      if (response.ok) {
+        const reader = response.body?.getReader();
+        const decoder = new TextDecoder();
+        let aiResponse = '';
+        let aiMessageId = uuidv4();
+
+        // Add placeholder AI message
+        const aiMessage: Message = {
+          id: aiMessageId,
+          message: '',
+          is_user: false,
+          timestamp: new Date().toISOString(),
+          session_id: currentSession,
+        };
+        setMessages(prev => [...prev, aiMessage]);
+
+        if (reader) {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            const chunk = decoder.decode(value);
+            const lines = chunk.split('\n');
+
+            for (const line of lines) {
+              if (line.startsWith('data: ')) {
+                try {
+                  const data = JSON.parse(line.slice(6));
+                  if (data.content) {
+                    aiResponse += data.content;
+                    setMessages(prev => 
+                      prev.map(msg => 
+                        msg.id === aiMessageId 
+                          ? { ...msg, message: aiResponse }
+                          : msg
+                      )
+                    );
+                  }
+                } catch (e) {
+                  // Ignore parsing errors for streaming
+                }
+              }
+            }
+          }
+        }
+      } else if (response.status === 401) {
+        localStorage.removeItem('token');
+        navigate('/login');
+      } else {
+        throw new Error('Failed to send message');
+      }
+    } catch (error) {
+      console.error('Error sending message:', error);
+      const errorMessage: Message = {
+        id: uuidv4(),
+        message: 'Sorry, I encountered an error. Please try again.',
+        is_user: false,
+        timestamp: new Date().toISOString(),
+        session_id: currentSession,
+      };
+      setMessages(prev => [...prev, errorMessage]);
     } finally {
       setIsLoading(false);
     }
@@ -306,19 +462,23 @@ const Chat = () => {
 
   const handleClearHistory = async () => {
     try {
-      const response = await fetch(`http://localhost:8000/chat/history?session_id=${currentSession}`, {
+      const token = localStorage.getItem('token');
+      if (!token) return;
+
+      const response = await fetch(`/chat/history?session_id=${currentSession}`, {
         method: 'DELETE',
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
         },
       });
 
       if (response.ok) {
         setMessages([]);
-        await fetchSessions();
+        setShowQuickActions(true);
       }
     } catch (error) {
-      console.error('Failed to clear chat history:', error);
+      console.error('Error clearing history:', error);
     }
   };
 
@@ -326,75 +486,23 @@ const Chat = () => {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    // Create a temporary URL for the image
-    const imageUrl = URL.createObjectURL(file);
-    
-    // Add user message with image
-    const userMessage = {
-      id: uuidv4(),
-      message: 'Analyzing this image...',
-      is_user: true,
-      timestamp: new Date().toISOString(),
-      session_id: currentSession,
-      imageUrl
-    };
-    setMessages(prev => [...prev, userMessage]);
-    setIsLoading(true);
-
-    try {
-      const formData = new FormData();
-      formData.append('image', file);
-      formData.append('prompt', 'Analyze the calorie content and nutritional information of this food image.');
-
-      const response = await fetch('http://localhost:8000/chat/analyze-image', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
-        },
-        body: formData
-      });
-
-      if (response.ok) {
-        const reader = response.body?.getReader();
-        if (reader) {
-          const decoder = new TextDecoder();
-          let assistantMessage = '';
-
-          // Add initial empty assistant message
-          setMessages(prev => [...prev, {
-            id: uuidv4(),
-            message: '',
-            is_user: false,
-            timestamp: new Date().toISOString(),
-            session_id: currentSession
-          }]);
-
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-
-            const chunk = decoder.decode(value, { stream: true });
-            assistantMessage += chunk;
-            
-            // Update the last message (assistant's message) with the new content
-            setMessages(prev => {
-              const newMessages = [...prev];
-              const lastMessage = newMessages[newMessages.length - 1];
-              if (lastMessage && !lastMessage.is_user) {
-                lastMessage.message = assistantMessage;
-              }
-              return newMessages;
-            });
-          }
-        }
-      } else {
-        console.error('Failed to analyze image');
-      }
-    } catch (error) {
-      console.error('Error analyzing image:', error);
-    } finally {
-      setIsLoading(false);
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      alert('Please select an image file');
+      return;
     }
+
+    // Validate file size (max 10MB)
+    if (file.size > 10 * 1024 * 1024) {
+      alert('Image size must be less than 10MB');
+      return;
+    }
+
+    setSelectedImage(file);
+    
+    // Create preview URL
+    const previewUrl = URL.createObjectURL(file);
+    setImagePreviewUrl(previewUrl);
   };
 
   const handleRecordFood = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -403,16 +511,20 @@ const Chat = () => {
 
     try {
       setIsLoading(true);
-      const formData = new FormData();
-      formData.append('image', file);
-      if (currentSession) {
-        formData.append('session_id', currentSession);
+      const token = localStorage.getItem('token');
+      if (!token) {
+        navigate('/login');
+        return;
       }
 
-      const response = await fetch('http://localhost:8000/consumption/analyze-and-record', {
+      const formData = new FormData();
+      formData.append('image', file);
+      formData.append('session_id', currentSession);
+
+      const response = await fetch('/consumption/analyze-and-record', {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+          'Authorization': `Bearer ${token}`,
         },
         body: formData,
       });
@@ -422,37 +534,46 @@ const Chat = () => {
         setRecordFoodResult(result);
         setRecordFoodDialog(true);
         
-        // Dispatch event to notify ConsumptionHistory component
-        window.dispatchEvent(new Event('consumptionRecorded'));
+        // Add success message to chat
+        const successMessage: Message = {
+          id: uuidv4(),
+          message: `✅ Successfully analyzed and logged: ${result.food_name}\n\n**Nutritional Info:**\n- Calories: ${result.nutritional_info?.calories || 'N/A'}\n- Protein: ${result.nutritional_info?.protein || 'N/A'}g\n- Carbs: ${result.nutritional_info?.carbohydrates || 'N/A'}g\n- Fat: ${result.nutritional_info?.fat || 'N/A'}g\n\n**Diabetes Suitability:** ${result.medical_rating?.diabetes_suitability || 'N/A'}`,
+          is_user: false,
+          timestamp: new Date().toISOString(),
+          session_id: currentSession,
+          metadata: {
+            type: 'food_analysis',
+            data: result
+          }
+        };
+        setMessages(prev => [...prev, successMessage]);
         
-        // Also, refresh chat history for the current session if a session_id was sent
-        // This will show the newly recorded food item in the chat
-        if (currentSession) {
-          await fetchChatHistory(); // Re-fetch chat history for the current session
-        }
-
+        // Refresh user stats
+        fetchUserStats();
       } else {
-        console.error('Failed to analyze and record food', response.status, response.statusText);
-        const errorText = await response.text();
-        console.error('Error response from analyze-and-record:', errorText);
+        throw new Error('Failed to analyze food');
       }
     } catch (error) {
-      console.error('Error analyzing and recording food:', error);
+      console.error('Error recording food:', error);
+      const errorMessage: Message = {
+        id: uuidv4(),
+        message: 'Sorry, I couldn\'t analyze that image. Please try again with a clearer photo of your food.',
+        is_user: false,
+        timestamp: new Date().toISOString(),
+        session_id: currentSession,
+      };
+      setMessages(prev => [...prev, errorMessage]);
     } finally {
       setIsLoading(false);
     }
   };
 
   const handleImageButtonClick = () => {
-    if (fileInputRef.current) {
-      fileInputRef.current.click();
-    }
+    fileInputRef.current?.click();
   };
 
   const handleRecordFoodButtonClick = () => {
-    if (recordFoodInputRef.current) {
-      recordFoodInputRef.current.click();
-    }
+    recordFoodInputRef.current?.click();
   };
 
   const handleCloseRecordDialog = () => {
@@ -460,220 +581,474 @@ const Chat = () => {
     setRecordFoodResult(null);
   };
 
-  useEffect(() => {
-    setLoaded(true);
-  }, []);
+  const handleQuickAction = (action: QuickAction) => {
+    action.action();
+    // Focus on input after setting text
+    setTimeout(() => {
+      const inputElement = document.querySelector('input[placeholder*="Ask your AI health coach"]') as HTMLInputElement;
+      if (inputElement) {
+        inputElement.focus();
+        inputElement.setSelectionRange(inputElement.value.length, inputElement.value.length);
+      }
+    }, 100);
+  };
 
-  // Show preview when image is selected
-  useEffect(() => {
-    if (selectedImage) {
-      const url = URL.createObjectURL(selectedImage);
-      setImagePreviewUrl(url);
-      return () => URL.revokeObjectURL(url);
-    } else {
-      setImagePreviewUrl(null);
-    }
-  }, [selectedImage]);
+  const formatMessage = (message: string) => {
+    // Enhanced message formatting with better styling
+    return (
+      <ReactMarkdown
+        components={{
+          p: ({ children }) => <Typography variant="body1" sx={{ mb: 1 }}>{children}</Typography>,
+          strong: ({ children }) => <Typography component="span" sx={{ fontWeight: 'bold', color: 'primary.main' }}>{children}</Typography>,
+          em: ({ children }) => <Typography component="span" sx={{ fontStyle: 'italic', color: 'text.secondary' }}>{children}</Typography>,
+          ul: ({ children }) => <Box component="ul" sx={{ pl: 2, mb: 1 }}>{children}</Box>,
+          li: ({ children }) => <Typography component="li" variant="body2" sx={{ mb: 0.5 }}>{children}</Typography>,
+          h3: ({ children }) => <Typography variant="h6" sx={{ mt: 2, mb: 1, fontWeight: 'bold' }}>{children}</Typography>,
+          code: ({ children }) => (
+            <Typography 
+              component="code" 
+              sx={{ 
+                bgcolor: 'grey.100', 
+                px: 0.5, 
+                py: 0.25, 
+                borderRadius: 0.5, 
+                fontFamily: 'monospace',
+                fontSize: '0.875rem'
+              }}
+            >
+              {children}
+            </Typography>
+          ),
+        }}
+      >
+        {message}
+      </ReactMarkdown>
+    );
+  };
 
   return (
-    <Container maxWidth="md" sx={{ py: 4 }}>
-      <Paper elevation={3} sx={{ p: 4, height: '80vh', display: 'flex', flexDirection: 'column' }}>
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-          <Typography variant="h4" component="h1">
-            Chat with Your Diet Assistant
-          </Typography>
-          <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
-            <FormControl fullWidth sx={{ mb: 2 }}>
-              <InputLabel id="session-select-label">Chat Session</InputLabel>
-              <Select
-                labelId="session-select-label"
-                id="session-select"
-                value={currentSession}
-                label="Chat Session"
-                onChange={handleSessionChange}
-              >
-                {sessions.map((session) => (
-                  <MenuItem key={session.session_id} value={session.session_id}>
-                    {new Date(session.timestamp).toLocaleString()} (ID: {session.session_id.substring(0, 8)})
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-            <Button
-              variant="outlined"
-              onClick={handleNewChat}
-              startIcon={<AddCommentIcon />}
-            >
-              New Chat
-            </Button>
-            <Button
-              variant="outlined"
-              color="error"
-              onClick={handleClearHistory}
-              disabled={!currentSession || messages.length === 0}
-            >
-              Clear History
-            </Button>
+    <Container maxWidth="lg" sx={{ height: '100vh', display: 'flex', flexDirection: 'column', py: 2 }}>
+      {/* Header */}
+      <Paper elevation={2} sx={{ p: 2, mb: 2, background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: 'white' }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 2 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <Avatar sx={{ bgcolor: 'white', color: 'primary.main' }}>
+              <SmartToyIcon />
+            </Avatar>
+            <Box>
+              <Typography variant="h5" sx={{ fontWeight: 'bold' }}>
+                🤖 AI Health Coach
+              </Typography>
+              <Typography variant="body2" sx={{ opacity: 0.9 }}>
+                Your intelligent diabetes management companion
+              </Typography>
+            </Box>
           </Box>
-        </Box>
-
-        <Box 
-          ref={chatContainerRef}
-          sx={{ flexGrow: 1, overflow: 'auto', mb: 2 }}
-        >
-          <List>
-            {messages.map((msg, index) => (
-              <React.Fragment key={index}>
-                <ListItem
-                  sx={{
-                    justifyContent: msg.is_user ? 'flex-end' : 'flex-start',
-                  }}
-                >
-                  <Paper
-                    elevation={1}
-                    sx={{
-                      p: 2,
-                      maxWidth: '70%',
-                      backgroundColor: msg.is_user ? 'primary.light' : 'grey.100',
-                      color: msg.is_user ? 'white' : 'text.primary',
-                    }}
-                  >
-                    <Typography variant="subtitle2" color="textSecondary">
-                      {msg.is_user ? 'You' : 'Assistant'}:
-                    </Typography>
-                    {msg.imageUrl && (
-                      <Box sx={{ mb: 2 }}>
-                        <img 
-                          src={msg.imageUrl} 
-                          alt="Uploaded food" 
-                          style={{ maxWidth: '100%', maxHeight: '200px', borderRadius: '8px' }} 
-                        />
-                      </Box>
-                    )}
-                    <ReactMarkdown>{msg.message}</ReactMarkdown>
-                  </Paper>
-                </ListItem>
-                <Divider />
-              </React.Fragment>
-            ))}
-            <div ref={messagesEndRef} />
-          </List>
-        </Box>
-
-        <Box component="form" onSubmit={(e) => { e.preventDefault(); handleSendCombinedMessage(); }} sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-          {/* Image preview thumbnail */}
-          {imagePreviewUrl && (
-            <Box sx={{ display: 'flex', alignItems: 'center', mb: 1, maxWidth: 200 }}>
-              <img
-                src={imagePreviewUrl}
-                alt="Preview"
-                style={{ maxWidth: 100, maxHeight: 100, borderRadius: 8, marginRight: 8, border: '1px solid #ccc' }}
+          
+          {userStats && (
+            <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+              <Chip 
+                icon={<LocalFireDepartmentIcon />} 
+                label={`${userStats.today_totals?.calories || 0} cal`}
+                sx={{ bgcolor: alpha('#fff', 0.2), color: 'white' }}
               />
-              <IconButton size="small" onClick={() => setSelectedImage(null)} aria-label="Remove image preview">
-                <CloseIcon />
-              </IconButton>
+              <Chip 
+                icon={<FavoriteIcon />} 
+                label={`${Math.round(userStats.diabetes_adherence || 0)}% score`}
+                sx={{ bgcolor: alpha('#fff', 0.2), color: 'white' }}
+              />
             </Box>
           )}
-          <Box sx={{ display: 'flex', gap: 1 }}>
-            <input
-              type="file"
-              accept="image/*"
-              style={{ display: 'none' }}
-              id="chat-image-upload"
-              onChange={e => setSelectedImage(e.target.files?.[0] || null)}
-            />
-            <label htmlFor="chat-image-upload">
-              <Tooltip title="Attach image">
-                <IconButton component="span" color={selectedImage ? "success" : "primary"}>
-                  <ImageIcon />
-                </IconButton>
-              </Tooltip>
-            </label>
-            <TextField
-              fullWidth
-              variant="outlined"
-              placeholder="Type a message..."
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyPress={(e) => e.key === 'Enter' && handleSendCombinedMessage()}
-              disabled={isLoading}
-            />
-            <Button
-              type="submit"
-              variant="contained"
-              color="primary"
-              disabled={isLoading || (!input.trim() && !selectedImage)}
-              endIcon={isLoading ? <CircularProgress size={20} color="inherit" /> : <SendIcon />}
+        </Box>
+      </Paper>
+
+      {/* Chat Controls */}
+      <Paper elevation={1} sx={{ p: 2, mb: 2 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+          <FormControl size="small" sx={{ minWidth: 200 }}>
+            <InputLabel>Chat Session</InputLabel>
+            <Select
+              value={currentSession}
+              onChange={handleSessionChange}
+              label="Chat Session"
             >
-              Send
+              {sessions.map((session) => (
+                <MenuItem key={session.session_id} value={session.session_id}>
+                  {new Date(session.timestamp).toLocaleDateString()} - {session.messages?.length || 0} messages
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+          
+          <ButtonGroup variant="outlined" size="small">
+            <Button startIcon={<AddCommentIcon />} onClick={handleNewChat}>
+              New Chat
             </Button>
+            <Button startIcon={<CloseIcon />} onClick={handleClearHistory}>
+              Clear
+            </Button>
+          </ButtonGroup>
+
+          <Box sx={{ ml: 'auto', display: 'flex', gap: 1 }}>
+            <Tooltip title="Upload Food Image">
+              <IconButton onClick={handleRecordFoodButtonClick} color="primary">
+                <Badge badgeContent="AI" color="secondary">
+                  <CameraAltIcon />
+                </Badge>
+              </IconButton>
+            </Tooltip>
+            <Tooltip title="Add Image to Message">
+              <IconButton onClick={handleImageButtonClick} color="secondary">
+                <ImageIcon />
+              </IconButton>
+            </Tooltip>
           </Box>
         </Box>
       </Paper>
 
-      {/* Record Food Result Dialog */}
-      <Dialog open={recordFoodDialog} onClose={handleCloseRecordDialog} maxWidth="md" fullWidth>
-        <DialogTitle>Food Analysis Result</DialogTitle>
-        <DialogContent>
-          {isLoading ? (
-            <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
-              <CircularProgress />
+      {/* Quick Actions */}
+      {showQuickActions && messages.length === 0 && (
+        <Fade in={showQuickActions}>
+          <Paper elevation={1} sx={{ p: 3, mb: 2, bgcolor: 'grey.50' }}>
+            <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <LightbulbIcon color="primary" />
+              Quick Actions
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              Get started with these common requests:
+            </Typography>
+            <Grid container spacing={1}>
+              {quickActions.map((action, index) => (
+                <Grid item xs={12} sm={6} md={4} key={index}>
+                  <Button
+                    variant="outlined"
+                    fullWidth
+                    startIcon={action.icon}
+                    onClick={() => handleQuickAction(action)}
+                    color={action.color}
+                    sx={{ 
+                      py: 1.5, 
+                      justifyContent: 'flex-start',
+                      '&:hover': {
+                        transform: 'translateY(-2px)',
+                        boxShadow: 2
+                      },
+                      transition: 'all 0.2s ease-in-out'
+                    }}
+                  >
+                    {action.label}
+                  </Button>
+                </Grid>
+              ))}
+            </Grid>
+          </Paper>
+        </Fade>
+      )}
+
+      {/* Messages */}
+      <Paper 
+        elevation={1} 
+        sx={{ 
+          flex: 1, 
+          display: 'flex', 
+          flexDirection: 'column', 
+          overflow: 'hidden',
+          mb: 2
+        }}
+      >
+        <Box
+          ref={chatContainerRef}
+          sx={{
+            flex: 1,
+            overflowY: 'auto',
+            p: 2,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 2,
+          }}
+        >
+          {messages.length === 0 && !showQuickActions && (
+            <Box sx={{ textAlign: 'center', py: 4 }}>
+              <SmartToyIcon sx={{ fontSize: 60, color: 'grey.400', mb: 2 }} />
+              <Typography variant="h6" color="text.secondary">
+                Start a conversation with your AI health coach
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                Ask about nutrition, meal planning, or diabetes management
+              </Typography>
             </Box>
-          ) : recordFoodResult?.error ? (
-            <Alert severity="error">{recordFoodResult.error}</Alert>
-          ) : recordFoodResult?.analysis ? (
+          )}
+
+          {messages.map((message, index) => (
+            <Slide key={message.id} direction="up" in={true} timeout={300 + index * 100}>
+              <Box
+                sx={{
+                  display: 'flex',
+                  justifyContent: message.is_user ? 'flex-end' : 'flex-start',
+                  mb: 1,
+                }}
+              >
+                <Box
+                  sx={{
+                    maxWidth: '70%',
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    gap: 1,
+                    flexDirection: message.is_user ? 'row-reverse' : 'row',
+                  }}
+                >
+                  <Avatar
+                    sx={{
+                      bgcolor: message.is_user ? 'primary.main' : 'secondary.main',
+                      width: 32,
+                      height: 32,
+                    }}
+                  >
+                    {message.is_user ? <PersonIcon /> : <SmartToyIcon />}
+                  </Avatar>
+                  
+                  <Paper
+                    elevation={1}
+                    sx={{
+                      p: 2,
+                      bgcolor: message.is_user ? 'primary.main' : 'grey.100',
+                      color: message.is_user ? 'white' : 'text.primary',
+                      borderRadius: 2,
+                      position: 'relative',
+                      animation: message.metadata?.type === 'food_analysis' ? `${pulse} 2s ease-in-out` : 'none',
+                      border: message.metadata?.type === 'food_analysis' ? '2px solid' : 'none',
+                      borderColor: message.metadata?.type === 'food_analysis' ? 'success.main' : 'transparent',
+                    }}
+                  >
+                    {message.imageUrl && (
+                      <Box sx={{ mb: 1 }}>
+                        <img
+                          src={message.imageUrl}
+                          alt="Uploaded"
+                          style={{
+                            maxWidth: '100%',
+                            maxHeight: '200px',
+                            borderRadius: '8px',
+                          }}
+                        />
+                      </Box>
+                    )}
+                    
+                    {message.metadata?.type === 'food_analysis' && (
+                      <Chip
+                        label="Food Analysis"
+                        color="success"
+                        size="small"
+                        sx={{ mb: 1 }}
+                      />
+                    )}
+                    
+                    <Box sx={{ '& > *:last-child': { mb: 0 } }}>
+                      {formatMessage(message.message)}
+                    </Box>
+                    
+                    <Typography
+                      variant="caption"
+                      sx={{
+                        display: 'block',
+                        mt: 1,
+                        opacity: 0.7,
+                        fontSize: '0.75rem',
+                      }}
+                    >
+                      {new Date(message.timestamp).toLocaleTimeString()}
+                    </Typography>
+                  </Paper>
+                </Box>
+              </Box>
+            </Slide>
+          ))}
+
+          {isLoading && (
+            <Box sx={{ display: 'flex', justifyContent: 'flex-start', mb: 1 }}>
+              <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>
+                <Avatar sx={{ bgcolor: 'secondary.main', width: 32, height: 32 }}>
+                  <SmartToyIcon />
+                </Avatar>
+                <Paper
+                  elevation={1}
+                  sx={{
+                    p: 2,
+                    bgcolor: 'grey.100',
+                    borderRadius: 2,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 1,
+                  }}
+                >
+                  <CircularProgress size={16} />
+                  <Typography variant="body2" color="text.secondary">
+                    AI is thinking...
+                  </Typography>
+                </Paper>
+              </Box>
+            </Box>
+          )}
+
+          <div ref={messagesEndRef} />
+        </Box>
+      </Paper>
+
+      {/* Input Area */}
+      <Paper elevation={2} sx={{ p: 2 }}>
+        {selectedImage && (
+          <Box sx={{ mb: 2, p: 1, bgcolor: 'grey.50', borderRadius: 1 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+              <ImageIcon color="primary" />
+              <Typography variant="body2">Image attached</Typography>
+              <IconButton size="small" onClick={() => { setSelectedImage(null); setImagePreviewUrl(null); }}>
+                <CloseIcon />
+              </IconButton>
+            </Box>
+            {imagePreviewUrl && (
+              <img
+                src={imagePreviewUrl}
+                alt="Preview"
+                style={{ maxWidth: '100px', maxHeight: '100px', borderRadius: '4px' }}
+              />
+            )}
+          </Box>
+        )}
+
+        <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-end' }}>
+          <TextField
+            fullWidth
+            multiline
+            maxRows={4}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder="Ask your AI health coach anything about diabetes, nutrition, or meal planning..."
+            variant="outlined"
+            onKeyPress={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                handleSendMessage();
+              }
+            }}
+            sx={{
+              '& .MuiOutlinedInput-root': {
+                borderRadius: 3,
+              },
+            }}
+          />
+          <Tooltip title="Send Message">
+            <span>
+              <IconButton
+                color="primary"
+                onClick={handleSendMessage}
+                disabled={(!input.trim() && !selectedImage) || isLoading}
+                sx={{
+                  bgcolor: 'primary.main',
+                  color: 'white',
+                  '&:hover': { bgcolor: 'primary.dark' },
+                  '&:disabled': { bgcolor: 'grey.300' },
+                  width: 48,
+                  height: 48,
+                }}
+              >
+                <SendIcon />
+              </IconButton>
+            </span>
+          </Tooltip>
+        </Box>
+      </Paper>
+
+      {/* Hidden file inputs */}
+      <input
+        type="file"
+        ref={fileInputRef}
+        style={{ display: 'none' }}
+        accept="image/*"
+        onChange={handleImageUpload}
+      />
+      <input
+        type="file"
+        ref={recordFoodInputRef}
+        style={{ display: 'none' }}
+        accept="image/*"
+        onChange={handleRecordFood}
+      />
+
+      {/* Food Analysis Result Dialog */}
+      <Dialog open={recordFoodDialog} onClose={handleCloseRecordDialog} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <RestaurantIcon color="success" />
+          Food Analysis Complete
+        </DialogTitle>
+        <DialogContent>
+          {recordFoodResult && (
             <Box>
               <Typography variant="h6" gutterBottom>
-                {recordFoodResult.analysis.food_name}
-              </Typography>
-              <Typography variant="body2" color="textSecondary" gutterBottom>
-                Estimated Portion: {recordFoodResult.analysis.estimated_portion}
+                {recordFoodResult.food_name}
               </Typography>
               
-              <Box sx={{ mt: 2 }}>
-                <Typography variant="subtitle1" gutterBottom>
-                  Nutritional Information:
+              <Grid container spacing={2} sx={{ mb: 2 }}>
+                <Grid item xs={6}>
+                  <Card variant="outlined">
+                    <CardContent sx={{ textAlign: 'center', py: 1 }}>
+                      <LocalFireDepartmentIcon color="error" />
+                      <Typography variant="h6">{recordFoodResult.nutritional_info?.calories || 'N/A'}</Typography>
+                      <Typography variant="caption">Calories</Typography>
+                    </CardContent>
+                  </Card>
+                </Grid>
+                <Grid item xs={6}>
+                  <Card variant="outlined">
+                    <CardContent sx={{ textAlign: 'center', py: 1 }}>
+                      <FitnessCenterIcon color="success" />
+                      <Typography variant="h6">{recordFoodResult.nutritional_info?.protein || 'N/A'}g</Typography>
+                      <Typography variant="caption">Protein</Typography>
+                    </CardContent>
+                  </Card>
+                </Grid>
+                <Grid item xs={6}>
+                  <Card variant="outlined">
+                    <CardContent sx={{ textAlign: 'center', py: 1 }}>
+                      <GrainIcon color="warning" />
+                      <Typography variant="h6">{recordFoodResult.nutritional_info?.carbohydrates || 'N/A'}g</Typography>
+                      <Typography variant="caption">Carbs</Typography>
+                    </CardContent>
+                  </Card>
+                </Grid>
+                <Grid item xs={6}>
+                  <Card variant="outlined">
+                    <CardContent sx={{ textAlign: 'center', py: 1 }}>
+                      <Typography variant="h6">{recordFoodResult.nutritional_info?.fat || 'N/A'}g</Typography>
+                      <Typography variant="caption">Fat</Typography>
+                    </CardContent>
+                  </Card>
+                </Grid>
+              </Grid>
+
+              <Alert 
+                severity={
+                  recordFoodResult.medical_rating?.diabetes_suitability?.toLowerCase() === 'high' ? 'success' :
+                  recordFoodResult.medical_rating?.diabetes_suitability?.toLowerCase() === 'medium' ? 'warning' : 'error'
+                }
+                sx={{ mb: 2 }}
+              >
+                <Typography variant="subtitle2">
+                  Diabetes Suitability: {recordFoodResult.medical_rating?.diabetes_suitability || 'Unknown'}
                 </Typography>
-                <Box sx={{ pl: 2 }}>
-                  <Typography>• Calories: {recordFoodResult.analysis.nutritional_info?.calories || 'N/A'}</Typography>
-                  <Typography>• Carbohydrates: {recordFoodResult.analysis.nutritional_info?.carbohydrates || 'N/A'}g</Typography>
-                  <Typography>• Protein: {recordFoodResult.analysis.nutritional_info?.protein || 'N/A'}g</Typography>
-                  <Typography>• Fat: {recordFoodResult.analysis.nutritional_info?.fat || 'N/A'}g</Typography>
-                  <Typography>• Fiber: {recordFoodResult.analysis.nutritional_info?.fiber || 'N/A'}g</Typography>
-                  <Typography>• Sugar: {recordFoodResult.analysis.nutritional_info?.sugar || 'N/A'}g</Typography>
-                </Box>
-              </Box>
-
-              <Box sx={{ mt: 2 }}>
-                <Typography variant="subtitle1" gutterBottom>
-                  Diabetes Suitability Rating:
-                </Typography>
-                <Box sx={{ pl: 2 }}>
-                  <Typography>• Overall Suitability: <strong>{recordFoodResult.analysis.medical_rating?.diabetes_suitability || 'N/A'}</strong></Typography>
-                  <Typography>• Glycemic Impact: {recordFoodResult.analysis.medical_rating?.glycemic_impact || 'N/A'}</Typography>
-                  <Typography>• Recommended Frequency: {recordFoodResult.analysis.medical_rating?.recommended_frequency || 'N/A'}</Typography>
-                </Box>
-              </Box>
-
-              {recordFoodResult.analysis.analysis_notes && (
-                <Box sx={{ mt: 2 }}>
-                  <Typography variant="subtitle1" gutterBottom>
-                    Analysis Notes:
+                {recordFoodResult.medical_rating?.diabetes_notes && (
+                  <Typography variant="body2">
+                    {recordFoodResult.medical_rating.diabetes_notes}
                   </Typography>
-                  <Typography variant="body2" sx={{ backgroundColor: 'grey.100', p: 2, borderRadius: 1 }}>
-                    {recordFoodResult.analysis.analysis_notes}
-                  </Typography>
-                </Box>
-              )}
-
-              <Alert severity="success" sx={{ mt: 2 }}>
-                Food consumption has been recorded to your history!
+                )}
               </Alert>
             </Box>
-          ) : null}
+          )}
         </DialogContent>
         <DialogActions>
           <Button onClick={handleCloseRecordDialog}>Close</Button>
+          <Button variant="contained" onClick={() => navigate('/consumption-history')}>
+            View History
+          </Button>
         </DialogActions>
       </Dialog>
     </Container>
