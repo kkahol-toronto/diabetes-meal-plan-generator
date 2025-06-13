@@ -1771,14 +1771,16 @@ Remember: You have access to their complete meal planning and consumption histor
                 content = chunk.choices[0].delta.content
                 if content:
                     full_message += content
-                    yield content
+                    # Yield as SSE JSON event
+                    yield f"data: {json.dumps({'content': content})}\n\n"
         except Exception as e:
             print(f"Error in streaming response: {str(e)}")
             if full_message:
-                yield full_message
+                # Send whatever was accumulated as final SSE event
+                yield f"data: {json.dumps({'content': full_message})}\n\n"
     
     # Create a streaming response
-    streaming_response = StreamingResponse(generate(), media_type="text/plain")
+    streaming_response = StreamingResponse(generate(), media_type="text/event-stream")
     
     # Save the complete assistant message after streaming is done
     async def save_message():
@@ -2863,11 +2865,13 @@ async def analyze_image(
                     content = chunk.choices[0].delta.content
                     if content:
                         full_message += content
-                        yield content
+                        # Yield as SSE JSON event
+                        yield f"data: {json.dumps({'content': content})}\n\n"
             except Exception as e:
                 print(f"Error in streaming response: {str(e)}")
                 if full_message:
-                    yield full_message
+                    # Send whatever was accumulated as final SSE event
+                    yield f"data: {json.dumps({'content': full_message})}\n\n"
             
             # Save the complete assistant message after streaming
             if full_message:
@@ -2879,7 +2883,7 @@ async def analyze_image(
                     image_url=img_str
                 )
         
-        return StreamingResponse(generate(), media_type="text/plain")
+        return StreamingResponse(generate(), media_type="text/event-stream")
         
     except Exception as e:
         print(f"Error in image analysis: {str(e)}")
@@ -3886,6 +3890,7 @@ async def get_todays_meal_plan(current_user: User = Depends(get_current_user)):
 
 @app.post("/coach/adaptive-meal-plan")
 async def create_adaptive_meal_plan(
+    payload: dict = Body(None),
     current_user: User = Depends(get_current_user)
 ):
     """
@@ -3893,6 +3898,10 @@ async def create_adaptive_meal_plan(
     Uses existing database functions instead of direct MongoDB queries.
     """
     try:
+        # Parse quick-action options sent from the client (may be null)
+        req_days = int(payload.get("days", 7)) if payload else 7
+        req_cuisine = payload.get("cuisine_type", "") if payload else ""
+
         # Get user's consumption history using existing function
         consumption_history = await get_user_consumption_history(current_user["email"], limit=100)
         
@@ -3959,7 +3968,7 @@ async def create_adaptive_meal_plan(
             target_calories = int(avg_daily_calories) if avg_daily_calories > 1200 else 2000
         
         # Create adaptive meal plan prompt
-        prompt = f"""Create a personalized 7-day diabetes-friendly meal plan based on this user's analysis:
+        prompt = f"""Create a personalized {req_days}-day diabetes-friendly meal plan based on this user's analysis:
         
 USER ANALYSIS:
 - Total recent meals logged: {total_recent_meals}
@@ -3985,7 +3994,7 @@ REQUIREMENTS:
 Provide a JSON response with this exact structure:
 {{
     "plan_name": "Adaptive Diabetes Plan - {datetime.now().strftime('%Y-%m-%d')}",
-            "duration_days": 7,
+            "duration_days": {req_days},
     "dailyCalories": {target_calories},
     "macronutrients": {{"protein": {int(target_calories * 0.2 / 4)}, "carbs": {int(target_calories * 0.45 / 4)}, "fats": {int(target_calories * 0.35 / 9)}}},
     "breakfast": ["Day 1: [specific breakfast with portions]", "Day 2: [specific breakfast with portions]", "Day 3: [specific breakfast with portions]", "Day 4: [specific breakfast with portions]", "Day 5: [specific breakfast with portions]", "Day 6: [specific breakfast with portions]", "Day 7: [specific breakfast with portions]"],
@@ -4031,7 +4040,7 @@ Make each meal specific with exact portions and cooking methods. Ensure all 7 da
             # Comprehensive fallback meal plan
             meal_plan_data = {
                 "plan_name": f"Adaptive Diabetes Plan - {datetime.now().strftime('%Y-%m-%d')}",
-                "duration_days": 7,
+                "duration_days": {req_days},
                 "dailyCalories": target_calories,
                 "macronutrients": {"protein": int(target_calories * 0.2 / 4), "carbs": int(target_calories * 0.45 / 4), "fats": int(target_calories * 0.35 / 9)},
                 "breakfast": [
@@ -4110,6 +4119,24 @@ Make each meal specific with exact portions and cooking methods. Ensure all 7 da
         import traceback
         print(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Failed to create adaptive meal plan: {str(e)}")
+
+    # --- Post-filter to enforce vegetarian / egg-free etc. (extra safety) ---
+    banned_keywords = []
+    restrictions_lower = [r.lower() for r in dietary_restrictions]
+    if "vegetarian" in restrictions_lower or "ovo-vegetarian" not in restrictions_lower:
+        banned_keywords += ["chicken", "beef", "pork", "fish", "salmon", "tuna", "shrimp", "cod", "turkey", "lamb", "steak"]
+    if any(keyword in restrictions_lower for keyword in ["no eggs", "egg-free", "no egg", "vegetarian"]):
+        banned_keywords += ["egg", "eggs", "omelet", "omelette", "scrambled eggs", "poached egg"]
+
+    def sanitize(meal: str) -> str:
+        lower = meal.lower()
+        if any(bk in lower for bk in banned_keywords):
+            return "Vegetarian alternative meal"
+        return meal
+
+    for mt in ["breakfast", "lunch", "dinner", "snacks"]:
+        if isinstance(meal_plan_data.get(mt), list):
+            meal_plan_data[mt] = [sanitize(m) for m in meal_plan_data[mt]]
 
 @app.get("/coach/consumption-insights")
 async def get_consumption_insights(

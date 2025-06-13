@@ -214,7 +214,7 @@ const HomePage: React.FC = () => {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ food: quickLogFood }),
+        body: JSON.stringify({ food_name: quickLogFood, portion: 'medium portion' }),
       });
 
       if (response.ok) {
@@ -234,6 +234,13 @@ const HomePage: React.FC = () => {
   };
 
   const handleCreateAdaptivePlan = async () => {
+    // Ask a couple of quick questions first (super-light UX – window.prompt for now)
+    const daysStr = window.prompt('📅 How many days should the adaptive plan cover? (1-7)', '1');
+    if (daysStr === null) return; // User cancelled
+    const days = Math.min(Math.max(parseInt(daysStr || '1', 10) || 1, 1), 7);
+
+    const cuisineType = window.prompt('🍽️ Preferred cuisine type (leave blank to use your profile preference):', '') || '';
+
     try {
       setAdaptivePlanLoading(true);
       setLoading(true, 'Creating your personalized meal plan...');
@@ -244,6 +251,7 @@ const HomePage: React.FC = () => {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
+        body: JSON.stringify({ days, cuisine_type: cuisineType }),
       });
 
       if (response.ok) {
@@ -774,20 +782,9 @@ const HomePage: React.FC = () => {
                   );
                 })() || (
                   <Box sx={{ textAlign: 'center', py: 3 }}>
-                    <Typography variant="body1" sx={{ mb: 2 }}>
-                      No meal plan for today yet. Let's create one based on your health conditions!
+                    <Typography variant="body2" color="text.secondary">
+                      Generate a detailed meal plan from the Meal-Plan section.
                     </Typography>
-                    <Button 
-                      variant="contained" 
-                      sx={{ 
-                        bgcolor: 'rgba(255,255,255,0.2)', 
-                        '&:hover': { bgcolor: 'rgba(255,255,255,0.3)' }
-                      }}
-                      onClick={handleCreateAdaptivePlan}
-                      disabled={adaptivePlanLoading}
-                    >
-                      {adaptivePlanLoading ? 'Creating...' : 'Create Today\'s Plan'}
-                    </Button>
                   </Box>
                 )}
               </CardContent>
@@ -812,18 +809,6 @@ const HomePage: React.FC = () => {
                       sx={{ py: 1.5 }}
                     >
                       Log Food
-                    </Button>
-                  </Grid>
-                  <Grid item xs={12} sm={6} md={3}>
-                    <Button
-                      variant="outlined"
-                      fullWidth
-                      startIcon={<PlanIcon />}
-                      onClick={handleCreateAdaptivePlan}
-                      disabled={adaptivePlanLoading}
-                      sx={{ py: 1.5 }}
-                    >
-                      {adaptivePlanLoading ? 'Creating...' : 'Adaptive Plan'}
                     </Button>
                   </Grid>
                   <Grid item xs={12} sm={6} md={3}>

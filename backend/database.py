@@ -154,6 +154,17 @@ async def get_user_meal_plans(user_id: str):
         for plan in meal_plans:
             required_fields = ['breakfast', 'lunch', 'dinner', 'snacks', 'dailyCalories', 'macronutrients']
             missing_fields = [field for field in required_fields if field not in plan]
+
+            # Auto-repair common issue where "snacks" field is missing so that warnings stop cluttering logs
+            if 'snacks' in missing_fields:
+                print(f"[auto-repair] Adding empty snacks array to meal plan {plan['id']} (was missing)")
+                plan['snacks'] = []
+                try:
+                    interactions_container.upsert_item(body=plan)
+                    missing_fields.remove('snacks')
+                except Exception as e:
+                    print(f"[auto-repair] Failed to patch meal plan {plan['id']}: {e}")
+
             if missing_fields:
                 print(f"Warning: Meal plan {plan['id']} is missing fields: {', '.join(missing_fields)}")
 

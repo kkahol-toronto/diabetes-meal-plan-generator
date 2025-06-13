@@ -343,8 +343,10 @@ const MealPlanRequest: React.FC = () => {
       // Collect all unique meals from the meal plan
       editableMealTypes.forEach((mealType) => {
         (mealPlan[mealType] as string[]).forEach((meal: string) => {
-          // Clean up the meal name and add to unique set
-          const cleanMeal = meal.trim()
+          // Remove any "Day X:" prefix first to get the raw meal name
+          const withoutDayPrefix = stripDayPrefix(meal);
+
+          const cleanMeal = withoutDayPrefix.trim()
             .replace(/\(.*?\)/g, '') // Remove parenthetical notes like "(smaller portion)"
             .replace(/\+.*$/g, '') // Remove additions like "+ Greek yogurt"
             .replace(/with extra.*$/g, '') // Remove "with extra vegetables" etc.
@@ -577,7 +579,7 @@ const MealPlanRequest: React.FC = () => {
       }
 
       console.log('Full meal plan saved successfully with consolidated PDF.');
-      navigate('/meal-plan/history'); // Redirect to history to see the saved plan
+      navigate('/meal_plans'); // Redirect to history page after saving
     } catch (err) {
       console.error('Error saving full meal plan:', err);
       setError(err instanceof Error ? err.message : 'An error occurred while saving the meal plan.');
@@ -986,7 +988,7 @@ const MealPlanRequest: React.FC = () => {
                       boxShadow: '0 8px 20px rgba(0,0,0,0.15)',
                     },
                   }}
-                                  >
+                >
                   {loading ? <CircularProgress size={24} /> : '💾 Save Meal Plan + PDF'}
                 </Button>
               </>

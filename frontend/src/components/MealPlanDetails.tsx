@@ -294,7 +294,7 @@ const MealPlanDetails: React.FC = () => {
           <Button
             variant="contained"
             color="primary"
-            onClick={() => navigate('/meal-plan/history')}
+            onClick={() => navigate('/meal_plans')}
           >
             Back to History
           </Button>

@@ -140,12 +140,6 @@ const Chat = () => {
 
   const quickActions: QuickAction[] = [
     {
-      label: 'Log Food',
-      icon: <RestaurantIcon />,
-      action: () => setInput("I just ate "),
-      color: 'primary'
-    },
-    {
       label: 'Meal Suggestion',
       icon: <LightbulbIcon />,
       action: () => setInput("What should I eat for "),
@@ -417,7 +411,10 @@ const Chat = () => {
             if (done) break;
 
             const chunk = decoder.decode(value);
+
+            // Try to parse chunk as SSE lines first
             const lines = chunk.split('\n');
+            let parsedContent = false;
 
             for (const line of lines) {
               if (line.startsWith('data: ')) {
@@ -425,19 +422,29 @@ const Chat = () => {
                   const data = JSON.parse(line.slice(6));
                   if (data.content) {
                     aiResponse += data.content;
-                    setMessages(prev => 
-                      prev.map(msg => 
-                        msg.id === aiMessageId 
-                          ? { ...msg, message: aiResponse }
-                          : msg
-                      )
-                    );
+                    parsedContent = true;
                   }
                 } catch (e) {
-                  // Ignore parsing errors for streaming
+                  // Not JSON, treat remainder as plain text
+                  aiResponse += line.slice(6);
+                  parsedContent = true;
                 }
               }
             }
+
+            // If nothing parsed via SSE, treat whole chunk as plain text
+            if (!parsedContent) {
+              aiResponse += chunk;
+            }
+
+            // Update message with current aggregated response
+            setMessages(prev =>
+              prev.map(msg =>
+                msg.id === aiMessageId
+                  ? { ...msg, message: aiResponse }
+                  : msg
+              )
+            );
           }
         }
       } else if (response.status === 401) {
@@ -537,19 +544,37 @@ const Chat = () => {
 
       if (response.ok) {
         const result = await response.json();
-        setRecordFoodResult(result);
+        // The backend may return { analysis: {...} } or direct fields. Normalize first.
+        const analysisData = result.analysis || result;
+
+        // Build normalized record with safe fallbacks
+        const normalizedRecord = {
+          food_name: analysisData.food_name || 'Unknown food',
+          estimated_portion: analysisData.estimated_portion || '1 serving',
+          nutritional_info: {
+            calories: analysisData.nutritional_info?.calories ?? 'N/A',
+            protein: analysisData.nutritional_info?.protein ?? 'N/A',
+            carbohydrates: analysisData.nutritional_info?.carbohydrates ?? 'N/A',
+            fat: analysisData.nutritional_info?.fat ?? 'N/A',
+          },
+          medical_rating: {
+            diabetes_suitability: analysisData.medical_rating?.diabetes_suitability ?? 'Unknown',
+          },
+        };
+
+        setRecordFoodResult(normalizedRecord);
         setRecordFoodDialog(true);
         
         // Add success message to chat
         const successMessage: Message = {
           id: uuidv4(),
-          message: `✅ Successfully analyzed and logged: ${result.food_name}\n\n**Nutritional Info:**\n- Calories: ${result.nutritional_info?.calories || 'N/A'}\n- Protein: ${result.nutritional_info?.protein || 'N/A'}g\n- Carbs: ${result.nutritional_info?.carbohydrates || 'N/A'}g\n- Fat: ${result.nutritional_info?.fat || 'N/A'}g\n\n**Diabetes Suitability:** ${result.medical_rating?.diabetes_suitability || 'N/A'}`,
+          message: `✅ Successfully analyzed and logged: ${normalizedRecord.food_name}\n\n**Nutritional Info:**\n- Calories: ${normalizedRecord.nutritional_info.calories}\n- Protein: ${normalizedRecord.nutritional_info.protein}g\n- Carbs: ${normalizedRecord.nutritional_info.carbohydrates}g\n- Fat: ${normalizedRecord.nutritional_info.fat}g\n\n**Diabetes Suitability:** ${normalizedRecord.medical_rating.diabetes_suitability}`,
           is_user: false,
           timestamp: new Date().toISOString(),
           session_id: currentSession,
           metadata: {
             type: 'food_analysis',
-            data: result
+            data: normalizedRecord
           }
         };
         setMessages(prev => [...prev, successMessage]);
