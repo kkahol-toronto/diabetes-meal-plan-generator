@@ -3976,6 +3976,63 @@ async def get_todays_meal_plan(current_user: User = Depends(get_current_user)):
 
         todays_plan = _ensure_meals_dict(todays_plan, today.weekday())
 
+        # Check if any meals are placeholders and generate concrete ones if needed
+        if todays_plan and todays_plan.get("meals"):
+            def _looks_placeholder(text: str) -> bool:
+                return any(keyword in text.lower() for keyword in ["healthy", "balanced", "nutritious", "option", "_"]) # Added _ to catch empty strings
+
+            needs_generation = any(
+                _looks_placeholder(meal)
+                for meal in todays_plan["meals"].values()
+            )
+            
+            if needs_generation:
+                print(f"[get_todays_meal_plan] Placeholder meals detected in today's plan – generating concrete recipes via OpenAI…")
+
+                profile = current_user.get("profile", {})
+                
+                # Use existing meals as a base for generation, fill in missing with generic prompts
+                current_meals = todays_plan["meals"]
+                breakfast_prompt = current_meals.get("breakfast", "a healthy breakfast option")
+                lunch_prompt = current_meals.get("lunch", "a balanced lunch option")
+                dinner_prompt = current_meals.get("dinner", "a nutritious dinner option")
+                snack_prompt = current_meals.get("snack", "a healthy snack option")
+
+                # Construct a more detailed prompt for the AI
+                prompt = f"""You are a registered dietitian AI. Generate specific, concrete dish names for each meal (breakfast, lunch, dinner, snack) for TODAY, given the user's profile and dietary needs.\n\nUSER PROFILE:\nDiet Type: {', '.join(profile.get('dietType', [])) or 'Standard'}\nRestrictions: {', '.join(profile.get('dietaryRestrictions', [])) or 'None'}\nAllergies: {', '.join(profile.get('allergies', [])) or 'None'}\nHealth Conditions: {', '.join(profile.get('medical_conditions', [])) or 'None'}\n\nExisting Plan (fill placeholders if any, make specific):\nBreakfast: {breakfast_prompt}\nLunch: {lunch_prompt}\nDinner: {dinner_prompt}\nSnack: {snack_prompt}\n\nProvide JSON exactly in this format, with specific dish names only:\n{{\n  \"meals\": {{\n    \"breakfast\": \"<specific dish name>\",\n    \"lunch\": \"<specific dish name>\",\n    \"dinner\": \"<specific dish name>\",\n    \"snack\": \"<specific dish name>\"\n  }}\n}}\nEnsure dishes are suitable for a diabetic individual and adhere to all profile restrictions and allergies. Avoid generic terms and provide actual recipe names. If a meal is already specific, keep it as is unless it contradicts profile.\n"""
+
+                try:
+                    import os # Import os for os.getenv
+                    from openai import OpenAI # Import OpenAI client
+                    client = OpenAI(api_key=os.getenv("AZURE_OPENAI_API_KEY")) # Initialize client
+
+                    ai_resp = client.chat.completions.create(
+                        model=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
+                        messages=[{"role": "user", "content": prompt}],
+                        temperature=0.7, # Slightly higher temperature for more creativity
+                        max_tokens=500
+                    )
+
+                    import json as _json
+                    ai_json = _json.loads(ai_resp.choices[0].message.content)
+                    
+                    # Update only the meals that were placeholders or needed refinement
+                    updated_meals = ai_json.get("meals", {})
+                    for meal_type, dish_name in updated_meals.items():
+                        if _looks_placeholder(current_meals.get(meal_type, "")) or dish_name != current_meals.get(meal_type, ""):
+                            todays_plan["meals"][meal_type] = dish_name
+
+                    todays_plan["type"] = "ai_generated_concrete"
+                    todays_plan["notes"] = (todays_plan.get("notes", "") + " Meals made concrete by AI.").strip()
+
+                    # Save the updated plan to history
+                    await save_meal_plan(current_user["email"], todays_plan)
+                    print("[get_todays_meal_plan] Saved AI-generated concrete meals for today.")
+                except Exception as gen_err:
+                    print(f"[get_todays_meal_plan] Error during concrete meal generation or parsing: {gen_err}")
+                    import traceback
+                    print(traceback.format_exc())
+
         # ------------------
         # REAL-TIME CALIBRATION (same-day)
         # ------------------
@@ -4009,19 +4066,44 @@ async def get_todays_meal_plan(current_user: User = Depends(get_current_user)):
                 elif 0 <= remaining <= calorie_goal_day * 0.1:
                     note = "Great job sticking close to the plan so far! Keep it up."
                     todays_plan["notes"] = f"{todays_plan.get('notes', '')} {note}".strip()
+
+                # If user is significantly below target, suggest a slightly larger upcoming meal or an extra snack
+                elif remaining > calorie_goal_day * 0.2:
+                    if "snack" in todays_plan.get("meals", {}):
+                        if "optional" in todays_plan["meals"]["snack"].lower(): # Remove optional note if previously added
+                             todays_plan["meals"]["snack"] = todays_plan["meals"]["snack"].replace(" (optional if still hungry)", "").strip()
+
+                        todays_plan["meals"]["snack"] += " (recommended)"
+                    elif "dinner" in todays_plan.get("meals", {}):
+                        todays_plan["meals"]["dinner"] += " (slightly larger portion recommended)"
+                    
+                    note = "Consider a slightly larger portion or an extra snack to meet your calorie goals."
+                    todays_plan["notes"] = f"{todays_plan.get('notes', '')} {note}".strip()
+
+            # If plan has a 'type' of 'ai_generated_today' or 'ai_generated_concrete', it means it was just generated or refined
+            # In this case, we don't need to explicitly save it again here if it was already saved during generation.
+            # But if it was a derived/fallback plan that just got calibrated, save it.
+            if todays_plan.get("type") not in ["ai_generated_today", "ai_generated_concrete"] and calories_so_far > 0: # Only save if consumption has happened and it's not a fresh AI gen
+                 # Generate a unique ID for this calibrated plan if it's not already saved
+                if "id" not in todays_plan or todays_plan["id"].startswith("derived_") or todays_plan["id"].startswith("fallback_"):
+                    todays_plan["id"] = f"calibrated_{current_user['email']}_{today.isoformat()}_{int(datetime.utcnow().timestamp())}"
+                    todays_plan["created_at"] = datetime.utcnow().isoformat()
+                
+                todays_plan["type"] = "calibrated_daily"
+                await save_meal_plan(current_user["email"], todays_plan)
+                print("[get_todays_meal_plan] Saved calibrated meal plan for today.")
+
+
         except Exception as e:
             print(f"[get_todays_meal_plan] Calibration error: {e}")
 
-        return {
-            "meal_plan": todays_plan,
-            "date": today.isoformat(),
-            "is_adaptive": todays_plan.get("type") in ["adaptive_meal_plan", "basic_adaptive"],
-            "health_conditions": todays_plan.get("health_conditions", [])
-        }
-        
+        return todays_plan
+    except HTTPException:
+        raise
     except Exception as e:
-        print(f"[get_todays_meal_plan] Error: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to get today's meal plan: {str(e)}")
+        print(f"[get_todays_meal_plan] Unexpected error: {str(e)}")
+        print(f"[get_todays_meal_plan] Full error details:", traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve or generate meal plan: {str(e)}")
 
 @app.post("/coach/adaptive-meal-plan")
 async def create_adaptive_meal_plan(
