@@ -3877,6 +3877,42 @@ async def get_todays_meal_plan(current_user: User = Depends(get_current_user)):
                 "notes": f"Basic meal plan customized for: {', '.join(health_conditions) if health_conditions else 'general health'}"
             }
         
+        # ------------------
+        # REAL-TIME CALIBRATION (same-day)
+        # ------------------
+        try:
+            consumption_data_full = await get_user_consumption_history(current_user["email"], limit=100)
+            today_consumption_full = [
+                r for r in consumption_data_full
+                if datetime.fromisoformat(r.get("timestamp", "").replace("Z", "+00:00")).date() == today
+            ]
+
+            # Sum calories eaten so far
+            calories_so_far = sum(r.get("nutritional_info", {}).get("calories", 0) for r in today_consumption_full)
+
+            calorie_goal_day = todays_plan.get("dailyCalories") or 0
+            if calorie_goal_day > 0:
+                remaining = calorie_goal_day - calories_so_far
+
+                # If the user already exceeded the daily goal, lighten upcoming meals
+                if remaining < -100:
+                    if "lunch" in todays_plan.get("meals", {}):
+                        todays_plan["meals"]["lunch"] += " (lighter portion recommended)"
+                    if "dinner" in todays_plan.get("meals", {}):
+                        todays_plan["meals"]["dinner"] += " (lighter portion recommended)"
+                    if "snack" in todays_plan.get("meals", {}):
+                        todays_plan["meals"]["snack"] += " (optional if still hungry)"
+
+                    note = "Adjusted lunch/dinner due to higher calories consumed earlier today."
+                    todays_plan["notes"] = f"{todays_plan.get('notes', '')} {note}".strip()
+
+                # Positive reinforcement when following plan (within ±10% at mealtime)
+                elif 0 <= remaining <= calorie_goal_day * 0.1:
+                    note = "Great job sticking close to the plan so far! Keep it up."
+                    todays_plan["notes"] = f"{todays_plan.get('notes', '')} {note}".strip()
+        except Exception as e:
+            print(f"[get_todays_meal_plan] Calibration error: {e}")
+
         return {
             "meal_plan": todays_plan,
             "date": today.isoformat(),
