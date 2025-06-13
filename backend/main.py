@@ -3860,10 +3860,10 @@ async def get_todays_meal_plan(current_user: User = Depends(get_current_user)):
         
         # Fetch user's meal plan history
         meal_plans = await get_user_meal_plans(current_user["email"])
-
+        
         # Today's date helper
         today = datetime.utcnow().date()
-
+        
         # Start with no plan selected
         todays_plan = None
 
@@ -3877,7 +3877,7 @@ async def get_todays_meal_plan(current_user: User = Depends(get_current_user)):
                         break
                 except Exception:
                     continue
-
+        
         # If still none, derive today's meals from the most recent saved plan
         if not todays_plan and meal_plans:
             # Choose the most recent plan that actually contains array-style meals
@@ -3887,8 +3887,8 @@ async def get_todays_meal_plan(current_user: User = Depends(get_current_user)):
                     latest_plan = p
                     break
             if latest_plan is None:
-                latest_plan = meal_plans[0]
-
+            latest_plan = meal_plans[0]
+            
             # Helper to safely pull meal array/string for index
             def _pick(meal_key: str):
                 val = latest_plan.get(meal_key)
@@ -3919,7 +3919,7 @@ async def get_todays_meal_plan(current_user: User = Depends(get_current_user)):
         if not todays_plan:
             todays_plan = {
                 "id": f"fallback_{current_user['email']}_{today.isoformat()}",
-                "date": today.isoformat(),
+            "date": today.isoformat(),
                 "type": "fallback_basic",
                 "meals": {
                     "breakfast": "Oatmeal with berries",
@@ -4002,10 +4002,6 @@ async def get_todays_meal_plan(current_user: User = Depends(get_current_user)):
                 prompt = f"""You are a registered dietitian AI. Generate specific, concrete dish names for each meal (breakfast, lunch, dinner, snack) for TODAY, given the user's profile and dietary needs.\n\nUSER PROFILE:\nDiet Type: {', '.join(profile.get('dietType', [])) or 'Standard'}\nRestrictions: {', '.join(profile.get('dietaryRestrictions', [])) or 'None'}\nAllergies: {', '.join(profile.get('allergies', [])) or 'None'}\nHealth Conditions: {', '.join(profile.get('medical_conditions', [])) or 'None'}\n\nExisting Plan (fill placeholders if any, make specific):\nBreakfast: {breakfast_prompt}\nLunch: {lunch_prompt}\nDinner: {dinner_prompt}\nSnack: {snack_prompt}\n\nProvide JSON exactly in this format, with specific dish names only:\n{{\n  \"meals\": {{\n    \"breakfast\": \"<specific dish name>\",\n    \"lunch\": \"<specific dish name>\",\n    \"dinner\": \"<specific dish name>\",\n    \"snack\": \"<specific dish name>\"\n  }}\n}}\nEnsure dishes are suitable for a diabetic individual and adhere to all profile restrictions and allergies. Avoid generic terms and provide actual recipe names. If a meal is already specific, keep it as is unless it contradicts profile.\n"""
 
                 try:
-                    import os # Import os for os.getenv
-                    from openai import OpenAI # Import OpenAI client
-                    client = OpenAI(api_key=os.getenv("AZURE_OPENAI_API_KEY")) # Initialize client
-
                     ai_resp = client.chat.completions.create(
                         model=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
                         messages=[{"role": "user", "content": prompt}],
@@ -4092,7 +4088,6 @@ async def get_todays_meal_plan(current_user: User = Depends(get_current_user)):
                 todays_plan["type"] = "calibrated_daily"
                 await save_meal_plan(current_user["email"], todays_plan)
                 print("[get_todays_meal_plan] Saved calibrated meal plan for today.")
-
 
         except Exception as e:
             print(f"[get_todays_meal_plan] Calibration error: {e}")
