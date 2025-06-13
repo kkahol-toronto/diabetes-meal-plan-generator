@@ -5524,30 +5524,53 @@ async def get_meal_suggestion(
     Generate AI-powered meal suggestions based on user's query context, preferences, and nutritional needs.
     """
     try:
+        # Handle both simple query format and detailed format
+        query = request.get("query", "")
         meal_type = request.get("meal_type", "")
         remaining_calories = request.get("remaining_calories", 500)
         preferences = request.get("preferences", "")
         context = request.get("context", {})
         
-        # Get user's profile and meal history
-        user_profile = await get_user_profile(current_user["email"])
-        meal_history = await get_user_meal_history(current_user["email"], limit=20)
+        # Get user's profile and consumption history
+        try:
+            # Get user profile from database
+            user_profile_query = f"SELECT * FROM c WHERE c.type = 'user' AND c.id = '{current_user['email']}'"
+            user_profiles = list(user_container.query_items(query=user_profile_query, enable_cross_partition_query=True))
+            user_profile = user_profiles[0] if user_profiles else {}
+        except:
+            user_profile = {}
+            
+        try:
+            consumption_history = await get_user_consumption_history(current_user["email"], limit=10)
+        except:
+            consumption_history = []
         
-        # Analyze meal patterns and preferences
-        meal_patterns = analyze_meal_patterns(meal_history)
-        dietary_restrictions = user_profile.get("dietary_restrictions", [])
-        health_conditions = user_profile.get("health_conditions", [])
+        # Extract dietary info from profile
+        dietary_restrictions = user_profile.get("dietary_restrictions", []) or user_profile.get("dietaryRestrictions", [])
+        health_conditions = user_profile.get("health_conditions", []) or user_profile.get("medicalConditions", [])
         
-        # Build context-aware prompt
-        prompt = build_meal_suggestion_prompt(
-            meal_type=meal_type,
-            remaining_calories=remaining_calories,
-            meal_patterns=meal_patterns,
-            dietary_restrictions=dietary_restrictions,
-            health_conditions=health_conditions,
-            context=context,
-            preferences=preferences
-        )
+        # Build AI prompt based on query or structured request
+        if query:
+            # Simple query format from homepage
+            prompt = f"""As a diabetes nutrition coach, please answer this question: "{query}"
+
+User Context:
+- Health conditions: {', '.join(health_conditions) if health_conditions else 'Not specified'}
+- Dietary restrictions: {', '.join(dietary_restrictions) if dietary_restrictions else 'None specified'}
+- Recent meals: {', '.join([meal.get('food_name', 'Unknown') for meal in consumption_history[:3]]) if consumption_history else 'No recent meals logged'}
+
+Please provide a helpful, personalized response that considers their diabetes management needs. Keep it concise but informative."""
+        else:
+            # Detailed format for meal suggestions
+            prompt = build_meal_suggestion_prompt(
+                meal_type=meal_type,
+                remaining_calories=remaining_calories,
+                meal_patterns={},
+                dietary_restrictions=dietary_restrictions,
+                health_conditions=health_conditions,
+                context=context,
+                preferences=preferences
+            )
         
         # Get AI suggestion using OpenAI
         suggestion = await get_ai_suggestion(prompt)
@@ -5559,28 +5582,32 @@ async def get_meal_suggestion(
             }
             
         # Log the suggestion for future reference
-        await log_meal_suggestion(
-            user_id=current_user["email"],
-            meal_type=meal_type,
-            suggestion=suggestion,
-            context=context
-        )
+        try:
+            await log_meal_suggestion(
+                user_id=current_user["email"],
+                meal_type=meal_type or "general_query",
+                suggestion=suggestion,
+                context={"query": query, **context}
+            )
+        except:
+            pass  # Non-critical error
         
         return {
             "success": True,
             "suggestion": suggestion,
+            "response": suggestion,  # Also include 'response' field for frontend compatibility
             "context": {
-                "meal_type": meal_type,
+                "meal_type": meal_type or "general_query",
                 "time_appropriate": True,
                 "considers_health": True,
                 "personalized": True
             }
         }
     except Exception as e:
-        logger.error(f"Error generating meal suggestion: {str(e)}")
+        print(f"Error generating meal suggestion: {str(e)}")
         return {
             "success": False,
-            "error": "Failed to generate meal suggestion"
+            "error": "Failed to generate meal suggestion. Please try again."
         }
 
 async def get_ai_suggestion(prompt: str) -> str:
