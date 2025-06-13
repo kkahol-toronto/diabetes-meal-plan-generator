@@ -443,6 +443,7 @@ const HomePage: React.FC = () => {
     
     try {
       setAICoachLoading(true);
+      setAICoachResponse(''); // Clear previous response
       
       const response = await fetch('/coach/meal-suggestion', {
         method: 'POST',
@@ -455,12 +456,18 @@ const HomePage: React.FC = () => {
 
       if (response.ok) {
         const result = await response.json();
-        setAICoachResponse(result.suggestion || result.response || 'No response available');
+        const aiResponse = result.suggestion || result.response || 'No response available';
+        setAICoachResponse(aiResponse);
+        
+        // Clear the query after successful response
+        setAICoachQuery('');
       } else {
-        throw new Error('Failed to get AI response');
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.detail || 'Failed to get AI response');
       }
     } catch (err) {
-      setAICoachResponse('Sorry, I encountered an error. Please try again.');
+      console.error('AI Coach Error:', err);
+      setAICoachResponse(`Sorry, I encountered an error: ${err instanceof Error ? err.message : 'Please try again.'}`);
     } finally {
       setAICoachLoading(false);
     }
@@ -1270,6 +1277,14 @@ const HomePage: React.FC = () => {
                   value={aiCoachQuery}
                   onChange={(e) => setAICoachQuery(e.target.value)}
                   sx={{ mb: 2 }}
+                  onKeyPress={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      if (!aiCoachLoading && aiCoachQuery.trim()) {
+                        handleAICoachQuery();
+                      }
+                    }
+                  }}
                 />
                 <Button
                   variant="contained"
@@ -1282,9 +1297,16 @@ const HomePage: React.FC = () => {
                 </Button>
                 {aiCoachResponse && (
                   <Paper sx={{ p: 2, mt: 2, bgcolor: 'grey.50' }}>
-                    <Typography variant="body2">
+                    <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap' }}>
                       {aiCoachResponse}
                     </Typography>
+                    <Button 
+                      size="small" 
+                      onClick={() => setAICoachResponse('')}
+                      sx={{ mt: 1 }}
+                    >
+                      Clear Response
+                    </Button>
                   </Paper>
                 )}
               </CardContent>
@@ -1457,17 +1479,36 @@ const HomePage: React.FC = () => {
             variant="outlined"
             value={aiCoachQuery}
             onChange={(e) => setAICoachQuery(e.target.value)}
+            onKeyPress={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                if (!aiCoachLoading && aiCoachQuery.trim()) {
+                  handleAICoachQuery();
+                }
+              }
+            }}
           />
           {aiCoachResponse && (
             <Paper sx={{ p: 2, mt: 2, bgcolor: 'grey.50' }}>
-              <Typography variant="body1">
+              <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap' }}>
                 {aiCoachResponse}
               </Typography>
+              <Button 
+                size="small" 
+                onClick={() => setAICoachResponse('')}
+                sx={{ mt: 1 }}
+              >
+                Clear Response
+              </Button>
             </Paper>
           )}
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setShowAICoachDialog(false)}>Close</Button>
+          <Button onClick={() => {
+            setShowAICoachDialog(false);
+            setAICoachResponse('');
+            setAICoachQuery('');
+          }}>Close</Button>
           <Button 
             onClick={handleAICoachQuery} 
             variant="contained"
