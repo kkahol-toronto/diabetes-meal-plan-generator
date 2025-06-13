@@ -145,17 +145,36 @@ const Navigation = () => {
             setDrawerOpen(false);
           }}
           selected={location.pathname === item.path}
+          sx={{
+            color: 'white',
+            '&:hover': { backgroundColor: 'rgba(255,255,255,0.1)' },
+            '&.Mui-selected': { backgroundColor: 'rgba(255,255,255,0.2)' }
+          }}
         >
-          <ListItemIcon>{item.icon}</ListItemIcon>
+          <ListItemIcon sx={{ color: 'white' }}>{item.icon}</ListItemIcon>
           <ListItemText primary={item.text} />
         </ListItem>
       ))}
       {userInfo ? (
-        <ListItem button onClick={handleLogout}>
+        <ListItem 
+          button 
+          onClick={handleLogout}
+          sx={{
+            color: 'white',
+            '&:hover': { backgroundColor: 'rgba(255,255,255,0.1)' }
+          }}
+        >
           <ListItemText primary="Logout" />
         </ListItem>
       ) : (
-        <ListItem button onClick={() => navigate('/login')}>
+        <ListItem 
+          button 
+          onClick={() => navigate('/login')}
+          sx={{
+            color: 'white',
+            '&:hover': { backgroundColor: 'rgba(255,255,255,0.1)' }
+          }}
+        >
           <ListItemText primary="Login" />
         </ListItem>
       )}
@@ -163,7 +182,13 @@ const Navigation = () => {
   );
 
   return (
-    <AppBar position="static">
+    <AppBar 
+      position="static" 
+      sx={{ 
+        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+        boxShadow: '0 4px 20px rgba(102, 126, 234, 0.3)'
+      }}
+    >
       <Toolbar>
         {isMobile && (
           <IconButton
@@ -188,7 +213,12 @@ const Navigation = () => {
                 startIcon={item.icon}
                 onClick={() => navigate(item.path)}
                 sx={{
-                  backgroundColor: location.pathname === item.path ? 'rgba(255, 255, 255, 0.1)' : 'transparent',
+                  backgroundColor: location.pathname === item.path ? 'rgba(255, 255, 255, 0.2)' : 'transparent',
+                  '&:hover': { backgroundColor: 'rgba(255, 255, 255, 0.1)' },
+                  borderRadius: 2,
+                  px: 2,
+                  py: 1,
+                  transition: 'all 0.3s ease'
                 }}
               >
                 {item.text}
@@ -213,7 +243,12 @@ const Navigation = () => {
       </Toolbar>
       <Drawer anchor="left" open={drawerOpen} onClose={toggleDrawer(false)}>
         <Box
-          sx={{ width: 250 }}
+          sx={{ 
+            width: 250,
+            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+            height: '100%',
+            color: 'white'
+          }}
           role="presentation"
           onClick={toggleDrawer(false)}
           onKeyDown={toggleDrawer(false)}

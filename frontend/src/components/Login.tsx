@@ -69,8 +69,15 @@ const Login = () => {
 
   return (
     <Container maxWidth="sm" sx={{ py: 4 }}>
-      <Paper elevation={3} sx={{ p: 4 }}>
-        <Typography variant="h4" component="h1" gutterBottom align="center">
+      <Paper 
+        elevation={3} 
+        sx={{ 
+          p: 4,
+          background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+          color: 'white'
+        }}
+      >
+        <Typography variant="h4" component="h1" gutterBottom align="center" sx={{ color: 'white' }}>
           Login
         </Typography>
 
@@ -89,6 +96,17 @@ const Login = () => {
             onChange={handleChange}
             margin="normal"
             required
+            sx={{
+              '& .MuiOutlinedInput-root': {
+                bgcolor: 'rgba(255,255,255,0.1)',
+                color: 'white',
+                '& fieldset': { borderColor: 'rgba(255,255,255,0.3)' },
+                '&:hover fieldset': { borderColor: 'rgba(255,255,255,0.5)' },
+                '&.Mui-focused fieldset': { borderColor: 'white' }
+              },
+              '& .MuiInputLabel-root': { color: 'rgba(255,255,255,0.8)' },
+              '& .MuiInputLabel-root.Mui-focused': { color: 'white' }
+            }}
           />
           <TextField
             fullWidth
@@ -99,20 +117,36 @@ const Login = () => {
             onChange={handleChange}
             margin="normal"
             required
+            sx={{
+              '& .MuiOutlinedInput-root': {
+                bgcolor: 'rgba(255,255,255,0.1)',
+                color: 'white',
+                '& fieldset': { borderColor: 'rgba(255,255,255,0.3)' },
+                '&:hover fieldset': { borderColor: 'rgba(255,255,255,0.5)' },
+                '&.Mui-focused fieldset': { borderColor: 'white' }
+              },
+              '& .MuiInputLabel-root': { color: 'rgba(255,255,255,0.8)' },
+              '& .MuiInputLabel-root.Mui-focused': { color: 'white' }
+            }}
           />
           <Box sx={{ mt: 3, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <Link
               component="button"
               variant="body2"
               onClick={() => navigate('/register')}
+              sx={{ color: 'rgba(255,255,255,0.8)', '&:hover': { color: 'white' } }}
             >
               Don't have an account? Register
             </Link>
             <Button
               type="submit"
               variant="contained"
-              color="primary"
               size="large"
+              sx={{ 
+                bgcolor: 'rgba(255,255,255,0.2)', 
+                color: 'white',
+                '&:hover': { bgcolor: 'rgba(255,255,255,0.3)' }
+              }}
             >
               Login
             </Button>

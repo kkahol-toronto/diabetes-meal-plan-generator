@@ -19,23 +19,76 @@ import MealPlanDetails from './components/MealPlanDetails';
 import ConsumptionHistory from './components/ConsumptionHistory';
 import NotificationSystem from './components/NotificationSystem';
 
-// Create a theme instance
+// Create a theme instance with purple gradient theme
 const theme = createTheme({
   palette: {
     primary: {
-      main: '#2E7D32', // Diabetes-friendly green
+      main: '#667eea', // Purple primary color
+      light: '#9bb5ff',
+      dark: '#3f51b5',
     },
     secondary: {
-      main: '#81C784', // Lighter green
+      main: '#764ba2', // Purple secondary color
+      light: '#a478d4',
+      dark: '#4a2c73',
     },
     background: {
-      default: '#F5F5F5',
+      default: '#f8f9ff', // Light purple-tinted background
+      paper: '#ffffff',
+    },
+    text: {
+      primary: '#2c3e50',
+      secondary: '#667eea',
     },
   },
   typography: {
     fontFamily: '"Roboto", "Helvetica", "Arial", sans-serif',
     h4: {
       fontWeight: 600,
+      background: 'linear-gradient(45deg, #667eea, #764ba2)',
+      WebkitBackgroundClip: 'text',
+      WebkitTextFillColor: 'transparent',
+    },
+    h5: {
+      fontWeight: 500,
+    },
+    h6: {
+      fontWeight: 500,
+    },
+  },
+  components: {
+    MuiButton: {
+      styleOverrides: {
+        contained: {
+          background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+          boxShadow: '0 4px 15px rgba(102, 126, 234, 0.3)',
+          '&:hover': {
+            background: 'linear-gradient(135deg, #5a6fd8 0%, #6a4190 100%)',
+            boxShadow: '0 6px 20px rgba(102, 126, 234, 0.4)',
+          },
+        },
+      },
+    },
+    MuiCard: {
+      styleOverrides: {
+        root: {
+          boxShadow: '0 4px 20px rgba(102, 126, 234, 0.1)',
+          borderRadius: 12,
+        },
+      },
+    },
+    MuiPaper: {
+      styleOverrides: {
+        elevation1: {
+          boxShadow: '0 2px 10px rgba(102, 126, 234, 0.1)',
+        },
+        elevation2: {
+          boxShadow: '0 4px 15px rgba(102, 126, 234, 0.15)',
+        },
+        elevation3: {
+          boxShadow: '0 6px 20px rgba(102, 126, 234, 0.2)',
+        },
+      },
     },
   },
 });
