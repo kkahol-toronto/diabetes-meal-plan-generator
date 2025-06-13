@@ -31,6 +31,12 @@ import {
   ButtonGroup,
   Tab,
   Tabs,
+  ToggleButtonGroup,
+  ToggleButton,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -53,6 +59,11 @@ import {
   Favorite as HeartIcon,
   Speed as SpeedIcon,
   EmojiEvents as TrophyIcon,
+  Grain as CarbsIcon,
+  Opacity as FatIcon,
+  Nature as FiberIcon,
+  Cake as SugarIcon,
+  WaterDrop as SodiumIcon,
 } from '@mui/icons-material';
 import { useApp } from '../contexts/AppContext';
 import { Line, Doughnut, Radar } from 'react-chartjs-2';
@@ -83,6 +94,78 @@ ChartJS.register(
   BarElement,
   RadialLinearScale
 );
+
+// Enhanced types for comprehensive nutrition tracking (from ConsumptionHistory.tsx)
+interface NutritionalInfo {
+    calories: number;
+    carbohydrates: number;
+    protein: number;
+    fat: number;
+    fiber: number;
+    sugar: number;
+    sodium: number;
+  // Additional micronutrients
+  calcium?: number;
+  iron?: number;
+  potassium?: number;
+  vitamin_c?: number;
+  vitamin_d?: number;
+  vitamin_b12?: number;
+  folate?: number;
+  magnesium?: number;
+  zinc?: number;
+  saturated_fat?: number;
+  trans_fat?: number;
+  cholesterol?: number;
+}
+
+interface ChartConfig {
+  type: 'bar' | 'line' | 'pie' | 'doughnut';
+  metric: keyof NutritionalInfo;
+  title: string;
+  color: string;
+  icon: React.ReactNode;
+}
+
+interface ConsumptionAnalytics {
+  total_meals: number;
+  date_range: {
+    start_date: string;
+    end_date: string;
+  };
+  daily_averages: NutritionalInfo;
+  weekly_trends: {
+    calories: number[];
+    protein: number[];
+    carbohydrates: number[];
+    fat: number[];
+  };
+  meal_distribution: {
+    breakfast: number;
+    lunch: number;
+    dinner: number;
+    snack: number;
+  };
+  top_foods: Array<{
+    food: string;
+    frequency: number;
+  total_calories: number;
+  }>;
+  adherence_stats: {
+    diabetes_suitable_percentage: number;
+    calorie_goal_adherence: number;
+    protein_goal_adherence: number;
+    carb_goal_adherence: number;
+  };
+  daily_nutrition_history: Array<{
+    date: string;
+    calories: number;
+    protein: number;
+    carbohydrates: number;
+    fat: number;
+    meals_count: number;
+  }>;
+}
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -124,11 +207,16 @@ const HomePage: React.FC = () => {
   const [showQuickLogDialog, setShowQuickLogDialog] = useState(false);
   const [quickLogFood, setQuickLogFood] = useState('');
   const [tabValue, setTabValue] = useState(0);
+  const [macroTimeRange, setMacroTimeRange] = useState<'daily' | 'weekly' | 'bi-weekly' | 'monthly'>('daily');
+  const [macroConsumptionAnalytics, setMacroConsumptionAnalytics] = useState<any>(null);
   const [adaptivePlanLoading, setAdaptivePlanLoading] = useState(false);
   const [showAICoachDialog, setShowAICoachDialog] = useState(false);
   const [aiCoachQuery, setAICoachQuery] = useState('');
   const [aiCoachResponse, setAICoachResponse] = useState('');
   const [aiCoachLoading, setAICoachLoading] = useState(false);
+  const [analyticsTabValue, setAnalyticsTabValue] = useState(0); // For Daily, Weekly, etc. tabs
+  const [selectedTimeRange, setSelectedTimeRange] = useState<'daily' | 'weekly' | 'bi-weekly' | 'monthly'>('daily');
+  const [consumptionAnalytics, setConsumptionAnalytics] = useState<any>(null);
 
   const token = localStorage.getItem('token');
   const isLoggedIn = !!token;
@@ -154,17 +242,17 @@ const HomePage: React.FC = () => {
         analyticsResponse,
         progressResponse,
         notificationsResponse,
-        mealPlanResponse
+        mealPlanResponse,
       ] = await Promise.all([
         fetch('/coach/daily-insights', { headers }),
-        fetch('/consumption/analytics?days=30', { headers }),
+        fetch('/consumption/analytics?days=30', { headers }), // Fetching 30 days for initial analytics
         fetch('/consumption/progress', { headers }),
         fetch('/coach/notifications', { headers }),
         fetch('/coach/todays-meal-plan', { headers })
       ]);
 
-      if (dailyInsightsResponse.status === 401 || 
-          analyticsResponse.status === 401 || 
+      if (dailyInsightsResponse.status === 401 ||
+          analyticsResponse.status === 401 ||
           progressResponse.status === 401 ||
           notificationsResponse.status === 401 ||
           mealPlanResponse.status === 401) {
@@ -176,13 +264,13 @@ const HomePage: React.FC = () => {
       const [dailyData, analytics, progress, notifs, mealPlan] = await Promise.all([
         dailyInsightsResponse.ok ? dailyInsightsResponse.json() : null,
         analyticsResponse.ok ? analyticsResponse.json() : null,
-        progressResponse.ok ? progressResponse.json() : null,
-        notificationsResponse.ok ? notificationsResponse.json() : [],
+        progressResponse.ok ? progressResponse.json() : [],
+        notificationsResponse.ok ? notificationsResponse.json() : null,
         mealPlanResponse.ok ? mealPlanResponse.json() : null
       ]);
 
       setDashboardData(dailyData);
-      setAnalyticsData(analytics);
+      setAnalyticsData(analytics); // Existing analytics data, consider renaming for clarity
       setProgressData(progress);
       setNotifications(notifs);
       setTodaysMealPlan(mealPlan);
@@ -195,12 +283,93 @@ const HomePage: React.FC = () => {
     }
   }, [token, isLoggedIn, navigate]);
 
+  const fetchConsumptionAnalytics = useCallback(async (timeRange: 'daily' | 'weekly' | 'bi-weekly' | 'monthly') => {
+    if (!isLoggedIn) return;
+
+    setLocalLoading(true);
+    setError(null);
+
+    const headers = {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    };
+
+    let days = 0;
+    switch (timeRange) {
+      case 'daily': days = 1; break;
+      case 'weekly': days = 7; break;
+      case 'bi-weekly': days = 14; break;
+      case 'monthly': days = 30; break;
+      default: days = 30;
+    }
+
+    console.log(`Fetching consumption analytics for time range: ${timeRange} (days: ${days})`);
+
+    try {
+      const response = await fetch(`/consumption/analytics?days=${days}`, { headers });
+      if (response.status === 401) {
+        localStorage.removeItem('token');
+        navigate('/login');
+        return;
+      }
+      if (!response.ok) throw new Error('Failed to fetch consumption analytics');
+      const data = await response.json();
+      setConsumptionAnalytics(data);
+    } catch (err) {
+      console.error(`Error fetching ${timeRange} consumption analytics:`, err);
+      setError(`Unable to load ${timeRange} analytics. Please try again.`);
+    } finally {
+      setLocalLoading(false);
+    }
+  }, [token, isLoggedIn, navigate]);
+
+  const fetchMacroConsumptionAnalytics = useCallback(async (timeRange: 'daily' | 'weekly' | 'bi-weekly' | 'monthly') => {
+    if (!isLoggedIn) return;
+
+    // Do not set local loading/error for this specific fetch to avoid interfering with main dashboard loading state
+    // setLocalLoading(true);
+    // setError(null);
+
+    const headers = {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    };
+
+    let days = 0;
+    switch (timeRange) {
+      case 'daily': days = 1; break;
+      case 'weekly': days = 7; break;
+      case 'bi-weekly': days = 14; break;
+      case 'monthly': days = 30; break;
+      default: days = 30;
+    }
+
+    console.log(`Fetching macro analytics for time range: ${timeRange} (days: ${days})`);
+
+    try {
+      const response = await fetch(`/consumption/analytics?days=${days}`, { headers });
+      if (response.status === 401) {
+        localStorage.removeItem('token');
+        navigate('/login');
+        return;
+      }
+      if (!response.ok) throw new Error('Failed to fetch macro consumption analytics');
+      const data = await response.json();
+      setMacroConsumptionAnalytics(data);
+    } catch (err) {
+      console.error(`Error fetching ${timeRange} macro consumption analytics:`, err);
+      // setError(`Unable to load ${timeRange} macro analytics. Please try again.`);
+    }
+  }, [token, isLoggedIn, navigate]);
+
   useEffect(() => {
     fetchAllData();
+    fetchConsumptionAnalytics(selectedTimeRange); // Initial fetch for consumption analytics
+    fetchMacroConsumptionAnalytics(macroTimeRange); // Initial fetch for macro analytics
     // Auto-refresh every 5 minutes
     const interval = setInterval(fetchAllData, 5 * 60 * 1000);
     return () => clearInterval(interval);
-  }, [fetchAllData]);
+  }, [fetchAllData, fetchConsumptionAnalytics, selectedTimeRange, fetchMacroConsumptionAnalytics, macroTimeRange]);
 
   const handleQuickLogFood = async () => {
     if (!quickLogFood.trim()) return;
@@ -315,19 +484,165 @@ const HomePage: React.FC = () => {
     }
   };
 
+  // Chart configurations for different metrics (from ConsumptionHistory.tsx)
+  const chartConfigs: ChartConfig[] = [
+    { type: 'bar', metric: 'calories', title: 'Calories', color: '#FF6B6B', icon: <CaloriesIcon /> },
+    { type: 'bar', metric: 'protein', title: 'Protein (g)', color: '#4ECDC4', icon: <ProteinIcon /> },
+    { type: 'bar', metric: 'carbohydrates', title: 'Carbohydrates (g)', color: '#45B7D1', icon: <CarbsIcon /> },
+    { type: 'bar', metric: 'fat', title: 'Fat (g)', color: '#FFA07A', icon: <FatIcon /> },
+    { type: 'bar', metric: 'fiber', title: 'Fiber (g)', color: '#98D8C8', icon: <FiberIcon /> },
+    { type: 'bar', metric: 'sugar', title: 'Sugar (g)', color: '#F7DC6F', icon: <SugarIcon /> },
+    { type: 'bar', metric: 'sodium', title: 'Sodium (mg)', color: '#BB8FCE', icon: <SodiumIcon /> }
+  ];
+
+  // Helper function to format date for charts
+  const formatDate = (dateString: string) => {
+    try {
+      return new Date(dateString).toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+      });
+    } catch {
+      return 'Invalid Date';
+    }
+  };
+
+  // Helper functions for chart data generation
+  const generateChartData = (metric: keyof NutritionalInfo) => {
+    if (!consumptionAnalytics?.daily_nutrition_history) return null;
+
+    const data = consumptionAnalytics.daily_nutrition_history;
+    const labels = data.map((day: any) => formatDate(day.date));
+    const values = data.map((day: any) => (day as any)[metric] || 0);
+
+    const chartConfig = chartConfigs.find(config => config.metric === metric);
+    const color = chartConfig?.color || '#45B7D1';
+
+    return {
+      labels,
+      datasets: [{
+        label: chartConfig?.title || metric,
+        data: values,
+        backgroundColor: color,
+        borderColor: color,
+        borderWidth: 2,
+        fill: false,
+        tension: 0.4,
+        pointBackgroundColor: color,
+        pointBorderColor: '#fff',
+        pointBorderWidth: 2,
+        pointRadius: 4
+      }]
+    };
+  };
+
+  const getChartOptions = (metric: keyof NutritionalInfo) => {
+    const chartConfig = chartConfigs.find(config => config.metric === metric);
+    
+    return {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          position: 'top' as const,
+          labels: {
+            usePointStyle: true,
+            padding: 20
+          }
+        },
+        title: {
+          display: true,
+          text: `${chartConfig?.title || metric} - ${selectedTimeRange.charAt(0).toUpperCase() + selectedTimeRange.slice(1)} Analysis`,
+          font: {
+            size: 16,
+            weight: 'bold' as const
+          }
+        },
+        tooltip: {
+          backgroundColor: 'rgba(0,0,0,0.8)',
+          titleColor: '#fff',
+          bodyColor: '#fff',
+          borderColor: chartConfig?.color || '#45B7D1',
+          borderWidth: 1
+        }
+      },
+      scales: {
+        y: {
+          beginAtZero: true,
+          grid: {
+            color: 'rgba(0,0,0,0.1)'
+          },
+          ticks: {
+            font: {
+              size: 12
+            }
+          }
+        },
+        x: {
+          grid: {
+            color: 'rgba(0,0,0,0.1)'
+          },
+          ticks: {
+            font: {
+              size: 12
+            }
+          }
+        }
+      }
+    };
+  };
+
+  const renderChart = (metric: keyof NutritionalInfo) => {
+    const data = generateChartData(metric);
+    if (!data) return <Typography>No data available</Typography>;
+
+    const options = getChartOptions(metric);
+
+    return <Line data={data} options={options} />;
+  };
+
   // Chart configurations with beautiful styling
   const createMacroChart = () => {
-    if (!dashboardData?.today_totals || !dashboardData?.goals) return null;
+    let protein = 0;
+    let carbs = 0;
+    let fat = 0;
+
+    if (macroTimeRange === 'daily') {
+      if (!dashboardData?.today_totals) return null;
+      protein = dashboardData.today_totals.protein || 0;
+      carbs = dashboardData.today_totals.carbohydrates || 0;
+      fat = dashboardData.today_totals.fat || 0;
+    } else { // macroTimeRange is 'weekly', 'bi-weekly', or 'monthly'
+      if (!macroConsumptionAnalytics || !macroConsumptionAnalytics.daily_nutrition_history) {
+        // If data is not yet loaded for the selected non-daily range, return null
+        return null;
+      }
+      const history = macroConsumptionAnalytics.daily_nutrition_history;
+      const daysToAverage = macroTimeRange === 'weekly' ? 7 : macroTimeRange === 'bi-weekly' ? 14 : 30;
+      const relevantData = history.slice(-daysToAverage);
+
+      if (relevantData.length === 0) return null;
+
+      const totalProtein = relevantData.reduce((sum: number, day: any) => sum + (day.protein || 0), 0);
+      const totalCarbs = relevantData.reduce((sum: number, day: any) => sum + (day.carbohydrates || 0), 0);
+      const totalFat = relevantData.reduce((sum: number, day: any) => sum + (day.fat || 0), 0);
+
+      protein = totalProtein / relevantData.length;
+      carbs = totalCarbs / relevantData.length;
+      fat = totalFat / relevantData.length;
+    }
+
+    if (protein === 0 && carbs === 0 && fat === 0) return null; // No data to display
 
     return {
       labels: ['Protein', 'Carbs', 'Fat'],
       datasets: [
         {
-          label: 'Today',
+          label: 'Macros',
           data: [
-            dashboardData.today_totals.protein || 0,
-            dashboardData.today_totals.carbohydrates || 0,
-            dashboardData.today_totals.fat || 0
+            protein,
+            carbs,
+            fat
           ],
           backgroundColor: [
             alpha(theme.palette.success.main, 0.8),
@@ -660,8 +975,27 @@ const HomePage: React.FC = () => {
               <CardContent>
                 <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
                   <AnalyticsIcon sx={{ mr: 1 }} />
-                  Today's Macronutrients
+                  Macronutrients
                 </Typography>
+                <FormControl variant="outlined" size="small" sx={{ mb: 2, minWidth: 120 }}>
+                  <InputLabel id="macro-time-range-label">Time Range</InputLabel>
+                  <Select
+                    labelId="macro-time-range-label"
+                    id="macro-time-range-select"
+                    value={macroTimeRange}
+                    onChange={(e) => {
+                      const newTimeRange = e.target.value as 'daily' | 'weekly' | 'bi-weekly' | 'monthly';
+                      setMacroTimeRange(newTimeRange);
+                      fetchMacroConsumptionAnalytics(newTimeRange); // Trigger fetch on change
+                    }}
+                    label="Time Range"
+                  >
+                    <MenuItem value="daily">Daily</MenuItem>
+                    <MenuItem value="weekly">Weekly</MenuItem>
+                    <MenuItem value="bi-weekly">Bi-Weekly</MenuItem>
+                    <MenuItem value="monthly">Monthly</MenuItem>
+                  </Select>
+                </FormControl>
                 {createMacroChart() && (
                   <Box sx={{ height: 300 }}>
                     <Doughnut 
@@ -673,6 +1007,26 @@ const HomePage: React.FC = () => {
                           legend: {
                             position: 'bottom',
                           },
+                          tooltip: {
+                            callbacks: {
+                              label: function(context) {
+                                let label = context.label || '';
+                                if (label) {
+                                  label += ': ';
+                                }
+                                if (context.parsed !== null) {
+                                  label += context.parsed.toFixed(1) + 'g'; // Display actual value
+                                }
+                                return label;
+                              },
+                              afterLabel: function(context) {
+                                const total = context.dataset.data.reduce((sum: number, value: number) => sum + value, 0);
+                                const value = context.parsed;
+                                const percentage = total > 0 ? (value / total * 100) : 0;
+                                return `(${percentage.toFixed(1)}%)`; // Display percentage
+                              }
+                            }
+                          }
                         },
                       }}
                     />
@@ -842,122 +1196,92 @@ const HomePage: React.FC = () => {
 
       {/* Analytics Tab */}
       <CustomTabPanel value={tabValue} index={1}>
-        <Grid container spacing={3}>
-          {/* Weekly Trend Chart */}
-          <Grid item xs={12} md={8}>
-            <Card sx={{ height: 400 }}>
-              <CardContent>
-                <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
-                  <TimelineIcon sx={{ mr: 1 }} />
-                  Weekly Trends
-                </Typography>
-                {createWeeklyTrendChart() && (
-                  <Box sx={{ height: 300 }}>
-                    <Line 
-                      data={createWeeklyTrendChart()!} 
-                      options={{
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        plugins: {
-                          legend: {
-                            position: 'top',
-                          },
-                        },
-                        scales: {
-                          y: {
-                            beginAtZero: true,
-                          },
-                        },
-                      }}
-                    />
-                  </Box>
-                )}
-              </CardContent>
-            </Card>
-          </Grid>
+        <Box sx={{ mb: 3 }}>
+          <Typography variant="h5" component="h2" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
+            <AnalyticsIcon sx={{ mr: 1 }} />
+            Consumption Trends & Analysis
+          </Typography>
+          <Typography variant="subtitle1" color="text.secondary" sx={{ mb: 2 }}>
+            Visualize your dietary intake over different periods to identify patterns and progress.
+          </Typography>
+          <ToggleButtonGroup
+            value={selectedTimeRange}
+            exclusive
+            onChange={(e, newTimeRange) => newTimeRange && fetchConsumptionAnalytics(newTimeRange)}
+            aria-label="time range selection"
+            size="small"
+            color="primary"
+            sx={{ mb: 2 }}
+          >
+            <ToggleButton value="daily">Daily</ToggleButton>
+            <ToggleButton value="weekly">Weekly</ToggleButton>
+            <ToggleButton value="bi-weekly">Bi-Weekly</ToggleButton>
+            <ToggleButton value="monthly">Monthly</ToggleButton>
+          </ToggleButtonGroup>
+        </Box>
 
-          {/* Health Radar Chart */}
-          <Grid item xs={12} md={4}>
-            <Card sx={{ height: 400 }}>
-              <CardContent>
-                <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
-                  <SpeedIcon sx={{ mr: 1 }} />
-                  Health Metrics
-                </Typography>
-                {createHealthRadarChart() && (
-                  <Box sx={{ height: 300 }}>
-                    <Radar 
-                      data={createHealthRadarChart()!} 
-                      options={{
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        scales: {
-                          r: {
-                            beginAtZero: true,
-                            max: 100,
-                          },
-                        },
-                      }}
-                    />
-                  </Box>
-                )}
-              </CardContent>
-            </Card>
+        {loading ? (
+          <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 300 }}>
+            <CircularProgress />
+            <Typography variant="h6" sx={{ ml: 2 }}>Loading analytics...</Typography>
+          </Box>
+        ) : error ? (
+          <Alert severity="error">{error}</Alert>
+        ) : consumptionAnalytics ? (
+          <Grid container spacing={3}>
+            <Grid item xs={12} md={6}>
+              <Card>
+                <CardContent>
+                  {renderChart('calories')}
+                </CardContent>
+              </Card>
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <Card>
+                <CardContent>
+                  {renderChart('protein')}
+                </CardContent>
+              </Card>
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <Card>
+                <CardContent>
+                  {renderChart('carbohydrates')}
+                </CardContent>
+              </Card>
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <Card>
+                <CardContent>
+                  {renderChart('fat')}
+                </CardContent>
+              </Card>
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <Card>
+                <CardContent>
+                  {renderChart('fiber')}
+                </CardContent>
+              </Card>
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <Card>
+                <CardContent>
+                  {renderChart('sugar')}
+                </CardContent>
+              </Card>
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <Card>
+                <CardContent>
+                  {renderChart('sodium')}
+                </CardContent>
+              </Card>
+            </Grid>
           </Grid>
-
-          {/* Detailed Analytics */}
-          <Grid item xs={12}>
-            <Card>
-              <CardContent>
-                <Typography variant="h6" gutterBottom>
-                  Detailed Analytics (Last 30 Days)
-                </Typography>
-                <Grid container spacing={3}>
-                  <Grid item xs={12} sm={6} md={3}>
-                    <Box sx={{ textAlign: 'center', p: 2 }}>
-                      <Typography variant="h4" color="primary">
-                        {analyticsData?.total_meals || 0}
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary">
-                        Total Meals Logged
-                      </Typography>
-                    </Box>
-                  </Grid>
-                  <Grid item xs={12} sm={6} md={3}>
-                    <Box sx={{ textAlign: 'center', p: 2 }}>
-                      <Typography variant="h4" color="success.main">
-                        {Math.round(analyticsData?.avg_diabetes_score || 0)}%
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary">
-                        Avg Diabetes Score
-                      </Typography>
-                    </Box>
-                  </Grid>
-                  <Grid item xs={12} sm={6} md={3}>
-                    <Box sx={{ textAlign: 'center', p: 2 }}>
-                      <Typography variant="h4" color="warning.main">
-                        {Math.round(analyticsData?.avg_calories || 0)}
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary">
-                        Avg Daily Calories
-                      </Typography>
-                    </Box>
-                  </Grid>
-                  <Grid item xs={12} sm={6} md={3}>
-                    <Box sx={{ textAlign: 'center', p: 2 }}>
-                      <Typography variant="h4" color="info.main">
-                        {analyticsData?.consistency_days || 0}
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary">
-                        Consistent Days
-                      </Typography>
-                    </Box>
-                  </Grid>
-                </Grid>
-              </CardContent>
-            </Card>
-          </Grid>
-        </Grid>
+        ) : (
+          <Alert severity="info">No consumption data available for the selected period.</Alert>
+        )}
       </CustomTabPanel>
 
       {/* AI Insights Tab */}
