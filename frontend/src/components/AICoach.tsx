@@ -66,6 +66,9 @@ import {
   ShoppingCart as ShoppingIcon,
   Notifications as NotificationIcon,
   Settings as SettingsIcon,
+  RestaurantMenu as MealIcon,
+  AccessTime as TimeIcon,
+  LocalDining as DiningIcon,
 } from '@mui/icons-material';
 import { useApp } from '../contexts/AppContext';
 import { Line, Doughnut, Bar, Radar } from 'react-chartjs-2';
@@ -82,6 +85,7 @@ import {
   BarElement,
   RadialLinearScale,
 } from 'chart.js';
+import { api } from '../utils/api';
 
 // Register Chart.js components
 ChartJS.register(
@@ -123,6 +127,64 @@ function CustomTabPanel(props: TabPanelProps) {
   );
 }
 
+// Define interfaces for API responses
+interface DailyInsights {
+  goals: {
+    calories: number;
+    protein: number;
+    carbohydrates: number;
+    fat: number;
+  };
+  today_totals: {
+    calories: number;
+    protein: number;
+    carbohydrates: number;
+    fat: number;
+  };
+  adherence: {
+    calories: number;
+    protein: number;
+    carbohydrates: number;
+    fat: number;
+  };
+  meals_logged_today: number;
+  weekly_stats: {
+    total_meals: number;
+    diabetes_suitable_percentage: number;
+    average_daily_calories: number;
+  };
+}
+
+interface MealHistoryItem {
+  food_name: string;
+  timestamp: string;
+  nutritional_info: {
+    calories: number;
+    protein: number;
+    carbohydrates: number;
+    fat: number;
+  };
+  meal_type: string;
+}
+
+interface MealSuggestionResponse {
+  success: boolean;
+  suggestion: string;
+  error?: string;
+}
+
+interface MealTimeContext {
+  type: 'breakfast' | 'lunch' | 'dinner' | 'snack';
+  time: number;
+  isLate: boolean;
+}
+
+interface ApiResponse<T = any> {
+  data?: T;
+  error?: string;
+  success: boolean;
+}
+
 const AICoach: React.FC = () => {
   const navigate = useNavigate();
   const theme = useTheme();
@@ -140,9 +202,35 @@ const AICoach: React.FC = () => {
   const [aiResponse, setAIResponse] = useState('');
   const [aiLoading, setAILoading] = useState(false);
   const [insights, setInsights] = useState<any[]>([]);
+  const [suggestion, setSuggestion] = useState<string | null>(null);
+  const [dailyInsights, setDailyInsights] = useState<DailyInsights | null>(null);
+  const [mealHistory, setMealHistory] = useState<MealHistoryItem[]>([]);
 
   const token = localStorage.getItem('token');
   const isLoggedIn = !!token;
+
+  const fetchDailyInsights = async () => {
+    try {
+      const responseData = await api.get<ApiResponse<DailyInsights>>('/coach/daily-insights');
+      if (responseData.data) {
+        setDailyInsights(responseData.data);
+      }
+    } catch (err) {
+      console.error('Error fetching daily insights:', err);
+      setError('Failed to fetch daily insights');
+    }
+  };
+
+  const fetchMealHistory = async () => {
+    try {
+      const responseData = await api.get<ApiResponse<MealHistoryItem[]>>('/consumption/history?limit=20');
+      if (responseData.data) {
+        setMealHistory(responseData.data);
+      }
+    } catch (err) {
+      console.error('Error fetching meal history:', err);
+    }
+  };
 
   const fetchAllCoachData = useCallback(async () => {
     if (!isLoggedIn) {
@@ -212,11 +300,10 @@ const AICoach: React.FC = () => {
     } finally {
       setLocalLoading(false);
     }
-  }, [token, isLoggedIn, navigate]);
+  }, [fetchDailyInsights, fetchMealHistory]);
 
   useEffect(() => {
     fetchAllCoachData();
-    // Auto-refresh every 10 minutes
     const interval = setInterval(fetchAllCoachData, 10 * 60 * 1000);
     return () => clearInterval(interval);
   }, [fetchAllCoachData]);
@@ -250,30 +337,70 @@ const AICoach: React.FC = () => {
   };
 
   const handleAIQuery = async () => {
-    if (!aiQuery.trim()) return;
-    
-    try {
-      setAILoading(true);
-      
-      const response = await fetch('/coach/meal-suggestion', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ query: aiQuery }),
-      });
+    const inputElement = document.querySelector<HTMLInputElement>('input[placeholder="Ask your AI coach"]');
+    if (!inputElement || !inputElement.value.trim()) return;
 
-      if (response.ok) {
-        const result = await response.json();
-        setAIResponse(result.suggestion || result.response || 'No response available');
-      } else {
-        throw new Error('Failed to get AI response');
+    const userQuery = inputElement.value.trim();
+    setLocalLoading(true);
+    setError(null);
+
+    try {
+      // Get meal context from query
+      const mealContext = determineMealContext(userQuery);
+      
+          // Get daily insights for calorie context
+    const insightsResponse = await api.get<ApiResponse<DailyInsights>>('/coach/daily-insights');
+    if (!insightsResponse.data) {
+      throw new Error('Failed to get daily insights');
+    }
+    const insights = insightsResponse.data;
+    const dailyGoal = insights.goals.calories || 2000;
+    const consumedCalories = insights.today_totals.calories || 0;
+    const remainingCalories = Math.max(0, dailyGoal - consumedCalories);
+
+    // Get meal history for context
+    const historyResponse = await api.get<ApiResponse<MealHistoryItem[]>>('/consumption/history?limit=20');
+    if (!historyResponse.data) {
+      throw new Error('Failed to get meal history');
+    }
+    const mealHistory = historyResponse.data;
+    const todaysMeals = mealHistory
+      .filter((meal: MealHistoryItem) => {
+        const mealDate = new Date(meal.timestamp);
+        const today = new Date();
+        return mealDate.toDateString() === today.toDateString();
+      })
+      .map((meal: MealHistoryItem) => ({
+        name: meal.food_name,
+        type: meal.meal_type,
+        calories: meal.nutritional_info.calories
+      }));
+
+          // Get meal suggestion
+    const response = await api.post<ApiResponse<MealSuggestionResponse>>('/coach/meal-suggestion', {
+      meal_type: mealContext.type,
+      remaining_calories: remainingCalories,
+      preferences: mealContext.isLate ? 'prefer lighter meals' : '',
+      context: {
+        query_context: userQuery,
+        current_hour: mealContext.time,
+        is_late_meal: mealContext.isLate,
+        todays_meals: todaysMeals,
+        total_calories_consumed: consumedCalories,
+        remaining_daily_calories: remainingCalories
       }
+    });
+
+    if (response.success && response.data) {
+      setSuggestion(response.data.suggestion);
+    } else {
+      setError(response.error || 'Failed to get meal suggestion');
+    }
     } catch (err) {
-      setAIResponse('Sorry, I encountered an error. Please try again.');
+      console.error('Error processing AI query:', err);
+      setError('Failed to process your request. Please try again.');
     } finally {
-      setAILoading(false);
+      setLocalLoading(false);
     }
   };
 
@@ -357,6 +484,93 @@ const AICoach: React.FC = () => {
         }
       ]
     };
+  };
+
+  // Helper function to determine meal context from user query
+  const determineMealContext = (query: string): MealTimeContext => {
+    const currentHour = new Date().getHours();
+    const queryLower = query.toLowerCase();
+    
+    // Check for explicit meal type mentions
+    if (queryLower.includes('breakfast')) {
+      return { type: 'breakfast', time: currentHour, isLate: currentHour >= 10 };
+    }
+    if (queryLower.includes('lunch')) {
+      return { type: 'lunch', time: currentHour, isLate: currentHour >= 15 };
+    }
+    if (queryLower.includes('dinner')) {
+      return { type: 'dinner', time: currentHour, isLate: currentHour >= 20 };
+    }
+    if (queryLower.includes('snack')) {
+      return { type: 'snack', time: currentHour, isLate: false };
+    }
+
+    // If no explicit mention, determine based on time
+    if (currentHour >= 4 && currentHour < 11) {
+      return { type: 'breakfast', time: currentHour, isLate: currentHour >= 10 };
+    }
+    if (currentHour >= 11 && currentHour < 16) {
+      return { type: 'lunch', time: currentHour, isLate: currentHour >= 15 };
+    }
+    if (currentHour >= 16 && currentHour < 22) {
+      return { type: 'dinner', time: currentHour, isLate: currentHour >= 20 };
+    }
+    return { type: 'snack', time: currentHour, isLate: false };
+  };
+
+  const getMealSuggestion = async (userQuery: string) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const mealContext = determineMealContext(userQuery);
+      const dailyGoal = dailyInsights?.goals?.calories || 2000;
+      const consumedCalories = dailyInsights?.today_totals?.calories || 0;
+      const remainingCalories = Math.max(0, dailyGoal - consumedCalories);
+
+      // Get today's meals for context
+      const todaysMeals = mealHistory
+        .filter(meal => {
+          const mealDate = new Date(meal.timestamp);
+          const today = new Date();
+          return mealDate.toDateString() === today.toDateString();
+        })
+        .map(meal => ({
+          name: meal.food_name,
+          type: meal.meal_type,
+          calories: meal.nutritional_info.calories
+        }));
+
+      const response = await api.post<ApiResponse<MealSuggestionResponse>>('/coach/meal-suggestion', {
+        meal_type: mealContext.type,
+        remaining_calories: remainingCalories,
+        preferences: mealContext.isLate ? 'prefer lighter meals' : '',
+        context: {
+          is_late_meal: mealContext.isLate,
+          current_hour: mealContext.time,
+          todays_meals: todaysMeals,
+          total_calories_consumed: consumedCalories,
+          remaining_daily_calories: remainingCalories,
+          query_context: userQuery // Send original query for better context
+        }
+      });
+
+      if (response.success && response.data) {
+        setSuggestion(response.data.suggestion);
+      } else {
+        setError(response.error || 'Failed to get meal suggestion');
+      }
+    } catch (err) {
+      console.error('Error getting meal suggestion:', err);
+      setError('Failed to get meal suggestion');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Update the suggestion button click handler
+  const handleGetSuggestion = () => {
+    const userInput = document.querySelector<HTMLInputElement>('input[placeholder="Ask your AI coach"]')?.value || '';
+    getMealSuggestion(userInput);
   };
 
   if (!isLoggedIn) {
@@ -1061,7 +1275,7 @@ const AICoach: React.FC = () => {
         <DialogActions>
           <Button onClick={() => setShowAIDialog(false)}>Close</Button>
           <Button 
-            onClick={handleAIQuery} 
+            onClick={handleGetSuggestion} 
             variant="contained"
             disabled={aiLoading || !aiQuery.trim()}
             startIcon={aiLoading ? <CircularProgress size={20} /> : <CoachIcon />}
@@ -1070,8 +1284,135 @@ const AICoach: React.FC = () => {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Daily Progress Summary */}
+      {dailyInsights && (
+        <Card sx={{ mb: 3 }}>
+          <CardContent>
+            <Typography variant="h6" gutterBottom>
+              Today's Progress
+            </Typography>
+            <Grid container spacing={2}>
+              <Grid item xs={12} sm={6} md={3}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <MealIcon />
+                  <Typography>
+                    Calories: {dailyInsights.today_totals.calories}/{dailyInsights.goals.calories}
+                  </Typography>
+                </Box>
+              </Grid>
+              <Grid item xs={12} sm={6} md={3}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <TimeIcon />
+                  <Typography>
+                    Meals Today: {dailyInsights.meals_logged_today}
+                  </Typography>
+                </Box>
+              </Grid>
+              <Grid item xs={12} sm={6} md={3}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <TrendingUpIcon />
+                  <Typography>
+                    Weekly Progress: {dailyInsights.weekly_stats.diabetes_suitable_percentage.toFixed(1)}%
+                  </Typography>
+                </Box>
+              </Grid>
+              <Grid item xs={12} sm={6} md={3}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <HeartIcon />
+                  <Typography>
+                    Health Score: {calculateHealthScore(dailyInsights)}%
+                  </Typography>
+                </Box>
+              </Grid>
+            </Grid>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Meal Suggestion Section */}
+      <Card>
+        <CardContent>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
+            <DiningIcon />
+            <Typography variant="h6">
+              Dinner Suggestions
+            </Typography>
+            {new Date().getHours() >= 20 && (
+              <Chip 
+                label="Late Dinner Mode" 
+                color="warning" 
+                size="small" 
+                sx={{ ml: 'auto' }}
+              />
+            )}
+          </Box>
+
+          <Button
+            variant="contained"
+            onClick={() => getMealSuggestion('dinner')}
+            disabled={loading}
+            sx={{ mb: 2 }}
+          >
+            Get Dinner Suggestion
+          </Button>
+
+          {loading && (
+            <Box sx={{ display: 'flex', justifyContent: 'center', my: 2 }}>
+              <CircularProgress />
+            </Box>
+          )}
+
+          {error && (
+            <Alert severity="error" sx={{ mb: 2 }}>
+              {error}
+            </Alert>
+          )}
+
+          {suggestion && (
+            <Box sx={{ mt: 2, p: 2, bgcolor: 'background.paper', borderRadius: 1 }}>
+              <Typography 
+                component="div" 
+                sx={{ 
+                  whiteSpace: 'pre-wrap',
+                  '& strong': { color: 'primary.main' }
+                }}
+              >
+                {suggestion}
+              </Typography>
+            </Box>
+          )}
+        </CardContent>
+      </Card>
     </Container>
   );
+};
+
+// Helper function to calculate health score based on daily insights
+const calculateHealthScore = (insights: DailyInsights | null): number => {
+  if (!insights) return 0;
+
+  const factors = {
+    calorieAdherence: insights.adherence.calories / 100,
+    proteinAdherence: insights.adherence.protein / 100,
+    carbAdherence: insights.adherence.carbohydrates / 100,
+    diabetesSuitable: insights.weekly_stats.diabetes_suitable_percentage / 100,
+    mealsLogged: Math.min(insights.meals_logged_today / 3, 1) // Assuming 3 meals is ideal
+  };
+
+  const weights = {
+    calorieAdherence: 0.25,
+    proteinAdherence: 0.2,
+    carbAdherence: 0.2,
+    diabetesSuitable: 0.25,
+    mealsLogged: 0.1
+  };
+
+  const score = Object.entries(factors).reduce((total, [key, value]) => {
+    return total + (value * weights[key as keyof typeof weights] * 100);
+  }, 0);
+
+  return Math.round(score);
 };
 
 export default AICoach; 

@@ -315,6 +315,8 @@ const Chat = () => {
       const token = localStorage.getItem('token');
       if (!token || !currentSession) return;
 
+      setIsLoading(true);
+      
       const response = await fetch(`/chat/history?session_id=${currentSession}`, {
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -325,10 +327,13 @@ const Chat = () => {
       if (response.ok) {
         const data = await response.json();
         setMessages(data.messages || []);
-        setShowQuickActions(data.messages?.length === 0);
+        setShowQuickActions(!data.messages || data.messages.length === 0);
       }
     } catch (error) {
       console.error('Error fetching chat history:', error);
+      setShowQuickActions(true);
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -451,6 +456,7 @@ const Chat = () => {
         session_id: currentSession,
       };
       setMessages(prev => [...prev, errorMessage]);
+      setShowQuickActions(true);
     } finally {
       setIsLoading(false);
     }

@@ -7,6 +7,12 @@ import uuid
 import tiktoken
 import json
 import traceback
+import logging
+from openai import AzureOpenAI
+
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Load environment variables
 load_dotenv()
@@ -23,6 +29,13 @@ database = client.get_database_client("diabetes_diet_manager")
 # Get container clients
 interactions_container = database.get_container_client(INTERACTIONS_CONTAINER)
 user_container = database.get_container_client(USER_INFORMATION_CONTAINER)
+
+# Initialize Azure OpenAI client
+openai_client = AzureOpenAI(
+    api_key=os.getenv("AZURE_OPENAI_KEY"),
+    azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
+    api_version=os.getenv("AZURE_OPENAI_API_VERSION"),
+)
 
 def generate_session_id():
     """Generate a unique session ID"""
@@ -865,3 +878,111 @@ async def get_consumption_analytics(user_id: str, days: int = 7):
         raise ValueError(f"Invalid request: {str(e)}")
     except Exception as e:
         raise Exception(f"Failed to get consumption analytics: {str(e)}") 
+
+async def get_user_meal_history(user_id: str, limit: int = 20):
+    """
+    Get user's meal history with consumption records
+    Args:
+        user_id (str): The user's ID
+        limit (int): Maximum number of records to return
+    Returns:
+        List of meal history records with consumption details
+    """
+    try:
+        if not user_id:
+            raise ValueError("User ID is required")
+
+        # Query both meal plans and consumption records
+        query = f"""
+        SELECT TOP {limit} *
+        FROM c
+        WHERE c.user_id = '{user_id}'
+        AND (c.type = 'consumption_record' OR c.type = 'meal_plan')
+        ORDER BY c.created_at DESC
+        """
+
+        items = list(interactions_container.query_items(
+            query=query,
+            enable_cross_partition_query=True
+        ))
+
+        # Process and format the records
+        meal_history = []
+        for item in items:
+            if item['type'] == 'consumption_record':
+                meal_history.append({
+                    'food_name': item.get('food_name', ''),
+                    'meal_type': item.get('meal_type', ''),
+                    'timestamp': item.get('created_at', ''),
+                    'nutritional_info': {
+                        'calories': item.get('calories', 0),
+                        'protein': item.get('protein', 0),
+                        'carbohydrates': item.get('carbohydrates', 0),
+                        'fat': item.get('fat', 0)
+                    }
+                })
+
+        return meal_history
+    except ValueError as e:
+        raise ValueError(f"Invalid request: {str(e)}")
+    except Exception as e:
+        raise Exception(f"Failed to get meal history: {str(e)}") 
+
+async def log_meal_suggestion(user_id: str, meal_type: str, suggestion: str, context: dict = None):
+    """
+    Log a meal suggestion for future reference and analysis
+    Args:
+        user_id (str): The user's ID
+        meal_type (str): Type of meal (breakfast, lunch, dinner, snack)
+        suggestion (str): The suggested meal
+        context (dict): Additional context about the suggestion
+    """
+    try:
+        if not user_id:
+            raise ValueError("User ID is required")
+
+        log_item = {
+            'id': str(uuid.uuid4()),
+            'type': 'meal_suggestion',
+            'user_id': user_id,
+            'meal_type': meal_type,
+            'suggestion': suggestion,
+            'context': context or {},
+            'created_at': datetime.utcnow().isoformat(),
+            '_partitionKey': user_id
+        }
+
+        return interactions_container.create_item(body=log_item)
+    except ValueError as e:
+        raise ValueError(f"Invalid request: {str(e)}")
+    except Exception as e:
+        raise Exception(f"Failed to log meal suggestion: {str(e)}") 
+
+async def get_ai_suggestion(prompt: str) -> str:
+    """
+    Get an AI-powered suggestion using Azure OpenAI
+    Args:
+        prompt (str): The prompt to send to the AI model
+    Returns:
+        str: The AI-generated suggestion
+    """
+    try:
+        # Get response from Azure OpenAI
+        response = openai_client.chat.completions.create(
+            model=os.getenv("AZURE_OPENAI_DEPLOYMENT"),
+            messages=[
+                {"role": "system", "content": "You are a knowledgeable nutritionist and meal planning expert, specializing in diabetes management."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.7,
+            max_tokens=800,
+            top_p=0.95,
+            frequency_penalty=0.5,
+            presence_penalty=0.5,
+        )
+
+        # Extract and return the suggestion
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        logger.error(f"Error getting AI suggestion: {str(e)}")
+        raise Exception("Failed to get AI suggestion") 

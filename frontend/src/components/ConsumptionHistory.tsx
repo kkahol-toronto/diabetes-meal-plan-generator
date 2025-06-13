@@ -816,16 +816,20 @@ const ConsumptionHistory: React.FC = () => {
                     </Grid>
 
                     <Box display="flex" gap={1}>
-                      <Chip
-                        label={`${record.medical_rating.diabetes_suitability} diabetes suitability`}
-                        color={getDiabetesSuitabilityColor(record.medical_rating.diabetes_suitability) as any}
-                        size="small"
-                      />
-                      <Chip
-                        label={`${record.medical_rating.glycemic_impact} glycemic impact`}
-                        variant="outlined"
-                        size="small"
-                      />
+                      {record.medical_rating?.diabetes_suitability && (
+                        <Chip
+                          label={`${record.medical_rating.diabetes_suitability} diabetes suitability`}
+                          color={getDiabetesSuitabilityColor(record.medical_rating.diabetes_suitability) as any}
+                          size="small"
+                        />
+                      )}
+                      {record.medical_rating?.glycemic_impact && (
+                        <Chip
+                          label={`${record.medical_rating.glycemic_impact} glycemic impact`}
+                          variant="outlined"
+                          size="small"
+                        />
+                      )}
                     </Box>
                   </CardContent>
                 </Card>

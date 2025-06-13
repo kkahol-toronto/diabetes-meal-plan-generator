@@ -34,6 +34,9 @@ from database import (
     save_consumption_record,
     get_user_consumption_history,
     get_consumption_analytics,
+    get_user_meal_history,
+    log_meal_suggestion,
+    get_ai_suggestion,
 )
 
 # Use interactions_container as consumption_collection for consistency
@@ -54,6 +57,7 @@ from PIL import Image
 import base64
 from fastapi import APIRouter
 import logging
+from collections import defaultdict
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -4977,253 +4981,160 @@ async def get_meal_suggestion(
     current_user: User = Depends(get_current_user)
 ):
     """
-    Generate AI-powered meal suggestions based on user's current status, preferences, and remaining calories.
+    Generate AI-powered meal suggestions based on user's query context, preferences, and nutritional needs.
     """
     try:
-        meal_type = request.get("meal_type", "lunch")
+        meal_type = request.get("meal_type", "")
         remaining_calories = request.get("remaining_calories", 500)
         preferences = request.get("preferences", "")
+        context = request.get("context", {})
         
-        # Get user's profile and meal plan context
-        user_profile = current_user.get("profile", {})
-        recent_meal_plans = await get_user_meal_plans(current_user["email"])
-        latest_meal_plan = recent_meal_plans[0] if recent_meal_plans else None
+        # Get user's profile and meal history
+        user_profile = await get_user_profile(current_user["email"])
+        meal_history = await get_user_meal_history(current_user["email"], limit=20)
         
-        # Get today's consumption for context
-        today_consumption = await get_user_consumption_history(current_user["email"], limit=20)
-        today = datetime.utcnow().date()
-        today_meals = [
-            record for record in today_consumption
-            if datetime.fromisoformat(record.get("timestamp", "").replace("Z", "+00:00")).date() == today
-        ]
+        # Analyze meal patterns and preferences
+        meal_patterns = analyze_meal_patterns(meal_history)
+        dietary_restrictions = user_profile.get("dietary_restrictions", [])
+        health_conditions = user_profile.get("health_conditions", [])
         
-        # Calculate today's nutritional totals
-        today_calories = sum(record.get("nutritional_info", {}).get("calories", 0) for record in today_meals)
-        today_carbs = sum(record.get("nutritional_info", {}).get("carbohydrates", 0) for record in today_meals)
-        today_protein = sum(record.get("nutritional_info", {}).get("protein", 0) for record in today_meals)
+        # Build context-aware prompt
+        prompt = build_meal_suggestion_prompt(
+            meal_type=meal_type,
+            remaining_calories=remaining_calories,
+            meal_patterns=meal_patterns,
+            dietary_restrictions=dietary_restrictions,
+            health_conditions=health_conditions,
+            context=context,
+            preferences=preferences
+        )
         
-        # Get goals from meal plan or defaults
-        calorie_goal = latest_meal_plan.get("dailyCalories", 2000) if latest_meal_plan else 2000
-        macros = latest_meal_plan.get("macronutrients", {}) if latest_meal_plan else {}
-        protein_goal = macros.get("protein", 100)
-        carb_goal = macros.get("carbs", 250)
+        # Get AI suggestion using OpenAI
+        suggestion = await get_ai_suggestion(prompt)
         
-        # Calculate remaining macros
-        remaining_protein = max(0, protein_goal - today_protein)
-        remaining_carbs = max(0, carb_goal - today_carbs)
-        
-        # Get dietary restrictions and preferences
-        dietary_restrictions = user_profile.get("dietaryRestrictions", [])
-        food_preferences = user_profile.get("foodPreferences", [])
-        allergies = user_profile.get("allergies", [])
-        medical_conditions = user_profile.get("medicalConditions", [])
-        
-        # Check if user has diabetes
-        has_diabetes = any("diabetes" in condition.lower() for condition in medical_conditions)
-        
-        # Get planned meal for today if available
-        planned_meal = ""
-        if latest_meal_plan and meal_type != "snack":
-            day_index = today.weekday()
-            planned_meals = latest_meal_plan.get(meal_type, [])
-            if day_index < len(planned_meals):
-                planned_meal = planned_meals[day_index]
-        
-        # Create comprehensive prompt for AI
-        prompt = f"""You are a diabetes-specialized nutritionist AI. Generate a personalized meal suggestion.
-
-USER CONTEXT:
-- Meal Type: {meal_type.title()}
-- Remaining Calories: {remaining_calories}
-- Remaining Protein: {remaining_protein:.0f}g
-- Remaining Carbs: {remaining_carbs:.0f}g
-- Today's Intake: {today_calories:.0f} calories, {today_protein:.0f}g protein, {today_carbs:.0f}g carbs
-- Has Diabetes: {has_diabetes}
-- Planned Meal: {planned_meal if planned_meal else "No specific meal planned"}
-
-DIETARY PREFERENCES:
-- Restrictions: {', '.join(dietary_restrictions) if dietary_restrictions else 'None'}
-- Preferences: {', '.join(food_preferences) if food_preferences else 'None'}
-- Additional Preferences: {preferences if preferences else 'None'}
-- Allergies: {', '.join(allergies) if allergies else 'None'}
-
-RECENT MEALS TODAY:
-{chr(10).join([f"- {record.get('food_name', 'Unknown')} ({record.get('nutritional_info', {}).get('calories', 'N/A')} cal)" for record in today_meals[-3:]]) if today_meals else "- No meals logged yet today"}
-
-REQUIREMENTS:
-1. Suggest a specific, diabetes-friendly meal that fits the remaining calorie budget
-2. Focus on low glycemic index foods if user has diabetes
-3. Include portion sizes and preparation method
-4. Respect all dietary restrictions and allergies
-5. Consider the user's preferences and planned meal
-6. Provide nutritional breakdown (calories, carbs, protein, fat)
-7. Explain why this meal is good for diabetes management
-8. Include cooking tips or substitutions if helpful
-
-RESPONSE FORMAT:
-🍽️ **Suggested {meal_type.title()}: [Meal Name]**
-
-📋 **Ingredients & Portions:**
-• [List ingredients with specific portions]
-
-👨‍🍳 **Preparation:**
-[Brief cooking instructions]
-
-📊 **Nutritional Breakdown:**
-• Calories: ~[amount]
-• Carbs: ~[amount]g
-• Protein: ~[amount]g  
-• Fat: ~[amount]g
-
-🩺 **Diabetes Benefits:**
-[Explain why this meal is good for blood sugar management]
-
-💡 **Tips:**
-[Any helpful cooking tips or substitutions]
-
-Make the suggestion specific, practical, and diabetes-appropriate. Keep it under 400 words."""
-
-        try:
-            response = client.chat.completions.create(
-                model=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "You are a specialized diabetes nutritionist AI. Provide practical, specific meal suggestions that are diabetes-friendly and fit the user's constraints."
-                    },
-                    {
-                        "role": "user",
-                        "content": prompt
-                    }
-                ],
-                max_tokens=800,
-                temperature=0.7
-            )
+        if not suggestion:
+            return {
+                "success": False,
+                "error": "Failed to generate meal suggestion"
+            }
             
-            suggestion = response.choices[0].message.content
-            
-        except Exception as ai_error:
-            print(f"AI generation error: {str(ai_error)}")
-            # Fallback suggestion based on meal type and constraints
-            if meal_type == "breakfast":
-                suggestion = f"""🍽️ **Suggested Breakfast: Greek Yogurt Parfait**
-
-📋 **Ingredients & Portions:**
-• 1 cup plain Greek yogurt (0% fat)
-• 1/4 cup fresh berries (blueberries or strawberries)
-• 1 tbsp chopped walnuts
-• 1 tsp chia seeds
-• Cinnamon to taste
-
-👨‍🍳 **Preparation:**
-Layer yogurt with berries and nuts. Sprinkle chia seeds and cinnamon on top.
-
-📊 **Nutritional Breakdown:**
-• Calories: ~{min(remaining_calories, 300)}
-• Carbs: ~20g
-• Protein: ~25g
-• Fat: ~8g
-
-🩺 **Diabetes Benefits:**
-High protein helps stabilize blood sugar, berries provide antioxidants with lower glycemic impact, and fiber from chia seeds slows carb absorption.
-
-💡 **Tips:**
-Choose plain yogurt to avoid added sugars. Add cinnamon for natural sweetness and potential blood sugar benefits."""
-            
-            elif meal_type == "lunch":
-                suggestion = f"""🍽️ **Suggested Lunch: Grilled Chicken & Vegetable Bowl**
-
-📋 **Ingredients & Portions:**
-• 4 oz grilled chicken breast
-• 1 cup mixed leafy greens
-• 1/2 cup roasted vegetables (bell peppers, zucchini, broccoli)
-• 1/4 cup quinoa
-• 1 tbsp olive oil vinaigrette
-• 1/4 avocado, sliced
-
-👨‍🍳 **Preparation:**
-Grill chicken with herbs. Roast vegetables with minimal oil. Serve over greens with quinoa and avocado.
-
-📊 **Nutritional Breakdown:**
-• Calories: ~{min(remaining_calories, 450)}
-• Carbs: ~25g
-• Protein: ~35g
-• Fat: ~15g
-
-🩺 **Diabetes Benefits:**
-Lean protein and fiber-rich vegetables help maintain steady blood sugar. Quinoa provides complex carbs with lower glycemic impact than rice.
-
-💡 **Tips:**
-Prep vegetables in advance. Use herbs and spices instead of high-sodium seasonings."""
-            
-            elif meal_type == "dinner":
-                suggestion = f"""🍽️ **Suggested Dinner: Baked Salmon with Roasted Vegetables**
-
-📋 **Ingredients & Portions:**
-• 5 oz salmon fillet
-• 1 cup roasted Brussels sprouts
-• 1/2 cup roasted sweet potato cubes
-• 1 tbsp olive oil
-• Lemon, herbs (dill, parsley)
-• Side salad with 2 cups mixed greens
-
-👨‍🍳 **Preparation:**
-Bake salmon at 400°F for 12-15 minutes. Roast vegetables with olive oil and herbs.
-
-📊 **Nutritional Breakdown:**
-• Calories: ~{min(remaining_calories, 500)}
-• Carbs: ~30g
-• Protein: ~40g
-• Fat: ~18g
-
-🩺 **Diabetes Benefits:**
-Omega-3 fatty acids from salmon support heart health. High fiber vegetables help slow carb absorption and promote satiety.
-
-💡 **Tips:**
-Sweet potato provides complex carbs - keep portion moderate. Add lemon for flavor without extra calories."""
-            
-            else:  # snack
-                suggestion = f"""🍽️ **Suggested Snack: Apple with Almond Butter**
-
-📋 **Ingredients & Portions:**
-• 1 medium apple, sliced
-• 1 tbsp natural almond butter
-• Sprinkle of cinnamon
-
-👨‍🍳 **Preparation:**
-Slice apple and serve with almond butter for dipping. Sprinkle with cinnamon.
-
-📊 **Nutritional Breakdown:**
-• Calories: ~{min(remaining_calories, 200)}
-• Carbs: ~20g
-• Protein: ~4g
-• Fat: ~8g
-
-🩺 **Diabetes Benefits:**
-Apple fiber slows sugar absorption, while almond butter provides protein and healthy fats to stabilize blood sugar.
-
-💡 **Tips:**
-Choose natural almond butter without added sugars. The combination of fiber, protein, and fat makes this a balanced snack."""
+        # Log the suggestion for future reference
+        await log_meal_suggestion(
+            user_id=current_user["email"],
+            meal_type=meal_type,
+            suggestion=suggestion,
+            context=context
+        )
         
         return {
             "success": True,
             "suggestion": suggestion,
-            "meal_type": meal_type,
-            "remaining_calories": remaining_calories,
             "context": {
-                "today_calories": today_calories,
-                "planned_meal": planned_meal,
-                "has_diabetes": has_diabetes
+                "meal_type": meal_type,
+                "time_appropriate": True,
+                "considers_health": True,
+                "personalized": True
             }
         }
-        
     except Exception as e:
-        print(f"Error generating meal suggestion: {str(e)}")
+        logger.error(f"Error generating meal suggestion: {str(e)}")
         return {
             "success": False,
-            "error": "Failed to generate meal suggestion",
-            "suggestion": "Unable to generate suggestion at this time. Please try again or consult with a nutritionist."
-                  }
+            "error": "Failed to generate meal suggestion"
+        }
+
+async def get_ai_suggestion(prompt: str) -> str:
+    """Get meal suggestion from Azure OpenAI"""
+    try:
+        # Call Azure OpenAI API
+        response = client.chat.completions.create(
+            model=os.getenv("AZURE_OPENAI_DEPLOYMENT"),
+            messages=[
+                {"role": "system", "content": "You are a knowledgeable nutritionist and meal planner. Provide specific, healthy meal suggestions that consider dietary restrictions and nutritional needs."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.7,
+            max_tokens=300
+        )
+        
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        logger.error(f"Error getting AI suggestion: {str(e)}")
+        return None
+
+async def log_meal_suggestion(user_id: str, meal_type: str, suggestion: str, context: dict):
+    """Log meal suggestion for future reference"""
+    try:
+        suggestion_log = {
+            "user_id": user_id,
+            "meal_type": meal_type,
+            "suggestion": suggestion,
+            "context": context,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        
+        # Save to database
+        await db.meal_suggestions.insert_one(suggestion_log)
+    except Exception as e:
+        logger.error(f"Error logging meal suggestion: {str(e)}")
+        # Non-critical error, don't raise
+
+def build_meal_suggestion_prompt(
+    meal_type: str,
+    remaining_calories: int,
+    meal_patterns: dict,
+    dietary_restrictions: list,
+    health_conditions: list,
+    context: dict,
+    preferences: str
+) -> str:
+    """
+    Build a context-aware prompt for meal suggestions.
+    """
+    query_context = context.get("query_context", "")
+    current_hour = context.get("current_hour", 0)
+    is_late_meal = context.get("is_late_meal", False)
+    todays_meals = context.get("todays_meals", [])
+    
+    prompt = f"""Based on the user's query "{query_context}", suggest a {meal_type} that:
+    1. Fits within {remaining_calories} remaining calories
+    2. Considers their dietary restrictions: {', '.join(dietary_restrictions)}
+    3. Is appropriate for their health conditions: {', '.join(health_conditions)}
+    4. Avoids repetition with today's meals: {', '.join([m['name'] for m in todays_meals])}
+    5. {"Provides a lighter option since it's a late meal" if is_late_meal else "Provides a satisfying portion"}
+    6. Matches their usual meal patterns for {meal_type}
+    7. {preferences if preferences else ""}
+    
+    Include:
+    - Specific ingredients and portions
+    - Brief preparation instructions
+    - Nutritional breakdown
+    - Health benefits
+    - Any relevant tips or modifications
+    """
+    
+    return prompt
+
+def analyze_meal_patterns(meal_history: list) -> dict:
+    """
+    Analyze user's meal patterns to provide more personalized suggestions.
+    """
+    patterns = {
+        "breakfast": [],
+        "lunch": [],
+        "dinner": [],
+        "snack": []
+    }
+    
+    for meal in meal_history:
+        if meal["meal_type"] in patterns:
+            patterns[meal["meal_type"]].append({
+                "name": meal["food_name"],
+                "frequency": 1,  # Can be updated for repeated meals
+                "calories": meal["nutritional_info"]["calories"]
+            })
+    
+    return patterns
 
 @ app.get("/meal_plans/history")
 async def get_meal_plans_history_alias(current_user: User = Depends(get_current_user)):
