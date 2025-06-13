@@ -3809,7 +3809,21 @@ async def get_todays_meal_plan(current_user: User = Depends(get_current_user)):
         # Today's date helper
         today = datetime.utcnow().date()
 
-        # If none, derive today's meals from the most recent saved plan
+        # Start with no plan selected
+        todays_plan = None
+
+        # Try to find a plan explicitly dated today
+        for plan in meal_plans:
+            plan_date = plan.get("date")
+            if plan_date:
+                try:
+                    if datetime.fromisoformat(plan_date).date() == today:
+                        todays_plan = plan
+                        break
+                except Exception:
+                    continue
+
+        # If still none, derive today's meals from the most recent saved plan
         if not todays_plan and meal_plans:
             latest_plan = meal_plans[0]
 
@@ -3837,6 +3851,22 @@ async def get_todays_meal_plan(current_user: User = Depends(get_current_user)):
                 "macronutrients": latest_plan.get("macronutrients", {}),
                 "created_at": datetime.utcnow().isoformat(),
                 "notes": "Pulled from your most recent saved meal plan."
+            }
+
+        # Final safety: if after all previous steps todays_plan is still None, create minimal fallback
+        if not todays_plan:
+            todays_plan = {
+                "id": f"fallback_{current_user['email']}_{today.isoformat()}",
+                "date": today.isoformat(),
+                "type": "fallback_basic",
+                "meals": {
+                    "breakfast": "Oatmeal with berries",
+                    "lunch": "Mixed green salad with chickpeas",
+                    "dinner": "Grilled vegetables with quinoa",
+                    "snack": "Apple slices with peanut butter"
+                },
+                "created_at": datetime.utcnow().isoformat(),
+                "notes": "Generic fallback meal plan."
             }
 
         # --------------
