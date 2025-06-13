@@ -3770,6 +3770,19 @@ async def quick_log_food(
         consumption_record = await save_consumption_record(current_user["email"], consumption_data)
         print(f"[quick_log_food] Successfully saved consumption record with ID: {consumption_record['id']}")
         
+        # ------------------------------
+        # AUTO-UPDATE TODAY'S MEAL PLAN
+        # ------------------------------
+        try:
+            todays_payload = await get_todays_meal_plan(current_user)  # Recalculate with new log
+            plan_doc = todays_payload.get("meal_plan", todays_payload)
+
+            # Persist the calibrated plan so the widget sees updates instantly
+            await save_meal_plan(current_user["email"], plan_doc)
+            print("[quick_log_food] Auto-updated today's meal plan after log.")
+        except Exception as plan_err:
+            print(f"[quick_log_food] Failed to auto-update today's plan: {plan_err}")
+        
         # Return success response in the SAME FORMAT as before
         return {
             "success": True,
