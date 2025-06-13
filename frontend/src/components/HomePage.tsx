@@ -1014,26 +1014,37 @@ const HomePage: React.FC = () => {
 
           {/* AI Recommendations */}
           <Grid item xs={12} md={6}>
-            <Card sx={{ height: 400 }}>
+            <Card sx={{ 
+              height: 400,
+              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              color: 'white'
+            }}>
               <CardContent>
-                <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
+                <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', color: 'white' }}>
                   <AIIcon sx={{ mr: 1 }} />
                   AI Recommendations
                 </Typography>
                 <List>
                   {dashboardData?.recommendations?.slice(0, 4).map((rec: any, index: number) => (
                     <ListItem key={index} sx={{ px: 0 }}>
-                      <ListItemIcon>
+                      <ListItemIcon sx={{ color: 'white' }}>
                         {getPriorityIcon(rec.priority)}
                       </ListItemIcon>
                       <ListItemText
                         primary={rec.message}
                         secondary={`Priority: ${rec.priority}`}
+                        sx={{ 
+                          '& .MuiListItemText-primary': { color: 'white' },
+                          '& .MuiListItemText-secondary': { color: 'rgba(255,255,255,0.8)' }
+                        }}
                       />
                     </ListItem>
                   )) || (
                     <ListItem>
-                      <ListItemText primary="No recommendations available. Keep logging your meals!" />
+                      <ListItemText 
+                        primary="No recommendations available. Keep logging your meals!" 
+                        sx={{ '& .MuiListItemText-primary': { color: 'white' } }}
+                      />
                     </ListItem>
                   )}
                 </List>
@@ -1043,6 +1054,11 @@ const HomePage: React.FC = () => {
                     startIcon={<CoachIcon />}
                     onClick={() => setShowAICoachDialog(true)}
                     fullWidth
+                    sx={{ 
+                      bgcolor: 'rgba(255,255,255,0.2)', 
+                      color: 'white',
+                      '&:hover': { bgcolor: 'rgba(255,255,255,0.3)' }
+                    }}
                   >
                     Ask AI Coach
                   </Button>
@@ -1260,13 +1276,16 @@ const HomePage: React.FC = () => {
       <CustomTabPanel value={tabValue} index={2}>
         <Grid container spacing={3}>
           <Grid item xs={12} md={6}>
-            <Card>
+            <Card sx={{ 
+              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              color: 'white'
+            }}>
               <CardContent>
-                <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
+                <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', color: 'white' }}>
                   <CoachIcon sx={{ mr: 1 }} />
                   AI Health Coach
                 </Typography>
-                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                <Typography variant="body2" sx={{ mb: 2, color: 'rgba(255,255,255,0.9)' }}>
                   Ask your AI coach anything about your diabetes management, nutrition, or meal planning.
                 </Typography>
                 <TextField
@@ -1276,7 +1295,17 @@ const HomePage: React.FC = () => {
                   placeholder="Ask me about your nutrition, meal suggestions, or health goals..."
                   value={aiCoachQuery}
                   onChange={(e) => setAICoachQuery(e.target.value)}
-                  sx={{ mb: 2 }}
+                  sx={{ 
+                    mb: 2,
+                    '& .MuiOutlinedInput-root': {
+                      bgcolor: 'rgba(255,255,255,0.1)',
+                      color: 'white',
+                      '& fieldset': { borderColor: 'rgba(255,255,255,0.3)' },
+                      '&:hover fieldset': { borderColor: 'rgba(255,255,255,0.5)' },
+                      '&.Mui-focused fieldset': { borderColor: 'white' }
+                    },
+                    '& .MuiInputBase-input::placeholder': { color: 'rgba(255,255,255,0.7)' }
+                  }}
                   onKeyPress={(e) => {
                     if (e.key === 'Enter' && !e.shiftKey) {
                       e.preventDefault();
@@ -1292,18 +1321,30 @@ const HomePage: React.FC = () => {
                   disabled={aiCoachLoading || !aiCoachQuery.trim()}
                   startIcon={aiCoachLoading ? <CircularProgress size={20} /> : <CoachIcon />}
                   fullWidth
+                  sx={{ 
+                    bgcolor: 'rgba(255,255,255,0.2)', 
+                    color: 'white',
+                    '&:hover': { bgcolor: 'rgba(255,255,255,0.3)' },
+                    '&:disabled': { bgcolor: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.5)' }
+                  }}
                 >
                   {aiCoachLoading ? 'Thinking...' : 'Ask AI Coach'}
                 </Button>
                 {aiCoachResponse && (
-                  <Paper sx={{ p: 2, mt: 2, bgcolor: 'grey.50' }}>
-                    <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap' }}>
+                  <Paper sx={{ p: 2, mt: 2, bgcolor: 'rgba(255,255,255,0.1)', backdropFilter: 'blur(10px)' }}>
+                    <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap', color: 'white' }}>
                       {aiCoachResponse}
                     </Typography>
                     <Button 
                       size="small" 
                       onClick={() => setAICoachResponse('')}
-                      sx={{ mt: 1 }}
+                      sx={{ 
+                        mt: 1, 
+                        color: 'white', 
+                        borderColor: 'rgba(255,255,255,0.3)',
+                        '&:hover': { borderColor: 'white', bgcolor: 'rgba(255,255,255,0.1)' }
+                      }}
+                      variant="outlined"
                     >
                       Clear Response
                     </Button>

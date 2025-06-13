@@ -3380,6 +3380,39 @@ async def get_consumption_progress(current_user: User = Depends(get_current_user
         "monthly_avg": macro_avg(monthly)
     }
 
+def calculate_consistency_streak(consumption_history: list) -> int:
+    """Calculate consistency streak based on daily logging patterns"""
+    if not consumption_history:
+        return 0
+    
+    from datetime import datetime, timedelta
+    
+    # Group consumption by date
+    daily_logs = {}
+    for record in consumption_history:
+        try:
+            record_date = datetime.fromisoformat(record.get("timestamp", "").replace("Z", "+00:00")).date()
+            if record_date not in daily_logs:
+                daily_logs[record_date] = 0
+            daily_logs[record_date] += 1
+        except:
+            continue
+    
+    # Calculate streak from today backwards
+    today = datetime.utcnow().date()
+    streak = 0
+    current_date = today
+    
+    # Check each day backwards
+    for i in range(30):  # Check last 30 days max
+        if current_date in daily_logs and daily_logs[current_date] >= 2:  # At least 2 meals logged
+            streak += 1
+        else:
+            break  # Streak broken
+        current_date -= timedelta(days=1)
+    
+    return streak
+
 @app.get("/coach/daily-insights")
 async def get_daily_coaching_insights(current_user: User = Depends(get_current_user)):
     """Get daily insights - USING ORIGINAL LOGIC with better integration"""
@@ -3460,7 +3493,7 @@ async def get_daily_coaching_insights(current_user: User = Depends(get_current_u
             "fat": min(100, (today_totals["fat"] / macro_goals["fat"] * 100)) if macro_goals["fat"] > 0 else 0
         }
         
-        # Analyze recent patterns for ALL health conditions
+        # Enhanced diabetes score calculation based on multiple factors
         condition_suitable_count = 0
         total_recent_records = len(recent_consumption)
         weekly_calories = 0
@@ -3468,35 +3501,73 @@ async def get_daily_coaching_insights(current_user: User = Depends(get_current_u
         # Get user's health conditions
         user_conditions = profile.get("medicalConditions", []) or profile.get("medical_conditions", [])
         
+        # Enhanced scoring factors
+        diabetes_score_factors = {
+            "high_suitability": 0,
+            "medium_suitability": 0,
+            "low_suitability": 0,
+            "high_carb_meals": 0,
+            "high_sugar_meals": 0,
+            "processed_foods": 0,
+            "healthy_choices": 0
+        }
+        
         for record in recent_consumption:
             # Access nutritional info properly
             nutritional_info = record.get("nutritional_info", {})
             weekly_calories += nutritional_info.get("calories", 0)
             
-            # Check suitability for ALL user's health conditions
+            # Get nutritional values
+            carbs = nutritional_info.get("carbohydrates", 0)
+            sugar = nutritional_info.get("sugar", 0)
+            fiber = nutritional_info.get("fiber", 0)
+            sodium = nutritional_info.get("sodium", 0)
+            
+            # Check medical rating
             medical_rating = record.get("medical_rating", {})
-            is_suitable_for_conditions = True
+            diabetes_suitability = medical_rating.get("diabetes_suitability", "medium").lower()
+            glycemic_impact = medical_rating.get("glycemic_impact", "medium").lower()
             
-            for condition in user_conditions:
-                condition_key = f"{condition.lower().replace(' ', '_')}_suitability"
-                # Also check common condition keys
-                if "diabetes" in condition.lower():
-                    condition_key = "diabetes_suitability"
-                elif "hypertension" in condition.lower() or "blood pressure" in condition.lower():
-                    condition_key = "hypertension_suitability"
-                elif "heart" in condition.lower():
-                    condition_key = "heart_disease_suitability"
-                
-                suitability = medical_rating.get(condition_key, "").lower()
-                if suitability and suitability not in ["high", "good", "suitable", "excellent"]:
-                    is_suitable_for_conditions = False
-                    break
-            
-            if is_suitable_for_conditions:
+            # Score based on diabetes suitability
+            if diabetes_suitability == "high":
+                diabetes_score_factors["high_suitability"] += 1
                 condition_suitable_count += 1
+            elif diabetes_suitability == "medium":
+                diabetes_score_factors["medium_suitability"] += 1
+                condition_suitable_count += 0.7  # Partial credit
+            else:
+                diabetes_score_factors["low_suitability"] += 1
+            
+            # Penalize high carb meals (>45g carbs per meal)
+            if carbs > 45:
+                diabetes_score_factors["high_carb_meals"] += 1
+            
+            # Penalize high sugar meals (>15g sugar per meal)
+            if sugar > 15:
+                diabetes_score_factors["high_sugar_meals"] += 1
+            
+            # Penalize high sodium (>800mg per meal)
+            if sodium > 800:
+                diabetes_score_factors["processed_foods"] += 1
+            
+            # Reward healthy choices (high fiber, low glycemic)
+            if fiber >= 5 and glycemic_impact == "low":
+                diabetes_score_factors["healthy_choices"] += 1
         
-        # Calculate overall health adherence (not just diabetes)
-        health_adherence = (condition_suitable_count / total_recent_records * 100) if total_recent_records > 0 else 0
+        # Calculate enhanced diabetes score
+        if total_recent_records > 0:
+            base_score = (condition_suitable_count / total_recent_records * 100)
+            
+            # Apply penalties and bonuses
+            carb_penalty = (diabetes_score_factors["high_carb_meals"] / total_recent_records) * 15
+            sugar_penalty = (diabetes_score_factors["high_sugar_meals"] / total_recent_records) * 20
+            processed_penalty = (diabetes_score_factors["processed_foods"] / total_recent_records) * 10
+            healthy_bonus = (diabetes_score_factors["healthy_choices"] / total_recent_records) * 10
+            
+            health_adherence = max(0, min(100, base_score - carb_penalty - sugar_penalty - processed_penalty + healthy_bonus))
+        else:
+            # Default score for new users (encourage logging)
+            health_adherence = 75
         
         # Generate coaching recommendations
         recommendations = []
@@ -3591,7 +3662,7 @@ async def get_daily_coaching_insights(current_user: User = Depends(get_current_u
             "diabetes_adherence": health_adherence,  # Now represents overall health adherence
             "health_adherence": health_adherence,  # Add explicit health adherence field
             "health_conditions": user_conditions,  # Add user's health conditions
-            "consistency_streak": max(0, total_recent_records // 2),  # Rough estimate
+            "consistency_streak": calculate_consistency_streak(recent_consumption),
             "meals_logged_today": len(today_consumption),
             "weekly_stats": {
                 "total_meals": total_recent_records,
