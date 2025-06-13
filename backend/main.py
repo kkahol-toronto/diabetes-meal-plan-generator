@@ -3889,7 +3889,19 @@ async def get_todays_meal_plan(current_user: User = Depends(get_current_user)):
             meals_dict["breakfast"] = _extract("breakfast")
             meals_dict["lunch"] = _extract("lunch")
             meals_dict["dinner"] = _extract("dinner")
-            meals_dict["snack"] = _extract("snacks") or _extract("snack")
+            snack_val = _extract("snacks") or _extract("snack")
+
+            # If snack still empty, create a quick smart fallback based on dietary restrictions
+            if not snack_val:
+                # Basic smart logic: pick a diabetes-friendly, vegetarian-friendly default
+                snack_val = "Apple slices with almond butter (fiber + protein)"
+
+                # Further tweak if user has nut allergy noted in plan/profile
+                allergies_list = current_user.get("profile", {}).get("allergies", [])
+                if any("nut" in a.lower() for a in allergies_list):
+                    snack_val = "Greek yogurt with fresh berries (low GI)"
+
+            meals_dict["snack"] = snack_val
 
             plan["meals"] = meals_dict
             return plan
