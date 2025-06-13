@@ -4002,7 +4002,7 @@ async def get_todays_meal_plan(current_user: User = Depends(get_current_user)):
         if not todays_plan:
             todays_plan = {
                 "id": f"fallback_{current_user['email']}_{today.isoformat()}",
-                "date": today.isoformat(),
+            "date": today.isoformat(),
                 "type": "fallback_basic",
                 "meals": {
                     "breakfast": "Oatmeal with berries",
@@ -4245,6 +4245,156 @@ Ensure ALL dishes are completely vegetarian and egg-free. Do not include any mea
 
         except Exception as e:
             print(f"[get_todays_meal_plan] Calibration error: {e}")
+
+        # FORCE VEGETARIAN MEAL GENERATION - Don't use old plans that may contain non-vegetarian dishes
+        profile = current_user.get("profile", {})
+        dietary_restrictions = profile.get('dietaryRestrictions', [])
+        allergies = profile.get('allergies', [])
+        diet_type = profile.get('dietType', [])
+        
+        # Check if user is vegetarian or has egg restrictions
+        is_vegetarian = 'vegetarian' in [r.lower() for r in dietary_restrictions] or 'vegetarian' in [d.lower() for d in diet_type]
+        no_eggs = any('egg' in r.lower() for r in dietary_restrictions) or any('egg' in a.lower() for a in allergies)
+        
+        # Always generate fresh vegetarian meals for users with dietary restrictions
+        if is_vegetarian or no_eggs:
+            print(f"[get_todays_meal_plan] User has dietary restrictions - generating fresh vegetarian meal plan")
+            
+            # Generate completely fresh vegetarian meal plan
+            restriction_warnings = []
+            if is_vegetarian:
+                restriction_warnings.append("STRICTLY VEGETARIAN - NO MEAT, POULTRY, FISH, OR SEAFOOD")
+            if no_eggs:
+                restriction_warnings.append("NO EGGS - Avoid all egg-based dishes and ingredients")
+            if any('nut' in a.lower() for a in allergies):
+                restriction_warnings.append("NUT ALLERGY - Avoid all nuts and nut-based products")
+            
+            restriction_text = "\n".join([f"⚠️ {warning}" for warning in restriction_warnings])
+            
+            prompt = f"""You are a registered dietitian AI. Generate a complete daily meal plan for TODAY that is diabetes-friendly and strictly adheres to dietary restrictions.
+
+USER PROFILE:
+Diet Type: {', '.join(diet_type) or 'Standard'}
+Dietary Restrictions: {', '.join(dietary_restrictions) or 'None'}
+Allergies: {', '.join(allergies) or 'None'}
+
+{restriction_text if restriction_warnings else ""}
+
+CRITICAL REQUIREMENTS:
+- ALL dishes must be diabetes-friendly (low glycemic index)
+- ALL dishes must be completely vegetarian and egg-free
+- Provide SPECIFIC dish names, not generic descriptions
+- Each meal should be balanced and nutritious
+
+Generate a complete meal plan for today:
+
+{{
+  "meals": {{
+    "breakfast": "<specific vegetarian dish without eggs>",
+    "lunch": "<specific vegetarian dish without eggs>",
+    "dinner": "<specific vegetarian dish without eggs>",
+    "snack": "<specific vegetarian snack without eggs>"
+  }}
+}}
+
+Examples of appropriate dishes:
+- Breakfast: "Steel-cut oats with almond milk, cinnamon, and fresh blueberries"
+- Lunch: "Mediterranean quinoa salad with chickpeas, cucumber, and olive oil"
+- Dinner: "Black bean and sweet potato curry with brown rice"
+- Snack: "Apple slices with almond butter"
+
+Ensure ALL dishes are completely vegetarian and egg-free."""
+
+            try:
+                ai_resp = client.chat.completions.create(
+                    model=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.7,
+                    max_tokens=500
+                )
+
+                import json as _json
+                ai_content = ai_resp.choices[0].message.content
+                start_idx = ai_content.find('{')
+                end_idx = ai_content.rfind('}') + 1
+                ai_json = _json.loads(ai_content[start_idx:end_idx])
+                
+                # Apply safety filter to ensure compliance
+                def sanitize_meal(meal_text: str) -> str:
+                    """Ensure meal is vegetarian and egg-free"""
+                    meal_lower = meal_text.lower()
+                    
+                    # Check for non-vegetarian ingredients
+                    non_veg_keywords = ['chicken', 'beef', 'pork', 'fish', 'salmon', 'tuna', 'turkey', 'lamb', 'meat', 'seafood', 'shrimp']
+                    egg_keywords = ['egg', 'eggs', 'omelet', 'omelette', 'scrambled', 'poached', 'fried egg']
+                    
+                    if any(keyword in meal_lower for keyword in non_veg_keywords):
+                        return "Vegetarian lentil and vegetable curry with quinoa"
+                    if any(keyword in meal_lower for keyword in egg_keywords):
+                        return "Overnight oats with almond milk, chia seeds, and fresh berries"
+                    
+                    return meal_text
+                
+                # Apply safety filter to all meals
+                safe_meals = {}
+                for meal_type, dish in ai_json.get("meals", {}).items():
+                    safe_meals[meal_type] = sanitize_meal(dish)
+                
+                # Clean up any repetitive notes in meal names
+                for meal_type in safe_meals:
+                    meal_text = safe_meals[meal_type]
+                    # Remove repetitive "(recommended)" text
+                    meal_text = meal_text.replace(" (recommended) (recommended)", " (recommended)")
+                    meal_text = meal_text.replace(" (recommended) (recommended) (recommended)", " (recommended)")
+                    meal_text = meal_text.replace(" (recommended) (recommended) (recommended) (recommended)", " (recommended)")
+                    safe_meals[meal_type] = meal_text
+                
+                todays_plan = {
+                    "id": f"fresh_vegetarian_{current_user['email']}_{today.isoformat()}",
+                    "date": today.isoformat(),
+                    "type": "fresh_vegetarian_generated",
+                    "meals": safe_meals,
+                    "dailyCalories": int(profile.get('calorieTarget', '2000')),
+                    "created_at": datetime.utcnow().isoformat(),
+                    "notes": ""  # Clean notes - no repetitive text
+                }
+                
+                print(f"[get_todays_meal_plan] Generated fresh vegetarian meal plan: {safe_meals}")
+                
+            except Exception as gen_err:
+                print(f"[get_todays_meal_plan] Error generating fresh vegetarian plan: {gen_err}")
+                # Fallback to safe vegetarian meals
+                todays_plan = {
+                    "id": f"fallback_vegetarian_{current_user['email']}_{today.isoformat()}",
+                    "date": today.isoformat(),
+                    "type": "fallback_vegetarian",
+                    "meals": {
+                        "breakfast": "Steel-cut oats with almond milk and fresh berries",
+                        "lunch": "Quinoa Buddha bowl with roasted vegetables and tahini",
+                        "dinner": "Lentil curry with brown rice and steamed broccoli",
+                        "snack": "Apple slices with almond butter"
+                    },
+                    "dailyCalories": int(profile.get('calorieTarget', '2000')),
+                    "created_at": datetime.utcnow().isoformat(),
+                    "notes": ""  # Clean notes
+                }
+        
+        # If no plan generated yet, use fallback
+        if not todays_plan:
+            todays_plan = {
+                "id": f"fallback_{current_user['email']}_{today.isoformat()}",
+                "date": today.isoformat(),
+                "type": "fallback_basic",
+                "meals": {
+                    "breakfast": "Steel-cut oats with almond milk and fresh berries",
+                    "lunch": "Quinoa Buddha bowl with roasted vegetables and tahini",
+                    "dinner": "Lentil curry with brown rice and steamed broccoli",
+                    "snack": "Apple slices with almond butter"
+                },
+                "dailyCalories": 2000,
+                "created_at": datetime.utcnow().isoformat(),
+                "notes": ""
+            }
 
         return todays_plan
     except HTTPException:
