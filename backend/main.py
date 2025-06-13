@@ -3825,7 +3825,14 @@ async def get_todays_meal_plan(current_user: User = Depends(get_current_user)):
 
         # If still none, derive today's meals from the most recent saved plan
         if not todays_plan and meal_plans:
-            latest_plan = meal_plans[0]
+            # Choose the most recent plan that actually contains array-style meals
+            latest_plan = None
+            for p in meal_plans:
+                if isinstance(p.get("breakfast"), list) and isinstance(p.get("lunch"), list):
+                    latest_plan = p
+                    break
+            if latest_plan is None:
+                latest_plan = meal_plans[0]
 
             # Helper to safely pull meal array/string for index
             def _pick(meal_key: str):
