@@ -502,37 +502,6 @@ const HomePage: React.FC = () => {
         </Typography>
       </Box>
 
-      {/* Quick Actions Floating Buttons */}
-      <Box sx={{ position: 'fixed', bottom: 20, right: 20, zIndex: 1000 }}>
-        <Tooltip title="Quick Log Food">
-          <Fab 
-            color="primary" 
-            onClick={() => setShowQuickLogDialog(true)}
-            sx={{ mr: 1, mb: 1 }}
-          >
-            <AddIcon />
-          </Fab>
-        </Tooltip>
-        <Tooltip title="AI Coach">
-          <Fab 
-            color="secondary" 
-            onClick={() => setShowAICoachDialog(true)}
-            sx={{ mr: 1, mb: 1 }}
-          >
-            <CoachIcon />
-          </Fab>
-        </Tooltip>
-        <Tooltip title="Refresh Data">
-          <Fab 
-            size="small"
-            onClick={fetchAllData}
-            sx={{ mr: 1, mb: 1, bgcolor: 'info.main', '&:hover': { bgcolor: 'info.dark' } }}
-          >
-            <RefreshIcon />
-          </Fab>
-        </Tooltip>
-      </Box>
-
       {/* Tabs Navigation */}
       <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
         <Tabs value={tabValue} onChange={(e, newValue) => setTabValue(newValue)} aria-label="dashboard tabs">
@@ -773,11 +742,7 @@ const HomePage: React.FC = () => {
                         ))}
                       </Grid>
                       
-                      {planData.notes && (
-                        <Typography variant="body2" sx={{ mt: 2, opacity: 0.8, fontStyle: 'italic' }}>
-                          💡 {planData.notes}
-                        </Typography>
-                      )}
+                      {/* Removed automatic display of extra plan "notes" to keep UI succinct */}
                     </>
                   );
                 })() || (

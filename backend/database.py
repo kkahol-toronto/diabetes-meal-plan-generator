@@ -578,7 +578,7 @@ async def view_meal_plans(user_id: str):
 def log_debug(msg):
     print(f"[DEBUG] {msg}") 
 
-async def save_consumption_record(user_id: str, consumption_data: dict):
+async def save_consumption_record(user_id: str, consumption_data: dict, meal_type: str | None = None):
     """Save a consumption history record to the database"""
     try:
         print(f"[save_consumption_record] Starting save for user {user_id}")
@@ -598,7 +598,8 @@ async def save_consumption_record(user_id: str, consumption_data: dict):
             "nutritional_info": consumption_data.get("nutritional_info", {}),
             "medical_rating": consumption_data.get("medical_rating", {}),
             "image_analysis": consumption_data.get("image_analysis"),
-            "image_url": consumption_data.get("image_url")
+            "image_url": consumption_data.get("image_url"),
+            "meal_type": meal_type or consumption_data.get("meal_type", "")
         }
         
         print(f"[save_consumption_record] Created record with ID: {consumption_record['id']}")
@@ -997,3 +998,23 @@ async def get_ai_suggestion(prompt: str) -> str:
     except Exception as e:
         logger.error(f"Error getting AI suggestion: {str(e)}")
         raise Exception("Failed to get AI suggestion") 
+
+async def update_consumption_meal_type(user_id: str, record_id: str, meal_type: str):
+    """Update meal_type for a specific consumption record."""
+    try:
+        if not user_id or not record_id:
+            raise ValueError("user_id and record_id are required")
+
+        # Fetch the record first
+        existing = interactions_container.read_item(item=record_id, partition_key=record_id)
+
+        if existing.get("user_id") != user_id:
+            raise PermissionError("Unauthorized")
+
+        existing["meal_type"] = meal_type
+
+        interactions_container.upsert_item(body=existing)
+        return True
+    except Exception as e:
+        print(f"[update_consumption_meal_type] Error: {e}")
+        raise 

@@ -37,6 +37,7 @@ from database import (
     get_user_meal_history,
     log_meal_suggestion,
     get_ai_suggestion,
+    update_consumption_meal_type,
 )
 
 # Use interactions_container as consumption_collection for consistency
@@ -2519,6 +2520,7 @@ async def debug_meal_plans(current_user: User = Depends(get_current_user)):
 async def analyze_and_record_food(
     image: UploadFile = File(...),
     session_id: str = Form(None),
+    meal_type: str = Form(None),
     current_user: User = Depends(get_current_user)
 ):
     """Analyze food image and optionally record to consumption history"""
@@ -2669,14 +2671,15 @@ async def analyze_and_record_food(
             "nutritional_info": analysis_data.get("nutritional_info", {}),
             "medical_rating": analysis_data.get("medical_rating", {}),
             "image_analysis": analysis_data.get("analysis_notes"),
-            "image_url": img_str
+            "image_url": img_str,
+            "meal_type": (meal_type or "").lower()
         }
         
         print(f"[analyze_and_record_food] Prepared consumption data: {consumption_data}")
         
         # Save to consumption history
         print(f"[analyze_and_record_food] Attempting to save consumption record for user {current_user['id']}")
-        consumption_record = await save_consumption_record(current_user["email"], consumption_data)
+        consumption_record = await save_consumption_record(current_user["email"], consumption_data, meal_type=meal_type or "")
         print(f"[analyze_and_record_food] Successfully saved consumption record with ID: {consumption_record['id']}")
         
         # Also save to chat if session_id is provided
@@ -2710,11 +2713,7 @@ async def analyze_and_record_food(
             )
             print("[analyze_and_record_food] Successfully saved chat messages")
         
-        return {
-            "success": True,
-            "consumption_record_id": consumption_record["id"],
-            "analysis": analysis_data
-        }
+        return {"consumption_record_id": consumption_record["id"], "analysis": analysis_data}
         
     except Exception as e:
         print(f"[analyze_and_record_food] Error: {str(e)}")
@@ -2893,7 +2892,8 @@ async def analyze_image(
 def has_logging_intent(message: str) -> bool:
     logging_intents = [
         "log this", "add this to my history", "record this", "save this",
-        "log it", "add this meal", "add this food", "log meal", "log food"
+        "log it", "add this meal", "add this food", "log meal", "log food",
+        "can you log", "please log", "log as my", "this as my", "this was my"
     ]
     return any(kw in message.lower() for kw in logging_intents)
 
@@ -2937,6 +2937,10 @@ async def chat_message_with_image(
     image_url = None
     img_str = None
     analysis_data = None
+
+    # --- Determine meal type from the user's message, if mentioned ---
+    meal_type_match = re.search(r"\b(breakfast|lunch|dinner|snack)s?\b", message.lower())
+    meal_type = meal_type_match.group(1) if meal_type_match else None
 
     # 🧠 GET COMPREHENSIVE USER CONTEXT - This is the key integration!
     try:
@@ -3120,35 +3124,13 @@ async def chat_message_with_image(
             "image_analysis": food_data.get("analysis_notes"),
             "image_url": img_str if analysis_data else None  # Only include image if from current analysis
         }
-        await save_consumption_record(current_user["email"], consumption_data)
+        await save_consumption_record(current_user["email"], consumption_data, meal_type=meal_type or "")
 
-        # 🚀 USE COMPREHENSIVE AI SYSTEM FOR FOOD LOGGING RESPONSES
-        try:
-            query_type = "food_logging"
-            specific_data = {
-                "food_data": food_data,
-                "user_message": message,
-                "has_image": bool(analysis_data),
-                "from_context": bool(recent_context and not analysis_data)
-            }
-            
-            # 🧠 GET AI RESPONSE USING COMPREHENSIVE SYSTEM
-            assistant_message = await get_ai_health_coach_response(
-                user_context=user_context,
-                query_type=query_type,
-                specific_data=specific_data
-            )
-            
-            print(f"✅ Generated comprehensive AI food logging response")
-
-        except Exception as e:
-            print(f"❌ Error in comprehensive AI food logging: {str(e)}")
-            import traceback
-            print(f"Traceback: {traceback.format_exc()}")
-            
-            # Fallback to simple response
-            context_note = " (from previous analysis)" if recent_context and not analysis_data else ""
-            assistant_message = f"""🍽️ **Food Logged: {food_data.get('food_name')}{context_note}**
+        # FORCE SIMPLE FOOD LOGGING RESPONSE - Skip comprehensive AI for now
+        context_note = " (from previous analysis)" if recent_context and not analysis_data else ""
+        meal_type_text = f" as your **{meal_type}**" if meal_type else ""
+        
+        assistant_message = f"""🍽️ **Food Logged{meal_type_text}: {food_data.get('food_name')}{context_note}**
 
 📊 **Nutritional Info** (per {food_data.get('estimated_portion')}):
 • Calories: {food_data.get('nutritional_info', {}).get('calories', 'N/A')}
@@ -3156,11 +3138,11 @@ async def chat_message_with_image(
 • Protein: {food_data.get('nutritional_info', {}).get('protein', 'N/A')}g
 • Fat: {food_data.get('nutritional_info', {}).get('fat', 'N/A')}g
 
-✅ **Successfully recorded to your consumption history!**
+🩺 **Diabetes Suitability:** {food_data.get('medical_rating', {}).get('diabetes_suitability', 'N/A').title()}
 
-⚠️ **Note:** Using fallback response - comprehensive AI system temporarily unavailable."""
+✅ **Successfully recorded to your consumption history with meal type: {meal_type or 'unspecified'}!**
 
-        # Old hardcoded logic removed - now using comprehensive AI system above
+Your meal plan will be updated to reflect this logged meal."""
 
     else:
         # 🚀 USE COMPREHENSIVE AI SYSTEM FOR NON-LOGGING RESPONSES
@@ -3275,7 +3257,14 @@ How can I help you today?
         session_id=session_id
     )
 
-    return {"success": True}
+    # --- Stream response back so the frontend can progressively render ---
+    import json as _json
+
+    def _event_stream():
+        chunk = _json.dumps({"content": assistant_message})
+        yield f"data: {chunk}\n\n"
+
+    return StreamingResponse(_event_stream(), media_type="text/event-stream")
 
 @app.get("/consumption/progress")
 async def get_consumption_progress(current_user: User = Depends(get_current_user)):
@@ -3760,14 +3749,15 @@ async def quick_log_food(
             "nutritional_info": analysis_data.get("nutritional_info", fallback_data["nutritional_info"]),
             "medical_rating": analysis_data.get("medical_rating", fallback_data["medical_rating"]),
             "image_analysis": analysis_data.get("analysis_notes", f"Quick log entry for {food_name}"),
-            "image_url": None  # No image for quick log
+            "image_url": None,  # No image for quick log
+            "meal_type": (food_data.get("meal_type") or "snack").lower()
         }
         
         print(f"[quick_log_food] Prepared consumption data: {consumption_data}")
         
         # Save to consumption history using the ORIGINAL save function
         print(f"[quick_log_food] Saving consumption record for user {current_user['email']}")
-        consumption_record = await save_consumption_record(current_user["email"], consumption_data)
+        consumption_record = await save_consumption_record(current_user["email"], consumption_data, meal_type=food_data.get("meal_type", "snack"))
         print(f"[quick_log_food] Successfully saved consumption record with ID: {consumption_record['id']}")
         
         # ------------------------------
@@ -4395,6 +4385,12 @@ Ensure ALL dishes are completely vegetarian and egg-free."""
                 "created_at": datetime.utcnow().isoformat(),
                 "notes": ""
             }
+
+        # Clean up any duplicate "(recommended)" tags that may have accumulated
+        for _meal_key, _meal_text in todays_plan.get("meals", {}).items():
+            while " (recommended) (recommended)" in _meal_text:
+                _meal_text = _meal_text.replace(" (recommended) (recommended)", " (recommended)")
+            todays_plan["meals"][_meal_key] = _meal_text
 
         return todays_plan
     except HTTPException:
@@ -5163,7 +5159,8 @@ async def test_quick_log_food(food_data: dict):
             "nutritional_info": analysis_data.get("nutritional_info", fallback_data["nutritional_info"]),
             "medical_rating": analysis_data.get("medical_rating", fallback_data["medical_rating"]),
             "image_analysis": analysis_data.get("analysis_notes", f"Quick log entry for {food_name}"),
-            "image_url": None  # No image for quick log
+            "image_url": None,  # No image for quick log
+            "meal_type": (food_data.get("meal_type") or "snack").lower()
         }
         
         print(f"[test_quick_log_food] Prepared consumption data: {consumption_data}")
@@ -5683,6 +5680,21 @@ def analyze_meal_patterns(meal_history: list) -> dict:
 async def get_meal_plans_history_alias(current_user: User = Depends(get_current_user)):
     """Alias for /meal_plans to maintain frontend backward compatibility"""
     return await get_meal_plans(current_user)
+
+# --- Update meal type for existing record ---
+@app.patch("/consumption/{record_id}/meal-type")
+async def update_meal_type(record_id: str, payload: dict = Body(...), current_user: User = Depends(get_current_user)):
+    meal_type = payload.get("meal_type", "").lower()
+    if meal_type not in ["breakfast", "lunch", "dinner", "snack"]:
+        raise HTTPException(status_code=400, detail="Invalid meal_type")
+
+    try:
+        await update_consumption_meal_type(current_user["email"], record_id, meal_type)
+        return {"success": True}
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="Not allowed")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
     import uvicorn

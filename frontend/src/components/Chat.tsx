@@ -40,7 +40,6 @@ import {
 } from '@mui/material';
 import SendIcon from '@mui/icons-material/Send';
 import AddCommentIcon from '@mui/icons-material/AddComment';
-import ImageIcon from '@mui/icons-material/Image';
 import RestaurantIcon from '@mui/icons-material/Restaurant';
 import CloseIcon from '@mui/icons-material/Close';
 import SmartToyIcon from '@mui/icons-material/SmartToy';
@@ -128,7 +127,6 @@ const Chat = () => {
   const userScrolledRef = useRef<boolean>(false);
   const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const recordFoodInputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
   const [isMobile, setIsMobile] = useState(false);
   const [recordFoodDialog, setRecordFoodDialog] = useState(false);
@@ -518,93 +516,8 @@ const Chat = () => {
     setImagePreviewUrl(previewUrl);
   };
 
-  const handleRecordFood = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    try {
-      setIsLoading(true);
-      const token = localStorage.getItem('token');
-      if (!token) {
-        navigate('/login');
-        return;
-      }
-
-      const formData = new FormData();
-      formData.append('image', file);
-      formData.append('session_id', currentSession);
-
-      const response = await fetch('/consumption/analyze-and-record', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-        body: formData,
-      });
-
-      if (response.ok) {
-        const result = await response.json();
-        // The backend may return { analysis: {...} } or direct fields. Normalize first.
-        const analysisData = result.analysis || result;
-
-        // Build normalized record with safe fallbacks
-        const normalizedRecord = {
-          food_name: analysisData.food_name || 'Unknown food',
-          estimated_portion: analysisData.estimated_portion || '1 serving',
-          nutritional_info: {
-            calories: analysisData.nutritional_info?.calories ?? 'N/A',
-            protein: analysisData.nutritional_info?.protein ?? 'N/A',
-            carbohydrates: analysisData.nutritional_info?.carbohydrates ?? 'N/A',
-            fat: analysisData.nutritional_info?.fat ?? 'N/A',
-          },
-          medical_rating: {
-            diabetes_suitability: analysisData.medical_rating?.diabetes_suitability ?? 'Unknown',
-          },
-        };
-
-        setRecordFoodResult(normalizedRecord);
-        setRecordFoodDialog(true);
-        
-        // Add success message to chat
-        const successMessage: Message = {
-          id: uuidv4(),
-          message: `✅ Successfully analyzed and logged: ${normalizedRecord.food_name}\n\n**Nutritional Info:**\n- Calories: ${normalizedRecord.nutritional_info.calories}\n- Protein: ${normalizedRecord.nutritional_info.protein}g\n- Carbs: ${normalizedRecord.nutritional_info.carbohydrates}g\n- Fat: ${normalizedRecord.nutritional_info.fat}g\n\n**Diabetes Suitability:** ${normalizedRecord.medical_rating.diabetes_suitability}`,
-          is_user: false,
-          timestamp: new Date().toISOString(),
-          session_id: currentSession,
-          metadata: {
-            type: 'food_analysis',
-            data: normalizedRecord
-          }
-        };
-        setMessages(prev => [...prev, successMessage]);
-        
-        // Refresh user stats
-        fetchUserStats();
-      } else {
-        throw new Error('Failed to analyze food');
-      }
-    } catch (error) {
-      console.error('Error recording food:', error);
-      const errorMessage: Message = {
-        id: uuidv4(),
-        message: 'Sorry, I couldn\'t analyze that image. Please try again with a clearer photo of your food.',
-        is_user: false,
-        timestamp: new Date().toISOString(),
-        session_id: currentSession,
-      };
-      setMessages(prev => [...prev, errorMessage]);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleImageButtonClick = () => {
-    fileInputRef.current?.click();
-  };
-
   const handleRecordFoodButtonClick = () => {
-    recordFoodInputRef.current?.click();
+    fileInputRef.current?.click();
   };
 
   const handleCloseRecordDialog = () => {
@@ -721,16 +634,11 @@ const Chat = () => {
           </ButtonGroup>
 
           <Box sx={{ ml: 'auto', display: 'flex', gap: 1 }}>
-            <Tooltip title="Upload Food Image">
+            <Tooltip title="Log Food (attach image)">
               <IconButton onClick={handleRecordFoodButtonClick} color="primary">
                 <Badge badgeContent="AI" color="secondary">
                   <CameraAltIcon />
                 </Badge>
-              </IconButton>
-            </Tooltip>
-            <Tooltip title="Add Image to Message">
-              <IconButton onClick={handleImageButtonClick} color="secondary">
-                <ImageIcon />
               </IconButton>
             </Tooltip>
           </Box>
@@ -930,7 +838,7 @@ const Chat = () => {
         {selectedImage && (
           <Box sx={{ mb: 2, p: 1, bgcolor: 'grey.50', borderRadius: 1 }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-              <ImageIcon color="primary" />
+              <CameraAltIcon color="primary" />
               <Typography variant="body2">Image attached</Typography>
               <IconButton size="small" onClick={() => { setSelectedImage(null); setImagePreviewUrl(null); }}>
                 <CloseIcon />
@@ -996,13 +904,6 @@ const Chat = () => {
         style={{ display: 'none' }}
         accept="image/*"
         onChange={handleImageUpload}
-      />
-      <input
-        type="file"
-        ref={recordFoodInputRef}
-        style={{ display: 'none' }}
-        accept="image/*"
-        onChange={handleRecordFood}
       />
 
       {/* Food Analysis Result Dialog */}
