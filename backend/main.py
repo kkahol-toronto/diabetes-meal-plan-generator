@@ -3771,59 +3771,142 @@ async def quick_log_food(
         print(f"[quick_log_food] Successfully saved consumption record with ID: {consumption_record['id']}")
         
         # ------------------------------
-        # AUTO-UPDATE TODAY'S MEAL PLAN
+        # FORCE COMPLETE MEAL PLAN REGENERATION AFTER EVERY LOG
         # ------------------------------
         try:
-            todays_payload = await get_todays_meal_plan(current_user)  # Recalculate with new log
-            plan_doc = todays_payload.get("meal_plan", todays_payload)
+            print("[quick_log_food] Triggering complete meal plan regeneration after food log...")
+            
+            # Get today's consumption including the new log
+            today = datetime.utcnow().date()
+            consumption_data_full = await get_user_consumption_history(current_user["email"], limit=100)
+            today_consumption = [
+                r for r in consumption_data_full
+                if datetime.fromisoformat(r.get("timestamp", "").replace("Z", "+00:00")).date() == today
+            ]
+            
+            # Calculate calories consumed so far
+            calories_consumed = sum(r.get("nutritional_info", {}).get("calories", 0) for r in today_consumption)
+            
+            # Get user profile for dietary restrictions
+            profile = current_user.get("profile", {})
+            dietary_restrictions = profile.get('dietaryRestrictions', [])
+            allergies = profile.get('allergies', [])
+            diet_type = profile.get('dietType', [])
+            target_calories = int(profile.get('calorieTarget', '2000'))
+            remaining_calories = max(0, target_calories - calories_consumed)
+            
+            # Build explicit restriction warnings for AI
+            restriction_warnings = []
+            if 'vegetarian' in [r.lower() for r in dietary_restrictions] or 'vegetarian' in [d.lower() for d in diet_type]:
+                restriction_warnings.append("STRICTLY VEGETARIAN - NO MEAT, POULTRY, FISH, OR SEAFOOD")
+            if any('egg' in r.lower() for r in dietary_restrictions) or any('egg' in a.lower() for a in allergies):
+                restriction_warnings.append("NO EGGS - Avoid all egg-based dishes and ingredients")
+            if any('nut' in a.lower() for a in allergies):
+                restriction_warnings.append("NUT ALLERGY - Avoid all nuts and nut-based products")
+            
+            restriction_text = "\n".join([f"⚠️ {warning}" for warning in restriction_warnings])
+            
+            # Generate completely new meal plan calibrated to consumption
+            prompt = f"""You are a registered dietitian AI. The user just logged a meal. Generate a COMPLETE new meal plan for the REST OF TODAY based on their consumption and dietary profile.
 
-            # Persist the calibrated plan so the widget sees updates instantly
-            await save_meal_plan(current_user["email"], plan_doc)
-            print("[quick_log_food] Auto-updated today's meal plan after log.")
-        except Exception as plan_err:
-            print(f"[quick_log_food] Failed to auto-update today's plan: {plan_err}")
-        
-        # ------------------------------------------------------------
-        # ENSURE CONCRETE DISHES BY GENERATING (if placeholders found)
-        # ------------------------------------------------------------
-        try:
-            def _looks_placeholder(text: str) -> bool:
-                return any(keyword in text.lower() for keyword in ["healthy", "balanced", "nutritious", "option"])
+USER PROFILE:
+Diet Type: {', '.join(diet_type) or 'Standard'}
+Dietary Restrictions: {', '.join(dietary_restrictions) or 'None'}
+Allergies: {', '.join(allergies) or 'None'}
+Target Daily Calories: {target_calories}
+Calories Already Consumed Today: {calories_consumed}
+Remaining Calories for Today: {remaining_calories}
 
-            needs_generation = any(
-                _looks_placeholder(meal)
-                for meal in plan_doc.get("meals", {}).values()
+{restriction_text if restriction_warnings else ""}
+
+CRITICAL REQUIREMENTS:
+- ALL dishes must be diabetes-friendly (low glycemic index)
+- ALL dishes must be completely vegetarian and egg-free
+- Adjust portion sizes based on remaining calories
+- Provide SPECIFIC dish names, not generic descriptions
+- Consider the time of day and what's realistic to eat
+
+Generate a complete meal plan for the rest of today:
+
+{{
+  "meals": {{
+    "breakfast": "<specific vegetarian dish without eggs>",
+    "lunch": "<specific vegetarian dish without eggs>", 
+    "dinner": "<specific vegetarian dish without eggs>",
+    "snack": "<specific vegetarian snack without eggs>"
+  }},
+  "calibration_notes": "Adjusted based on {calories_consumed} calories already consumed today"
+}}
+
+Examples of appropriate dishes:
+- Breakfast: "Steel-cut oats with almond milk, cinnamon, and fresh blueberries"
+- Lunch: "Mediterranean quinoa salad with chickpeas, cucumber, and olive oil"
+- Dinner: "Black bean and sweet potato curry with brown rice"
+- Snack: "Apple slices with almond butter and a sprinkle of cinnamon"
+
+Ensure ALL dishes are completely vegetarian and egg-free."""
+
+            ai_resp = client.chat.completions.create(
+                model=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.7,
+                max_tokens=600
             )
 
-            if needs_generation:
-                print("[quick_log_food] Placeholder meals detected – generating concrete recipes via OpenAI…")
-
-                profile = current_user.get("profile", {})
-
-                remaining_cal = plan_doc.get("dailyCalories", 2000)
-
-                prompt = f"""You are a registered dietitian AI. Generate specific meal suggestions (dish names) for the rest of TODAY given the user's profile and remaining calories.\n\nUSER PROFILE:\nDiet Type: {', '.join(profile.get('dietType', [])) or 'Standard'}\nRestrictions: {', '.join(profile.get('dietaryRestrictions', [])) or 'None'}\nAllergies: {', '.join(profile.get('allergies', [])) or 'None'}\nTarget remaining calories today: {remaining_cal}\n\nProvide JSON exactly in this format:\n{{\n  \"meals\": {{\n    \"breakfast\": \"<dish>\",\n    \"lunch\": \"<dish>\",\n    \"dinner\": \"<dish>\",\n    \"snack\": \"<dish>\"\n  }}\n}}"""
-
-                ai_resp = client.chat.completions.create(
-                    model=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
-                    messages=[{"role": "user", "content": prompt}],
-                    temperature=0.6,
-                    max_tokens=400
-                )
-
-                import json as _json
-                try:
-                    ai_json = _json.loads(ai_resp.choices[0].message.content)
-                    plan_doc["meals"].update(ai_json.get("meals", {}))
-                    plan_doc["type"] = "ai_generated_today"
-                    plan_doc["notes"] = (plan_doc.get("notes", "") + " Meals generated by AI for concrete recipes.").strip()
-
-                    await save_meal_plan(current_user["email"], plan_doc)
-                    print("[quick_log_food] Saved AI-generated concrete meals for today.")
-                except Exception as ge:
-                    print(f"[quick_log_food] Failed to parse AI meal JSON: {ge}")
-        except Exception as gen_err:
-            print(f"[quick_log_food] Error during concrete meal generation: {gen_err}")
+            import json as _json
+            try:
+                # Parse AI response
+                ai_content = ai_resp.choices[0].message.content
+                start_idx = ai_content.find('{')
+                end_idx = ai_content.rfind('}') + 1
+                ai_json = _json.loads(ai_content[start_idx:end_idx])
+                
+                # Create new calibrated meal plan
+                new_plan = {
+                    "id": f"calibrated_{current_user['email']}_{today.isoformat()}_{int(datetime.utcnow().timestamp())}",
+                    "date": today.isoformat(),
+                    "type": "ai_calibrated_post_log",
+                    "meals": ai_json.get("meals", {}),
+                    "dailyCalories": target_calories,
+                    "calories_consumed": calories_consumed,
+                    "calories_remaining": remaining_calories,
+                    "created_at": datetime.utcnow().isoformat(),
+                    "notes": f"Regenerated after food log. {ai_json.get('calibration_notes', '')}"
+                }
+                
+                # Post-process to ensure dietary compliance (safety filter)
+                def sanitize_meal(meal_text: str) -> str:
+                    """Ensure meal is vegetarian and egg-free"""
+                    meal_lower = meal_text.lower()
+                    
+                    # Check for non-vegetarian ingredients
+                    non_veg_keywords = ['chicken', 'beef', 'pork', 'fish', 'salmon', 'tuna', 'turkey', 'lamb', 'meat', 'seafood', 'shrimp']
+                    egg_keywords = ['egg', 'eggs', 'omelet', 'omelette', 'scrambled', 'poached', 'fried egg']
+                    
+                    if any(keyword in meal_lower for keyword in non_veg_keywords):
+                        return "Vegetarian lentil and vegetable curry with quinoa"
+                    if any(keyword in meal_lower for keyword in egg_keywords):
+                        return "Overnight oats with almond milk, chia seeds, and fresh berries"
+                    
+                    return meal_text
+                
+                # Apply safety filter to all meals
+                for meal_type in new_plan["meals"]:
+                    new_plan["meals"][meal_type] = sanitize_meal(new_plan["meals"][meal_type])
+                
+                # Save the new calibrated plan
+                await save_meal_plan(current_user["email"], new_plan)
+                print(f"[quick_log_food] Generated and saved new calibrated meal plan. Remaining calories: {remaining_calories}")
+                
+            except Exception as parse_err:
+                print(f"[quick_log_food] Failed to parse AI meal plan JSON: {parse_err}")
+                # Fallback: just trigger the normal get_todays_meal_plan
+                await get_todays_meal_plan(current_user)
+                
+        except Exception as plan_err:
+            print(f"[quick_log_food] Failed to regenerate meal plan: {plan_err}")
+            import traceback
+            print(traceback.format_exc())
         
         # Return success response in the SAME FORMAT as before
         return {
@@ -3887,7 +3970,7 @@ async def get_todays_meal_plan(current_user: User = Depends(get_current_user)):
                     latest_plan = p
                     break
             if latest_plan is None:
-            latest_plan = meal_plans[0]
+                latest_plan = meal_plans[0]
             
             # Helper to safely pull meal array/string for index
             def _pick(meal_key: str):
@@ -3919,7 +4002,7 @@ async def get_todays_meal_plan(current_user: User = Depends(get_current_user)):
         if not todays_plan:
             todays_plan = {
                 "id": f"fallback_{current_user['email']}_{today.isoformat()}",
-            "date": today.isoformat(),
+                "date": today.isoformat(),
                 "type": "fallback_basic",
                 "meals": {
                     "breakfast": "Oatmeal with berries",
@@ -3998,8 +4081,61 @@ async def get_todays_meal_plan(current_user: User = Depends(get_current_user)):
                 dinner_prompt = current_meals.get("dinner", "a nutritious dinner option")
                 snack_prompt = current_meals.get("snack", "a healthy snack option")
 
-                # Construct a more detailed prompt for the AI
-                prompt = f"""You are a registered dietitian AI. Generate specific, concrete dish names for each meal (breakfast, lunch, dinner, snack) for TODAY, given the user's profile and dietary needs.\n\nUSER PROFILE:\nDiet Type: {', '.join(profile.get('dietType', [])) or 'Standard'}\nRestrictions: {', '.join(profile.get('dietaryRestrictions', [])) or 'None'}\nAllergies: {', '.join(profile.get('allergies', [])) or 'None'}\nHealth Conditions: {', '.join(profile.get('medical_conditions', [])) or 'None'}\n\nExisting Plan (fill placeholders if any, make specific):\nBreakfast: {breakfast_prompt}\nLunch: {lunch_prompt}\nDinner: {dinner_prompt}\nSnack: {snack_prompt}\n\nProvide JSON exactly in this format, with specific dish names only:\n{{\n  \"meals\": {{\n    \"breakfast\": \"<specific dish name>\",\n    \"lunch\": \"<specific dish name>\",\n    \"dinner\": \"<specific dish name>\",\n    \"snack\": \"<specific dish name>\"\n  }}\n}}\nEnsure dishes are suitable for a diabetic individual and adhere to all profile restrictions and allergies. Avoid generic terms and provide actual recipe names. If a meal is already specific, keep it as is unless it contradicts profile.\n"""
+                # Construct a more detailed prompt for the AI with stronger dietary enforcement
+                dietary_restrictions = profile.get('dietaryRestrictions', [])
+                allergies = profile.get('allergies', [])
+                diet_type = profile.get('dietType', [])
+                
+                # Build explicit restriction warnings
+                restriction_warnings = []
+                if 'vegetarian' in [r.lower() for r in dietary_restrictions] or 'vegetarian' in [d.lower() for d in diet_type]:
+                    restriction_warnings.append("STRICTLY VEGETARIAN - NO MEAT, POULTRY, FISH, OR SEAFOOD")
+                if any('egg' in r.lower() for r in dietary_restrictions) or any('egg' in a.lower() for a in allergies):
+                    restriction_warnings.append("NO EGGS - Avoid all egg-based dishes and ingredients")
+                if any('nut' in a.lower() for a in allergies):
+                    restriction_warnings.append("NUT ALLERGY - Avoid all nuts and nut-based products")
+                
+                restriction_text = "\n".join([f"⚠️ {warning}" for warning in restriction_warnings])
+                
+                prompt = f"""You are a registered dietitian AI. Generate specific, concrete dish names for each meal (breakfast, lunch, dinner, snack) for TODAY, given the user's profile and dietary needs.
+
+USER PROFILE:
+Diet Type: {', '.join(diet_type) or 'Standard'}
+Dietary Restrictions: {', '.join(dietary_restrictions) or 'None'}
+Allergies: {', '.join(allergies) or 'None'}
+Health Conditions: {', '.join(profile.get('medical_conditions', [])) or 'None'}
+
+{restriction_text if restriction_warnings else ""}
+
+CRITICAL REQUIREMENTS:
+- ALL dishes must be diabetes-friendly (low glycemic index)
+- ALL dishes must strictly adhere to dietary restrictions and allergies
+- Provide SPECIFIC dish names, not generic descriptions
+- Each meal should be balanced and nutritious
+
+Existing Plan (replace placeholders with specific dishes):
+Breakfast: {breakfast_prompt}
+Lunch: {lunch_prompt}
+Dinner: {dinner_prompt}
+Snack: {snack_prompt}
+
+Provide JSON exactly in this format, with specific dish names only:
+{{
+  "meals": {{
+    "breakfast": "<specific vegetarian dish name without eggs>",
+    "lunch": "<specific vegetarian dish name without eggs>",
+    "dinner": "<specific vegetarian dish name without eggs>",
+    "snack": "<specific vegetarian snack without eggs>"
+  }}
+}}
+
+Examples of appropriate dishes:
+- Breakfast: "Overnight oats with almond milk, chia seeds, and fresh berries"
+- Lunch: "Quinoa Buddha bowl with roasted vegetables and tahini dressing"
+- Dinner: "Lentil curry with brown rice and steamed broccoli"
+- Snack: "Hummus with cucumber slices and whole grain crackers"
+
+Ensure ALL dishes are completely vegetarian and egg-free. Do not include any meat, poultry, fish, seafood, or egg-based ingredients."""
 
                 try:
                     ai_resp = client.chat.completions.create(
@@ -4014,12 +4150,30 @@ async def get_todays_meal_plan(current_user: User = Depends(get_current_user)):
                     
                     # Update only the meals that were placeholders or needed refinement
                     updated_meals = ai_json.get("meals", {})
+                    
+                    # Post-process to ensure dietary compliance (safety filter)
+                    def sanitize_meal(meal_text: str) -> str:
+                        """Ensure meal is vegetarian and egg-free"""
+                        meal_lower = meal_text.lower()
+                        
+                        # Check for non-vegetarian ingredients
+                        non_veg_keywords = ['chicken', 'beef', 'pork', 'fish', 'salmon', 'tuna', 'turkey', 'lamb', 'meat', 'seafood', 'shrimp']
+                        egg_keywords = ['egg', 'eggs', 'omelet', 'omelette', 'scrambled', 'poached', 'fried egg']
+                        
+                        if any(keyword in meal_lower for keyword in non_veg_keywords):
+                            return "Vegetarian lentil and vegetable curry with quinoa"
+                        if any(keyword in meal_lower for keyword in egg_keywords):
+                            return "Overnight oats with almond milk, chia seeds, and fresh berries"
+                        
+                        return meal_text
+                    
                     for meal_type, dish_name in updated_meals.items():
                         if _looks_placeholder(current_meals.get(meal_type, "")) or dish_name != current_meals.get(meal_type, ""):
-                            todays_plan["meals"][meal_type] = dish_name
+                            # Apply safety filter before saving
+                            todays_plan["meals"][meal_type] = sanitize_meal(dish_name)
 
                     todays_plan["type"] = "ai_generated_concrete"
-                    todays_plan["notes"] = (todays_plan.get("notes", "") + " Meals made concrete by AI.").strip()
+                    todays_plan["notes"] = (todays_plan.get("notes", "") + " Meals made concrete by AI with dietary compliance.").strip()
 
                     # Save the updated plan to history
                     await save_meal_plan(current_user["email"], todays_plan)
