@@ -1356,13 +1356,12 @@ REQUIREMENTS:
                         new_meals = meal_plan.get(meal_type, [])
                         if isinstance(prev_meals, list) and isinstance(new_meals, list) and len(new_meals) == days:
                             meal_plan[meal_type] = get_overlap_meals(prev_meals, new_meals)
-=======
+
                 await save_meal_plan(
                     user_id=current_user["email"],
                     meal_plan_data=meal_plan
                 )
                 print("Meal plan saved to database")
->>>>>>> admin_profile_fixed
 
                 # Explicitly convert the returned meal_plan to a plain dictionary
                 try:
@@ -1465,11 +1464,7 @@ async def generate_shopping_list(
 
                     ––––– SANITY CHECK –––––
                     After calculating totals, scan the list for obviously implausible amounts (e.g., >2 bunches of coriander for ≤8 servings, >5 lb of garlic, etc.).  
-<<<<<<< HEAD
                     If an amount seems unrealistic, recompute or cap it to a reasonable upper bound and add a "note" field explaining the adjustment.
-=======
-                    If an amount seems unrealistic, recompute or cap it to a reasonable upper bound and add a "_note" field explaining the adjustment.
->>>>>>> admin_profile_fixed
 
                     ––––– ROUNDING GRID (CANADIAN GROCERY) –––––
                     When you finish aggregating all recipes, convert each total to the **next-larger** purchasable size:
@@ -2796,7 +2791,6 @@ async def save_full_meal_plan_endpoint(
         traceback.print_exc()
         raise HTTPException(status_code=500, detail="An error occurred while saving the meal plan.")
 
-<<<<<<< HEAD
 @app.get("/debug/meal_plans")
 async def debug_meal_plans(current_user: User = Depends(get_current_user)):
     """Return all meal plans for the current user, including IDs and partition keys, for debugging."""
@@ -6344,7 +6338,7 @@ async def update_meal_type(record_id: str, payload: dict = Body(...), current_us
         raise HTTPException(status_code=403, detail="Not allowed")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-=======
+
 @app.post("/api/profile/save")
 async def save_profile(
     profile: PatientProfile,
@@ -6893,7 +6887,6 @@ async def debug_list_all_patients():
             "error": str(e),
             "type": str(type(e))
         }
->>>>>>> admin_profile_fixed
 
 if __name__ == "__main__":
     import uvicorn
