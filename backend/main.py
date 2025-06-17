@@ -1,34 +1,56 @@
 from fastapi import FastAPI, HTTPException, Depends, status, Request, Body, File, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-from pydantic import BaseModel, EmailStr, Field
-from typing import List, Optional, Dict, Any
-import os
-from dotenv import load_dotenv
-from openai import AzureOpenAI
-import json
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from fastapi.responses import StreamingResponse, JSONResponse
+from pydantic import BaseModel, EmailStr, Field, ValidationError
+from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta
 from jose import JWTError, jwt
 from passlib.context import CryptContext
+from dotenv import load_dotenv
 from twilio.rest import Client
+from openai import AzureOpenAI
+from docx import Document
+from docx.shared import Inches, Pt
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from logging.handlers import RotatingFileHandler
+from tenacity import RetryError
+import os
+import json
+import openai
+import asyncio
+import re
+import io
+import base64
+import uuid
+import pytz
+import traceback
+import logging
+import sys
 import random
 import string
+
+# Import database functions
 from database import (
-    create_user, get_user_by_email, create_patient,
-    get_patient_by_registration_code, get_all_patients,
-    save_meal_plan, get_user_meal_plans, get_meal_plan_by_id,
-    save_shopping_list, get_user_shopping_lists,
-    save_chat_message, save_recipes, get_user_recipes,
+    create_user,
+    get_user_by_email,
+    get_patient_by_registration_code,
+    create_patient,
+    get_all_patients,
+    save_meal_plan,
+    get_patient_profile,
+    save_patient_profile,
+    get_user_recipes,
+    save_chat_message,
+    get_user_meal_plans,
+    get_user_shopping_lists,
+    save_shopping_list,
+    save_recipes,
     get_recent_chat_history,
-    format_chat_history_for_prompt,
-    clear_chat_history,
     get_user_sessions,
-    get_patient_by_id,
-    user_container,
-    get_context_history,
-    generate_session_id,
-    interactions_container,
-    view_meal_plans,
+    clear_chat_history,
     delete_meal_plan_by_id,
     delete_all_user_meal_plans,
     save_consumption_record,
@@ -38,6 +60,11 @@ from database import (
     log_meal_suggestion,
     get_ai_suggestion,
     update_consumption_meal_type,
+    interactions_container,
+    get_user_email_by_patient_id,
+    user_container,
+    get_patient_by_phone,
+    delete_patient
 )
 
 # Use interactions_container as consumption_collection for consistency
@@ -60,8 +87,19 @@ from fastapi import APIRouter
 import logging
 from collections import defaultdict
 
-# Set up logging
-logging.basicConfig(level=logging.INFO)
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        RotatingFileHandler(
+            'app.log',
+            maxBytes=10000000,
+            backupCount=5
+        ),
+        logging.StreamHandler()
+    ]
+)
 logger = logging.getLogger(__name__)
 
 # Load environment variables
@@ -72,10 +110,16 @@ app = FastAPI(title="Diabetes Diet Manager API")
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, replace with specific origins
+    allow_origins=[os.getenv("ALLOWED_ORIGINS", "http://localhost:3000")],
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE"],
     allow_headers=["*"],
+)
+
+# Add trusted hosts middleware
+app.add_middleware(
+    TrustedHostMiddleware,
+    allowed_hosts=["*"]  # Replace with your domain in production
 )
 
 # Configure OpenAI
@@ -91,7 +135,8 @@ twilio_client = Client(os.getenv("SMS_API_SID"), os.getenv("SMS_KEY"))
 # Security
 SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-here")
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
+ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 24 hours
+REFRESH_TOKEN_EXPIRE_DAYS = 30
 
 # Update password context to use newer bcrypt settings
 pwd_context = CryptContext(
@@ -129,7 +174,7 @@ class Patient(BaseModel):
     created_at: Optional[datetime] = None
 
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "name": "John Doe",
                 "phone": "1234567890",
@@ -216,6 +261,105 @@ class RegistrationData(BaseModel):
 class ImageAnalysisRequest(BaseModel):
     prompt: str
 
+class PatientProfile(BaseModel):
+    # Date of Intake
+    intakeDate: Optional[str] = None
+    intakeDateUpdatedBy: Optional[str] = None  # 'admin' or 'user'
+
+    # Patient Demographics
+    fullName: Optional[str] = None
+    fullNameUpdatedBy: Optional[str] = None
+    dateOfBirth: Optional[str] = None
+    dateOfBirthUpdatedBy: Optional[str] = None
+    age: Optional[int] = None
+    ageUpdatedBy: Optional[str] = None
+    sex: Optional[str] = None
+    sexUpdatedBy: Optional[str] = None
+    ethnicity: Optional[List[str]] = None
+    ethnicityUpdatedBy: Optional[str] = None
+    ethnicityOther: Optional[str] = None
+    ethnicityOtherUpdatedBy: Optional[str] = None
+
+    # Medical History
+    medicalHistory: Optional[List[str]] = None
+    medicalHistoryUpdatedBy: Optional[str] = None
+    medicalHistoryOther: Optional[str] = None
+    medicalHistoryOtherUpdatedBy: Optional[str] = None
+
+    # Current Medications
+    medications: Optional[List[str]] = None
+    medicationsUpdatedBy: Optional[str] = None
+    medicationsOther: Optional[str] = None
+    medicationsOtherUpdatedBy: Optional[str] = None
+
+    # Most Recent Lab Values
+    labValues: Optional[Dict[str, Optional[float]]] = None
+    labValuesUpdatedBy: Optional[str] = None
+
+    # Vital Signs
+    vitalSigns: Optional[Dict[str, Optional[float]]] = None
+    vitalSignsUpdatedBy: Optional[str] = None
+
+    # Dietary Information
+    dietaryInfo: Optional[Dict[str, Any]] = None
+    dietaryInfoUpdatedBy: Optional[str] = None
+
+    # Physical Activity Profile
+    physicalActivity: Optional[Dict[str, Any]] = None
+    physicalActivityUpdatedBy: Optional[str] = None
+
+    # Lifestyle & Preferences
+    lifestyle: Optional[Dict[str, Any]] = None
+    lifestyleUpdatedBy: Optional[str] = None
+
+    # Goals & Readiness to Change
+    goals: Optional[List[str]] = None
+    goalsUpdatedBy: Optional[str] = None
+    goalsOther: Optional[str] = None
+    goalsOtherUpdatedBy: Optional[str] = None
+    readiness: Optional[str] = None
+    readinessUpdatedBy: Optional[str] = None
+
+    # Meal Plan Targeting
+    mealPlanTargeting: Optional[Dict[str, Any]] = None
+    mealPlanTargetingUpdatedBy: Optional[str] = None
+
+    class Config:
+        # Ensure we don't exclude any fields during serialization
+        validate_assignment = True
+        use_enum_values = True
+        json_schema_extra = {
+            "example": {
+                "intakeDate": "2024-03-20",
+                "intakeDateUpdatedBy": "admin",
+                "fullName": "John Doe",
+                "fullNameUpdatedBy": "user",
+                "dateOfBirth": "1980-01-01",
+                "dateOfBirthUpdatedBy": "admin",
+                "age": 44,
+                "ageUpdatedBy": "admin",
+                "sex": "Male",
+                "sexUpdatedBy": "admin",
+                "ethnicity": ["Caucasian"],
+                "ethnicityUpdatedBy": "admin",
+                "medicalHistory": ["Type 2 Diabetes"],
+                "medicalHistoryUpdatedBy": "admin",
+                "medications": ["Metformin"],
+                "medicationsUpdatedBy": "admin",
+                "labValues": {
+                    "a1c": 7.2,
+                    "fastingGlucose": 6.5
+                },
+                "labValuesUpdatedBy": "admin",
+                "vitalSigns": {
+                    "heightCm": 175,
+                    "weightKg": 80,
+                    "bmi": 26.1
+                },
+                "vitalSignsUpdatedBy": "admin"
+            }
+        }
+
 def get_password_hash(password: str) -> str:
     """Hash a password using bcrypt"""
     return pwd_context.hash(password)
@@ -229,10 +373,16 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     if expires_delta:
         expire = datetime.utcnow() + expires_delta
     else:
-        expire = datetime.utcnow() + timedelta(minutes=15)
+        expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
+
+def create_refresh_token(data: dict):
+    to_encode = data.copy()
+    expire = datetime.utcnow() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+    to_encode.update({"exp": expire})
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
 async def get_current_user(token: str = Depends(oauth2_scheme)):
     print("get_current_user called")
@@ -288,48 +438,55 @@ def send_registration_code(phone: str, code: str):
 
 @app.post("/login", response_model=Token)
 async def login(form_data: OAuth2PasswordRequestForm = Depends()):
-    print(f"Login attempt for user: {form_data.username}")
-    
-    user = await get_user_by_email(form_data.username)
-    if not user or not verify_password(form_data.password, user["hashed_password"]):
-        print(f"Login failed for user: {form_data.username}")
+    try:
+        logger.info(f"Login attempt for email: {form_data.username}")
+        user = await get_user_by_email(form_data.username)
+        logger.info(f"User found: {user is not None}")
+        
+        if not user:
+            logger.warning(f"No user found for email: {form_data.username}")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Incorrect username or password",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        
+        logger.info(f"User data keys: {list(user.keys()) if user else 'None'}")
+        
+        if not verify_password(form_data.password, user["hashed_password"]):
+            logger.warning(f"Password verification failed for user: {form_data.username}")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Incorrect username or password",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        
+        # Check if user is admin and include in token
+        token_data = {"sub": user["email"]}
+        if user.get("is_admin"):
+            token_data["is_admin"] = True
+            
+        access_token = create_access_token(data=token_data)
+        refresh_token = create_refresh_token(data=token_data)
+        
+        logger.info(f"Login successful for user: {form_data.username}")
+        return {
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "token_type": "bearer"
+        }
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
+    except Exception as e:
+        logger.error(f"Login error for {form_data.username}: {str(e)}")
+        logger.error(f"Login error type: {type(e)}")
+        import traceback
+        logger.error(f"Login error traceback: {traceback.format_exc()}")
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect username or password",
-            headers={"WWW-Authenticate": "Bearer"},
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An error occurred during login"
         )
-    
-    print(f"User found: {user}")
-    
-    # Get patient info if available
-    patient_name = None
-    if user.get("patient_id"):
-        try:
-            print(f"Fetching patient info for patient_id: {user['patient_id']}")
-            patient = await get_patient_by_id(user["patient_id"])
-            if patient:
-                patient_name = patient.get("name")
-                print(f"Found patient name: {patient_name}")
-            else:
-                print("No patient found with the given ID")
-        except Exception as e:
-            print(f"Error fetching patient info: {str(e)}")
-    else:
-        print("No patient_id found in user data")
-    
-    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    token_data = {
-        "sub": user["email"],
-        "is_admin": user.get("is_admin", False),
-        "name": patient_name
-    }
-    print(f"Creating token with data: {token_data}")
-    
-    access_token = create_access_token(
-        data=token_data,
-        expires_delta=access_token_expires
-    )
-    return {"access_token": access_token, "token_type": "bearer"}
 
 @app.post("/register")
 async def register(data: RegistrationData):
@@ -363,13 +520,30 @@ async def register(data: RegistrationData):
         "patient_id": patient["id"],
         "profile": initial_profile  # Include initial profile from patient data
     }
-    
-    await create_user(user_data)
-    return {
-        "message": "Registration successful", 
-        "profile_initialized": True,
-        "health_conditions": initial_profile["medicalConditions"]
-    }
+    try:
+        await create_user(user_data)
+        return {
+            "message": "Registration successful", 
+            "profile_initialized": True,
+            "health_conditions": initial_profile["medicalConditions"]
+        }
+    except RetryError as e:
+        # Extract the original exception from the RetryError
+        original_exception = e.last_attempt.exception()
+        if isinstance(original_exception, ValueError) and "already exists" in str(original_exception):
+            raise HTTPException(status_code=400, detail="Email already registered")
+        else:
+            logger.error(f"Unexpected error during registration: {str(e)}")
+            raise HTTPException(status_code=500, detail="An error occurred during registration")
+    except ValueError as e:
+        # Handle user already exists error (direct ValueError)
+        if "already exists" in str(e):
+            raise HTTPException(status_code=400, detail="Email already registered")
+        else:
+            raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Unexpected error during registration: {str(e)}")
+        raise HTTPException(status_code=500, detail="An error occurred during registration")
 
 @app.post("/admin/create-patient")
 async def create_patient_endpoint(
@@ -380,6 +554,14 @@ async def create_patient_endpoint(
         raise HTTPException(status_code=403, detail="Not authorized")
     
     try:
+        # Check for duplicate phone number
+        existing_patient_phone = await get_patient_by_phone(patient.phone)
+        if existing_patient_phone:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"A patient with phone number {patient.phone} already exists: {existing_patient_phone.get('name', 'Unknown')}"
+            )
+        
         registration_code = generate_registration_code()
         patient_data = {
             "name": patient.name,
@@ -408,6 +590,25 @@ async def create_patient_endpoint(
                 "message": "Patient created successfully. Please note down the registration code as SMS could not be sent.",
                 "registration_code": registration_code
             }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/admin/patients/{patient_id}")
+async def delete_patient_endpoint(
+    patient_id: str,
+    current_user: User = Depends(get_current_user)
+):
+    if not current_user.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    try:
+        success = await delete_patient(patient_id)
+        if success:
+            return {"message": f"Patient {patient_id} and all associated data deleted successfully"}
+        else:
+            raise HTTPException(status_code=404, detail="Patient not found")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -419,7 +620,24 @@ async def get_patients(current_user: User = Depends(get_current_user)):
     
     try:
         patients = await get_all_patients()
-        return patients
+        
+        # Enrich patients with email information
+        enriched_patients = []
+        for patient in patients:
+            patient_data = dict(patient)  # Convert to regular dict
+            # Try to get the associated user email
+            try:
+                user_email = await get_user_email_by_patient_id(patient['id'])
+                if user_email:
+                    patient_data['email'] = user_email
+                else:
+                    patient_data['email'] = 'Not registered'
+            except Exception:
+                patient_data['email'] = 'Error fetching email'
+            
+            enriched_patients.append(patient_data)
+        
+        return enriched_patients
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -794,7 +1012,7 @@ async def root():
 
 @app.post("/generate-meal-plan")
 async def generate_meal_plan(
-    request: FastAPIRequest,
+    request: Request,
     current_user: User = Depends(get_current_user)
 ):
     try:
@@ -845,6 +1063,7 @@ async def generate_meal_plan(
                 status_code=500,
                 detail=f"Missing required environment variables: {', '.join(missing_vars)}"
             )
+
 
         print('user_profile received:', user_profile)
         print("/generate-meal-plan endpoint called")
@@ -1083,7 +1302,7 @@ REQUIREMENTS:
                 response_format={"type": "json_object"}
             )
             print("OpenAI response received")
-            
+
             if not response.choices or not response.choices[0].message:
                 raise HTTPException(
                     status_code=500,
@@ -1098,7 +1317,7 @@ REQUIREMENTS:
                 meal_plan = json.loads(raw_content)
                 print("Meal plan parsed successfully:")
                 print(json.dumps(meal_plan, indent=2))
-                
+
                 # Validate meal plan structure
                 required_keys = ['breakfast', 'lunch', 'dinner', 'snacks', 'dailyCalories', 'macronutrients']
                 missing_keys = [key for key in required_keys if key not in meal_plan]
@@ -1119,9 +1338,13 @@ REQUIREMENTS:
 
                 # Ensure macronutrients are numbers
                 macro_keys = ['protein', 'carbs', 'fats']
-                for key in macro_keys:
-                    if not isinstance(meal_plan['macronutrients'].get(key), (int, float)):
-                        meal_plan['macronutrients'][key] = 0
+                if isinstance(meal_plan.get('macronutrients'), dict): # Check if macronutrients is a dict
+                    for key in macro_keys:
+                        if not isinstance(meal_plan['macronutrients'].get(key), (int, float)):
+                            meal_plan['macronutrients'][key] = 0
+                else: # If macronutrients is not a dict, initialize it
+                     meal_plan['macronutrients'] = {"protein": 0, "carbs": 0, "fats": 0}
+
 
                 if not isinstance(meal_plan.get('dailyCalories'), (int, float)):
                     meal_plan['dailyCalories'] = 2000
@@ -1133,10 +1356,16 @@ REQUIREMENTS:
                         new_meals = meal_plan.get(meal_type, [])
                         if isinstance(prev_meals, list) and isinstance(new_meals, list) and len(new_meals) == days:
                             meal_plan[meal_type] = get_overlap_meals(prev_meals, new_meals)
+=======
+                await save_meal_plan(
+                    user_id=current_user["email"],
+                    meal_plan_data=meal_plan
+                )
+                print("Meal plan saved to database")
+>>>>>>> admin_profile_fixed
 
                 # Explicitly convert the returned meal_plan to a plain dictionary
                 try:
-                    # import json # Removed local import
                     plain_meal_plan = json.loads(json.dumps(meal_plan))
                     print("[/generate-meal-plan] Converted returned meal_plan to plain dict")
                     return plain_meal_plan
@@ -1176,7 +1405,7 @@ REQUIREMENTS:
 
 @app.post("/generate-recipes")
 async def generate_recipes(
-    request: FastAPIRequest,
+    request: Request,
     current_user: User = Depends(get_current_user)
 ):
     try:
@@ -1209,7 +1438,7 @@ async def generate_recipes(
 
 @app.post("/generate-shopping-list")
 async def generate_shopping_list(
-    request: FastAPIRequest,
+    request: Request,
     recipes: List[dict],
     current_user: User = Depends(get_current_user)
 ):
@@ -1236,7 +1465,11 @@ async def generate_shopping_list(
 
                     ––––– SANITY CHECK –––––
                     After calculating totals, scan the list for obviously implausible amounts (e.g., >2 bunches of coriander for ≤8 servings, >5 lb of garlic, etc.).  
+<<<<<<< HEAD
                     If an amount seems unrealistic, recompute or cap it to a reasonable upper bound and add a "note" field explaining the adjustment.
+=======
+                    If an amount seems unrealistic, recompute or cap it to a reasonable upper bound and add a "_note" field explaining the adjustment.
+>>>>>>> admin_profile_fixed
 
                     ––––– ROUNDING GRID (CANADIAN GROCERY) –––––
                     When you finish aggregating all recipes, convert each total to the **next-larger** purchasable size:
@@ -1444,7 +1677,7 @@ async def export_consolidated_meal_plan(current_user: User = Depends(get_current
 @app.post("/export/{type}")
 async def export_document(
     type: str,
-    request: FastAPIRequest,
+    request: Request,
     current_user: User = Depends(get_current_user)
 ):
     try:
@@ -1843,7 +2076,7 @@ async def get_current_user_info(current_user: User = Depends(get_current_user)):
 
 @app.post("/user/profile")
 async def save_user_profile(
-    request: FastAPIRequest,
+    request: Request,
     current_user: User = Depends(get_current_user)
 ):
     data = await request.json()
@@ -1866,7 +2099,7 @@ async def get_user_profile(current_user: User = Depends(get_current_user)):
 
 @app.post("/generate-recipe")
 async def generate_recipe(
-    request: FastAPIRequest,
+    request: Request,
     current_user: User = Depends(get_current_user)
 ):
     try:
@@ -2041,7 +2274,10 @@ async def get_user_shopping_list(current_user: User = Depends(get_current_user))
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/user/shopping-list")
-async def save_user_shopping_list(request: FastAPIRequest, current_user: User = Depends(get_current_user)):
+async def save_user_shopping_list(
+    request: Request,
+    current_user: User = Depends(get_current_user)
+):
     data = await request.json()
     items = data.get("items")
     if not items or not isinstance(items, list):
@@ -2066,7 +2302,10 @@ async def get_user_recipes_endpoint(current_user: User = Depends(get_current_use
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/user/recipes")
-async def save_user_recipes(request: FastAPIRequest, current_user: User = Depends(get_current_user)):
+async def save_user_recipes(
+    request: Request,
+    current_user: User = Depends(get_current_user)
+):
     data = await request.json()
     recipes = data.get("recipes")
     if not recipes or not isinstance(recipes, list):
@@ -2078,20 +2317,79 @@ async def save_user_recipes(request: FastAPIRequest, current_user: User = Depend
         print(f"Error saving recipes: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.exception_handler(ValidationError)
+async def validation_exception_handler(request: Request, exc: ValidationError):
+    logger.error(f"Validation error: {str(exc)}")
+    logger.error(f"Validation error details: {exc.errors()}")
+    return JSONResponse(
+        status_code=422,
+        content={
+            "detail": "Validation error",
+            "errors": exc.errors(),
+            "body": exc.model.__name__ if hasattr(exc, 'model') else "Unknown"
+        }
+    )
+
 @app.exception_handler(Exception)
-async def global_exception_handler(request: FastAPIRequest, exc: Exception):
-    print(f"Global exception handler: {exc}", file=sys.stderr)
-    import traceback
-    traceback.print_exc()
+async def global_exception_handler(
+    request: Request,
+    exc: Exception
+):
+    logger.error(f"Global error handler caught: {str(exc)}")
+    logger.error(traceback.format_exc())
+    
+    if isinstance(exc, HTTPException):
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"detail": exc.detail},
+        )
+    
     return JSONResponse(
         status_code=500,
-        content={"detail": str(exc)},
+        content={"detail": "Internal server error"},
     )
 
 @app.post("/test-echo")
 async def test_echo(current_user: User = Depends(get_current_user)):
     print(">>>> Entered /test-echo endpoint")
     return {"ok": True}
+
+@app.post("/debug/profile")
+async def debug_profile_data(
+    request: Request,
+    current_user: User = Depends(get_current_user)
+):
+    """Debug endpoint to log profile data being sent"""
+    print(f"[DEBUG] Current user: {current_user.get('email')}")
+    print(f"[DEBUG] Is admin: {current_user.get('is_admin')}")
+    
+    try:
+        raw_body = await request.body()
+        print(f"[DEBUG] Raw request body length: {len(raw_body)}")
+        
+        json_data = await request.json()
+        print(f"[DEBUG] JSON data keys: {list(json_data.keys())}")
+        print(f"[DEBUG] JSON data sample: {str(json_data)[:500]}...")
+        
+        # Try to parse as PatientProfile
+        try:
+            profile = PatientProfile(**json_data)
+            print(f"[DEBUG] Successfully parsed as PatientProfile")
+            return {"status": "success", "message": "Data is valid PatientProfile"}
+        except ValidationError as e:
+            print(f"[DEBUG] Validation error: {e.errors()}")
+            return {
+                "status": "validation_error", 
+                "errors": e.errors(),
+                "received_keys": list(json_data.keys())
+            }
+        except Exception as e:
+            print(f"[DEBUG] Other error: {str(e)}")
+            return {"status": "error", "message": str(e)}
+            
+    except Exception as e:
+        print(f"[DEBUG] Failed to parse request: {str(e)}")
+        return {"status": "request_error", "message": str(e)}
 
 @app.post("/export/test-minimal")
 async def export_test_minimal():
@@ -2152,7 +2450,7 @@ async def get_meal_plan(
     """Get a specific meal plan by ID"""
     try:
         # Query Cosmos DB for the specific meal plan
-        query = f"SELECT * FROM c WHERE c.type = 'meal_plan' AND c.id = '{plan_id}' AND c.user_id = '{current_user['id']}'"
+        query = f"SELECT * FROM c WHERE c.type = 'meal_plan' AND c.id = '{plan_id}' AND c.user_id = '{current_user['email']}'"
         items = list(interactions_container.query_items(query=query, enable_cross_partition_query=True))
         
         if not items:
@@ -2498,6 +2796,7 @@ async def save_full_meal_plan_endpoint(
         traceback.print_exc()
         raise HTTPException(status_code=500, detail="An error occurred while saving the meal plan.")
 
+<<<<<<< HEAD
 @app.get("/debug/meal_plans")
 async def debug_meal_plans(current_user: User = Depends(get_current_user)):
     """Return all meal plans for the current user, including IDs and partition keys, for debugging."""
@@ -6045,6 +6344,556 @@ async def update_meal_type(record_id: str, payload: dict = Body(...), current_us
         raise HTTPException(status_code=403, detail="Not allowed")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+=======
+@app.post("/api/profile/save")
+async def save_profile(
+    profile: PatientProfile,
+    current_user: User = Depends(get_current_user)
+):
+    """Save or update a patient's profile."""
+    try:
+        # Convert Pydantic model to dict
+        profile_data = profile.dict(exclude_none=True)
+        
+        # Auto-calculate age if dateOfBirth is provided
+        if profile_data.get('dateOfBirth'):
+            try:
+                from datetime import datetime
+                birth_date = datetime.strptime(profile_data['dateOfBirth'], '%Y-%m-%d')
+                today = datetime.now()
+                calculated_age = today.year - birth_date.year - ((today.month, today.day) < (birth_date.month, birth_date.day))
+                profile_data['age'] = calculated_age
+                print(f"[USER SAVE] Auto-calculated age: {calculated_age}")
+            except Exception as e:
+                print(f"[USER SAVE] Error calculating age: {e}")
+        
+        # Special handling for nested objects that contain boolean values
+        # Fix physicalActivity mobilityIssues boolean handling
+        if 'physicalActivity' in profile_data and profile_data['physicalActivity']:
+            pa = profile_data['physicalActivity']
+            if isinstance(pa, dict):
+                # Ensure mobilityIssues is properly handled as boolean
+                if 'mobilityIssues' in pa:
+                    mobility = pa['mobilityIssues']
+                    if mobility == 'true' or mobility == True:
+                        pa['mobilityIssues'] = True
+                    elif mobility == 'false' or mobility == False:
+                        pa['mobilityIssues'] = False
+                    elif mobility == '' or mobility is None:
+                        pa['mobilityIssues'] = None
+                print(f"[USER SAVE] Physical Activity data: {pa}")
+        
+        # Fix mealPlanTargeting wantsWeightLoss boolean handling
+        if 'mealPlanTargeting' in profile_data and profile_data['mealPlanTargeting']:
+            mpt = profile_data['mealPlanTargeting']
+            if isinstance(mpt, dict):
+                # Ensure wantsWeightLoss is properly handled as boolean
+                if 'wantsWeightLoss' in mpt:
+                    wants_weight_loss = mpt['wantsWeightLoss']
+                    if wants_weight_loss == 'true' or wants_weight_loss == True:
+                        mpt['wantsWeightLoss'] = True
+                    elif wants_weight_loss == 'false' or wants_weight_loss == False:
+                        mpt['wantsWeightLoss'] = False
+                    elif wants_weight_loss == '' or wants_weight_loss is None:
+                        mpt['wantsWeightLoss'] = None
+                print(f"[USER SAVE] Meal Plan Targeting data: {mpt}")
+        
+        # Collect updates in a separate dictionary
+        updates = {}
+        for key, value in profile_data.items():
+            if not key.endswith("UpdatedBy") and value is not None:
+                updated_by_key = f"{key}UpdatedBy"
+                updates[updated_by_key] = "user"  # Changed from "admin" to "user"
+        
+        # Update profile_data after the loop
+        profile_data.update(updates)
+        
+        # Get existing profile to merge with
+        existing_profile = await get_patient_profile(current_user["email"])
+        
+        # Merge with existing profile
+        if existing_profile:
+            merged_data = {**existing_profile, **profile_data}
+        else:
+            merged_data = profile_data
+        
+        # Save to database
+        saved_profile = await save_patient_profile(current_user["email"], merged_data)
+        
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={"message": "Profile saved successfully", "profile": saved_profile}
+        )
+    except Exception as e:
+        print(f"[ADMIN SAVE] Error saving profile: {str(e)}")
+        print(f"[ADMIN SAVE] Error type: {type(e).__name__}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to save profile: {str(e)}"
+        )
+
+@app.get("/api/profile/get")
+async def get_profile(current_user: User = Depends(get_current_user)):
+    """Get a patient's profile."""
+    try:
+        profile = await get_patient_profile(current_user["email"])
+        if not profile:
+            return JSONResponse(
+                status_code=status.HTTP_404_NOT_FOUND,
+                content={"message": "Profile not found"}
+            )
+        
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={"profile": profile}
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get profile: {str(e)}"
+        )
+
+@app.get("/admin/profile/{user_id}")
+async def get_admin_user_profile(
+    user_id: str,
+    current_user: User = Depends(get_current_user)
+):
+    """Admin endpoint to get a specific user's profile by patient ID (registration code)."""
+    print(f"🔥 DEBUG: get_admin_user_profile called with user_id={user_id}")
+    print(f"🔥 DEBUG: current_user={current_user.get('email')} is_admin={current_user.get('is_admin')}")
+    
+    if not current_user.get("is_admin"):
+        print(f"🔥 DEBUG: Access denied - user is not admin")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to access user profiles"
+        )
+    
+    print(f"🔥 DEBUG: Admin access granted, proceeding with profile lookup")
+    try:
+        # Resolve patient ID (registration code) to user email
+        print(f"🔥 DEBUG: Looking up user email for patient ID: {user_id}")
+        user_email = await get_user_email_by_patient_id(user_id)
+        print(f"🔥 DEBUG: Found user email: {user_email}")
+        
+        if not user_email:
+            print(f"🔥 DEBUG: No user email found, returning 404")
+            return JSONResponse(
+                status_code=status.HTTP_404_NOT_FOUND,
+                content={"message": "User not found for this patient ID"}
+            )
+        
+        print(f"🔥 DEBUG: Getting patient profile for email: {user_email}")
+        profile = await get_patient_profile(user_email)
+        print(f"🔥 DEBUG: Profile result: {profile}")
+        
+        if not profile:
+            print(f"🔥 DEBUG: No profile found, returning 404")
+            return JSONResponse(
+                status_code=status.HTTP_404_NOT_FOUND,
+                content={"message": "Profile not found"}
+            )
+        
+        print(f"🔥 DEBUG: Returning successful profile response")
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={"profile": profile}
+        )
+    except Exception as e:
+        print(f"🔥 DEBUG: Exception occurred: {str(e)}")
+        print(f"🔥 DEBUG: Exception type: {type(e).__name__}")
+        import traceback
+        print(f"🔥 DEBUG: Full traceback: {traceback.format_exc()}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get profile: {str(e)}"
+        )
+
+@app.post("/admin/profile/{user_id}")
+async def save_admin_user_profile(
+    user_id: str,
+    profile: PatientProfile,
+    current_user: User = Depends(get_current_user)
+):
+    """Admin endpoint to save a specific user's profile by patient ID (registration code)."""
+    print(f"[ADMIN SAVE] Received request for user_id: {user_id}")
+    print(f"[ADMIN SAVE] Current user: {current_user.get('email')}")
+    print(f"[ADMIN SAVE] Profile data keys: {list(profile.dict().keys()) if profile else 'None'}")
+    
+    if not current_user.get("is_admin"):
+        print(f"[ADMIN SAVE] Access denied - user is not admin")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to modify user profiles"
+        )
+    
+    try:
+        # First, try to find a registered user with this patient_id
+        print(f"[ADMIN SAVE] Looking up user email for patient ID: {user_id}")
+        user_email = await get_user_email_by_patient_id(user_id)
+        print(f"[ADMIN SAVE] Found user email: {user_email}")
+        
+        # Use exclude_unset=True to only get fields that were actually provided
+        profile_data = profile.dict(exclude_unset=False)  # Include all fields, even unset ones
+        
+        print(f"[ADMIN SAVE] Raw profile_data from Pydantic: {profile_data}")
+        print(f"[ADMIN SAVE] Profile_data keys count: {len(profile_data)}")
+        
+        # Auto-calculate age if dateOfBirth is provided
+        if profile_data.get('dateOfBirth'):
+            try:
+                from datetime import datetime
+                birth_date = datetime.strptime(profile_data['dateOfBirth'], '%Y-%m-%d')
+                today = datetime.now()
+                calculated_age = today.year - birth_date.year - ((today.month, today.day) < (birth_date.month, birth_date.day))
+                profile_data['age'] = calculated_age
+                print(f"[ADMIN SAVE] Auto-calculated age: {calculated_age}")
+            except Exception as e:
+                print(f"[ADMIN SAVE] Error calculating age: {e}")
+        
+        # Collect updates in a separate dictionary
+        updates = {}
+        for key, value in profile_data.items():
+            if not key.endswith("UpdatedBy"):
+                # Set UpdatedBy for all fields that are being sent (even if None or empty)
+                # This ensures we track what admin touched, regardless of value
+                updated_by_key = f"{key}UpdatedBy"
+                updates[updated_by_key] = "admin"
+        
+        # Update profile_data after the loop
+        profile_data.update(updates)
+        print(f"[ADMIN SAVE] Profile_data after adding UpdatedBy fields: {len(profile_data)} keys")
+        
+        # Special handling for nested objects that contain boolean values
+        # Fix physicalActivity mobilityIssues boolean handling
+        if 'physicalActivity' in profile_data and profile_data['physicalActivity']:
+            pa = profile_data['physicalActivity']
+            if isinstance(pa, dict):
+                # Ensure mobilityIssues is properly handled as boolean
+                if 'mobilityIssues' in pa:
+                    mobility = pa['mobilityIssues']
+                    if mobility == 'true' or mobility == True:
+                        pa['mobilityIssues'] = True
+                    elif mobility == 'false' or mobility == False:
+                        pa['mobilityIssues'] = False
+                    elif mobility == '' or mobility is None:
+                        pa['mobilityIssues'] = None
+                print(f"[ADMIN SAVE] Physical Activity data: {pa}")
+        
+        # Fix mealPlanTargeting wantsWeightLoss boolean handling
+        if 'mealPlanTargeting' in profile_data and profile_data['mealPlanTargeting']:
+            mpt = profile_data['mealPlanTargeting']
+            if isinstance(mpt, dict):
+                # Ensure wantsWeightLoss is properly handled as boolean
+                if 'wantsWeightLoss' in mpt:
+                    wants_weight_loss = mpt['wantsWeightLoss']
+                    if wants_weight_loss == 'true' or wants_weight_loss == True:
+                        mpt['wantsWeightLoss'] = True
+                    elif wants_weight_loss == 'false' or wants_weight_loss == False:
+                        mpt['wantsWeightLoss'] = False
+                    elif wants_weight_loss == '' or wants_weight_loss is None:
+                        mpt['wantsWeightLoss'] = None
+                print(f"[ADMIN SAVE] Meal Plan Targeting data: {mpt}")
+        
+        # Filter out only None values, but keep empty strings and empty lists
+        # as they might be intentional (e.g., clearing a field)
+        filtered_data = {k: v for k, v in profile_data.items() if v is not None}
+        
+        print(f"[ADMIN SAVE] Filtered_data keys count: {len(filtered_data)}")
+        print(f"[ADMIN SAVE] Sample filtered_data: {dict(list(filtered_data.items())[:5])}")
+        
+        if user_email:
+            # User is registered - save profile using their email
+            print(f"[ADMIN SAVE] User is registered, saving profile with email: {user_email}")
+            saved_profile = await save_patient_profile(user_email, filtered_data, is_admin_update=True)
+        else:
+            # User not registered yet - check if patient exists and save profile using patient_id
+            print(f"[ADMIN SAVE] User not registered, checking if patient exists: {user_id}")
+            patient = await get_patient_by_registration_code(user_id)
+            if not patient:
+                print(f"[ADMIN SAVE] Patient with registration code {user_id} not found")
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Patient with this registration code not found"
+                )
+            
+            print(f"[ADMIN SAVE] Patient exists, saving profile using patient_id: {user_id}")
+            # Save profile using the patient_id directly
+            saved_profile = await save_patient_profile(user_id, filtered_data, is_admin_update=True)
+        
+        print(f"[ADMIN SAVE] Profile saved successfully")
+        return {"message": "Profile saved successfully", "profile": saved_profile}
+        
+    except HTTPException:
+        # Re-raise HTTP exceptions as-is
+        raise
+    except Exception as e:
+        print(f"[ADMIN SAVE] Unexpected error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to save profile: {str(e)}"
+        )
+
+@app.get("/admin/test")
+async def test_admin_route(current_user: User = Depends(get_current_user)):
+    """Simple test route to verify admin routing works"""
+    print(f"🔥 TEST: Admin test route called by {current_user.get('email')}")
+    return {"message": "Admin test route works!", "user": current_user.get('email'), "is_admin": current_user.get('is_admin')}
+
+@app.get("/debug/user/{email}")
+async def debug_user_lookup(email: str):
+    """Debug endpoint to check user state in database"""
+    try:
+        # Try to get user
+        user = await get_user_by_email(email)
+        
+        # Also try a direct query to see all user records
+        query = f"SELECT * FROM c WHERE c.type = 'user'"
+        all_users = list(user_container.query_items(query=query, enable_cross_partition_query=True))
+        
+        # Find users that match this email in any field
+        matching_users = []
+        for u in all_users:
+            if u.get('email') == email or u.get('id') == email or u.get('username') == email:
+                matching_users.append(u)
+        
+        # Also check if there are any records with this email regardless of type
+        query_all = f"SELECT * FROM c WHERE c.email = '{email}'"
+        all_matching = list(user_container.query_items(query=query_all, enable_cross_partition_query=True))
+        
+        return {
+            "searched_email": email,
+            "user_found_by_get_user_by_email": user is not None,
+            "user_data": user,
+            "total_users_in_db": len(all_users),
+            "matching_users": matching_users,
+            "all_records_with_email": all_matching,
+            "all_user_ids": [u.get('id') for u in all_users],
+            "all_user_emails": [u.get('email') for u in all_users]
+        }
+    except Exception as e:
+        return {
+            "error": str(e),
+            "type": str(type(e))
+        }
+
+@app.get("/debug/cleanup/{email}")
+async def cleanup_corrupted_user(email: str):
+    """Cleanup endpoint to remove corrupted user records"""
+    try:
+        cleanup_results = []
+        
+        # Search for ALL records with this email regardless of type or structure
+        query_variants = [
+            f"SELECT * FROM c WHERE c.email = '{email}'",
+            f"SELECT * FROM c WHERE c.id = '{email}'", 
+            f"SELECT * FROM c WHERE c.username = '{email}'",
+            f"SELECT * FROM c WHERE CONTAINS(c.email, '{email}', true)",
+            f"SELECT * FROM c WHERE CONTAINS(c.id, '{email}', true)"
+        ]
+        
+        all_found_records = []
+        for query in query_variants:
+            try:
+                results = list(user_container.query_items(query=query, enable_cross_partition_query=True))
+                for record in results:
+                    if record not in all_found_records:  # Avoid duplicates
+                        all_found_records.append(record)
+                cleanup_results.append(f"Query '{query}' found {len(results)} records")
+            except Exception as query_error:
+                cleanup_results.append(f"Query '{query}' failed: {str(query_error)}")
+        
+        # Try to delete all found records
+        deleted_count = 0
+        for record in all_found_records:
+            try:
+                # Try to delete using record id and determine partition key
+                record_id = record.get('id')
+                partition_key = record.get('id')  # Assuming id is the partition key for users
+                
+                user_container.delete_item(item=record_id, partition_key=partition_key)
+                deleted_count += 1
+                cleanup_results.append(f"Deleted record with id: {record_id}")
+            except Exception as delete_error:
+                cleanup_results.append(f"Failed to delete record {record.get('id', 'unknown')}: {str(delete_error)}")
+        
+        return {
+            "email": email,
+            "total_found_records": len(all_found_records),
+            "deleted_count": deleted_count,
+            "cleanup_results": cleanup_results,
+            "found_records": all_found_records
+        }
+        
+    except Exception as e:
+        return {
+            "error": str(e),
+            "type": str(type(e))
+        }
+
+@app.get("/debug/record-collision/{email}")
+async def debug_record_collision(email: str):
+    """Debug endpoint to examine record collision issue"""
+    try:
+        results = {
+            "email": email,
+            "collision_analysis": {},
+            "records_found": {},
+            "fix_strategy": {}
+        }
+        
+        # Check what records exist with this email as ID
+        query_all = f"SELECT * FROM c WHERE c.id = '{email}'"
+        records_with_email_id = list(user_container.query_items(query=query_all, enable_cross_partition_query=True))
+        
+        results["records_found"] = {
+            "records_with_email_as_id": records_with_email_id,
+            "record_count": len(records_with_email_id),
+            "record_types": [r.get('type') for r in records_with_email_id] if records_with_email_id else []
+        }
+        
+        # Check if user exists
+        user = await get_user_by_email(email)
+        results["records_found"]["user_exists"] = user is not None
+        results["records_found"]["user_data"] = user
+        
+        # Check if profile exists using NEW strategy
+        profile = await get_patient_profile(email)
+        results["records_found"]["profile_exists"] = profile is not None
+        results["records_found"]["profile_data"] = profile
+        
+        # Analyze collision
+        user_record = None
+        profile_record = None
+        for record in records_with_email_id:
+            if record.get('type') == 'user':
+                user_record = record
+            elif record.get('type') == 'patient_profile':
+                profile_record = record
+        
+        results["collision_analysis"] = {
+            "collision_detected": user_record is not None and profile_record is not None,
+            "user_record_with_email_id": user_record,
+            "profile_record_with_email_id": profile_record,
+            "explanation": "If both exist with same ID, profile overwrote user during save!"
+        }
+        
+        results["fix_strategy"] = {
+            "current_user_id": email,
+            "new_profile_id": f"profile_{email}",
+            "explanation": "User keeps email as ID, profile gets 'profile_' prefix to prevent collision"
+        }
+        
+        return results
+        
+    except Exception as e:
+        return {
+            "error": str(e),
+            "type": str(type(e))
+        }
+
+@app.post("/debug/migrate-profile/{email}")
+async def migrate_profile_to_fix_collision(email: str):
+    """Migrate existing profile records to use collision-safe IDs"""
+    try:
+        results = {
+            "email": email,
+            "migration_steps": [],
+            "success": False
+        }
+        
+        # Step 1: Check if there's a profile record with email as ID (collision scenario)
+        query = f"SELECT * FROM c WHERE c.id = '{email}' AND c.type = 'patient_profile'"
+        profile_records = list(user_container.query_items(query=query, enable_cross_partition_query=True))
+        
+        if profile_records:
+            profile_record = profile_records[0]
+            results["migration_steps"].append(f"Found profile record with colliding ID: {email}")
+            
+            # Step 2: Create new record with safe ID
+            new_profile_data = profile_record.copy()
+            new_profile_data["id"] = f"profile_{email}"
+            new_profile_data["user_id"] = email
+            new_profile_data["_partitionKey"] = f"profile_{email}"
+            new_profile_data["migrated_at"] = datetime.utcnow().isoformat()
+            
+            # Save the new record
+            user_container.upsert_item(body=new_profile_data)
+            results["migration_steps"].append(f"Created new profile record with safe ID: profile_{email}")
+            
+            # Step 3: Delete the old colliding record
+            user_container.delete_item(item=email, partition_key=email)
+            results["migration_steps"].append(f"Deleted old colliding profile record with ID: {email}")
+            
+            results["success"] = True
+            results["migration_steps"].append("Migration completed successfully!")
+        else:
+            results["migration_steps"].append("No colliding profile record found - no migration needed")
+            results["success"] = True
+        
+        return results
+        
+    except Exception as e:
+        return {
+            "error": str(e),
+            "type": str(type(e)),
+            "migration_steps": results.get("migration_steps", [])
+        }
+
+@app.post("/debug/restore-user/{email}")
+async def restore_user_from_backup(email: str):
+    """Restore user record if it was overwritten by profile collision"""
+    try:
+        results = {
+            "email": email,
+            "restoration_steps": [],
+            "success": False
+        }
+        
+        # Step 1: Check if user record exists
+        user = await get_user_by_email(email)
+        if user:
+            results["restoration_steps"].append("User record already exists - no restoration needed")
+            results["success"] = True
+            return results
+        
+        # Step 2: Try to find the patient_id from any patient records
+        # Look for patients that might be associated with this email
+        query_patients = "SELECT * FROM c WHERE c.type = 'patient'"
+        all_patients = list(user_container.query_items(query=query_patients, enable_cross_partition_query=True))
+        
+        # For now, we'll need manual intervention to restore users
+        # This is a placeholder for the restoration logic
+        results["restoration_steps"].append("User record is missing - manual restoration required")
+        results["restoration_steps"].append("Check admin records to determine patient_id for this email")
+        results["success"] = False
+        
+        return results
+        
+    except Exception as e:
+        return {
+            "error": str(e),
+            "type": str(type(e)),
+            "restoration_steps": results.get("restoration_steps", [])
+        }
+
+@app.get("/debug/all-patients")
+async def debug_list_all_patients():
+    """Debug endpoint to list all patients without authentication"""
+    try:
+        patients = await get_all_patients()
+        return {
+            "total_patients": len(patients),
+            "patients": patients
+        }
+    except Exception as e:
+        return {
+            "error": str(e),
+            "type": str(type(e))
+        }
+>>>>>>> admin_profile_fixed
 
 if __name__ == "__main__":
     import uvicorn
