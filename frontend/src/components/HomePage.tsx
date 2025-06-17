@@ -830,7 +830,7 @@ const HomePage: React.FC = () => {
           <Tab icon={<AnalyticsIcon />} label="Overview" />
           <Tab icon={<TimelineIcon />} label="Analytics" />
           <Tab icon={<CoachIcon />} label="AI Insights" />
-          <Tab icon={<NotificationIcon />} label={`Notifications ${notifications.length > 0 ? `(${notifications.length})` : ''}`} />
+          <Tab icon={<NotificationIcon />} label={`Notifications ${(notifications ?? []).length > 0 ? `(${(notifications ?? []).length})` : ''}`} />
         </Tabs>
       </Box>
 
