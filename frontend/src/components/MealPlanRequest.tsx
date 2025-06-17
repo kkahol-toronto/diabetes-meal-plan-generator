@@ -31,7 +31,7 @@ import UserProfileForm from './UserProfileForm';
 import RecipeList from './RecipeList';
 import ShoppingList from './ShoppingList';
 import { PatientProfile } from '../types/PatientProfile';
-import { MealPlanData, Recipe, ShoppingItem } from '../types';
+import { MealPlanData, Recipe, ShoppingItem, UserProfile } from '../types';
 
 // Import icons
 import NavigateNextIcon from '@mui/icons-material/NavigateNext';
@@ -125,8 +125,8 @@ const MealPlanRequest: React.FC = () => {
     loadSavedProfile();
   }, []);
 
-  const handleProfileSubmit = async (profile: PatientProfile) => {
-    setUserProfile(profile);
+  const handleProfileSubmit = async (profile: UserProfile) => {
+    setUserProfile(profile as any);
     setActiveStep(1);
     setHasGeneratedMealPlan(false);
     setMealPlan(null);
@@ -730,7 +730,7 @@ const MealPlanRequest: React.FC = () => {
   const renderStepContent = (step: number) => {
     switch (step) {
       case 0:
-        return <UserProfileForm onSubmit={handleProfileSubmit} initialProfile={userProfile || undefined} />;
+        return <UserProfileForm onSubmit={handleProfileSubmit} initialProfile={userProfile as any || undefined} />;
       case 1:
         return (
           <Box>

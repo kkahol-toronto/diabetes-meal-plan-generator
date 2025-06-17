@@ -216,6 +216,105 @@ class RegistrationData(BaseModel):
 class ImageAnalysisRequest(BaseModel):
     prompt: str
 
+class PatientProfile(BaseModel):
+    # Date of Intake
+    intakeDate: Optional[str] = None
+    intakeDateUpdatedBy: Optional[str] = None  # 'admin' or 'user'
+
+    # Patient Demographics
+    fullName: Optional[str] = None
+    fullNameUpdatedBy: Optional[str] = None
+    dateOfBirth: Optional[str] = None
+    dateOfBirthUpdatedBy: Optional[str] = None
+    age: Optional[int] = None
+    ageUpdatedBy: Optional[str] = None
+    sex: Optional[str] = None
+    sexUpdatedBy: Optional[str] = None
+    ethnicity: Optional[List[str]] = None
+    ethnicityUpdatedBy: Optional[str] = None
+    ethnicityOther: Optional[str] = None
+    ethnicityOtherUpdatedBy: Optional[str] = None
+    
+    # Medical History
+    medicalHistory: Optional[List[str]] = None
+    medicalHistoryUpdatedBy: Optional[str] = None
+    medicalHistoryOther: Optional[str] = None
+    medicalHistoryOtherUpdatedBy: Optional[str] = None
+    
+    # Current Medications
+    medications: Optional[List[str]] = None
+    medicationsUpdatedBy: Optional[str] = None
+    medicationsOther: Optional[str] = None
+    medicationsOtherUpdatedBy: Optional[str] = None
+    
+    # Most Recent Lab Values
+    labValues: Optional[Dict[str, Optional[float]]] = None
+    labValuesUpdatedBy: Optional[str] = None
+    
+    # Vital Signs
+    vitalSigns: Optional[Dict[str, Optional[float]]] = None
+    vitalSignsUpdatedBy: Optional[str] = None
+    
+    # Dietary Information
+    dietaryInfo: Optional[Dict[str, Any]] = None
+    dietaryInfoUpdatedBy: Optional[str] = None
+
+    # Physical Activity Profile
+    physicalActivity: Optional[Dict[str, Any]] = None
+    physicalActivityUpdatedBy: Optional[str] = None
+    
+    # Lifestyle & Preferences
+    lifestyle: Optional[Dict[str, Any]] = None
+    lifestyleUpdatedBy: Optional[str] = None
+
+    # Goals & Readiness to Change
+    goals: Optional[List[str]] = None
+    goalsUpdatedBy: Optional[str] = None
+    goalsOther: Optional[str] = None
+    goalsOtherUpdatedBy: Optional[str] = None
+    readiness: Optional[str] = None
+    readinessUpdatedBy: Optional[str] = None
+    
+    # Meal Plan Targeting
+    mealPlanTargeting: Optional[Dict[str, Any]] = None
+    mealPlanTargetingUpdatedBy: Optional[str] = None
+
+    class Config:
+        # Ensure we don't exclude any fields during serialization
+        validate_assignment = True
+        use_enum_values = True
+        json_schema_extra = {
+            "example": {
+                "intakeDate": "2024-03-20",
+                "intakeDateUpdatedBy": "admin",
+                "fullName": "John Doe",
+                "fullNameUpdatedBy": "user",
+                "dateOfBirth": "1980-01-01",
+                "dateOfBirthUpdatedBy": "admin",
+                "age": 44,
+                "ageUpdatedBy": "admin",
+                "sex": "Male",
+                "sexUpdatedBy": "admin",
+                "ethnicity": ["Caucasian"],
+                "ethnicityUpdatedBy": "admin",
+                "medicalHistory": ["Type 2 Diabetes"],
+                "medicalHistoryUpdatedBy": "admin",
+                "medications": ["Metformin"],
+                "medicationsUpdatedBy": "admin",
+                "labValues": {
+                    "a1c": 7.2,
+                    "fastingGlucose": 6.5
+                },
+                "labValuesUpdatedBy": "admin",
+                "vitalSigns": {
+                    "heightCm": 175,
+                    "weightKg": 80,
+                    "bmi": 26.1
+                },
+                "vitalSignsUpdatedBy": "admin"
+            }
+        }
+
 def get_password_hash(password: str) -> str:
     """Hash a password using bcrypt"""
     return pwd_context.hash(password)
@@ -439,6 +538,93 @@ async def admin_login(form_data: OAuth2PasswordRequestForm = Depends()):
         expires_delta=access_token_expires
     )
     return {"access_token": access_token, "token_type": "bearer"}
+
+@app.delete("/admin/patients/{patient_id}")
+async def delete_patient_endpoint(
+    patient_id: str,
+    current_user: User = Depends(get_current_user)
+):
+    if not current_user.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    try:
+        await delete_patient(patient_id)
+        return {"message": "Patient deleted successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/admin/profile/{user_id}")
+async def get_admin_user_profile(
+    user_id: str,
+    current_user: User = Depends(get_current_user)
+):
+    """Get user profile for admin editing - supports both email and patient_id"""
+    if not current_user.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    try:
+        # Try to get profile - works for both email and patient_id
+        profile = await get_patient_profile(user_id)
+        
+        if not profile:
+            # If no profile found, create a minimal one
+            profile = {
+                "intakeDate": datetime.utcnow().strftime("%Y-%m-%d"),
+                "intakeDateUpdatedBy": "admin"
+            }
+        
+        return profile
+    except Exception as e:
+        print(f"Error fetching admin profile for {user_id}: {str(e)}")
+        # Return empty profile structure for new patients
+        return {
+            "intakeDate": datetime.utcnow().strftime("%Y-%m-%d"),
+            "intakeDateUpdatedBy": "admin"
+        }
+
+@app.post("/admin/profile/{user_id}")
+async def save_admin_user_profile(
+    user_id: str,
+    profile: PatientProfile,
+    current_user: User = Depends(get_current_user)
+):
+    """Save user profile from admin panel - supports both email and patient_id"""
+    if not current_user.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    try:
+        # Convert profile to dict and ensure all UpdatedBy fields are set to 'admin'
+        profile_dict = profile.dict()
+        
+        # Set all UpdatedBy fields to 'admin' for admin updates
+        for key, value in profile_dict.items():
+            if key.endswith('UpdatedBy') and value is None:
+                profile_dict[key] = 'admin'
+            elif not key.endswith('UpdatedBy') and value is not None:
+                # For each data field, ensure corresponding UpdatedBy field is set
+                updated_by_key = key + 'UpdatedBy'
+                if updated_by_key in profile_dict and profile_dict[updated_by_key] is None:
+                    profile_dict[updated_by_key] = 'admin'
+        
+        # Calculate age from date of birth if provided
+        if profile_dict.get('dateOfBirth'):
+            try:
+                from datetime import datetime
+                birth_date = datetime.strptime(profile_dict['dateOfBirth'], '%Y-%m-%d')
+                today = datetime.now()
+                age = today.year - birth_date.year - ((today.month, today.day) < (birth_date.month, birth_date.day))
+                profile_dict['age'] = age
+                profile_dict['ageUpdatedBy'] = 'admin'
+            except:
+                pass
+        
+        # Save the profile
+        await save_patient_profile(user_id, profile_dict, updated_by='admin')
+        
+        return {"message": "Profile saved successfully", "profile": profile_dict}
+    except Exception as e:
+        print(f"Error saving admin profile for {user_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to save profile: {str(e)}")
 
 def generate_meal_plan_prompt(user_profile: UserProfile) -> str:
     """Legacy function - now redirects to comprehensive profile handling"""

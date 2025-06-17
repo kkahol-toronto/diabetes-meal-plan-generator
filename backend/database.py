@@ -1000,21 +1000,152 @@ async def get_ai_suggestion(prompt: str) -> str:
         raise Exception("Failed to get AI suggestion") 
 
 async def update_consumption_meal_type(user_id: str, record_id: str, meal_type: str):
-    """Update meal_type for a specific consumption record."""
+    """Update the meal type for a specific consumption record"""
     try:
-        if not user_id or not record_id:
-            raise ValueError("user_id and record_id are required")
-
-        # Fetch the record first
-        existing = interactions_container.read_item(item=record_id, partition_key=record_id)
-
-        if existing.get("user_id") != user_id:
-            raise PermissionError("Unauthorized")
-
-        existing["meal_type"] = meal_type
-
-        interactions_container.upsert_item(body=existing)
-        return True
+        # Query for the consumption record
+        query = f"SELECT * FROM c WHERE c.type = 'consumption' AND c.id = '{record_id}' AND c.user_id = '{user_id}'"
+        items = list(interactions_container.query_items(query=query, enable_cross_partition_query=True))
+        
+        if not items:
+            raise ValueError(f"Consumption record {record_id} not found for user {user_id}")
+        
+        record = items[0]
+        record['meal_type'] = meal_type.lower()
+        record['updated_at'] = datetime.utcnow().isoformat()
+        
+        # Update the record
+        interactions_container.upsert_item(body=record)
+        
+        print(f"[update_consumption_meal_type] Updated record {record_id} meal_type to {meal_type}")
+        return {"success": True, "record": record}
+        
     except Exception as e:
-        print(f"[update_consumption_meal_type] Error: {e}")
-        raise 
+        print(f"[update_consumption_meal_type] Error updating meal type: {str(e)}")
+        raise Exception(f"Failed to update meal type: {str(e)}")
+
+async def get_patient_profile(identifier: str):
+    """Get patient profile by email or patient_id (registration code)"""
+    try:
+        # First try to find by email (registered user)
+        query = f"SELECT * FROM c WHERE c.type = 'patient_profile' AND c.user_email = '{identifier}'"
+        items = list(user_container.query_items(query=query, enable_cross_partition_query=True))
+        
+        if items:
+            print(f"[get_patient_profile] Found profile by email: {identifier}")
+            return items[0]
+        
+        # If not found by email, try by patient_id (unregistered patient)
+        query = f"SELECT * FROM c WHERE c.type = 'patient_profile' AND c.patient_id = '{identifier}'"
+        items = list(user_container.query_items(query=query, enable_cross_partition_query=True))
+        
+        if items:
+            print(f"[get_patient_profile] Found profile by patient_id: {identifier}")
+            return items[0]
+        
+        print(f"[get_patient_profile] No profile found for identifier: {identifier}")
+        return None
+        
+    except Exception as e:
+        print(f"[get_patient_profile] Error getting profile: {str(e)}")
+        raise Exception(f"Failed to get patient profile: {str(e)}")
+
+async def save_patient_profile(identifier: str, profile_data: dict, is_admin_update: bool = False):
+    """Save patient profile by email or patient_id (registration code)"""
+    try:
+        print(f"[save_patient_profile] Saving profile for identifier: {identifier}")
+        print(f"[save_patient_profile] Is admin update: {is_admin_update}")
+        print(f"[save_patient_profile] Profile data keys: {list(profile_data.keys())}")
+        
+        # Check if identifier is an email (contains @) or patient_id
+        is_email = '@' in identifier
+        
+        # Try to get existing profile first
+        existing_profile = await get_patient_profile(identifier)
+        
+        if existing_profile:
+            print(f"[save_patient_profile] Updating existing profile: {existing_profile['id']}")
+            # Update existing profile
+            profile_item = existing_profile.copy()
+            profile_item.update(profile_data)
+            profile_item['updated_at'] = datetime.utcnow().isoformat()
+            profile_item['last_updated_by'] = 'admin' if is_admin_update else 'user'
+        else:
+            print(f"[save_patient_profile] Creating new profile")
+            # Create new profile
+            profile_item = {
+                'id': str(uuid.uuid4()),
+                'type': 'patient_profile',
+                'created_at': datetime.utcnow().isoformat(),
+                'updated_at': datetime.utcnow().isoformat(),
+                'last_updated_by': 'admin' if is_admin_update else 'user'
+            }
+            
+            if is_email:
+                profile_item['user_email'] = identifier
+            else:
+                profile_item['patient_id'] = identifier
+            
+            profile_item.update(profile_data)
+        
+        # Save to database
+        saved_profile = user_container.upsert_item(body=profile_item)
+        print(f"[save_patient_profile] Successfully saved profile: {saved_profile['id']}")
+        
+        return saved_profile
+        
+    except Exception as e:
+        print(f"[save_patient_profile] Error saving profile: {str(e)}")
+        import traceback
+        print(f"[save_patient_profile] Full traceback: {traceback.format_exc()}")
+        raise Exception(f"Failed to save patient profile: {str(e)}")
+
+async def get_user_email_by_patient_id(patient_id: str):
+    """Get user email by patient ID (registration code) - for users who have registered"""
+    try:
+        # Query for a user record that has this patient_id
+        query = f"SELECT * FROM c WHERE c.type = 'user' AND c.registration_code = '{patient_id}'"
+        items = list(user_container.query_items(query=query, enable_cross_partition_query=True))
+        
+        if items:
+            print(f"[get_user_email_by_patient_id] Found registered user for patient_id: {patient_id}")
+            return items[0]['email']
+        
+        print(f"[get_user_email_by_patient_id] No registered user found for patient_id: {patient_id}")
+        return None
+        
+    except Exception as e:
+        print(f"[get_user_email_by_patient_id] Error: {str(e)}")
+        raise Exception(f"Failed to get user email by patient ID: {str(e)}")
+
+async def get_patient_by_phone(phone: str):
+    """Get patient by phone number"""
+    try:
+        query = f"SELECT * FROM c WHERE c.type = 'patient' AND c.phone = '{phone}'"
+        items = list(user_container.query_items(query=query, enable_cross_partition_query=True))
+        return items[0] if items else None
+    except Exception as e:
+        raise Exception(f"Failed to get patient by phone: {str(e)}")
+
+async def delete_patient(patient_id: str):
+    """Delete patient by ID"""
+    try:
+        # Get patient first
+        patient = await get_patient_by_id(patient_id)
+        if not patient:
+            raise ValueError(f"Patient {patient_id} not found")
+        
+        # Delete patient record
+        user_container.delete_item(item=patient_id, partition_key=patient_id)
+        
+        # Also delete any associated profile
+        profile = await get_patient_profile(patient_id)
+        if profile:
+            user_container.delete_item(item=profile['id'], partition_key=profile['id'])
+            print(f"[delete_patient] Also deleted profile for patient: {patient_id}")
+        
+        print(f"[delete_patient] Successfully deleted patient: {patient_id}")
+        return {"success": True}
+        
+    except Exception as e:
+        print(f"[delete_patient] Error: {str(e)}")
+        raise Exception(f"Failed to delete patient: {str(e)}") 

@@ -43,10 +43,12 @@ import { UserProfile } from '../types';
 interface UserProfileFormProps {
   onSubmit: (profile: UserProfile) => void;
   initialProfile?: UserProfile;
+  mode?: 'user' | 'admin';
 }
 
-const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProfile }) => {
+const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProfile, mode = 'user' }) => {
   const theme = useTheme();
+  const isAdminMode = mode === 'admin';
   
   // Normalize profile data to handle old format
   const normalizeProfile = (profileData: any): Partial<UserProfile> => {
@@ -444,10 +446,22 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
           mb: 3 
         }}>
           Comprehensive Health Profile
+          {isAdminMode && (
+            <Chip 
+              label="Admin Mode" 
+              color="secondary" 
+              size="small" 
+              sx={{ ml: 2, fontSize: '0.7rem' }}
+            />
+          )}
         </Typography>
         
         <Alert severity="info" sx={{ mb: 3 }}>
-          🔒 Your information is automatically saved as you type and stays private. The more details you provide, the more personalized your meal plan will be. All fields marked with * are required.
+          {isAdminMode ? (
+            <>🔐 You are editing this profile as an administrator. Changes will be marked as admin-updated and will sync to the patient's account.</>
+          ) : (
+            <>🔒 Your information is automatically saved as you type and stays private. The more details you provide, the more personalized your meal plan will be. All fields marked with * are required.</>
+          )}
         </Alert>
 
         {/* Patient Demographics */}

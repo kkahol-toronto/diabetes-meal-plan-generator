@@ -272,7 +272,7 @@ const HomePage: React.FC = () => {
       setDashboardData(dailyData);
       setAnalyticsData(analytics); // Existing analytics data, consider renaming for clarity
       setProgressData(progress);
-      setNotifications(notifs);
+      setNotifications(notifs || []);
       setTodaysMealPlan(mealPlan);
 
     } catch (err) {
@@ -830,7 +830,7 @@ const HomePage: React.FC = () => {
           <Tab icon={<AnalyticsIcon />} label="Overview" />
           <Tab icon={<TimelineIcon />} label="Analytics" />
           <Tab icon={<CoachIcon />} label="AI Insights" />
-          <Tab icon={<NotificationIcon />} label={`Notifications ${notifications.length > 0 ? `(${notifications.length})` : ''}`} />
+          <Tab icon={<NotificationIcon />} label={`Notifications ${notifications && notifications.length > 0 ? `(${notifications.length})` : ''}`} />
         </Tabs>
       </Box>
 
@@ -1436,7 +1436,7 @@ const HomePage: React.FC = () => {
                   <NotificationIcon sx={{ mr: 1 }} />
                   Your Notifications
                 </Typography>
-                {notifications.length > 0 ? (
+                {notifications && notifications.length > 0 ? (
                   <List>
                     {notifications.map((notification: any, index: number) => (
                       <React.Fragment key={index}>
@@ -1453,7 +1453,7 @@ const HomePage: React.FC = () => {
                             secondary={new Date(notification.timestamp).toLocaleString()}
                           />
                         </ListItem>
-                        {index < notifications.length - 1 && <Divider />}
+                        {index < (notifications?.length || 0) - 1 && <Divider />}
                       </React.Fragment>
                     ))}
                   </List>
