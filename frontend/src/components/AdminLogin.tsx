@@ -35,7 +35,7 @@ const AdminLogin: React.FC = () => {
       formDataToSend.append('username', formData.email);
       formDataToSend.append('password', formData.password);
 
-      const response = await fetch('http://localhost:8000/admin/login', {
+      const response = await fetch((process.env.REACT_APP_API_URL || 'http://localhost:8000') + '/admin/login', {
         method: 'POST',
         headers: {
           'Accept': 'application/json',

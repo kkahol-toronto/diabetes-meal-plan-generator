@@ -47,7 +47,7 @@ const AllShoppingListsPage: React.FC = () => {
           return;
         }
         // Assuming backend endpoint /user/shopping-lists returns an array of StoredShoppingList
-        const response = await fetch('http://localhost:8000/user/shopping-list', {
+        const response = await fetch(process.env.REACT_APP_API_URL || 'http://localhost:8000' + '/user/shopping-list', {
           headers: {
             'Authorization': `Bearer ${token}`,
           },

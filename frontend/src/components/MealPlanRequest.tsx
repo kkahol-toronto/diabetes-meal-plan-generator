@@ -104,7 +104,7 @@ const MealPlanRequest: React.FC = () => {
         const token = localStorage.getItem('token');
         if (!token) return;
         
-        const response = await fetch('http://localhost:8000/user/profile', {
+        const response = await fetch((process.env.REACT_APP_API_URL || 'http://localhost:8000') + '/user/profile', {
           headers: {
             'Authorization': `Bearer ${token}`,
           },
@@ -138,7 +138,7 @@ const MealPlanRequest: React.FC = () => {
       const token = localStorage.getItem('token');
       if (!token) return null;
       
-      const response = await fetch('http://localhost:8000/meal_plans', {
+      const response = await fetch((process.env.REACT_APP_API_URL || 'http://localhost:8000') + '/meal_plans', {
         headers: { 'Authorization': `Bearer ${token}` },
       });
       
@@ -232,7 +232,7 @@ const MealPlanRequest: React.FC = () => {
       console.log('- User profile:', profileToUse);
       console.log('- Previous meal plan:', previousMealPlan);
 
-      const response = await fetch('http://localhost:8000/generate-meal-plan', {
+      const response = await fetch((process.env.REACT_APP_API_URL || 'http://localhost:8000') + '/generate-meal-plan', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -369,7 +369,7 @@ const MealPlanRequest: React.FC = () => {
         const { name } = mealItems[i];
         console.log(`Requesting recipe for: ${name}`);
         
-        const response = await fetch('http://localhost:8000/generate-recipe', {
+        const response = await fetch((process.env.REACT_APP_API_URL || 'http://localhost:8000') + '/generate-recipe', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -404,7 +404,7 @@ const MealPlanRequest: React.FC = () => {
       
       // Save all recipes to backend
       try {
-        const saveResponse = await fetch('http://localhost:8000/user/recipes', {
+        const saveResponse = await fetch((process.env.REACT_APP_API_URL || 'http://localhost:8000') + '/user/recipes', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -458,7 +458,7 @@ const MealPlanRequest: React.FC = () => {
 
     try {
       // Step 1: Generate the shopping list
-      const generateResponse = await fetch('http://localhost:8000/generate-shopping-list', {
+      const generateResponse = await fetch((process.env.REACT_APP_API_URL || 'http://localhost:8000') + '/generate-shopping-list', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -511,7 +511,7 @@ const MealPlanRequest: React.FC = () => {
       let pdfInfo = null;
       
       try {
-        const pdfResponse = await fetch('http://localhost:8000/save-consolidated-pdf', {
+        const pdfResponse = await fetch((process.env.REACT_APP_API_URL || 'http://localhost:8000') + '/save-consolidated-pdf', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -546,7 +546,7 @@ const MealPlanRequest: React.FC = () => {
 
       console.log('Saving full meal plan:', fullMealPlan);
 
-      const response = await fetch('http://localhost:8000/save-full-meal-plan', {
+      const response = await fetch((process.env.REACT_APP_API_URL || 'http://localhost:8000') + '/save-full-meal-plan', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -592,7 +592,7 @@ const MealPlanRequest: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch(`http://localhost:8000/export/${type}`, {
+      const response = await fetch((process.env.REACT_APP_API_URL || 'http://localhost:8000') + `/export/${type}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -630,7 +630,7 @@ const MealPlanRequest: React.FC = () => {
     setError(null);
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch('http://localhost:8000/export/consolidated-meal-plan', {
+      const response = await fetch((process.env.REACT_APP_API_URL || 'http://localhost:8000') + '/export/consolidated-meal-plan', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
