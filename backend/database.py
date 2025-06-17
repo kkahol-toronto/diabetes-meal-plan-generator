@@ -1051,14 +1051,23 @@ async def get_patient_profile(identifier: str):
         logger.error(f"Error getting patient profile: {str(e)}")
         return None
 
-async def save_patient_profile(identifier: str, profile: dict, updated_by: str = "admin"):
+async def save_patient_profile(identifier: str, profile: dict, updated_by: str = "admin", is_admin_update: bool = False):
     """Save patient profile with admin update tracking"""
     try:
+        # Determine who updated the profile
+        source = updated_by
+        if is_admin_update and updated_by == "admin": # Only if explicitly passed as admin update and not overridden
+            source = "admin"
+        elif not is_admin_update and updated_by == "admin": # If updated_by is admin but not explicitly an admin update (e.g. user updating their own profile)
+             source = "user" # Default to user if not explicitly admin initiated
+        
         # First try to update registered user
         user = await get_user_by_email(identifier)
         if user:
             # Update user profile
             user["profile"] = profile
+            user["updated_by"] = source # Track who updated it
+            user["updated_at"] = datetime.utcnow().isoformat()
             user_container.upsert_item(body=user)
             return True
         
@@ -1074,7 +1083,7 @@ async def save_patient_profile(identifier: str, profile: dict, updated_by: str =
             patient["medications"] = profile.get("medications", patient.get("medications", []))
             patient["allergies"] = profile.get("allergies", patient.get("allergies", []))
             patient["dietary_restrictions"] = profile.get("dietaryRestrictions", patient.get("dietary_restrictions", []))
-            patient["updated_by"] = updated_by
+            patient["updated_by"] = source # Track who updated it
             patient["updated_at"] = datetime.utcnow().isoformat()
             
             user_container.upsert_item(body=patient)
