@@ -37,6 +37,7 @@ import {
   Fab,
   Badge,
   alpha,
+  ListItemIcon,
 } from '@mui/material';
 import SendIcon from '@mui/icons-material/Send';
 import AddCommentIcon from '@mui/icons-material/AddComment';
@@ -54,6 +55,7 @@ import FavoriteIcon from '@mui/icons-material/Favorite';
 import LocalFireDepartmentIcon from '@mui/icons-material/LocalFireDepartment';
 import FitnessCenterIcon from '@mui/icons-material/FitnessCenter';
 import GrainIcon from '@mui/icons-material/Grain';
+import DiningIcon from '@mui/icons-material/LocalDining';
 import { useNavigate } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import { v4 as uuidv4 } from 'uuid';
@@ -113,6 +115,12 @@ interface QuickAction {
   color: 'primary' | 'secondary' | 'success' | 'warning' | 'info';
 }
 
+// Update interface for API response
+interface ApiResponse extends Response {
+  response?: string;
+  message?: string;
+}
+
 const Chat = () => {
   const theme = useTheme();
   const [loaded, setLoaded] = useState(false);
@@ -127,6 +135,7 @@ const Chat = () => {
   const userScrolledRef = useRef<boolean>(false);
   const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
   const [isMobile, setIsMobile] = useState(false);
   const [recordFoodDialog, setRecordFoodDialog] = useState(false);
@@ -135,6 +144,7 @@ const Chat = () => {
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
   const [userStats, setUserStats] = useState<any>(null);
   const [showQuickActions, setShowQuickActions] = useState(true);
+  const [showImageSourceDialog, setShowImageSourceDialog] = useState(false);
 
   const quickActions: QuickAction[] = [
     {
@@ -245,28 +255,20 @@ const Chat = () => {
     prevMessagesLengthRef.current = messages.length;
   }, [messages]);
 
-  useEffect(() => {
-    if (!isLoading && messages.length > 0 && !userScrolledRef.current) {
-      scrollToBottom('smooth');
-    }
-  }, [isLoading, messages.length]);
-
   const handleManualScroll = () => {
+    clearTimeout(scrollTimeoutRef.current!); 
     userScrolledRef.current = true;
-    if (scrollTimeoutRef.current) {
-      clearTimeout(scrollTimeoutRef.current);
-    }
     scrollTimeoutRef.current = setTimeout(() => {
       userScrolledRef.current = false;
-    }, 1000);
+    }, 1000); // Reset after 1 second of inactivity
   };
 
   useEffect(() => {
-    const container = chatContainerRef.current;
-    if (container) {
-      container.addEventListener('scroll', handleManualScroll);
+    const chatContainer = chatContainerRef.current;
+    if (chatContainer) {
+      chatContainer.addEventListener('scroll', handleManualScroll);
       return () => {
-        container.removeEventListener('scroll', handleManualScroll);
+        chatContainer.removeEventListener('scroll', handleManualScroll);
       };
     }
   }, []);
@@ -275,27 +277,22 @@ const Chat = () => {
     try {
       const token = localStorage.getItem('token');
       if (!token) {
-        console.log("No token found, redirecting to login");
         navigate('/login');
         return;
       }
-
       const response = await fetch('/chat/sessions', {
         headers: {
           'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
         },
       });
-
       if (response.ok) {
         const data = await response.json();
-        setSessions(data.sessions || []);
-        if (data.sessions && data.sessions.length > 0 && !currentSession) {
-          setCurrentSession(data.sessions[0].session_id);
+        setSessions(data);
+        if (data.length > 0) {
+          setCurrentSession(data[0].session_id);
         }
-      } else if (response.status === 401) {
-        localStorage.removeItem('token');
-        navigate('/login');
+      } else {
+        console.error('Failed to fetch sessions:', response.statusText);
       }
     } catch (error) {
       console.error('Error fetching sessions:', error);
@@ -303,44 +300,42 @@ const Chat = () => {
   };
 
   const fetchChatHistory = async () => {
+    if (!currentSession) return;
     try {
-      const token = localStorage.getItem('token');
-      if (!token || !currentSession) return;
-
       setIsLoading(true);
-      
-      const response = await fetch(`/chat/history?session_id=${currentSession}`, {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`/chat/history/${currentSession}`, {
         headers: {
           'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
         },
       });
-
       if (response.ok) {
         const data = await response.json();
-        setMessages(data.messages || []);
-        setShowQuickActions(!data.messages || data.messages.length === 0);
+        setMessages(data.messages);
+      } else {
+        console.error('Failed to fetch chat history:', response.statusText);
+        setMessages([]);
       }
     } catch (error) {
       console.error('Error fetching chat history:', error);
-      setShowQuickActions(true);
+      setMessages([]);
     } finally {
       setIsLoading(false);
     }
   };
 
   const handleSendMessage = async () => {
-    if (!input.trim() && !selectedImage) return;
+    if ((!input.trim() && !selectedImage) || isLoading) return;
 
-    const token = localStorage.getItem('token');
-    if (!token) {
-      navigate('/login');
-      return;
+    // Try to detect meal type from the message
+    let mealType = null;
+    const mealTypeMatch = input.toLowerCase().match(/\b(breakfast|lunch|dinner|snack)s?\b/);
+    if (mealTypeMatch) {
+      mealType = mealTypeMatch[1];
     }
 
-    const messageId = uuidv4();
     const userMessage: Message = {
-      id: messageId,
+      id: uuidv4(),
       message: input,
       is_user: true,
       timestamp: new Date().toISOString(),
@@ -348,24 +343,36 @@ const Chat = () => {
       imageUrl: imagePreviewUrl || undefined,
     };
 
-    setMessages(prev => [...prev, userMessage]);
-    setInput('');
+    setMessages((prevMessages) => [...prevMessages, userMessage]);
+    setInput(''); // Clear input after sending
     setSelectedImage(null);
     setImagePreviewUrl(null);
-    setIsLoading(true);
     setShowQuickActions(false);
 
+    setIsLoading(true);
     try {
-      let response;
-      
+      const token = localStorage.getItem('token');
+      if (!token) {
+        navigate('/login');
+        return;
+      }
+
+      const headers: HeadersInit = {
+        'Authorization': `Bearer ${token}`,
+      };
+
+      let response: ApiResponse;
       if (selectedImage) {
         // Handle image + message
         const formData = new FormData();
         formData.append('message', input);
-        formData.append('image', selectedImage);
         formData.append('session_id', currentSession);
+        formData.append('image', selectedImage);
+        if (mealType) {
+          formData.append('meal_type', mealType);
+        }
 
-        response = await fetch('/chat/message-with-image', {
+        response = await fetch('/consumption/analyze-and-record', {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${token}`,
@@ -373,95 +380,49 @@ const Chat = () => {
           body: formData,
         });
       } else {
-        // Handle text-only message
+        // Handle text only message
         response = await fetch('/chat/message', {
           method: 'POST',
           headers: {
-            'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
           },
-          body: JSON.stringify({
-            message: input,
-            session_id: currentSession,
-          }),
+          body: JSON.stringify({ message: input, session_id: currentSession }),
         });
       }
 
       if (response.ok) {
-        const reader = response.body?.getReader();
-        const decoder = new TextDecoder();
-        let aiResponse = '';
-        let aiMessageId = uuidv4();
-
-        // Add placeholder AI message
-        const aiMessage: Message = {
-          id: aiMessageId,
-          message: '',
+        const data = await response.json();
+        // Append AI response to messages
+        setMessages((prevMessages) => [...prevMessages, {
+          id: uuidv4(),
+          message: data.response || data.message || data.analysis?.analysis_notes || 'Analysis complete',
           is_user: false,
           timestamp: new Date().toISOString(),
           session_id: currentSession,
-        };
-        setMessages(prev => [...prev, aiMessage]);
-
-        if (reader) {
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-
-            const chunk = decoder.decode(value);
-
-            // Try to parse chunk as SSE lines first
-            const lines = chunk.split('\n');
-            let parsedContent = false;
-
-            for (const line of lines) {
-              if (line.startsWith('data: ')) {
-                try {
-                  const data = JSON.parse(line.slice(6));
-                  if (data.content) {
-                    aiResponse += data.content;
-                    parsedContent = true;
-                  }
-                } catch (e) {
-                  // Not JSON, treat remainder as plain text
-                  aiResponse += line.slice(6);
-                  parsedContent = true;
-                }
-              }
-            }
-
-            // If nothing parsed via SSE, treat whole chunk as plain text
-            if (!parsedContent) {
-              aiResponse += chunk;
-            }
-
-            // Update message with current aggregated response
-            setMessages(prev =>
-              prev.map(msg =>
-                msg.id === aiMessageId
-                  ? { ...msg, message: aiResponse }
-                  : msg
-              )
-            );
+          metadata: {
+            type: selectedImage ? 'food_analysis' : 'general',
+            data: data.analysis || data.metadata
           }
-        }
-      } else if (response.status === 401) {
-        localStorage.removeItem('token');
-        navigate('/login');
+        }]);
       } else {
-        throw new Error('Failed to send message');
+        setMessages((prevMessages) => [...prevMessages, {
+          id: uuidv4(),
+          message: `Error: ${response.statusText || 'Failed to send message'}`,
+          is_user: false,
+          timestamp: new Date().toISOString(),
+          session_id: currentSession,
+        }]);
       }
     } catch (error) {
       console.error('Error sending message:', error);
-      const errorMessage: Message = {
+      setMessages((prevMessages) => [...prevMessages, {
         id: uuidv4(),
-        message: 'Sorry, I encountered an error. Please try again.',
+        message: 'Error: Failed to send message',
         is_user: false,
         timestamp: new Date().toISOString(),
         session_id: currentSession,
-      };
-      setMessages(prev => [...prev, errorMessage]);
-      setShowQuickActions(true);
+      }]);
     } finally {
       setIsLoading(false);
     }
@@ -469,24 +430,35 @@ const Chat = () => {
 
   const handleSessionChange = (event: SelectChangeEvent<string>) => {
     setCurrentSession(event.target.value);
+    setShowQuickActions(false);
   };
 
   const handleClearHistory = async () => {
     try {
       const token = localStorage.getItem('token');
       if (!token) return;
+      if (!currentSession) return; // Cannot clear history if no session is selected
 
-      const response = await fetch(`/chat/history?session_id=${currentSession}`, {
+      const response = await fetch(`/chat/history/${currentSession}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
         },
       });
 
       if (response.ok) {
         setMessages([]);
         setShowQuickActions(true);
+        // Optionally, remove the session from the list or mark as empty
+        setSessions(prev => prev.filter(s => s.session_id !== currentSession));
+        // After clearing, create a new session or navigate away if no sessions remain
+        if (sessions.length > 1) {
+          setCurrentSession(sessions[0].session_id === currentSession ? sessions[1].session_id : sessions[0].session_id);
+        } else {
+          handleNewChat(); // Create a new chat if no other sessions exist
+        }
+      } else {
+        console.error('Failed to clear history:', response.statusText);
       }
     } catch (error) {
       console.error('Error clearing history:', error);
@@ -517,12 +489,26 @@ const Chat = () => {
   };
 
   const handleRecordFoodButtonClick = () => {
-    fileInputRef.current?.click();
+    setShowImageSourceDialog(true);
   };
 
   const handleCloseRecordDialog = () => {
     setRecordFoodDialog(false);
     setRecordFoodResult(null);
+  };
+
+  const handleCloseImageSourceDialog = () => {
+    setShowImageSourceDialog(false);
+  };
+
+  const handleGalleryClick = () => {
+    fileInputRef.current?.click();
+    setShowImageSourceDialog(false);
+  };
+
+  const handleCameraClick = () => {
+    cameraInputRef.current?.click();
+    setShowImageSourceDialog(false);
   };
 
   const handleQuickAction = (action: QuickAction) => {
@@ -665,8 +651,8 @@ const Chat = () => {
                     startIcon={action.icon}
                     onClick={() => handleQuickAction(action)}
                     color={action.color}
-                    sx={{ 
-                      py: 1.5, 
+                    sx={{
+                      py: 1.5,
                       justifyContent: 'flex-start',
                       '&:hover': {
                         transform: 'translateY(-2px)',
@@ -687,7 +673,7 @@ const Chat = () => {
       {/* Messages */}
       <Paper 
         elevation={1} 
-        sx={{ 
+        sx={{
           flex: 1, 
           display: 'flex', 
           flexDirection: 'column', 
@@ -738,66 +724,46 @@ const Chat = () => {
                 >
                   <Avatar
                     sx={{
-                      bgcolor: message.is_user ? 'primary.main' : 'secondary.main',
-                      width: 32,
-                      height: 32,
+                      bgcolor: message.is_user ? theme.palette.primary.main : theme.palette.secondary.main,
+                      color: 'white',
                     }}
                   >
                     {message.is_user ? <PersonIcon /> : <SmartToyIcon />}
                   </Avatar>
-                  
-                  <Paper
-                    elevation={1}
+                  <Card
                     sx={{
-                      p: 2,
-                      bgcolor: message.is_user ? 'primary.main' : 'grey.100',
-                      color: message.is_user ? 'white' : 'text.primary',
-                      borderRadius: 2,
-                      position: 'relative',
-                      animation: message.metadata?.type === 'food_analysis' ? `${pulse} 2s ease-in-out` : 'none',
-                      border: message.metadata?.type === 'food_analysis' ? '2px solid' : 'none',
-                      borderColor: message.metadata?.type === 'food_analysis' ? 'success.main' : 'transparent',
+                      bgcolor: message.is_user ? theme.palette.primary.light : theme.palette.grey[100],
+                      color: message.is_user ? theme.palette.primary.contrastText : 'inherit',
+                      borderRadius: message.is_user ? '20px 20px 5px 20px' : '20px 20px 20px 5px',
+                      wordBreak: 'break-word',
+                      position: 'relative', // For timestamp positioning
                     }}
                   >
-                    {message.imageUrl && (
-                      <Box sx={{ mb: 1 }}>
-                        <img
-                          src={message.imageUrl}
-                          alt="Uploaded"
-                          style={{
-                            maxWidth: '100%',
-                            maxHeight: '200px',
-                            borderRadius: '8px',
-                          }}
-                        />
-                      </Box>
-                    )}
-                    
-                    {message.metadata?.type === 'food_analysis' && (
-                      <Chip
-                        label="Food Analysis"
-                        color="success"
-                        size="small"
-                        sx={{ mb: 1 }}
-                      />
-                    )}
-                    
-                    <Box sx={{ '& > *:last-child': { mb: 0 } }}>
+                    <CardContent>
+                      {message.imageUrl && (
+                        <Box sx={{ mb: 1 }}>
+                          <img
+                            src={message.imageUrl}
+                            alt="Attached"
+                            style={{ maxWidth: '100%', borderRadius: '8px' }}
+                          />
+                        </Box>
+                      )}
                       {formatMessage(message.message)}
-                    </Box>
-                    
-                    <Typography
-                      variant="caption"
-                      sx={{
-                        display: 'block',
-                        mt: 1,
-                        opacity: 0.7,
-                        fontSize: '0.75rem',
+                    </CardContent>
+                    <Typography 
+                      variant="caption" 
+                      sx={{ 
+                        position: 'absolute', 
+                        bottom: 4, 
+                        [message.is_user ? 'left' : 'right']: 12, // Adjust position based on user or AI
+                        color: message.is_user ? 'rgba(255,255,255,0.7)' : 'text.secondary',
+                        fontSize: '0.6rem',
                       }}
                     >
-                      {new Date(message.timestamp).toLocaleTimeString()}
+                      {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                     </Typography>
-                  </Paper>
+                  </Card>
                 </Box>
               </Box>
             </Slide>
@@ -831,38 +797,38 @@ const Chat = () => {
 
           <div ref={messagesEndRef} />
         </Box>
-      </Paper>
 
-      {/* Input Area */}
-      <Paper elevation={2} sx={{ p: 2 }}>
-        {selectedImage && (
-          <Box sx={{ mb: 2, p: 1, bgcolor: 'grey.50', borderRadius: 1 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+        {/* Input Area */}
+        <Box sx={{ p: 2, borderTop: '1px solid', borderColor: 'divider', display: 'flex', alignItems: 'center', gap: 1 }}>
+          {selectedImage && (
+            <Box sx={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 1,
+              p: 1,
+              border: '1px solid',
+              borderColor: 'divider',
+              borderRadius: 1,
+              flexShrink: 0
+            }}>
               <CameraAltIcon color="primary" />
               <Typography variant="body2">Image attached</Typography>
               <IconButton size="small" onClick={() => { setSelectedImage(null); setImagePreviewUrl(null); }}>
-                <CloseIcon />
+                <CloseIcon fontSize="small" />
               </IconButton>
             </Box>
-            {imagePreviewUrl && (
-              <img
-                src={imagePreviewUrl}
-                alt="Preview"
-                style={{ maxWidth: '100px', maxHeight: '100px', borderRadius: '4px' }}
-              />
-            )}
-          </Box>
-        )}
-
-        <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-end' }}>
+          )}
+          {imagePreviewUrl && (
+            <Box sx={{ flexShrink: 0 }}>
+              <img src={imagePreviewUrl} alt="Image Preview" style={{ maxWidth: '50px', maxHeight: '50px', borderRadius: '4px' }} />
+            </Box>
+          )}
           <TextField
             fullWidth
-            multiline
-            maxRows={4}
+            variant="outlined"
+            placeholder={selectedImage ? "Add a message with your image..." : "Ask your AI health coach..."}
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Ask your AI health coach anything about diabetes, nutrition, or meal planning..."
-            variant="outlined"
             onKeyPress={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
@@ -870,109 +836,129 @@ const Chat = () => {
               }
             }}
             sx={{
+              bgcolor: 'background.paper',
+              borderRadius: 1,
               '& .MuiOutlinedInput-root': {
-                borderRadius: 3,
+                fieldset: {
+                  borderColor: 'divider',
+                },
+                '&:hover fieldset': {
+                  borderColor: 'primary.main',
+                },
+                '&.Mui-focused fieldset': {
+                  borderColor: 'primary.main',
+                },
               },
             }}
+            multiline
+            maxRows={4}
           />
-          <Tooltip title="Send Message">
-            <span>
-              <IconButton
-                color="primary"
-                onClick={handleSendMessage}
-                disabled={(!input.trim() && !selectedImage) || isLoading}
-                sx={{
-                  bgcolor: 'primary.main',
-                  color: 'white',
-                  '&:hover': { bgcolor: 'primary.dark' },
-                  '&:disabled': { bgcolor: 'grey.300' },
-                  width: 48,
-                  height: 48,
-                }}
-              >
-                <SendIcon />
-              </IconButton>
-            </span>
-          </Tooltip>
+          <Button
+            variant="contained"
+            onClick={handleSendMessage}
+            endIcon={<SendIcon />}
+            sx={{ height: '56px', flexShrink: 0 }}
+            disabled={(!input.trim() && !selectedImage) || isLoading}
+          >
+            Send
+          </Button>
+          <input
+            type="file"
+            ref={fileInputRef}
+            style={{ display: 'none' }}
+            accept="image/*"
+            onChange={handleImageUpload}
+          />
+          <input
+            type="file"
+            ref={cameraInputRef}
+            style={{ display: 'none' }}
+            accept="image/*"
+            capture="environment"
+            onChange={handleImageUpload}
+          />
         </Box>
       </Paper>
 
-      {/* Hidden file inputs */}
-      <input
-        type="file"
-        ref={fileInputRef}
-        style={{ display: 'none' }}
-        accept="image/*"
-        onChange={handleImageUpload}
-      />
-
-      {/* Food Analysis Result Dialog */}
-      <Dialog open={recordFoodDialog} onClose={handleCloseRecordDialog} maxWidth="sm" fullWidth>
-        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <RestaurantIcon color="success" />
-          Food Analysis Complete
-        </DialogTitle>
+      {/* Image Source Dialog */}
+      <Dialog open={showImageSourceDialog} onClose={handleCloseImageSourceDialog}>
+        <DialogTitle>Select Image Source</DialogTitle>
         <DialogContent>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <Button
+              variant="outlined"
+              startIcon={<RestaurantIcon />}
+              onClick={handleGalleryClick}
+              fullWidth
+            >
+              Choose from Gallery
+            </Button>
+            <Button
+              variant="outlined"
+              startIcon={<CameraAltIcon />}
+              onClick={handleCameraClick}
+              fullWidth
+            >
+              Take Photo with Camera
+            </Button>
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseImageSourceDialog}>Cancel</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Record Food Dialog */}
+      <Dialog open={recordFoodDialog} onClose={handleCloseRecordDialog} maxWidth="sm" fullWidth>
+        <DialogTitle>Log Meal with AI</DialogTitle>
+        <DialogContent dividers>
           {recordFoodResult && (
             <Box>
-              <Typography variant="h6" gutterBottom>
-                {recordFoodResult.food_name}
-              </Typography>
-              
-              <Grid container spacing={2} sx={{ mb: 2 }}>
-                <Grid item xs={6}>
-                  <Card variant="outlined">
-                    <CardContent sx={{ textAlign: 'center', py: 1 }}>
-                      <LocalFireDepartmentIcon color="error" />
-                      <Typography variant="h6">{recordFoodResult.nutritional_info?.calories || 'N/A'}</Typography>
-                      <Typography variant="caption">Calories</Typography>
-                    </CardContent>
-                  </Card>
-                </Grid>
-                <Grid item xs={6}>
-                  <Card variant="outlined">
-                    <CardContent sx={{ textAlign: 'center', py: 1 }}>
-                      <FitnessCenterIcon color="success" />
-                      <Typography variant="h6">{recordFoodResult.nutritional_info?.protein || 'N/A'}g</Typography>
-                      <Typography variant="caption">Protein</Typography>
-                    </CardContent>
-                  </Card>
-                </Grid>
-                <Grid item xs={6}>
-                  <Card variant="outlined">
-                    <CardContent sx={{ textAlign: 'center', py: 1 }}>
-                      <GrainIcon color="warning" />
-                      <Typography variant="h6">{recordFoodResult.nutritional_info?.carbohydrates || 'N/A'}g</Typography>
-                      <Typography variant="caption">Carbs</Typography>
-                    </CardContent>
-                  </Card>
-                </Grid>
-                <Grid item xs={6}>
-                  <Card variant="outlined">
-                    <CardContent sx={{ textAlign: 'center', py: 1 }}>
-                      <Typography variant="h6">{recordFoodResult.nutritional_info?.fat || 'N/A'}g</Typography>
-                      <Typography variant="caption">Fat</Typography>
-                    </CardContent>
-                  </Card>
-                </Grid>
-              </Grid>
-
-              <Alert 
-                severity={
-                  recordFoodResult.medical_rating?.diabetes_suitability?.toLowerCase() === 'high' ? 'success' :
-                  recordFoodResult.medical_rating?.diabetes_suitability?.toLowerCase() === 'medium' ? 'warning' : 'error'
-                }
-                sx={{ mb: 2 }}
-              >
-                <Typography variant="subtitle2">
-                  Diabetes Suitability: {recordFoodResult.medical_rating?.diabetes_suitability || 'Unknown'}
-                </Typography>
-                {recordFoodResult.medical_rating?.diabetes_notes && (
-                  <Typography variant="body2">
-                    {recordFoodResult.medical_rating.diabetes_notes}
-                  </Typography>
-                )}
-              </Alert>
+              <Typography variant="h6" gutterBottom>AI Analysis Complete!</Typography>
+              {recordFoodResult.success ? (
+                <Box>
+                  <Alert severity="success" sx={{ mb: 2 }}>
+                    Meal logged successfully! Here's the analysis:
+                  </Alert>
+                  <Typography variant="subtitle1" sx={{ fontWeight: 'bold' }}>Food Items:</Typography>
+                  <List dense>
+                    {recordFoodResult.data.food_items.map((item: any, index: number) => (
+                      <ListItem key={index}>
+                        <ListItemIcon><DiningIcon /></ListItemIcon>
+                        <ListItemText 
+                          primary={item.name} 
+                          secondary={`Calories: ${item.nutritional_info.calories}, Protein: ${item.nutritional_info.protein}, Carbs: ${item.nutritional_info.carbohydrates}, Fat: ${item.nutritional_info.fat}`} 
+                        />
+                      </ListItem>
+                    ))}
+                  </List>
+                  <Typography variant="subtitle1" sx={{ fontWeight: 'bold', mt: 2 }}>Total Nutrients:</Typography>
+                  <List dense>
+                    <ListItem>
+                      <ListItemIcon><LocalFireDepartmentIcon /></ListItemIcon>
+                      <ListItemText primary={`Total Calories: ${recordFoodResult.data.total_nutrients.calories}`} />
+                    </ListItem>
+                    <ListItem>
+                      <ListItemIcon><FitnessCenterIcon /></ListItemIcon>
+                      <ListItemText primary={`Total Protein: ${recordFoodResult.data.total_nutrients.protein}`} />
+                    </ListItem>
+                    <ListItem>
+                      <ListItemIcon><GrainIcon /></ListItemIcon>
+                      <ListItemText primary={`Total Carbohydrates: ${recordFoodResult.data.total_nutrients.carbohydrates}`} />
+                    </ListItem>
+                    <ListItem>
+                      <ListItemIcon><FavoriteIcon /></ListItemIcon>
+                      <ListItemText primary={`Total Fat: ${recordFoodResult.data.total_nutrients.fat}`} />
+                    </ListItem>
+                  </List>
+                  <Typography variant="subtitle1" sx={{ fontWeight: 'bold', mt: 2 }}>Analysis:</Typography>
+                  <Typography variant="body2">{recordFoodResult.data.image_analysis}</Typography>
+                </Box>
+              ) : (
+                <Alert severity="error">
+                  Failed to log meal: {recordFoodResult.error || 'Unknown error'}
+                </Alert>
+              )}
             </Box>
           )}
         </DialogContent>
@@ -987,4 +973,4 @@ const Chat = () => {
   );
 };
 
-export default Chat; 
+export default Chat;
