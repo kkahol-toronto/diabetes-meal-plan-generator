@@ -25,7 +25,9 @@ import BookIcon from '@mui/icons-material/Book';
 import ChatIcon from '@mui/icons-material/Chat';
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
 import AccountCircleIcon from '@mui/icons-material/AccountCircle';
+import HistoryIcon from '@mui/icons-material/History';
 import { isTokenExpired } from '../utils/auth';
+import { useApp } from '../contexts/AppContext';
 import ShoppingCartIcon from '@mui/icons-material/ShoppingCart';
 
 const Navigation = () => {
@@ -36,6 +38,7 @@ const Navigation = () => {
   const [drawerOpen, setDrawerOpen] = React.useState(false);
   const [userInfo, setUserInfo] = useState<{ username: string; is_admin: boolean; name?: string } | null>(null);
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
+  const { showNotification } = useApp();
 
   useEffect(() => {
     const fetchUserInfo = async () => {
@@ -94,10 +97,9 @@ const Navigation = () => {
   const menuItems = [
     { text: 'Home', icon: <HomeIcon />, path: '/' },
     { text: 'Meal Plan', icon: <RestaurantIcon />, path: '/meal-plan' },
-    { text: 'Recipes', icon: <BookIcon />, path: '/my-recipes' },
-    { text: 'Shopping List', icon: <ShoppingCartIcon />, path: '/my-shopping-lists' },
     { text: 'Chat', icon: <ChatIcon />, path: '/chat' },
-    { text: 'History', icon: <BookIcon />, path: '/meal-plan/history' },
+    { text: 'Consumption History', icon: <HistoryIcon />, path: '/consumption-history' },
+    { text: 'Meal Plan History', icon: <BookIcon />, path: '/meal_plans' },
   ];
 
   // Add admin panel link if user is admin
@@ -109,6 +111,7 @@ const Navigation = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('isAdmin');
     setUserInfo(null);
+    showNotification('You have been logged out successfully', 'info');
     navigate('/login');
   };
 
@@ -142,17 +145,36 @@ const Navigation = () => {
             setDrawerOpen(false);
           }}
           selected={location.pathname === item.path}
+          sx={{
+            color: 'white',
+            '&:hover': { backgroundColor: 'rgba(255,255,255,0.1)' },
+            '&.Mui-selected': { backgroundColor: 'rgba(255,255,255,0.2)' }
+          }}
         >
-          <ListItemIcon>{item.icon}</ListItemIcon>
+          <ListItemIcon sx={{ color: 'white' }}>{item.icon}</ListItemIcon>
           <ListItemText primary={item.text} />
         </ListItem>
       ))}
       {userInfo ? (
-        <ListItem button onClick={handleLogout}>
+        <ListItem 
+          button 
+          onClick={handleLogout}
+          sx={{
+            color: 'white',
+            '&:hover': { backgroundColor: 'rgba(255,255,255,0.1)' }
+          }}
+        >
           <ListItemText primary="Logout" />
         </ListItem>
       ) : (
-        <ListItem button onClick={() => navigate('/login')}>
+        <ListItem 
+          button 
+          onClick={() => navigate('/login')}
+          sx={{
+            color: 'white',
+            '&:hover': { backgroundColor: 'rgba(255,255,255,0.1)' }
+          }}
+        >
           <ListItemText primary="Login" />
         </ListItem>
       )}
@@ -160,7 +182,13 @@ const Navigation = () => {
   );
 
   return (
-    <AppBar position="static">
+    <AppBar 
+      position="static" 
+      sx={{ 
+        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+        boxShadow: '0 4px 20px rgba(102, 126, 234, 0.3)'
+      }}
+    >
       <Toolbar>
         {isMobile && (
           <IconButton
@@ -185,7 +213,12 @@ const Navigation = () => {
                 startIcon={item.icon}
                 onClick={() => navigate(item.path)}
                 sx={{
-                  backgroundColor: location.pathname === item.path ? 'rgba(255, 255, 255, 0.1)' : 'transparent',
+                  backgroundColor: location.pathname === item.path ? 'rgba(255, 255, 255, 0.2)' : 'transparent',
+                  '&:hover': { backgroundColor: 'rgba(255, 255, 255, 0.1)' },
+                  borderRadius: 2,
+                  px: 2,
+                  py: 1,
+                  transition: 'all 0.3s ease'
                 }}
               >
                 {item.text}
@@ -210,7 +243,12 @@ const Navigation = () => {
       </Toolbar>
       <Drawer anchor="left" open={drawerOpen} onClose={toggleDrawer(false)}>
         <Box
-          sx={{ width: 250 }}
+          sx={{ 
+            width: 250,
+            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+            height: '100%',
+            color: 'white'
+          }}
           role="presentation"
           onClick={toggleDrawer(false)}
           onKeyDown={toggleDrawer(false)}

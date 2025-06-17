@@ -1,16 +1,17 @@
 import os
 from azure.cosmos import CosmosClient
-from azure.cosmos.exceptions import CosmosResourceNotFoundError, CosmosResourceExistsError
+from azure.cosmos.exceptions import CosmosResourceNotFoundError
 from dotenv import load_dotenv
 from datetime import datetime
 import uuid
 import tiktoken
 import json
+import traceback
 import logging
-from tenacity import retry, stop_after_attempt, wait_exponential
-from typing import Optional, Dict, Any, List
+from openai import AzureOpenAI
 
-# Configure logging
+# Set up logging
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Load environment variables
@@ -21,243 +22,47 @@ COSMOS_CONNECTION_STRING = os.getenv("COSMO_DB_CONNECTION_STRING")
 INTERACTIONS_CONTAINER = os.getenv("INTERACTIONS_CONTAINER")
 USER_INFORMATION_CONTAINER = os.getenv("USER_INFORMATION_CONTAINER")
 
-if not all([COSMOS_CONNECTION_STRING, INTERACTIONS_CONTAINER, USER_INFORMATION_CONTAINER]):
-    raise ValueError("Missing required environment variables for Cosmos DB configuration")
-
 # Initialize Cosmos DB client
-try:
 client = CosmosClient.from_connection_string(COSMOS_CONNECTION_STRING)
 database = client.get_database_client("diabetes_diet_manager")
+
+# Get container clients
 interactions_container = database.get_container_client(INTERACTIONS_CONTAINER)
 user_container = database.get_container_client(USER_INFORMATION_CONTAINER)
-except Exception as e:
-    logger.error(f"Failed to initialize Cosmos DB client: {str(e)}")
-    raise
+
+# Initialize Azure OpenAI client
+openai_client = AzureOpenAI(
+    api_key=os.getenv("AZURE_OPENAI_KEY"),
+    azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
+    api_version=os.getenv("AZURE_OPENAI_API_VERSION"),
+)
 
 def generate_session_id():
     """Generate a unique session ID"""
     return str(uuid.uuid4())
 
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
 async def create_user(user_data: dict):
     """Create a new user in the database"""
     try:
-        # Validate required fields
-        required_fields = ["email", "hashed_password"]
-        missing_fields = [field for field in required_fields if field not in user_data]
-        if missing_fields:
-            raise ValueError(f"Missing required fields: {', '.join(missing_fields)}")
-
         # Add type field for querying and set partition key
         user_data["type"] = "user"
         user_data["id"] = user_data["email"]  # Use email as partition key
-        user_data["created_at"] = datetime.utcnow().isoformat()
-        
-        # Add detailed logging
-        logger.info(f"[CREATE_USER] Attempting to create user with email: {user_data.get('email')}")
-        logger.info(f"[CREATE_USER] User data keys: {list(user_data.keys())}")
-        logger.info(f"[CREATE_USER] User ID being set to: {user_data.get('id')}")
-        
-        # First, let's double-check if user already exists with a direct query
-        existing_check_query = f"SELECT * FROM c WHERE c.id = '{user_data['email']}'"
-        existing_items = list(user_container.query_items(query=existing_check_query, enable_cross_partition_query=True))
-        logger.info(f"[CREATE_USER] Pre-creation check found {len(existing_items)} existing items")
-        if existing_items:
-            logger.error(f"[CREATE_USER] Found existing items: {existing_items}")
-        
-        result = user_container.create_item(body=user_data)
-        logger.info(f"[CREATE_USER] Successfully created user: {user_data.get('email')}")
-        return result
-    except CosmosResourceExistsError as e:
-        logger.error(f"[CREATE_USER] CosmosResourceExistsError for email {user_data.get('email')}: {str(e)}")
-        logger.error(f"[CREATE_USER] Full Cosmos error details: {e}")
-        raise ValueError(f"User with email {user_data.get('email')} already exists")
+        return user_container.create_item(body=user_data)
     except Exception as e:
-        logger.error(f"[CREATE_USER] Failed to create user {user_data.get('email')}: {str(e)}")
-        logger.error(f"[CREATE_USER] Exception type: {type(e)}")
-        raise
+        raise Exception(f"Failed to create user: {str(e)}")
 
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
 async def get_user_by_email(email: str):
     """Get user by email"""
     try:
-        if not email:
-            raise ValueError("Email is required")
-
         query = f"SELECT * FROM c WHERE c.type = 'user' AND c.id = '{email}'"
         items = list(user_container.query_items(query=query, enable_cross_partition_query=True))
         return items[0] if items else None
     except Exception as e:
-        logger.error(f"Failed to get user: {str(e)}")
-        raise
-
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
-async def save_patient_profile(user_id: str, profile_data: dict, is_admin_update: bool = False):
-    """Save patient profile data"""
-    try:
-        print(f"[SAVE_PROFILE] Starting save for user_id: {user_id}")
-        print(f"[SAVE_PROFILE] Input profile_data keys: {list(profile_data.keys())}")
-        print(f"[SAVE_PROFILE] Is admin update: {is_admin_update}")
-        
-        if not user_id:
-            raise ValueError("User ID is required")
-        if not profile_data:
-            raise ValueError("Profile data is required")
-
-        # Make a copy to avoid modifying the original
-        data_to_save = profile_data.copy()
-        
-        # 🚨 FIX: Use composite ID to prevent collision with user records
-        # If user_id looks like an email, create a profile-specific ID
-        if "@" in user_id:
-            profile_id = f"profile_{user_id}"
-        else:
-            # For patient registration codes, use the code directly
-            profile_id = user_id
-        
-        print(f"[SAVE_PROFILE] Using profile_id: {profile_id} (original user_id: {user_id})")
-        
-        # Add type and partition key
-        data_to_save["type"] = "patient_profile"
-        data_to_save["id"] = profile_id  # Use the collision-safe ID
-        data_to_save["user_id"] = user_id  # Store the original user_id for lookups
-        data_to_save["_partitionKey"] = profile_id
-        data_to_save["updated_at"] = datetime.utcnow().isoformat()
-
-        # Check for existing profile first
-        existing_profile = None
-        try:
-            existing_profile = await get_patient_profile(user_id)
-            print(f"[SAVE_PROFILE] Existing profile found: {existing_profile is not None}")
-        except Exception as e:
-            print(f"[SAVE_PROFILE] Error checking existing profile: {e}")
-            # Continue with save attempt
-
-        # For admin updates, always allow partial updates
-        if is_admin_update:
-            print(f"[SAVE_PROFILE] Admin update - allowing partial data")
-            if existing_profile:
-                # Merge with existing data
-                merged_data = existing_profile.copy()
-                print(f"[SAVE_PROFILE] Existing profile has {len(existing_profile)} fields")
-                print(f"[SAVE_PROFILE] New profile_data has {len(profile_data)} fields")
-                
-                # Update fields from the new data, including empty strings and empty lists
-                # Only skip None values (which indicate field wasn't sent)
-                updated_fields = []
-                for key, value in profile_data.items():
-                    if value is not None:
-                        old_value = merged_data.get(key)
-                        merged_data[key] = value
-                        updated_fields.append(key)
-                        if old_value != value:
-                            print(f"[SAVE_PROFILE] Field {key}: '{old_value}' -> '{value}'")
-                        else:
-                            print(f"[SAVE_PROFILE] Field {key}: unchanged ('{value}')")
-                
-                print(f"[SAVE_PROFILE] Updated {len(updated_fields)} fields: {updated_fields}")
-                
-                # Re-add required metadata with collision-safe IDs
-                merged_data["type"] = "patient_profile"
-                merged_data["id"] = profile_id
-                merged_data["user_id"] = user_id
-                merged_data["_partitionKey"] = profile_id
-                merged_data["updated_at"] = datetime.utcnow().isoformat()
-                
-                data_to_save = merged_data
-                print(f"[SAVE_PROFILE] Merged data keys: {list(data_to_save.keys())}")
-        else:
-            # For non-admin updates, validate required fields only for new profiles
-            required_fields = ["fullName", "dateOfBirth", "sex"]
-            missing_fields = []
-            for field in required_fields:
-                if field not in data_to_save or not data_to_save[field] or data_to_save[field] == "":
-                    missing_fields.append(field)
-            
-            print(f"[SAVE_PROFILE] Missing fields: {missing_fields}")
-            
-            if missing_fields and not existing_profile:
-                # New profile, require all fields
-                print(f"[SAVE_PROFILE] New profile detected, all fields required")
-                raise ValueError(f"Missing required fields: {', '.join(missing_fields)}")
-            elif missing_fields and existing_profile:
-                # Existing profile, merge with existing data and only update non-empty fields
-                print(f"[SAVE_PROFILE] Existing profile detected, allowing partial update")
-                logger.warning(f"Updating profile with incomplete data. Missing: {', '.join(missing_fields)}")
-                
-                # Start with existing profile data
-                merged_data = existing_profile.copy()
-                
-                # Update fields from the new data, including empty strings and empty lists
-                # Only skip None values (which indicate field wasn't sent)
-                for key, value in profile_data.items():
-                    if value is not None:
-                        merged_data[key] = value
-                        print(f"[SAVE_PROFILE] Non-admin updating field {key} with value: {value}")
-                
-                # Re-add required metadata with collision-safe IDs
-                merged_data["type"] = "patient_profile"
-                merged_data["id"] = profile_id
-                merged_data["user_id"] = user_id
-                merged_data["_partitionKey"] = profile_id
-                merged_data["updated_at"] = datetime.utcnow().isoformat()
-                
-                data_to_save = merged_data
-                print(f"[SAVE_PROFILE] Merged data keys: {list(data_to_save.keys())}")
-
-        print(f"[SAVE_PROFILE] Final data_to_save keys: {list(data_to_save.keys())}")
-        print(f"[SAVE_PROFILE] Calling upsert_item with profile_id: {profile_id}")
-        
-        result = user_container.upsert_item(body=data_to_save)
-        print(f"[SAVE_PROFILE] Successfully saved profile for user: {user_id}")
-        return result
-        
-    except Exception as e:
-        print(f"[SAVE_PROFILE] Error in save_patient_profile: {str(e)}")
-        logger.error(f"Failed to save patient profile: {str(e)}")
-        raise
-
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
-async def get_patient_profile(user_id: str):
-    """Get patient profile data"""
-    try:
-        if not user_id:
-            raise ValueError("User ID is required")
-
-        # 🚨 FIX: Handle the composite ID strategy
-        if "@" in user_id:
-            profile_id = f"profile_{user_id}"
-            query = f"SELECT * FROM c WHERE c.type = 'patient_profile' AND c.id = '{profile_id}'"
-        else:
-            # For patient registration codes, first try the code directly, then try user_id lookup
-            query = f"SELECT * FROM c WHERE c.type = 'patient_profile' AND (c.id = '{user_id}' OR c.user_id = '{user_id}')"
-        
-        print(f"[GET_PROFILE] Query: {query}")
-        items = list(user_container.query_items(
-            query=query,
-            enable_cross_partition_query=True
-        ))
-        
-        if items:
-            profile = items[0]
-            print(f"[GET_PROFILE] Found profile with {len(profile)} fields")
-            print(f"[GET_PROFILE] Profile ID: {profile.get('id')}, User ID: {profile.get('user_id')}")
-            return profile
-        else:
-            print(f"[GET_PROFILE] No profile found for user_id: {user_id}")
-            return None
-    except Exception as e:
-        logger.error(f"Failed to get patient profile: {str(e)}")
-        raise
+        raise Exception(f"Failed to get user: {str(e)}")
 
 async def create_patient(patient_data: dict):
     """Create a new patient record"""
     try:
-        # Check for duplicate phone number
-        existing_patient_phone = await get_patient_by_phone(patient_data["phone"])
-        if existing_patient_phone:
-            raise Exception(f"A patient with phone number {patient_data['phone']} already exists: {existing_patient_phone.get('name', 'Unknown')}")
-        
         # Add type field for querying and set partition key
         patient_data["type"] = "patient"
         patient_data["id"] = patient_data["registration_code"]  # Use registration code as partition key
@@ -290,22 +95,6 @@ async def get_patient_by_id(patient_id: str):
         return items[0] if items else None
     except Exception as e:
         raise Exception(f"Failed to get patient: {str(e)}")
-
-async def get_user_email_by_patient_id(patient_id: str):
-    """Get user email by patient ID (registration code)"""
-    try:
-        print(f"[GET_USER_EMAIL] Looking for patient_id: {patient_id}")
-        query = f"SELECT * FROM c WHERE c.type = 'user' AND c.patient_id = '{patient_id}'"
-        print(f"[GET_USER_EMAIL] Query: {query}")
-        items = list(user_container.query_items(query=query, enable_cross_partition_query=True))
-        print(f"[GET_USER_EMAIL] Found {len(items)} items")
-        if items:
-            print(f"[GET_USER_EMAIL] First item: {items[0]}")
-            return items[0].get('email')
-        return None
-    except Exception as e:
-        print(f"[GET_USER_EMAIL] Exception: {str(e)}")
-        raise Exception(f"Failed to get user email by patient ID: {str(e)}")
 
 async def save_meal_plan(user_id: str, meal_plan_data: dict):
     """Saves a user's meal plan to Cosmos DB."""
@@ -365,6 +154,17 @@ async def get_user_meal_plans(user_id: str):
         for plan in meal_plans:
             required_fields = ['breakfast', 'lunch', 'dinner', 'snacks', 'dailyCalories', 'macronutrients']
             missing_fields = [field for field in required_fields if field not in plan]
+
+            # Auto-repair common issue where "snacks" field is missing so that warnings stop cluttering logs
+            if 'snacks' in missing_fields:
+                print(f"[auto-repair] Adding empty snacks array to meal plan {plan['id']} (was missing)")
+                plan['snacks'] = []
+                try:
+                    interactions_container.upsert_item(body=plan)
+                    missing_fields.remove('snacks')
+                except Exception as e:
+                    print(f"[auto-repair] Failed to patch meal plan {plan['id']}: {e}")
+
             if missing_fields:
                 print(f"Warning: Meal plan {plan['id']} is missing fields: {', '.join(missing_fields)}")
 
@@ -461,7 +261,6 @@ async def delete_meal_plan_by_id(plan_id: str, user_id: str):
         return False
     except Exception as e:
         print(f"[delete_meal_plan_by_id] Error deleting meal plan {plan_id} for user {user_id}: {e}")
-        import traceback
         traceback.print_exc()
         raise Exception(f"Failed to delete meal plan: {str(e)}")
 
@@ -519,7 +318,6 @@ async def delete_all_user_meal_plans(user_id: str):
     except Exception as e:
         print(f"[delete_all_user_meal_plans] Error deleting all meal plans for user {user_id}: {e}")
         # Log the full traceback for better debugging
-        import traceback
         traceback.print_exc()
         raise Exception(f"Failed to delete all meal plans: {str(e)}")
 
@@ -543,7 +341,7 @@ async def get_user_shopping_lists(user_id: str):
     except Exception as e:
         raise Exception(f"Failed to get shopping lists: {str(e)}")
 
-async def save_chat_message(user_id: str, message: str, is_user: bool, session_id: str = None):
+async def save_chat_message(user_id: str, message: str, is_user: bool, session_id: str = None, image_url: str = None):
     """Save a chat message to the database"""
     try:
         if not session_id:
@@ -556,7 +354,8 @@ async def save_chat_message(user_id: str, message: str, is_user: bool, session_i
             "is_user": is_user,
             "timestamp": datetime.utcnow().isoformat(),
             "session_id": session_id,
-            "id": f"chat_{session_id}_{datetime.utcnow().timestamp()}"
+            "id": f"chat_{session_id}_{datetime.utcnow().timestamp()}",
+            "image_url": image_url
         }
         return interactions_container.create_item(body=chat_data)
     except Exception as e:
@@ -759,77 +558,463 @@ async def get_context_history(
         return [] # Fallback to empty list on error 
 
 async def view_meal_plans(user_id: str):
-    """View all meal plans for a user directly from Cosmos DB"""
+    """View all meal plans for a user - returns simple view without recipes/shopping"""
     try:
-        query = f"""
-        SELECT c.id, c.created_at, c.breakfast, c.lunch, c.dinner, c.snacks, 
-               c.dailyCalories, c.macronutrients
-        FROM c
-        WHERE c.type = 'meal_plan'
-        AND c.user_id = '{user_id}'
-        ORDER BY c.created_at DESC
-        """
-        return list(interactions_container.query_items(
+        if not user_id:
+            raise ValueError("User ID is required")
+
+        query = f"SELECT c.id, c.created_at, c.dailyCalories, c.macronutrients FROM c WHERE c.type = 'meal_plan' AND c.user_id = '{user_id}' ORDER BY c.created_at DESC"
+        meal_plans = list(interactions_container.query_items(
             query=query,
             enable_cross_partition_query=True
         ))
+
+        return meal_plans
+    except ValueError as e:
+        raise ValueError(f"Invalid request: {str(e)}")
     except Exception as e:
         raise Exception(f"Failed to view meal plans: {str(e)}")
 
-async def get_patient_by_email(email: str):
-    """Get patient by email - check if they have registered"""
-    try:
-        # First check if there's a user with this email
-        user = await get_user_by_email(email)
-        if user:
-            # Check if this user has a patient_id (registration code)
-            patient_id = user.get('patient_id')
-            if patient_id:
-                # Get the patient record
-                return await get_patient_by_registration_code(patient_id)
-        return None
-    except Exception as e:
-        raise Exception(f"Failed to get patient by email: {str(e)}")
+def log_debug(msg):
+    print(f"[DEBUG] {msg}") 
 
-async def get_patient_by_phone(phone: str):
-    """Get patient by phone number"""
+async def save_consumption_record(user_id: str, consumption_data: dict, meal_type: str | None = None):
+    """Save a consumption history record to the database"""
     try:
-        query = f"SELECT * FROM c WHERE c.type = 'patient' AND c.phone = '{phone}'"
-        items = list(user_container.query_items(query=query, enable_cross_partition_query=True))
-        return items[0] if items else None
+        print(f"[save_consumption_record] Starting save for user {user_id}")
+        print(f"[save_consumption_record] Consumption data: {consumption_data}")
+        
+        # Generate a unique session ID for this consumption record
+        session_id = f"consumption_{user_id}_{datetime.utcnow().timestamp()}"
+        
+        consumption_record = {
+            "type": "consumption_record",
+            "user_id": user_id,
+            "id": session_id,
+            "session_id": session_id,  # This is the partition key
+            "timestamp": datetime.utcnow().isoformat(),
+            "food_name": consumption_data.get("food_name"),
+            "estimated_portion": consumption_data.get("estimated_portion"),
+            "nutritional_info": consumption_data.get("nutritional_info", {}),
+            "medical_rating": consumption_data.get("medical_rating", {}),
+            "image_analysis": consumption_data.get("image_analysis"),
+            "image_url": consumption_data.get("image_url"),
+            "meal_type": meal_type or consumption_data.get("meal_type", "")
+        }
+        
+        print(f"[save_consumption_record] Created record with ID: {consumption_record['id']}")
+        print(f"[save_consumption_record] Full record: {consumption_record}")
+        
+        result = interactions_container.upsert_item(body=consumption_record)
+        print(f"[save_consumption_record] Successfully saved record with ID: {result['id']}")
+        return result
     except Exception as e:
-        raise Exception(f"Failed to get patient by phone: {str(e)}")
+        print(f"[save_consumption_record] Error saving record: {str(e)}")
+        print(f"[save_consumption_record] Full error details:", traceback.format_exc())
+        raise Exception(f"Failed to save consumption record: {str(e)}")
 
-async def delete_patient(patient_id: str):
-    """Delete a patient and all associated data"""
+async def get_user_consumption_history(user_id: str, limit: int = 50):
+    """Get consumption history for a user"""
     try:
-        # First get the patient to verify it exists
-        patient = await get_patient_by_registration_code(patient_id)
-        if not patient:
-            raise Exception(f"Patient with ID {patient_id} not found")
+        if not user_id:
+            raise ValueError("User ID is required")
+
+        print(f"[get_user_consumption_history] Querying consumption records for user {user_id}")
+        # Use a more specific query to ensure we get all fields
+        query = (
+            "SELECT c.id, c.timestamp, c.food_name, c.estimated_portion, "
+            "c.nutritional_info, c.medical_rating, c.image_analysis, c.image_url "
+            "FROM c WHERE c.type = 'consumption_record' "
+            f"AND c.user_id = '{user_id}' "
+            "ORDER BY c.timestamp DESC"
+        )
+        print(f"[get_user_consumption_history] Query: {query}")
         
-        # Delete the patient record
-        user_container.delete_item(item=patient_id, partition_key=patient_id)
-        
-        # Also delete any associated profile data
         try:
-            profile_query = f"SELECT * FROM c WHERE c.type = 'patient_profile' AND (c.id = '{patient_id}' OR c.user_id = '{patient_id}')"
-            profile_items = list(user_container.query_items(query=profile_query, enable_cross_partition_query=True))
-            for profile in profile_items:
-                user_container.delete_item(item=profile['id'], partition_key=profile['id'])
-        except Exception as profile_error:
-            print(f"Warning: Could not delete profile for patient {patient_id}: {profile_error}")
+            # Use cross-partition query since records are partitioned by session_id
+            consumption_records = list(interactions_container.query_items(
+                query=query,
+                enable_cross_partition_query=True
+            ))
+            print(f"[get_user_consumption_history] Query executed successfully")
+        except Exception as query_error:
+            print(f"[get_user_consumption_history] Error executing query: {str(query_error)}")
+            print(f"[get_user_consumption_history] Query error details:", traceback.format_exc())
+            raise
         
-        # If patient has registered (has email), also delete user account
-        try:
-            # Check if there's a user account linked to this patient
-            user_query = f"SELECT * FROM c WHERE c.type = 'user' AND c.patient_id = '{patient_id}'"
-            user_items = list(user_container.query_items(query=user_query, enable_cross_partition_query=True))
-            for user in user_items:
-                user_container.delete_item(item=user['id'], partition_key=user['id'])
-        except Exception as user_error:
-            print(f"Warning: Could not delete user account for patient {patient_id}: {user_error}")
+        print(f"[get_user_consumption_history] Raw consumption records count: {len(consumption_records)}")
+        if consumption_records:
+            print(f"[get_user_consumption_history] First record: {consumption_records[0]}")
+            print(f"[get_user_consumption_history] First record type: {type(consumption_records[0])}")
+            print(f"[get_user_consumption_history] First record keys: {list(consumption_records[0].keys())}")
+        else:
+            print("[get_user_consumption_history] No records found")
         
+        # Apply limit
+        limited_records = consumption_records[:limit] if limit else consumption_records
+        print(f"[get_user_consumption_history] Returning {len(limited_records)} records after applying limit")
+        return limited_records
+        
+    except ValueError as e:
+        print(f"[get_user_consumption_history] ValueError: {str(e)}")
+        raise ValueError(f"Invalid request: {str(e)}")
+    except Exception as e:
+        print(f"[get_user_consumption_history] Exception: {str(e)}")
+        print(f"[get_user_consumption_history] Full error details:", traceback.format_exc())
+        raise Exception(f"Failed to get consumption history: {str(e)}")
+
+async def get_consumption_analytics(user_id: str, days: int = 7):
+    """Get comprehensive consumption analytics for a user over specified days"""
+    try:
+        if not user_id:
+            raise ValueError("User ID is required")
+            
+        # Calculate date threshold
+        from datetime import datetime, timedelta
+        from collections import defaultdict
+        import re
+        
+        threshold_date = (datetime.utcnow() - timedelta(days=days)).isoformat()
+        
+        query = f"SELECT * FROM c WHERE c.type = 'consumption_record' AND c.user_id = '{user_id}' AND c.timestamp >= '{threshold_date}' ORDER BY c.timestamp DESC"
+        
+        consumption_records = list(interactions_container.query_items(
+            query=query,
+            enable_cross_partition_query=True
+        ))
+        
+        if not consumption_records:
+            # Return empty analytics structure
+            return {
+                "total_meals": 0,
+                "date_range": {
+                    "start_date": threshold_date,
+                    "end_date": datetime.utcnow().isoformat()
+                },
+                "daily_averages": {
+                    "calories": 0,
+                    "protein": 0,
+                    "carbohydrates": 0,
+                    "fat": 0,
+                    "fiber": 0,
+                    "sugar": 0,
+                    "sodium": 0
+                },
+                "weekly_trends": {
+                    "calories": [0] * 7,
+                    "protein": [0] * 7,
+                    "carbohydrates": [0] * 7,
+                    "fat": [0] * 7
+                },
+                "meal_distribution": {
+                    "breakfast": 0,
+                    "lunch": 0,
+                    "dinner": 0,
+                    "snack": 0
+                },
+                "top_foods": [],
+                "adherence_stats": {
+                    "diabetes_suitable_percentage": 0,
+                    "calorie_goal_adherence": 0,
+                    "protein_goal_adherence": 0,
+                    "carb_goal_adherence": 0
+                },
+                "daily_nutrition_history": []
+            }
+        
+        # Initialize tracking variables
+        daily_totals = defaultdict(lambda: {
+            "calories": 0, "protein": 0, "carbohydrates": 0, "fat": 0, 
+            "fiber": 0, "sugar": 0, "sodium": 0, "meals_count": 0
+        })
+        food_frequency = defaultdict(lambda: {"frequency": 0, "total_calories": 0})
+        meal_type_counts = {"breakfast": 0, "lunch": 0, "dinner": 0, "snack": 0}
+        diabetes_suitable_count = 0
+        
+        # Default daily goals (these should ideally come from user profile)
+        daily_goals = {
+            "calories": 2000,
+            "protein": 100,
+            "carbohydrates": 250,
+            "fat": 70
+        }
+        
+        # Process each consumption record
+        for record in consumption_records:
+            nutritional_info = record.get("nutritional_info", {})
+            medical_rating = record.get("medical_rating", {})
+            food_name = record.get("food_name", "Unknown Food")
+            timestamp = record.get("timestamp", "")
+            
+            # Extract date for daily grouping
+            try:
+                record_date = datetime.fromisoformat(timestamp.replace('Z', '+00:00')).date().isoformat()
+            except:
+                record_date = datetime.utcnow().date().isoformat()
+            
+            # Extract nutrition values
+            calories = nutritional_info.get("calories", 0)
+            protein = nutritional_info.get("protein", 0)
+            carbohydrates = nutritional_info.get("carbohydrates", nutritional_info.get("carbs", 0))
+            fat = nutritional_info.get("fat", 0)
+            fiber = nutritional_info.get("fiber", 0)
+            sugar = nutritional_info.get("sugar", 0)
+            sodium = nutritional_info.get("sodium", 0)
+            
+            # Update daily totals
+            daily_totals[record_date]["calories"] += calories
+            daily_totals[record_date]["protein"] += protein
+            daily_totals[record_date]["carbohydrates"] += carbohydrates
+            daily_totals[record_date]["fat"] += fat
+            daily_totals[record_date]["fiber"] += fiber
+            daily_totals[record_date]["sugar"] += sugar
+            daily_totals[record_date]["sodium"] += sodium
+            daily_totals[record_date]["meals_count"] += 1
+            
+            # Track food frequency
+            food_frequency[food_name]["frequency"] += 1
+            food_frequency[food_name]["total_calories"] += calories
+            
+            # Determine meal type based on time or food name
+            try:
+                record_time = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+                hour = record_time.hour
+                if 5 <= hour < 11:
+                    meal_type = "breakfast"
+                elif 11 <= hour < 16:
+                    meal_type = "lunch"
+                elif 16 <= hour < 22:
+                    meal_type = "dinner"
+                else:
+                    meal_type = "snack"
+            except:
+                # Fallback: try to guess from food name
+                food_lower = food_name.lower()
+                if any(word in food_lower for word in ["breakfast", "cereal", "oatmeal", "toast"]):
+                    meal_type = "breakfast"
+                elif any(word in food_lower for word in ["lunch", "sandwich", "salad"]):
+                    meal_type = "lunch"
+                elif any(word in food_lower for word in ["dinner", "pasta", "rice", "chicken"]):
+                    meal_type = "dinner"
+                else:
+                    meal_type = "snack"
+            
+            meal_type_counts[meal_type] += 1
+            
+            # Check diabetes suitability
+            diabetes_suitability = medical_rating.get("diabetes_suitability", "").lower()
+            if diabetes_suitability in ["high", "good", "suitable", "excellent"]:
+                diabetes_suitable_count += 1
+        
+        total_records = len(consumption_records)
+        
+        # Calculate averages
+        total_calories = sum(day["calories"] for day in daily_totals.values())
+        total_protein = sum(day["protein"] for day in daily_totals.values())
+        total_carbohydrates = sum(day["carbohydrates"] for day in daily_totals.values())
+        total_fat = sum(day["fat"] for day in daily_totals.values())
+        total_fiber = sum(day["fiber"] for day in daily_totals.values())
+        total_sugar = sum(day["sugar"] for day in daily_totals.values())
+        total_sodium = sum(day["sodium"] for day in daily_totals.values())
+        
+        # Calculate adherence percentages
+        avg_daily_calories = total_calories / days if days > 0 else 0
+        avg_daily_protein = total_protein / days if days > 0 else 0
+        avg_daily_carbohydrates = total_carbohydrates / days if days > 0 else 0
+        
+        calorie_adherence = min(100, (avg_daily_calories / daily_goals["calories"]) * 100) if daily_goals["calories"] > 0 else 0
+        protein_adherence = min(100, (avg_daily_protein / daily_goals["protein"]) * 100) if daily_goals["protein"] > 0 else 0
+        carb_adherence = min(100, (avg_daily_carbohydrates / daily_goals["carbohydrates"]) * 100) if daily_goals["carbohydrates"] > 0 else 0
+        
+        # Prepare top foods list
+        top_foods = [
+            {
+                "food": food,
+                "frequency": data["frequency"],
+                "total_calories": data["total_calories"]
+            }
+            for food, data in sorted(food_frequency.items(), key=lambda x: x[1]["frequency"], reverse=True)
+        ][:10]
+        
+        # Prepare daily nutrition history
+        daily_nutrition_history = []
+        for date_str, totals in sorted(daily_totals.items()):
+            daily_nutrition_history.append({
+                "date": date_str,
+                "calories": totals["calories"],
+                "protein": totals["protein"],
+                "carbohydrates": totals["carbohydrates"],
+                "fat": totals["fat"],
+                "meals_count": totals["meals_count"]
+            })
+        
+        # Calculate weekly trends (last 7 days)
+        recent_days = sorted(daily_totals.items())[-7:]
+        weekly_trends = {
+            "calories": [day[1]["calories"] for day in recent_days] + [0] * (7 - len(recent_days)),
+            "protein": [day[1]["protein"] for day in recent_days] + [0] * (7 - len(recent_days)),
+            "carbohydrates": [day[1]["carbohydrates"] for day in recent_days] + [0] * (7 - len(recent_days)),
+            "fat": [day[1]["fat"] for day in recent_days] + [0] * (7 - len(recent_days))
+        }
+        
+        analytics = {
+            "total_meals": total_records,
+            "date_range": {
+                "start_date": threshold_date,
+                "end_date": datetime.utcnow().isoformat()
+            },
+            "daily_averages": {
+                "calories": avg_daily_calories,
+                "protein": avg_daily_protein,
+                "carbohydrates": avg_daily_carbohydrates,
+                "fat": total_fat / days if days > 0 else 0,
+                "fiber": total_fiber / days if days > 0 else 0,
+                "sugar": total_sugar / days if days > 0 else 0,
+                "sodium": total_sodium / days if days > 0 else 0
+            },
+            "weekly_trends": weekly_trends,
+            "meal_distribution": meal_type_counts,
+            "top_foods": top_foods,
+            "adherence_stats": {
+                "diabetes_suitable_percentage": (diabetes_suitable_count / total_records * 100) if total_records > 0 else 0,
+                "calorie_goal_adherence": calorie_adherence,
+                "protein_goal_adherence": protein_adherence,
+                "carb_goal_adherence": carb_adherence
+            },
+            "daily_nutrition_history": daily_nutrition_history
+        }
+        
+        return analytics
+        
+    except ValueError as e:
+        raise ValueError(f"Invalid request: {str(e)}")
+    except Exception as e:
+        raise Exception(f"Failed to get consumption analytics: {str(e)}") 
+
+async def get_user_meal_history(user_id: str, limit: int = 20):
+    """
+    Get user's meal history with consumption records
+    Args:
+        user_id (str): The user's ID
+        limit (int): Maximum number of records to return
+    Returns:
+        List of meal history records with consumption details
+    """
+    try:
+        if not user_id:
+            raise ValueError("User ID is required")
+
+        # Query both meal plans and consumption records
+        query = f"""
+        SELECT TOP {limit} *
+        FROM c
+        WHERE c.user_id = '{user_id}'
+        AND (c.type = 'consumption_record' OR c.type = 'meal_plan')
+        ORDER BY c.created_at DESC
+        """
+
+        items = list(interactions_container.query_items(
+            query=query,
+            enable_cross_partition_query=True
+        ))
+
+        # Process and format the records
+        meal_history = []
+        for item in items:
+            if item['type'] == 'consumption_record':
+                meal_history.append({
+                    'food_name': item.get('food_name', ''),
+                    'meal_type': item.get('meal_type', ''),
+                    'timestamp': item.get('created_at', ''),
+                    'nutritional_info': {
+                        'calories': item.get('calories', 0),
+                        'protein': item.get('protein', 0),
+                        'carbohydrates': item.get('carbohydrates', 0),
+                        'fat': item.get('fat', 0)
+                    }
+                })
+
+        return meal_history
+    except ValueError as e:
+        raise ValueError(f"Invalid request: {str(e)}")
+    except Exception as e:
+        raise Exception(f"Failed to get meal history: {str(e)}") 
+
+async def log_meal_suggestion(user_id: str, meal_type: str, suggestion: str, context: dict = None):
+    """
+    Log a meal suggestion for future reference and analysis
+    Args:
+        user_id (str): The user's ID
+        meal_type (str): Type of meal (breakfast, lunch, dinner, snack)
+        suggestion (str): The suggested meal
+        context (dict): Additional context about the suggestion
+    """
+    try:
+        if not user_id:
+            raise ValueError("User ID is required")
+
+        log_item = {
+            'id': str(uuid.uuid4()),
+            'type': 'meal_suggestion',
+            'user_id': user_id,
+            'meal_type': meal_type,
+            'suggestion': suggestion,
+            'context': context or {},
+            'created_at': datetime.utcnow().isoformat(),
+            '_partitionKey': user_id
+        }
+
+        return interactions_container.create_item(body=log_item)
+    except ValueError as e:
+        raise ValueError(f"Invalid request: {str(e)}")
+    except Exception as e:
+        raise Exception(f"Failed to log meal suggestion: {str(e)}") 
+
+async def get_ai_suggestion(prompt: str) -> str:
+    """
+    Get an AI-powered suggestion using Azure OpenAI
+    Args:
+        prompt (str): The prompt to send to the AI model
+    Returns:
+        str: The AI-generated suggestion
+    """
+    try:
+        # Get response from Azure OpenAI
+        response = openai_client.chat.completions.create(
+            model=os.getenv("AZURE_OPENAI_DEPLOYMENT"),
+            messages=[
+                {"role": "system", "content": "You are a knowledgeable nutritionist and meal planning expert, specializing in diabetes management."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.7,
+            max_tokens=800,
+            top_p=0.95,
+            frequency_penalty=0.5,
+            presence_penalty=0.5,
+        )
+
+        # Extract and return the suggestion
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        logger.error(f"Error getting AI suggestion: {str(e)}")
+        raise Exception("Failed to get AI suggestion") 
+
+async def update_consumption_meal_type(user_id: str, record_id: str, meal_type: str):
+    """Update meal_type for a specific consumption record."""
+    try:
+        if not user_id or not record_id:
+            raise ValueError("user_id and record_id are required")
+
+        # Fetch the record first
+        existing = interactions_container.read_item(item=record_id, partition_key=record_id)
+
+        if existing.get("user_id") != user_id:
+            raise PermissionError("Unauthorized")
+
+        existing["meal_type"] = meal_type
+
+        interactions_container.upsert_item(body=existing)
         return True
     except Exception as e:
-        raise Exception(f"Failed to delete patient: {str(e)}") 
+        print(f"[update_consumption_meal_type] Error: {e}")
+        raise 

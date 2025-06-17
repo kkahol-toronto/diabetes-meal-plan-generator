@@ -1,170 +1,277 @@
-# Diabetes Diet Planner
+# 🤖 AI Diabetes Coach - Comprehensive Health Management System
 
-A comprehensive web application for diabetes patients to manage their diet, track meals, and get personalized recommendations.
+A **fully integrated, intelligent diabetes management platform** powered by AI that provides personalized coaching, adaptive meal planning, real-time analytics, and comprehensive health insights with enhanced meal logging capabilities.
 
-## Features
+## 🌟 Key Features
 
-- User authentication and profile management
-- Real-time chat with AI assistant for diet advice
-- Meal tracking and history
-- PDF report generation
-- Session management for chat history
-- Responsive Material-UI design
+### 🧠 **Enhanced AI Health Coach** *(Recently Improved)*
+- **Fixed AI Coach Functionality**: Robust meal-suggestion endpoint with proper error handling
+- **Comprehensive User Context**: AI has access to complete user history, preferences, and health data
+- **Personalized Recommendations**: Real-time, context-aware suggestions based on eating patterns and health conditions
+- **Adaptive Learning**: System learns from user behavior and continuously improves recommendations
+- **Natural Language Processing**: Chat with AI coach using natural language for meal suggestions and health advice
+- **Dual Response Format**: Enhanced compatibility with both simple queries and detailed meal suggestions
 
-## Tech Stack
+### 📊 **Advanced Analytics & Insights**
+- **Real-time Dashboard**: Beautiful, interactive dashboard with tabbed interface (Overview, Analytics, AI Insights, Notifications)
+- **Progress Tracking**: Comprehensive tracking of diabetes adherence, nutrition goals, and consistency
+- **Visual Analytics**: Chart.js integration with doughnut charts, line graphs, and radar plots
+- **Predictive Analytics**: AI-powered insights that predict and prevent potential health issues
+- **30-Day Consumption Analysis**: Detailed consumption pattern analysis with visual charts
 
-### Backend
-- FastAPI (Python web framework)
-- Azure Cosmos DB (Database)
-- Azure OpenAI (AI chat)
-- Twilio (SMS notifications)
-- ReportLab (PDF generation)
+### 🍽️ **Enhanced Meal Logging & Planning** *(Recently Improved)*
+- **Streamlined Food Logging**: Enhanced camera interface with image attachment (no auto-analysis)
+- **Smart Meal Type Detection**: AI detects meal types (breakfast/lunch/dinner/snack) from chat messages
+- **Meal Type Context Integration**: Proper meal plan calibration based on logged consumption with meal types
+- **AI Image Analysis**: Upload food photos for automatic nutritional analysis when ready
+- **Quick Logging**: Simple text-based food logging with AI interpretation
+- **Diabetes Suitability**: Automatic assessment of food choices for diabetes management
 
-### Frontend
-- React with TypeScript
-- Material-UI
-- React Router
-- React Markdown
+### 🎯 **Adaptive Meal Planning**
+- **Smart Meal Plans**: AI creates personalized meal plans based on consumption history
+- **Dynamic Adaptation**: Plans automatically adjust based on user preferences and health goals
+- **Diabetes-Optimized**: All recommendations are specifically tailored for diabetes management
+- **Nutritional Balance**: Ensures proper macronutrient distribution and glycemic control
+- **Consumption-Based Calibration**: Today's meal plan updates dynamically when users log food
 
-## Prerequisites
+### 🎨 **Improved User Interface** *(Recently Enhanced)*
+- **Cleaned Homepage**: Removed floating action buttons that were causing errors
+- **Fixed UI Issues**: Resolved repeated "(recommended)" text in meal plan snacks
+- **Cleaner Design**: Removed automatic notes display for a more streamlined experience
+- **Enhanced Chat Interface**: Improved meal logging integration with image attachment workflow
+- **Tabbed Dashboard**: Organized sections for better user experience
 
-- Python 3.8+
-- Node.js 16+
-- Azure account with:
-  - Cosmos DB
-  - OpenAI service
-- Twilio account (for SMS features)
+### 📱 **Intelligent Food Logging**
+- **Enhanced Camera Integration**: Single camera button for food logging with improved workflow
+- **Meal Type Context**: Consumption records now include meal_type parameter for better tracking
+- **PATCH Endpoint**: New endpoint for updating meal types (/consumption/{record_id}/meal-type)
+- **Regex-Based Detection**: Smart meal type detection using pattern matching in chat messages
+- **Contextual AI Responses**: AI considers user's health conditions and dietary restrictions
 
-## Backend Dependencies
+## 🏗️ **System Architecture**
 
-All backend dependencies are listed in `backend/requirements.txt`:
+### **Frontend (React TypeScript)**
+- **Modern UI/UX**: Beautiful, responsive design with Material-UI components
+- **Real-time Updates**: Live data synchronization and automatic refresh
+- **Interactive Charts**: Chart.js integration for comprehensive data visualization
+- **Enhanced Chat Interface**: Streamlined meal logging with image attachment workflow
+- **Progressive Web App**: Mobile-optimized experience
 
-- fastapi>=0.109.0
-- uvicorn>=0.27.0
-- python-dotenv>=1.0.0
-- openai>=1.3.0
-- pydantic>=2.6.0
-- python-multipart>=0.0.6
-- sqlalchemy>=2.0.25
-- pydantic-settings>=2.1.0
-- python-jose[cryptography]>=3.3.0
-- passlib[bcrypt]>=1.7.4
-- twilio>=8.10.0
-- email-validator>=2.1.0.post1
-- alembic>=1.13.1
-- azure-cosmos>=4.5.1
-- reportlab>=4.0.8
-- tiktoken==0.9.0
+### **Backend (FastAPI Python)**
+- **Enhanced AI Integration**: Fixed OpenAI GPT-4 integration with robust error handling
+- **Comprehensive APIs**: 40+ endpoints covering all aspects of diabetes management
+- **Real-time Processing**: Streaming responses for chat and real-time updates
+- **Advanced Data Analytics**: Enhanced analytics engine for health insights
+- **Azure Cosmos DB**: Robust database integration with proper error handling
 
-## Frontend Dependencies
+### **Database (Azure Cosmos DB)**
+- **User Profiles**: Comprehensive health profiles with medical history
+- **Enhanced Consumption Tracking**: Detailed food consumption with meal type context
+- **Adaptive Meal Plans**: Meal plans with user feedback integration and consumption-based calibration
+- **Analytics Data**: Historical data for trend analysis and predictions
 
-All frontend dependencies are listed in `frontend/package.json`:
+## 🚀 **Getting Started**
 
-- @emotion/react
-- @emotion/styled
-- @mui/icons-material
-- @mui/material
-- @types/node
-- @types/react
-- @types/react-dom
-- axios
-- react
-- react-dom
-- react-markdown
-- react-router-dom
-- react-scripts
-- typescript
-- uuid
-- web-vitals
-- @types/uuid (dev)
+### **Prerequisites**
+- Node.js 18+ and npm
+- Python 3.11+
+- Azure Cosmos DB account
+- OpenAI API key
 
-## Environment Variables
-
-Create a `.env` file in the `backend` directory with the following (update values as needed):
-
-```env
-# Azure Cosmos DB
-COSMO_DB_CONNECTION_STRING=your_cosmos_connection_string
-INTERACTIONS_CONTAINER=interactions
-USER_INFORMATION_CONTAINER=user_information
-
-# Azure OpenAI
-AZURE_OPENAI_KEY=your_openai_key
-AZURE_OPENAI_ENDPOINT=your_openai_endpoint
-AZURE_OPENAI_API_VERSION=2023-05-15
-
-# JWT
-SECRET_KEY=your_jwt_secret
-
-# Twilio (Optional)
-SMS_API_SID=your_twilio_sid
-SMS_KEY=your_twilio_token
-TWILIO_PHONE_NUMBER=your_twilio_phone
-```
-
-## Setup
-
-### Backend Setup
-
-1. Create a virtual environment:
+### **Backend Setup**
 ```bash
+cd backend
 python -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
-```
-
-2. Install dependencies:
-```bash
 pip install -r requirements.txt
+
+# Set environment variables
+export AZURE_OPENAI_KEY="your-azure-openai-key"
+export AZURE_OPENAI_ENDPOINT="your-azure-openai-endpoint"
+export AZURE_OPENAI_API_VERSION="2024-02-15-preview"
+export AZURE_OPENAI_DEPLOYMENT="your-deployment-name"
+export COSMO_DB_CONNECTION_STRING="your-cosmos-db-connection-string"
+export INTERACTIONS_CONTAINER="interactions"
+export USER_INFORMATION_CONTAINER="user_information"
+
+# Start the server
+python -m uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-3. Start the backend server:
-```bash
-uvicorn main:app --reload
-```
-
-### Frontend Setup
-
-1. Navigate to the frontend directory:
+### **Frontend Setup**
 ```bash
 cd frontend
-```
-
-2. Install dependencies:
-```bash
 npm install
-```
-
-3. Start the development server:
-```bash
 npm start
 ```
 
-## Usage
+The application will be available at `http://localhost:3000`
 
-1. Register a new account or login
-2. Use the chat interface to get diet advice
-3. Track your meals and view history
-4. Generate PDF reports of your diet plan
-5. Switch between different chat sessions
+## 🎯 **Core Functionality**
 
-## API Endpoints
+### **1. Enhanced AI-Powered Dashboard**
+- **Real-time Health Metrics**: Live tracking of calories, macronutrients, and diabetes scores
+- **Intelligent Insights**: AI-generated recommendations based on recent activity
+- **Progress Visualization**: Beautiful charts showing health trends and achievements
+- **Quick Actions**: Streamlined access to food logging and meal planning
+- **Tabbed Interface**: Organized sections for Overview, Analytics, AI Insights, and Notifications
 
-- `POST /auth/register` - Register new user
-- `POST /auth/login` - User login
-- `POST /chat/message` - Send chat message
-- `GET /chat/history` - Get chat history
-- `GET /chat/sessions` - Get chat sessions
-- `POST /chat/clear` - Clear chat history
-- `GET /report/generate` - Generate PDF report
+### **2. Improved Food Analysis & Logging**
+- **Enhanced Image Recognition**: Upload food photos with improved workflow
+- **Meal Type Integration**: Smart detection and logging of meal types for better tracking
+- **Diabetes Assessment**: AI evaluates food suitability for diabetes management
+- **Nutritional Breakdown**: Detailed macro and micronutrient information
+- **Contextual Logging**: AI considers user's health conditions and dietary restrictions
 
-## Contributing
+### **3. Fixed AI Coach System**
+- **Robust Error Handling**: Enhanced meal-suggestion endpoint with proper fallback mechanisms
+- **Natural Language**: Chat with AI coach using everyday language
+- **Context Awareness**: AI remembers conversation history and user preferences
+- **Health-Aware Responses**: AI considers user's medical conditions and dietary restrictions
+- **Multi-modal Input**: Support for text and image inputs with improved workflow
+
+### **4. Adaptive Meal Planning**
+- **Consumption-Based Plans**: AI creates meal plans based on actual consumption history
+- **Dynamic Adjustment**: Plans adapt based on user feedback and changing needs
+- **Nutritional Optimization**: Ensures proper balance for diabetes management
+- **Shopping Integration**: Automatic shopping list generation from meal plans
+
+### **5. Advanced Analytics**
+- **Trend Analysis**: Long-term health trend identification and analysis
+- **Goal Tracking**: Comprehensive tracking of health and nutrition goals
+- **Predictive Insights**: AI predicts potential issues and suggests preventive measures
+- **Visual Reports**: Enhanced charts with Chart.js integration
+
+## 🔧 **API Endpoints**
+
+### **Core Endpoints**
+- `GET /coach/daily-insights` - Comprehensive daily health insights
+- `POST /coach/meal-suggestion` - **Enhanced** personalized meal suggestions with robust error handling
+- `POST /coach/adaptive-meal-plan` - Create personalized meal plans
+- `POST /coach/quick-log` - Quick food logging with AI analysis
+- `GET /consumption/analytics` - Detailed consumption analytics
+- `GET /consumption/progress` - Progress tracking and goal achievement
+- `POST /chat/message-with-image` - **Enhanced** AI chat with meal type detection
+- `POST /consumption/analyze-and-record` - Image-based food analysis with meal type context
+
+### **New/Enhanced Features**
+- `PATCH /consumption/{record_id}/meal-type` - **New** endpoint for updating meal types
+- `GET /coach/consumption-insights` - AI-powered consumption insights
+- `GET /coach/notifications` - Intelligent health notifications
+- `POST /generate-meal-plan` - Comprehensive meal plan generation
+
+## 🎨 **User Interface**
+
+### **Enhanced Dashboard Features**
+- **Cleaned Interface**: Removed problematic floating action buttons
+- **Tabbed Interface**: Organized sections for better navigation
+- **Interactive Charts**: Doughnut charts, line graphs, radar charts, and progress bars
+- **Quick Actions**: Streamlined buttons for common tasks
+- **Real-time Updates**: Live data refresh every 5 minutes
+
+### **Improved AI Coach Interface**
+- **Fixed Functionality**: Robust AI coach with proper error handling
+- **Conversational UI**: Natural chat interface with enhanced meal type detection
+- **Image Upload**: Improved drag-and-drop food image workflow
+- **Response Formatting**: Rich text formatting with markdown support
+- **Context-Aware Responses**: AI considers user's health profile and dietary restrictions
+
+### **Enhanced Analytics Dashboard**
+- **Comprehensive Metrics**: Detailed health and nutrition analytics
+- **Visual Trends**: Beautiful charts showing progress over time with Chart.js
+- **Goal Tracking**: Visual progress indicators for all health goals
+- **Comparative Analysis**: Side-by-side comparison of different metrics
+
+## 🔒 **Security & Privacy**
+
+- **JWT Authentication**: Secure token-based authentication
+- **Data Encryption**: All sensitive data encrypted in transit and at rest
+- **Privacy Controls**: User control over data sharing and retention
+- **HIPAA Compliance**: Healthcare data handling best practices
+- **Robust Error Handling**: Secure fallback mechanisms to prevent data exposure
+
+## 🌐 **Deployment**
+
+### **Production Deployment**
+```bash
+# Backend
+docker build -t diabetes-coach-backend .
+docker run -p 8000:8000 diabetes-coach-backend
+
+# Frontend
+npm run build
+# Deploy build folder to your hosting service
+```
+
+### **Environment Variables**
+```bash
+# Backend
+AZURE_OPENAI_KEY=your-azure-openai-key
+AZURE_OPENAI_ENDPOINT=your-azure-openai-endpoint
+AZURE_OPENAI_API_VERSION=2024-02-15-preview
+AZURE_OPENAI_DEPLOYMENT=your-deployment-name
+COSMO_DB_CONNECTION_STRING=your-cosmos-db-connection-string
+INTERACTIONS_CONTAINER=interactions
+USER_INFORMATION_CONTAINER=user_information
+JWT_SECRET=your-jwt-secret
+ENVIRONMENT=production
+
+# Frontend
+REACT_APP_API_URL=https://your-api-domain.com
+```
+
+## 🆕 **Recent Improvements (June 2025)**
+
+### **AI Coach Enhancements**
+- ✅ **Fixed AI Coach Functionality**: Resolved meal-suggestion endpoint with robust error handling
+- ✅ **Enhanced Error Handling**: Added proper fallback mechanisms for missing user data
+- ✅ **Dual Response Format**: Support for both simple queries and detailed meal suggestions
+- ✅ **Context-Aware Responses**: AI now considers user's health conditions and dietary restrictions
+
+### **Meal Logging Improvements**
+- ✅ **Streamlined Image Upload**: Enhanced camera interface with attach-first workflow
+- ✅ **Meal Type Detection**: Smart detection of meal types from chat messages using regex
+- ✅ **Enhanced Database Integration**: Added meal_type parameter to consumption records
+- ✅ **New PATCH Endpoint**: Added endpoint for updating meal types after logging
+
+### **UI/UX Enhancements**
+- ✅ **Cleaned Homepage**: Removed floating action buttons causing errors
+- ✅ **Fixed UI Issues**: Resolved repeated text in meal plan sections
+- ✅ **Improved Chat Interface**: Better integration between chat and meal logging
+- ✅ **Enhanced Dashboard**: Tabbed interface with better organization
+
+### **Technical Improvements**
+- ✅ **Robust Database Queries**: Added try-catch blocks for all database operations
+- ✅ **Enhanced API Endpoints**: Improved error handling across all endpoints
+- ✅ **Better Integration**: Improved connection between consumption logging and meal planning
+- ✅ **Performance Optimization**: Enhanced response times and error recovery
+
+## 🤝 **Contributing**
 
 1. Fork the repository
-2. Create a feature branch
-3. Commit your changes
-4. Push to the branch
-5. Create a Pull Request
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
 
-## License
+## 📄 **License**
 
-This project is licensed under the MIT License - see the LICENSE file for details. 
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## 🙏 **Acknowledgments**
+
+- Azure OpenAI for GPT-4 integration
+- Material-UI for beautiful React components
+- Chart.js for enhanced data visualization
+- FastAPI for the robust backend framework
+- Azure Cosmos DB for scalable data storage
+
+## 📞 **Support**
+
+For support, email support@diabetescoach.ai or join our Slack channel.
+
+---
+
+**Built with ❤️ for the diabetes community**
+
+*Empowering individuals with diabetes through intelligent technology and personalized care.* 
