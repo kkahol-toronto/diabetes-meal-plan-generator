@@ -204,4 +204,25 @@ export const consumptionApi = {
   getAnalytics: (days = 7) => api.get(`/consumption/analytics?days=${days}`),
 };
 
+// Admin API functions
+export const getAdminUserProfile = async (userId: string) => {
+  try {
+    const response = await api.get(`/admin/profile/${userId}`);
+    return response;
+  } catch (error) {
+    console.error('Error fetching admin user profile:', error);
+    return null;
+  }
+};
+
+export const saveAdminUserProfile = async (userId: string, profile: any) => {
+  try {
+    const response = await api.post(`/admin/profile/${userId}`, profile);
+    return true;
+  } catch (error) {
+    console.error('Error saving admin user profile:', error);
+    throw error;
+  }
+};
+
 export { ApiError }; 

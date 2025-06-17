@@ -171,13 +171,24 @@ const AdminPanel = () => {
                     {new Date(patient.created_at).toLocaleString()}
                   </TableCell>
                   <TableCell>
-                    <Button
-                      variant="outlined"
-                      color="primary"
-                      onClick={() => handleResendCode(patient.id)}
-                    >
-                      Resend Code
-                    </Button>
+                    <Box sx={{ display: 'flex', gap: 1 }}>
+                      <Button
+                        variant="outlined"
+                        color="primary"
+                        onClick={() => handleResendCode(patient.id)}
+                        size="small"
+                      >
+                        Resend Code
+                      </Button>
+                      <Button
+                        variant="contained"
+                        color="secondary"
+                        onClick={() => navigate(`/admin/profile/${patient.id}`)}
+                        size="small"
+                      >
+                        Edit Profile
+                      </Button>
+                    </Box>
                   </TableCell>
                 </TableRow>
               ))}

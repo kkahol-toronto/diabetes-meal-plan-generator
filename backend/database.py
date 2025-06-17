@@ -1000,21 +1000,128 @@ async def get_ai_suggestion(prompt: str) -> str:
         raise Exception("Failed to get AI suggestion") 
 
 async def update_consumption_meal_type(user_id: str, record_id: str, meal_type: str):
-    """Update meal_type for a specific consumption record."""
+    """Update the meal type for a specific consumption record"""
     try:
-        if not user_id or not record_id:
-            raise ValueError("user_id and record_id are required")
+        # Query to find the record
+        query = f"SELECT * FROM c WHERE c.type = 'consumption' AND c.user_id = '{user_id}' AND c.id = '{record_id}'"
+        items = list(interactions_container.query_items(query=query, enable_cross_partition_query=True))
+        
+        if not items:
+            return False
+        
+        # Update the record
+        record = items[0]
+        record['meal_type'] = meal_type
+        
+        # Save the updated record
+        interactions_container.upsert_item(body=record)
+        return True
+        
+    except Exception as e:
+        print(f"Error updating meal type: {str(e)}")
+        return False
 
-        # Fetch the record first
-        existing = interactions_container.read_item(item=record_id, partition_key=record_id)
+# Admin-related database functions
+async def get_patient_profile(identifier: str):
+    """Get patient profile by email or patient_id"""
+    try:
+        # First try to get by email (registered user)
+        user = await get_user_by_email(identifier)
+        if user and user.get("profile"):
+            return user["profile"]
+        
+        # If not found by email, try by patient_id
+        query = f"SELECT * FROM c WHERE c.type = 'patient' AND c.id = '{identifier}'"
+        items = list(user_container.query_items(query=query, enable_cross_partition_query=True))
+        
+        if items:
+            patient = items[0]
+            # Convert patient data to profile format
+            profile = {
+                "fullName": patient.get("name"),
+                "medicalHistory": patient.get("medical_conditions", []),
+                "medications": patient.get("medications", []),
+                "allergies": patient.get("allergies", []),
+                "dietaryRestrictions": patient.get("dietary_restrictions", [])
+            }
+            return profile
+        
+        return None
+    except Exception as e:
+        logger.error(f"Error getting patient profile: {str(e)}")
+        return None
 
-        if existing.get("user_id") != user_id:
-            raise PermissionError("Unauthorized")
+async def save_patient_profile(identifier: str, profile: dict, updated_by: str = "admin"):
+    """Save patient profile with admin update tracking"""
+    try:
+        # First try to update registered user
+        user = await get_user_by_email(identifier)
+        if user:
+            # Update user profile
+            user["profile"] = profile
+            user_container.upsert_item(body=user)
+            return True
+        
+        # If not a registered user, try to update patient record
+        query = f"SELECT * FROM c WHERE c.type = 'patient' AND c.id = '{identifier}'"
+        items = list(user_container.query_items(query=query, enable_cross_partition_query=True))
+        
+        if items:
+            patient = items[0]
+            # Update patient data from profile
+            patient["name"] = profile.get("fullName", patient.get("name"))
+            patient["medical_conditions"] = profile.get("medicalHistory", patient.get("medical_conditions", []))
+            patient["medications"] = profile.get("medications", patient.get("medications", []))
+            patient["allergies"] = profile.get("allergies", patient.get("allergies", []))
+            patient["dietary_restrictions"] = profile.get("dietaryRestrictions", patient.get("dietary_restrictions", []))
+            patient["updated_by"] = updated_by
+            patient["updated_at"] = datetime.utcnow().isoformat()
+            
+            user_container.upsert_item(body=patient)
+            return True
+        
+        return False
+    except Exception as e:
+        logger.error(f"Error saving patient profile: {str(e)}")
+        return False
 
-        existing["meal_type"] = meal_type
+async def get_user_email_by_patient_id(patient_id: str):
+    """Get user email associated with a patient ID"""
+    try:
+        query = f"SELECT c.email FROM c WHERE c.type = 'user' AND c.patient_id = '{patient_id}'"
+        items = list(user_container.query_items(query=query, enable_cross_partition_query=True))
+        return items[0]["email"] if items else None
+    except Exception as e:
+        logger.error(f"Error getting user email by patient ID: {str(e)}")
+        return None
 
-        interactions_container.upsert_item(body=existing)
+async def get_patient_by_phone(phone: str):
+    """Get patient by phone number"""
+    try:
+        query = f"SELECT * FROM c WHERE c.type = 'patient' AND c.phone = '{phone}'"
+        items = list(user_container.query_items(query=query, enable_cross_partition_query=True))
+        return items[0] if items else None
+    except Exception as e:
+        logger.error(f"Error getting patient by phone: {str(e)}")
+        return None
+
+async def delete_patient(patient_id: str):
+    """Delete patient and all associated data"""
+    try:
+        # Get patient first
+        patient = await get_patient_by_id(patient_id)
+        if not patient:
+            return False
+        
+        # Delete patient record
+        user_container.delete_item(item=patient_id, partition_key=patient_id)
+        
+        # Also delete associated user if exists
+        user_email = await get_user_email_by_patient_id(patient_id)
+        if user_email:
+            user_container.delete_item(item=user_email, partition_key=user_email)
+        
         return True
     except Exception as e:
-        print(f"[update_consumption_meal_type] Error: {e}")
-        raise 
+        logger.error(f"Error deleting patient: {str(e)}")
+        return False 
