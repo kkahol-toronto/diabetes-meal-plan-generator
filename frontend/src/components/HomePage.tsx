@@ -25,26 +25,26 @@ const HomePage = () => {
         <Box sx={{ mb: 4 }}>
           <Typography variant="body1" paragraph>
             Managing diabetes through proper nutrition is crucial for maintaining good health. Our app is designed to help you make informed food choices and maintain a balanced diet that works for you.
-          </Typography>
-
+                </Typography>
+                
           <Typography variant="h6" gutterBottom sx={{ mt: 3, color: 'primary.main' }}>
             Key Features:
-          </Typography>
+                        </Typography>
 
           <Box component="ul" sx={{ pl: 2 }}>
             <Typography component="li" variant="body1" paragraph>
               <strong>Personalized Meal Planning:</strong> Get customized meal plans based on your dietary preferences, health goals, and diabetes management needs.
-            </Typography>
+                                </Typography>
             <Typography component="li" variant="body1" paragraph>
               <strong>Smart Recipe Suggestions:</strong> Access a variety of diabetes-friendly recipes that are both nutritious and delicious.
-            </Typography>
+                                </Typography>
             <Typography component="li" variant="body1" paragraph>
               <strong>Automated Shopping Lists:</strong> Generate organized shopping lists based on your meal plan, making grocery shopping easier and more efficient.
-            </Typography>
+                        </Typography>
             <Typography component="li" variant="body1" paragraph>
               <strong>AI-Powered Chat Assistant:</strong> Get instant answers to your nutrition questions and personalized advice for managing your diabetes through diet.
-            </Typography>
-          </Box>
+                    </Typography>
+                  </Box>
 
           <Typography variant="body1" paragraph sx={{ mt: 3 }}>
             Start your journey to better health by creating your personalized meal plan or chatting with our AI assistant about your dietary needs.
@@ -52,7 +52,7 @@ const HomePage = () => {
         </Box>
 
         <Box sx={{ display: 'flex', justifyContent: 'center', gap: 2 }}>
-          <Button
+          <Button 
             variant="contained"
             color="primary"
             size="large"

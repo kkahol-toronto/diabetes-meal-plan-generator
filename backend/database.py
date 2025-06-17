@@ -26,10 +26,10 @@ if not all([COSMOS_CONNECTION_STRING, INTERACTIONS_CONTAINER, USER_INFORMATION_C
 
 # Initialize Cosmos DB client
 try:
-    client = CosmosClient.from_connection_string(COSMOS_CONNECTION_STRING)
-    database = client.get_database_client("diabetes_diet_manager")
-    interactions_container = database.get_container_client(INTERACTIONS_CONTAINER)
-    user_container = database.get_container_client(USER_INFORMATION_CONTAINER)
+client = CosmosClient.from_connection_string(COSMOS_CONNECTION_STRING)
+database = client.get_database_client("diabetes_diet_manager")
+interactions_container = database.get_container_client(INTERACTIONS_CONTAINER)
+user_container = database.get_container_client(USER_INFORMATION_CONTAINER)
 except Exception as e:
     logger.error(f"Failed to initialize Cosmos DB client: {str(e)}")
     raise

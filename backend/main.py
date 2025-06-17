@@ -199,27 +199,27 @@ class PatientProfile(BaseModel):
     ethnicityUpdatedBy: Optional[str] = None
     ethnicityOther: Optional[str] = None
     ethnicityOtherUpdatedBy: Optional[str] = None
-
+    
     # Medical History
     medicalHistory: Optional[List[str]] = None
     medicalHistoryUpdatedBy: Optional[str] = None
     medicalHistoryOther: Optional[str] = None
     medicalHistoryOtherUpdatedBy: Optional[str] = None
-
+    
     # Current Medications
     medications: Optional[List[str]] = None
     medicationsUpdatedBy: Optional[str] = None
     medicationsOther: Optional[str] = None
     medicationsOtherUpdatedBy: Optional[str] = None
-
+    
     # Most Recent Lab Values
     labValues: Optional[Dict[str, Optional[float]]] = None
     labValuesUpdatedBy: Optional[str] = None
-
+    
     # Vital Signs
     vitalSigns: Optional[Dict[str, Optional[float]]] = None
     vitalSignsUpdatedBy: Optional[str] = None
-
+    
     # Dietary Information
     dietaryInfo: Optional[Dict[str, Any]] = None
     dietaryInfoUpdatedBy: Optional[str] = None
@@ -227,7 +227,7 @@ class PatientProfile(BaseModel):
     # Physical Activity Profile
     physicalActivity: Optional[Dict[str, Any]] = None
     physicalActivityUpdatedBy: Optional[str] = None
-
+    
     # Lifestyle & Preferences
     lifestyle: Optional[Dict[str, Any]] = None
     lifestyleUpdatedBy: Optional[str] = None
@@ -239,7 +239,7 @@ class PatientProfile(BaseModel):
     goalsOtherUpdatedBy: Optional[str] = None
     readiness: Optional[str] = None
     readinessUpdatedBy: Optional[str] = None
-
+    
     # Meal Plan Targeting
     mealPlanTargeting: Optional[Dict[str, Any]] = None
     mealPlanTargetingUpdatedBy: Optional[str] = None
@@ -362,7 +362,7 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
         logger.info(f"Login attempt for email: {form_data.username}")
         user = await get_user_by_email(form_data.username)
         logger.info(f"User found: {user is not None}")
-        
+
         if not user:
             logger.warning(f"No user found for email: {form_data.username}")
             raise HTTPException(
@@ -370,9 +370,9 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
                 detail="Incorrect username or password",
                 headers={"WWW-Authenticate": "Bearer"},
             )
-        
+
         logger.info(f"User data keys: {list(user.keys()) if user else 'None'}")
-        
+
         if not verify_password(form_data.password, user["hashed_password"]):
             logger.warning(f"Password verification failed for user: {form_data.username}")
             raise HTTPException(
@@ -380,32 +380,30 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
                 detail="Incorrect username or password",
                 headers={"WWW-Authenticate": "Bearer"},
             )
-        
+
         # Check if user is admin and include in token
         token_data = {"sub": user["email"]}
         if user.get("is_admin"):
             token_data["is_admin"] = True
-            
+
         access_token = create_access_token(data=token_data)
         refresh_token = create_refresh_token(data=token_data)
-        
+
         logger.info(f"Login successful for user: {form_data.username}")
         return {
             "access_token": access_token,
             "refresh_token": refresh_token,
-            "token_type": "bearer"
+            "token_type": "bearer",
         }
     except HTTPException:
-        # Re-raise HTTP exceptions
         raise
     except Exception as e:
         logger.error(f"Login error for {form_data.username}: {str(e)}")
-        logger.error(f"Login error type: {type(e)}")
         import traceback
-        logger.error(f"Login error traceback: {traceback.format_exc()}")
+        logger.error(traceback.format_exc())
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An error occurred during login"
+            detail="An error occurred during login",
         )
 
 @app.post("/register")
@@ -785,7 +783,7 @@ Important:
                 response_format={"type": "json_object"}
             )
             print("OpenAI response received")
-
+            
             if not response.choices or not response.choices[0].message:
                 raise HTTPException(
                     status_code=500,
@@ -800,7 +798,7 @@ Important:
                 meal_plan = json.loads(raw_content)
                 print("Meal plan parsed successfully:")
                 print(json.dumps(meal_plan, indent=2))
-
+                
                 # Validate meal plan structure
                 required_keys = ['breakfast', 'lunch', 'dinner', 'snacks', 'dailyCalories', 'macronutrients']
                 missing_keys = [key for key in required_keys if key not in meal_plan]
@@ -821,12 +819,13 @@ Important:
 
                 # Ensure macronutrients are numbers
                 macro_keys = ['protein', 'carbs', 'fats']
-                if isinstance(meal_plan.get('macronutrients'), dict): # Check if macronutrients is a dict
+                if isinstance(meal_plan.get('macronutrients'), dict):
                     for key in macro_keys:
                         if not isinstance(meal_plan['macronutrients'].get(key), (int, float)):
                             meal_plan['macronutrients'][key] = 0
-                else: # If macronutrients is not a dict, initialize it
-                     meal_plan['macronutrients'] = {"protein": 0, "carbs": 0, "fats": 0}
+                else:
+                    # Initialize with default zeros if macronutrients is missing or not a dict
+                    meal_plan['macronutrients'] = {"protein": 0, "carbs": 0, "fats": 0}
 
 
                 if not isinstance(meal_plan.get('dailyCalories'), (int, float)):
@@ -1938,7 +1937,7 @@ async def save_profile(
     except Exception as e:
         print(f"[ADMIN SAVE] Error saving profile: {str(e)}")
         print(f"[ADMIN SAVE] Error type: {type(e).__name__}")
-        raise HTTPException(
+            raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to save profile: {str(e)}"
         )
@@ -1958,7 +1957,7 @@ async def get_profile(current_user: User = Depends(get_current_user)):
             status_code=status.HTTP_200_OK,
             content={"profile": profile}
         )
-    except Exception as e:
+            except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get profile: {str(e)}"
@@ -2010,10 +2009,10 @@ async def get_admin_user_profile(
             status_code=status.HTTP_200_OK,
             content={"profile": profile}
         )
-    except Exception as e:
+        except Exception as e:
         print(f"🔥 DEBUG: Exception occurred: {str(e)}")
         print(f"🔥 DEBUG: Exception type: {type(e).__name__}")
-        import traceback
+            import traceback
         print(f"🔥 DEBUG: Full traceback: {traceback.format_exc()}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -2059,7 +2058,7 @@ async def save_admin_user_profile(
                 calculated_age = today.year - birth_date.year - ((today.month, today.day) < (birth_date.month, birth_date.day))
                 profile_data['age'] = calculated_age
                 print(f"[ADMIN SAVE] Auto-calculated age: {calculated_age}")
-            except Exception as e:
+        except Exception as e:
                 print(f"[ADMIN SAVE] Error calculating age: {e}")
         
         # Collect updates in a separate dictionary
@@ -2140,7 +2139,7 @@ async def save_admin_user_profile(
         raise
     except Exception as e:
         print(f"[ADMIN SAVE] Unexpected error: {str(e)}")
-        import traceback
+                    import traceback
         traceback.print_exc()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -2185,7 +2184,7 @@ async def debug_user_lookup(email: str):
             "all_user_emails": [u.get('email') for u in all_users]
         }
     except Exception as e:
-        return {
+            return {
             "error": str(e),
             "type": str(type(e))
         }
@@ -2384,7 +2383,7 @@ async def restore_user_from_backup(email: str):
         return results
         
     except Exception as e:
-        return {
+            return {
             "error": str(e),
             "type": str(type(e)),
             "restoration_steps": results.get("restoration_steps", [])
