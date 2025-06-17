@@ -64,7 +64,10 @@ from database import (
     get_user_email_by_patient_id,
     user_container,
     get_patient_by_phone,
-    delete_patient
+    delete_patient,
+    format_chat_history_for_prompt,
+    get_patient_by_id,
+    view_meal_plans
 )
 
 # Use interactions_container as consumption_collection for consistency
@@ -6257,7 +6260,7 @@ async def log_meal_suggestion(user_id: str, meal_type: str, suggestion: str, con
         }
         
         # Save to database
-        await db.meal_suggestions.insert_one(suggestion_log)
+        await interactions_container.upsert_item(body=suggestion_log)
     except Exception as e:
         logger.error(f"Error logging meal suggestion: {str(e)}")
         # Non-critical error, don't raise
