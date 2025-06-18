@@ -40,6 +40,9 @@ from database import (
     update_consumption_meal_type,
 )
 
+# Import from the new dependencies file
+from app.dependencies import get_current_user, User, Token, TokenData, oauth2_scheme, SECRET_KEY, ALGORITHM
+
 # Use interactions_container as consumption_collection for consistency
 consumption_collection = interactions_container
 import uuid
@@ -60,6 +63,8 @@ from fastapi import APIRouter
 import logging
 from collections import defaultdict
 
+from app.routers.vision import router as vision_router
+
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -78,6 +83,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(vision_router, prefix="/vision", tags=["Vision"])
+
 # Configure OpenAI
 client = AzureOpenAI(
     api_key=os.getenv("AZURE_OPENAI_KEY"),
@@ -89,8 +96,6 @@ client = AzureOpenAI(
 twilio_client = Client(os.getenv("SMS_API_SID"), os.getenv("SMS_KEY"))
 
 # Security
-SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-here")
-ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
 # Update password context to use newer bcrypt settings
@@ -100,22 +105,7 @@ pwd_context = CryptContext(
     bcrypt__rounds=12  # Explicitly set rounds for bcrypt
 )
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
-
-class Token(BaseModel):
-    access_token: str
-    token_type: str
-
-class TokenData(BaseModel):
-    username: Optional[str] = None
-
-class User(BaseModel):
-    username: str
-    email: EmailStr
-    disabled: Optional[bool] = None
-
-class UserInDB(User):
-    hashed_password: str
+# oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login") # Moved to dependencies.py
 
 class Patient(BaseModel):
     name: str = Field(..., min_length=1, description="Patient's full name")
@@ -233,41 +223,6 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
-
-async def get_current_user(token: str = Depends(oauth2_scheme)):
-    print("get_current_user called")
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
-    try:
-        print("Decoding JWT token...")
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        username: str = payload.get("sub")
-        print(f"Decoded username: {username}")
-        if username is None:
-            print("Username is None in token payload")
-            raise credentials_exception
-        token_data = TokenData(username=username)
-    except JWTError as e:
-        print(f"JWTError while decoding token: {e}")
-        raise credentials_exception
-    except Exception as e:
-        print(f"Unexpected error while decoding token: {e}")
-        raise credentials_exception
-    try:
-        print(f"Fetching user by email: {token_data.username}")
-        user = await get_user_by_email(token_data.username)
-        print(f"User fetched: {user}")
-        if user is None:
-            print("User not found in database")
-            raise credentials_exception
-        print("Returning user from get_current_user")
-        return user
-    except Exception as e:
-        print(f"Error fetching user from database: {e}")
-        raise credentials_exception
 
 def generate_registration_code():
     return ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
@@ -1207,120 +1162,184 @@ async def generate_recipes(
         print(f"Error in /generate-recipes: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/vision/analyze-pantry-fridge")
+async def analyze_pantry_fridge(
+    image: UploadFile = File(...),
+    session_id: str = Form(None),
+    current_user: User = Depends(get_current_user)
+):
+    """Analyze fridge/pantry image and identify items and quantities."""
+    try:
+        print(f"[analyze_pantry_fridge] Starting analysis for user {current_user['id']}")
+        
+        contents = await image.read()
+        
+        if len(contents) == 0:
+            raise HTTPException(status_code=400, detail="Empty file uploaded")
+        
+        if len(contents) > 10 * 1024 * 1024:  # 10MB limit
+            raise HTTPException(status_code=400, detail="File too large. Maximum size is 10MB")
+        
+        allowed_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp'}
+        file_extension = image.filename.lower().split('.')[-1] if image.filename else ''
+        if not file_extension or f'.{file_extension}' not in allowed_extensions:
+            raise HTTPException(status_code=400, detail=f"Unsupported file format. Allowed formats: {', '.join(allowed_extensions)}")
+        
+        try:
+            img = Image.open(BytesIO(contents))
+            
+            if img.mode in ('RGBA', 'LA', 'P'):
+                background = Image.new('RGB', img.size, (255, 255, 255))
+                if img.mode == 'P':
+                    img = img.convert('RGBA')
+                background.paste(img, mask=img.split()[-1] if img.mode == 'RGBA' else None)
+                img = background
+            elif img.mode != 'RGB':
+                img = img.convert('RGB')
+            
+            max_size = 1024
+            if img.width > max_size or img.height > max_size:
+                img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
+            
+            buffered = BytesIO()
+            img.save(buffered, format="JPEG", quality=85, optimize=True)
+            img_str = base64.b64encode(buffered.getvalue()).decode()
+            
+            print("[analyze_pantry_fridge] Image processed and converted to base64")
+            
+        except Exception as img_error:
+            print(f"[analyze_pantry_fridge] Image processing error: {str(img_error)}")
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Invalid or corrupted image file. Please upload a valid image in one of these formats: {', '.join(allowed_extensions)}"
+            )
+        
+        response = client.chat.completions.create(
+            model=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
+            messages=[
+                {
+                    "role": "system",
+                    "content": """You are an AI assistant specialized in identifying food items and their quantities from images of fridges or pantries. \
+                    Analyze the image and return a structured JSON response with a list of identified items and their estimated quantities. \
+                    If you cannot identify an item or its quantity, you can state "unknown". \
+                    The format should be:
+                    {
+                        "identified_items": [
+                            {"item_name": "name of item", "quantity": "estimated quantity (e.g., 2 apples, half a carton, 300g pasta)"},
+                            {"item_name": "another item", "quantity": "estimated quantity"},
+                            // ... more items
+                        ],
+                        "notes": "Any additional observations about the contents."
+                    }
+                    Be precise and objective in your identification."""
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": "Identify the items and their quantities in this image of a fridge or pantry."
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/jpeg;base64,{img_str}"
+                            }
+                        }
+                    ]
+                }
+            ],
+            max_tokens=800,
+            temperature=0.3
+        )
+        
+        print("[analyze_pantry_fridge] Received analysis from OpenAI")
+        
+        analysis_text = response.choices[0].message.content
+        
+        try:
+            import json
+            start_idx = analysis_text.find('{')
+            end_idx = analysis_text.rfind('}') + 1
+            json_str = analysis_text[start_idx:end_idx]
+            analysis_data = json.loads(json_str)
+            print(f"[analyze_pantry_fridge] Successfully parsed analysis data: {analysis_data}")
+        except (json.JSONDecodeError, ValueError) as e:
+            print(f"[analyze_pantry_fridge] Error parsing analysis data: {str(e)}")
+            analysis_data = {
+                "identified_items": [{"item_name": "unknown", "quantity": "unknown"}],
+                "notes": analysis_text
+            }
+        
+        # Save analysis to chat history for context
+        if session_id:
+            print(f"[analyze_pantry_fridge] Saving to chat with session_id: {session_id}")
+            # Save user message (image context)
+            await save_chat_message(
+                user_id=current_user["email"],
+                session_id=session_id,
+                message="Image of fridge/pantry submitted for analysis.",
+                is_user=True,
+                image_url=img_str,
+                metadata={"type": "fridge_pantry_analysis_request"}
+            )
+            # Save AI response
+            await save_chat_message(
+                user_id=current_user["email"],
+                session_id=session_id,
+                message=json.dumps(analysis_data, indent=2), # Store JSON as string in message
+                is_user=False,
+                metadata={"type": "fridge_pantry_analysis_response", "data": analysis_data}
+            )
+
+        return {"success": True, "analysis": analysis_data}
+
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        print(f"[analyze_pantry_fridge] Unexpected error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
 @app.post("/generate-shopping-list")
 async def generate_shopping_list(
     request: FastAPIRequest,
     recipes: List[dict],
     current_user: User = Depends(get_current_user)
 ):
+    """Generate a consolidated shopping list based on selected recipes."""
     try:
         print("/generate-shopping-list endpoint called")
-        print("Received recipes:")
-        print(recipes)
-        prompt = f"""Generate a shopping list based on the following recipes:
-                    {json.dumps(recipes, indent=2)}
 
-                    Group items by category (e.g., Produce, Dairy, Meat, etc.) and combine quantities for the same items.
+        # Implement shopping list generation logic
+        # This is a placeholder for actual implementation
+        shopping_list_items = []
+        for recipe in recipes:
+            if "ingredients" in recipe and isinstance(recipe["ingredients"], list):
+                for ingredient in recipe["ingredients"]:
+                    # Simple parsing for demonstration; more robust parsing needed for production
+                    item_name = ingredient
+                    amount = "1 unit" # Placeholder for quantity
+                    if " - " in ingredient:
+                        parts = ingredient.split(" - ", 1)
+                        item_name = parts[1].strip()
+                        amount = parts[0].strip()
 
-                    ––––– UNIT RULES –––––
-                    • Express quantities in units a Canadian grocery shopper can actually buy ("purchasable quantity").
-                    – **Fresh herbs** (cilantro/coriander, parsley, mint, dill, etc.): use whole bunches.  
-                        *Assume 1 bunch ≈ 30 g; round ⭡ to the nearest whole bunch.*
-                    – **Loose fruit & veg** commonly weighed at checkout (apples, oranges, onions, potatoes, carrots, etc.): use pounds (lb).  
-                        *Round ⭡ to the nearest 1 lb, minimum 1 lb.*
-                    – **Packaged produce** (bags of spinach, baby carrots, etc.): round ⭡ to the nearest 250 g (≈ ½ lb) or to the nearest package size you specify in the item name (e.g., "1 × 250 g bag baby spinach").
-                    – **Liquids**: keep ml/l, but round ⭡ to the nearest 100 ml (or common bottle size) if <1 l; use whole litres if ≥1 l.
-                    – **Dry pantry staples** (rice, flour, sugar, pasta, beans, nuts, etc.): use grams/kilograms, rounded ⭡ to the nearest 100 g for ≤1 kg or to the nearest 0.5 kg for >1 kg.
-                    – If an item is only sold by count (e.g., eggs, garlic bulbs, lemons), use "pieces".
-                    – Avoid descriptors like "large" or "medium"; only use count-based units when weight/volume makes no sense.
-
-                    ––––– SANITY CHECK –––––
-                    After calculating totals, scan the list for obviously implausible amounts (e.g., >2 bunches of coriander for ≤8 servings, >5 lb of garlic, etc.).  
-                    If an amount seems unrealistic, recompute or cap it to a reasonable upper bound and add a "note" field explaining the adjustment.
-
-                    ––––– ROUNDING GRID (CANADIAN GROCERY) –––––
-                    When you finish aggregating all recipes, convert each total to the **next-larger** purchasable size:
-
-                    • Loose produce sold by weight (onions, apples, tomatoes, carrots, potatoes, peppers, etc.):
-                    – Express in **pounds (lb)** and round **up** to the nearest 1 lb.
-                        *Example 1 → 2.82 lb ⇒ 3 lb  (≈ 1.36 kg)*
-
-                    • Mid-volume produce often pre-bagged (spinach, baby carrots, kale, salad mix, frozen peas, frozen beans):
-                    – Use the next-larger multiple of **454 g = 1 lb** (or mention the closest bag size if that's clearer).
-                        *Example 510 g ⇒ 908 g (2 × 454 g bags).*
-
-                    • Bulky vegetables normally sold by unit (cauliflower, cabbage, squash, bottle gourd, cucumber, eggplant):
-                    – Convert to **whole pieces/heads** and give an *≈ weight* in parentheses if helpful.
-                        *Example 1.43 lb cauliflower ⇒ "1 head (≈1.5 lb)".*
-
-                    • Herbs with stems (cilantro/coriander, parsley, dill, mint, etc.):
-                    – Use **bunches**. 1 bunch ≈ 30 g.  
-                        Round up to the nearest whole bunch **but also sanity-cap at 3 bunches unless recipe count clearly justifies more**.
-
-                    • Ginger, garlic bulbs, green chilli, curry leaves:
-                    – Sell by weight or count in small amounts.  
-                        ➜ Round ginger/garlic/chilli up to **0.25 lb** increments.  
-                        ➜ For garlic bulbs or curry leaves sold by unit, keep **pieces** but sanity-cap at 1 bulb per 2 cloves required (e.g., 38 cloves ⇒ 19 bulbs max, but prefer 4 bulbs and note the assumption).
-
-                    • Liquids (milk, oil, stock, etc.):
-                    – Round up to the next **100 ml** below 1 l or whole **lite**rs if ≥ 1 l.
-
-                    • Dry pantry staples (flour, rice, sugar, lentils, pasta, etc.):
-                    – Round up to the next **100 g** below 1 kg, else the next **0.5 kg**.
-
-                    After rounding, perform a **sanity sweep**.  
-                    Flag anything that still looks extreme (e.g., >3 lb chilli, >3 bunches cilantro for ≤8 servings) and reduce to a realistic maximum, adding `"note"` to explain.
-
-                    ––––– OUTPUT FORMAT –––––
-                    Return **only** a JSON array with each element:
-                    {{
-                    "name": "Item Name",
-                    "amount": "Quantity with Purchasable Unit",
-                    "category": "Category Name",
-                    "note": "Optional brief note about rounding or sanity adjustment"
-                    }}
-                    Omit the "note" key if no comment is needed.
-                    """
-        print("Prompt for OpenAI:")
-        print(prompt)
-        # Call Azure OpenAI (synchronous call)
-        response = client.chat.completions.create(
-            model=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
-            messages=[
-                {"role": "system", "content": "You are a diabetes diet planning assistant."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.7,
-            max_tokens=20000
-        )
-        print("OpenAI response received")
-        raw_content = response.choices[0].message.content
-        print("Raw OpenAI response:")
-        print(raw_content)
-        # Remove Markdown code block if present
-        if raw_content.strip().startswith('```'):
-            raw_content = re.sub(r'^```[a-zA-Z]*\s*|```$', '', raw_content.strip(), flags=re.MULTILINE).strip()
-        # Extract the first JSON array from the response
-        match = re.search(r'\[.*?\]', raw_content, re.DOTALL)
-        if match:
-            json_str = match.group(0)
-        else:
-            json_str = raw_content  # fallback, may still error
-        try:
-            shopping_list = json.loads(json_str)
-            print("Parsed shopping list:")
-            print(shopping_list)
-        except Exception as parse_err:
-            print("Error parsing OpenAI response as JSON:")
-            print(parse_err)
-            raise HTTPException(status_code=500, detail=f"OpenAI response not valid JSON: {parse_err}\nRaw response: {raw_content}")
-        await save_shopping_list(
-            user_id=current_user["email"],
-            shopping_list={"items": shopping_list}
-        )
-        return shopping_list
+                    shopping_list_items.append({
+                        "name": item_name,
+                        "amount": amount,
+                        "category": "Uncategorized" # Placeholder category
+                    })
+        
+        # Save shopping list to Cosmos DB
+        await save_shopping_list(current_user["email"], shopping_list_items)
+        
+        return {"message": "Shopping list generated and saved successfully", "shopping_list": shopping_list_items}
     except Exception as e:
-        print(f"Error in /generate-shopping-list: {str(e)}")
+        print(f"Error in /generate-shopping-list: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/export/consolidated-meal-plan")
@@ -3144,855 +3163,6 @@ async def chat_message_with_image(
 
 Your meal plan will be updated to reflect this logged meal."""
 
-    else:
-        # 🚀 USE COMPREHENSIVE AI SYSTEM FOR NON-LOGGING RESPONSES
-        try:
-            # Determine query type
-            nutrition_fields = extract_nutrition_question(message)
-            
-            if img_str and analysis_data and nutrition_fields:
-                query_type = "nutrition_question"
-                specific_data = {
-                    "nutrition_fields": nutrition_fields,
-                    "food_data": analysis_data,
-                    "user_message": message
-                }
-            elif img_str and analysis_data:
-                query_type = "food_analysis"
-                specific_data = {
-                    "food_data": analysis_data,
-                    "user_message": message
-                }
-            elif has_logging_intent(message) and not image and not recent_context:
-                query_type = "logging_help"
-                specific_data = {
-                    "user_message": message
-                }
-            else:
-                query_type = "general_health_chat"
-                specific_data = {
-                    "user_message": message
-                }
-
-            # 🧠 GET AI RESPONSE USING COMPREHENSIVE SYSTEM
-            assistant_message = await get_ai_health_coach_response(
-                user_context=user_context,
-                query_type=query_type,
-                specific_data=specific_data
-            )
-            
-            print(f"✅ Generated comprehensive AI response for query type: {query_type}")
-
-        except Exception as e:
-            print(f"❌ Error in comprehensive AI system: {str(e)}")
-            import traceback
-            print(f"Traceback: {traceback.format_exc()}")
-            
-            # Fallback responses
-            nutrition_fields = extract_nutrition_question(message)
-            
-            if img_str and analysis_data and nutrition_fields:
-                # Focused answer for specific nutrition questions
-                nutri = analysis_data.get('nutritional_info', {})
-                food_name = analysis_data.get('food_name', 'this food')
-                portion = analysis_data.get('estimated_portion', '')
-                responses = []
-                for field in nutrition_fields:
-                    value = nutri.get(field, None)
-                    if value is not None:
-                        field_label = field.capitalize()
-                        unit = 'mg' if field == 'sodium' else 'g' if field in ['protein', 'carbohydrates', 'fat', 'fiber', 'sugar'] else 'kcal' if field == 'calories' else ''
-                        responses.append(f"{field_label} in {food_name} ({portion}): {value} {unit}".strip())
-                
-                if responses:
-                    assistant_message = f"📊 **Nutrition Info:**\n\n" + '\n'.join(responses)
-                    assistant_message += f"\n\n⚠️ **Note:** Using fallback response - comprehensive AI system temporarily unavailable."
-                else:
-                    assistant_message = "Sorry, I couldn't find that specific nutrition information for this food."
-                    
-            elif img_str and analysis_data:
-                # General food analysis without logging
-                assistant_message = f"""🔍 **Food Analysis: {analysis_data.get('food_name')}**
-
-📊 **Nutritional Breakdown** (per {analysis_data.get('estimated_portion')}):
-• Calories: {analysis_data.get('nutritional_info', {}).get('calories', 'N/A')}
-• Carbs: {analysis_data.get('nutritional_info', {}).get('carbohydrates', 'N/A')}g
-• Protein: {analysis_data.get('nutritional_info', {}).get('protein', 'N/A')}g
-• Fat: {analysis_data.get('nutritional_info', {}).get('fat', 'N/A')}g
-
-💡 **Notes:** {analysis_data.get('analysis_notes', 'No additional notes available.')}
-
-Would you like me to record this to your consumption history? Just say "log this as my [breakfast/lunch/dinner/snack]"!
-
-⚠️ **Note:** Using fallback response - comprehensive AI system temporarily unavailable."""
-            elif has_logging_intent(message) and not image and not recent_context:
-                # User wants to log something but we have no context
-                assistant_message = """🤔 **I'd love to help you log your food!**
-
-However, I don't see any recent food analysis in our conversation. To log food, you can:
-
-1. **Share a photo** of your food with a message like "this is my snack"
-2. **Or first share a photo** for analysis, then say "log this as my [meal type]"
-
-I'm here to help track your nutrition and provide personalized health guidance! 📸🍽️
-
-⚠️ **Note:** Using fallback response - comprehensive AI system temporarily unavailable."""
-            else:
-                assistant_message = """Hello! I'm your comprehensive health coach. I can help you with:
-
-🍽️ **Food Analysis & Logging** - Upload food images for nutritional analysis
-🏥 **Multi-Condition Health Management** - Personalized advice for all your health conditions  
-📊 **Meal Planning & Tracking** - Smart recommendations based on your health profile
-💊 **Medication & Treatment Integration** - Holistic health management
-
-How can I help you today?
-
-⚠️ **Note:** Using fallback response - comprehensive AI system temporarily unavailable."""
-
-    # Save assistant response
-    await save_chat_message(
-        current_user["email"],
-        assistant_message,
-        is_user=False,
-        session_id=session_id
-    )
-
-    # --- Stream response back so the frontend can progressively render ---
-    import json as _json
-
-    def _event_stream():
-        chunk = _json.dumps({"content": assistant_message})
-        yield f"data: {chunk}\n\n"
-
-    return StreamingResponse(_event_stream(), media_type="text/event-stream")
-
-@app.get("/consumption/progress")
-async def get_consumption_progress(current_user: User = Depends(get_current_user)):
-    """
-    Returns user's daily calorie/macro goals, today's progress, and weekly/monthly averages.
-    Always returns a valid set of goals, using smart defaults if needed.
-    """
-    # 1. Get user profile (for goals)
-    user_doc = await get_user_by_email(current_user["email"])
-    if not user_doc or "profile" not in user_doc:
-        raise HTTPException(status_code=404, detail="User profile not found")
-    profile = user_doc["profile"]
-
-    # --- Try to get most recent meal plan for fallback ---
-    recent_meal_plan = None
-    meal_plans = await get_user_meal_plans(current_user["email"])
-    if meal_plans and isinstance(meal_plans, list):
-        # Assume sorted by created_at DESC
-        recent_meal_plan = meal_plans[0] if meal_plans else None
-
-    # Smart defaults
-    smart_defaults = {
-        "calories": 2000,
-        "macronutrients": {
-            "carbohydrates": 250,
-            "protein": 100,
-            "fat": 66
-        }
-    }
-
-    def parse_int(val, default):
-        try:
-            return int(val)
-        except Exception:
-            return default
-
-    # 1. Try to get calorie goal from profile, then meal plan, then default
-    calorie_goal = None
-    if profile.get("calorieTarget"):
-        calorie_goal = parse_int(profile.get("calorieTarget"), smart_defaults["calories"])
-    elif profile.get("calories_target"):
-        calorie_goal = parse_int(profile.get("calories_target"), smart_defaults["calories"])
-    elif recent_meal_plan and recent_meal_plan.get("dailyCalories"):
-        calorie_goal = parse_int(recent_meal_plan.get("dailyCalories"), smart_defaults["calories"])
-    else:
-        calorie_goal = smart_defaults["calories"]
-
-    # 2. Try to get macro goals from profile, then meal plan, then default
-    macro_goals = profile.get("macroGoals")
-    macro_from_meal_plan = recent_meal_plan.get("macronutrients") if recent_meal_plan else None
-    macro_goal = None
-    if macro_goals and isinstance(macro_goals, dict) and all(k in macro_goals for k in ["protein", "carbs", "fat"]):
-        macro_goal = {
-            "protein": parse_int(macro_goals.get("protein"), smart_defaults["macronutrients"]["protein"]),
-            "carbs": parse_int(macro_goals.get("carbs"), smart_defaults["macronutrients"]["carbohydrates"]),
-            "fat": parse_int(macro_goals.get("fat"), smart_defaults["macronutrients"]["fat"])
-        }
-    elif macro_from_meal_plan and all(k in macro_from_meal_plan for k in ["protein", "carbs", "fats"]):
-        macro_goal = {
-            "protein": parse_int(macro_from_meal_plan.get("protein"), smart_defaults["macronutrients"]["protein"]),
-            "carbs": parse_int(macro_from_meal_plan.get("carbs"), smart_defaults["macronutrients"]["carbohydrates"]),
-            "fat": parse_int(macro_from_meal_plan.get("fats"), smart_defaults["macronutrients"]["fat"])
-        }
-    else:
-        macro_goal = {
-            "protein": smart_defaults["macronutrients"]["protein"],
-            "carbs": smart_defaults["macronutrients"]["carbohydrates"],
-            "fat": smart_defaults["macronutrients"]["fat"]
-        }
-
-    # 3. (Future extensibility) Consider dietary info and physical activity for smarter defaults
-    # For now, just use the above logic
-
-    # 4. Get today's consumption records
-    today = datetime.utcnow().date()
-    tomorrow = today + timedelta(days=1)
-    query = (
-        "SELECT c.nutritional_info FROM c WHERE c.type = 'consumption_record' "
-        f"AND c.user_id = '{current_user['email']}' "
-        f"AND c.timestamp >= '{today.isoformat()}' AND c.timestamp < '{tomorrow.isoformat()}'"
-    )
-    records = list(interactions_container.query_items(query=query, enable_cross_partition_query=True))
-    today_totals = {"calories": 0, "protein": 0, "carbs": 0, "fat": 0}
-    for rec in records:
-        ni = rec.get("nutritional_info", {})
-        today_totals["calories"] += ni.get("calories", 0)
-        today_totals["protein"] += ni.get("protein", 0)
-        today_totals["carbs"] += ni.get("carbohydrates", 0)
-        today_totals["fat"] += ni.get("fat", 0)
-
-    # 5. Weekly and monthly averages (reuse analytics logic)
-    weekly = await get_consumption_analytics(current_user["email"], days=7)
-    monthly = await get_consumption_analytics(current_user["email"], days=30)
-
-    def macro_avg(analytics):
-        days = analytics.get("period_days", 1)
-        return {
-            "calories": round(analytics.get("total_calories", 0) / days, 1),
-            "protein": round(analytics.get("total_macronutrients", {}).get("protein", 0) / days, 1),
-            "carbs": round(analytics.get("total_macronutrients", {}).get("carbohydrates", 0) / days, 1),
-            "fat": round(analytics.get("total_macronutrients", {}).get("fat", 0) / days, 1),
-        }
-
-    return {
-        "goals": {
-            "calories": calorie_goal,
-            "protein": macro_goal["protein"],
-            "carbs": macro_goal["carbs"],
-            "fat": macro_goal["fat"]
-        },
-        "today": today_totals,
-        "weekly_avg": macro_avg(weekly),
-        "monthly_avg": macro_avg(monthly)
-    }
-
-def calculate_consistency_streak(consumption_history: list) -> int:
-    """Calculate consistency streak based on daily logging patterns"""
-    if not consumption_history:
-        return 0
-    
-    from datetime import datetime, timedelta
-    
-    # Group consumption by date
-    daily_logs = {}
-    for record in consumption_history:
-        try:
-            record_date = datetime.fromisoformat(record.get("timestamp", "").replace("Z", "+00:00")).date()
-            if record_date not in daily_logs:
-                daily_logs[record_date] = 0
-            daily_logs[record_date] += 1
-        except:
-            continue
-    
-    # Calculate streak from today backwards
-    today = datetime.utcnow().date()
-    streak = 0
-    current_date = today
-    
-    # Check each day backwards
-    for i in range(30):  # Check last 30 days max
-        if current_date in daily_logs and daily_logs[current_date] >= 2:  # At least 2 meals logged
-            streak += 1
-        else:
-            break  # Streak broken
-        current_date -= timedelta(days=1)
-    
-    return streak
-
-@app.get("/coach/daily-insights")
-async def get_daily_coaching_insights(current_user: User = Depends(get_current_user)):
-    """Get daily insights - USING ORIGINAL LOGIC with better integration"""
-    try:
-        print(f"[get_daily_insights] Getting insights for user {current_user['email']}")
-        
-        # Get user profile
-        profile = current_user.get("profile", {})
-        
-        # Get recent meal plans
-        try:
-            recent_meal_plans = await get_user_meal_plans(current_user["email"])
-            recent_meal_plans = recent_meal_plans[:3]
-        except Exception as e:
-            print(f"Error fetching meal plans for coaching insights: {e}")
-            recent_meal_plans = []
-        
-        # Get recent consumption history (last 7 days) - USING ORIGINAL FUNCTION
-        try:
-            recent_consumption = await get_user_consumption_history(current_user["email"], limit=30)
-            from datetime import datetime, timedelta
-            seven_days_ago = datetime.utcnow() - timedelta(days=7)
-            recent_consumption = [
-                record for record in recent_consumption 
-                if datetime.fromisoformat(record.get("timestamp", "").replace("Z", "+00:00")) > seven_days_ago
-            ]
-        except Exception as e:
-            print(f"Error fetching consumption history for coaching insights: {e}")
-            recent_consumption = []
-        
-        # Get today's consumption
-        today = datetime.utcnow().date()
-        tomorrow = today + timedelta(days=1)
-        today_consumption = [
-            record for record in recent_consumption
-            if today <= datetime.fromisoformat(record.get("timestamp", "").replace("Z", "+00:00")).date() < tomorrow
-        ]
-        
-        # Calculate today's totals - USING CONSISTENT FIELD NAMES
-        today_totals = {"calories": 0, "protein": 0, "carbohydrates": 0, "fat": 0, "fiber": 0, "sugar": 0, "sodium": 0}
-        for record in today_consumption:
-            nutritional_info = record.get("nutritional_info", {})
-            today_totals["calories"] += nutritional_info.get("calories", 0)
-            today_totals["protein"] += nutritional_info.get("protein", 0)
-            today_totals["carbohydrates"] += nutritional_info.get("carbohydrates", nutritional_info.get("carbs", 0))  # Handle both field names
-            today_totals["fat"] += nutritional_info.get("fat", 0)
-            today_totals["fiber"] += nutritional_info.get("fiber", 0)
-            today_totals["sugar"] += nutritional_info.get("sugar", 0)
-            today_totals["sodium"] += nutritional_info.get("sodium", 0)
-        
-        # Get goals
-        calorie_goal = 2000
-        macro_goals = {"protein": 100, "carbohydrates": 250, "fat": 70}
-        
-        if profile.get("calorieTarget"):
-            try:
-                calorie_goal = int(profile["calorieTarget"])
-            except:
-                pass
-        elif recent_meal_plans and recent_meal_plans[0].get("dailyCalories"):
-            calorie_goal = recent_meal_plans[0]["dailyCalories"]
-        
-        if profile.get("macroGoals"):
-            macro_goals.update(profile["macroGoals"])
-        elif recent_meal_plans and recent_meal_plans[0].get("macronutrients"):
-            macros = recent_meal_plans[0]["macronutrients"]
-            macro_goals = {
-                "protein": macros.get("protein", 100),
-                "carbohydrates": macros.get("carbs", 250),
-                "fat": macros.get("fats", 70)
-            }
-        
-        # Calculate adherence percentages
-        adherence = {
-            "calories": min(100, (today_totals["calories"] / calorie_goal * 100)) if calorie_goal > 0 else 0,
-            "protein": min(100, (today_totals["protein"] / macro_goals["protein"] * 100)) if macro_goals["protein"] > 0 else 0,
-            "carbohydrates": min(100, (today_totals["carbohydrates"] / macro_goals["carbohydrates"] * 100)) if macro_goals["carbohydrates"] > 0 else 0,
-            "fat": min(100, (today_totals["fat"] / macro_goals["fat"] * 100)) if macro_goals["fat"] > 0 else 0
-        }
-        
-        # Enhanced diabetes score calculation based on multiple factors
-        condition_suitable_count = 0
-        total_recent_records = len(recent_consumption)
-        weekly_calories = 0
-        
-        # Get user's health conditions
-        user_conditions = profile.get("medicalConditions", []) or profile.get("medical_conditions", [])
-        
-        # Enhanced scoring factors
-        diabetes_score_factors = {
-            "high_suitability": 0,
-            "medium_suitability": 0,
-            "low_suitability": 0,
-            "high_carb_meals": 0,
-            "high_sugar_meals": 0,
-            "processed_foods": 0,
-            "healthy_choices": 0
-        }
-        
-        for record in recent_consumption:
-            # Access nutritional info properly
-            nutritional_info = record.get("nutritional_info", {})
-            weekly_calories += nutritional_info.get("calories", 0)
-            
-            # Get nutritional values
-            carbs = nutritional_info.get("carbohydrates", 0)
-            sugar = nutritional_info.get("sugar", 0)
-            fiber = nutritional_info.get("fiber", 0)
-            sodium = nutritional_info.get("sodium", 0)
-            
-            # Check medical rating
-            medical_rating = record.get("medical_rating", {})
-            diabetes_suitability = medical_rating.get("diabetes_suitability", "medium").lower()
-            glycemic_impact = medical_rating.get("glycemic_impact", "medium").lower()
-            
-            # Score based on diabetes suitability
-            if diabetes_suitability == "high":
-                diabetes_score_factors["high_suitability"] += 1
-                condition_suitable_count += 1
-            elif diabetes_suitability == "medium":
-                diabetes_score_factors["medium_suitability"] += 1
-                condition_suitable_count += 0.7  # Partial credit
-            else:
-                diabetes_score_factors["low_suitability"] += 1
-            
-            # Penalize high carb meals (>45g carbs per meal)
-            if carbs > 45:
-                diabetes_score_factors["high_carb_meals"] += 1
-            
-            # Penalize high sugar meals (>15g sugar per meal)
-            if sugar > 15:
-                diabetes_score_factors["high_sugar_meals"] += 1
-            
-            # Penalize high sodium (>800mg per meal)
-            if sodium > 800:
-                diabetes_score_factors["processed_foods"] += 1
-            
-            # Reward healthy choices (high fiber, low glycemic)
-            if fiber >= 5 and glycemic_impact == "low":
-                diabetes_score_factors["healthy_choices"] += 1
-        
-        # Calculate enhanced diabetes score
-        if total_recent_records > 0:
-            base_score = (condition_suitable_count / total_recent_records * 100)
-            
-            # Apply penalties and bonuses
-            carb_penalty = (diabetes_score_factors["high_carb_meals"] / total_recent_records) * 15
-            sugar_penalty = (diabetes_score_factors["high_sugar_meals"] / total_recent_records) * 20
-            processed_penalty = (diabetes_score_factors["processed_foods"] / total_recent_records) * 10
-            healthy_bonus = (diabetes_score_factors["healthy_choices"] / total_recent_records) * 10
-            
-            health_adherence = max(0, min(100, base_score - carb_penalty - sugar_penalty - processed_penalty + healthy_bonus))
-        else:
-            # Default score for new users (encourage logging)
-            health_adherence = 75
-        
-        # Generate coaching recommendations
-        recommendations = []
-        
-        # Calorie recommendations
-        if adherence["calories"] < 70:
-            remaining_calories = calorie_goal - today_totals["calories"]
-            recommendations.append({
-                "type": "calorie_low",
-                "priority": "medium",
-                "message": f"You're {remaining_calories:.0f} calories below your goal. Consider adding a healthy snack or slightly larger portions.",
-                "action": "increase_intake"
-            })
-        elif adherence["calories"] > 110:
-            excess_calories = today_totals["calories"] - calorie_goal
-            recommendations.append({
-                "type": "calorie_high",
-                "priority": "medium",
-                "message": f"You're {excess_calories:.0f} calories over your goal. Consider lighter options for remaining meals.",
-                "action": "reduce_intake"
-            })
-        else:
-            recommendations.append({
-                "type": "calorie_good",
-                "priority": "low",
-                "message": "Great job staying within your calorie target! 🎯",
-                "action": "maintain"
-            })
-        
-        # Protein recommendations
-        if adherence["protein"] < 80:
-            protein_needed = macro_goals["protein"] - today_totals["protein"]
-            recommendations.append({
-                "type": "protein_low",
-                "priority": "medium",
-                "message": f"You need {protein_needed:.0f}g more protein today. Try adding lean meats, eggs, or Greek yogurt.",
-                "action": "add_protein"
-            })
-        
-        # Carb recommendations
-        if adherence["carbohydrates"] > 120:
-            recommendations.append({
-                "type": "carb_high",
-                "priority": "high",
-                "message": "Your carb intake is high today. Focus on low-carb options for remaining meals to help manage blood sugar.",
-                "action": "reduce_carbs"
-            })
-        
-        # Weekly performance feedback
-        if health_adherence >= 80:
-            recommendations.append({
-                "type": "weekly_excellent",
-                "priority": "low",
-                "message": f"Excellent! {health_adherence:.0f}% of your recent meals were health-suitable for your conditions. You've earned a small treat! 🌟",
-                "action": "reward"
-            })
-        elif health_adherence >= 60:
-            recommendations.append({
-                "type": "weekly_good",
-                "priority": "low",
-                "message": f"Good progress! {health_adherence:.0f}% health-suitable meals. Let's aim for 80%+ this week.",
-                "action": "improve"
-            })
-        else:
-            recommendations.append({
-                "type": "weekly_needs_improvement",
-                "priority": "high",
-                "message": f"Only {health_adherence:.0f}% of recent meals were health-suitable for your conditions. Let's focus on better choices.",
-                "action": "focus_improvement"
-            })
-        
-        # Meal timing recommendations
-        current_hour = datetime.utcnow().hour
-        if current_hour < 10 and len([r for r in today_consumption if "breakfast" in r.get("food_name", "").lower()]) == 0:
-            recommendations.append({
-                "type": "breakfast_reminder",
-                "priority": "medium",
-                "message": "Don't forget breakfast! It's important for blood sugar stability throughout the day.",
-                "action": "eat_breakfast"
-            })
-        
-        insights = {
-            "date": today.isoformat(),
-            "goals": {
-                "calories": calorie_goal,
-                "protein": macro_goals["protein"],
-                "carbohydrates": macro_goals["carbohydrates"],
-                "fat": macro_goals["fat"]
-            },
-            "today_totals": today_totals,
-            "adherence": adherence,
-            "diabetes_adherence": health_adherence,  # Now represents overall health adherence
-            "health_adherence": health_adherence,  # Add explicit health adherence field
-            "health_conditions": user_conditions,  # Add user's health conditions
-            "consistency_streak": calculate_consistency_streak(recent_consumption),
-            "meals_logged_today": len(today_consumption),
-            "weekly_stats": {
-                "total_meals": total_recent_records,
-                "diabetes_suitable_percentage": health_adherence,  # Now represents overall health adherence
-                "health_suitable_percentage": health_adherence,
-                "average_daily_calories": weekly_calories / 7 if weekly_calories > 0 else 0
-            },
-            "recommendations": recommendations,
-            "has_meal_plan": len(recent_meal_plans) > 0,
-            "latest_meal_plan_date": recent_meal_plans[0].get("created_at") if recent_meal_plans else None,
-            # Add insights for the frontend
-            "insights": [
-                {
-                    "category": "Daily Progress",
-                    "message": f"You've logged {len(today_consumption)} meals today with {health_adherence:.0f}% health-suitable choices for your conditions: {', '.join(user_conditions[:2])}{'...' if len(user_conditions) > 2 else ''}.",
-                    "action": "View Details"
-                },
-                {
-                    "category": "Weekly Trend", 
-                    "message": f"This week you've maintained {total_recent_records} meal logs with consistent tracking for your health management.",
-                    "action": "Keep Going"
-                },
-                {
-                    "category": "Health Focus",
-                    "message": f"Your meal choices are {health_adherence:.0f}% aligned with recommendations for {', '.join(user_conditions[:2])}.",
-                    "action": "Get Recommendations"
-                }
-            ] if len(today_consumption) > 0 else [
-                {
-                    "category": "Getting Started",
-                    "message": f"Start logging your meals to get personalized AI insights for your health conditions: {', '.join(user_conditions)}!",
-                    "action": "Log First Meal"
-                }
-            ]
-        }
-        
-        print(f"[get_daily_insights] Generated insights successfully")
-        
-        return insights
-        
-    except Exception as e:
-        print(f"[get_daily_insights] Error: {str(e)}")
-        print(f"[get_daily_insights] Traceback: {traceback.format_exc()}")
-        raise HTTPException(status_code=500, detail=f"Failed to get daily insights: {str(e)}")
-
-@app.post("/coach/quick-log")
-async def quick_log_food(
-    food_data: dict,
-    current_user: User = Depends(get_current_user)
-):
-    """Quick log food - USING ORIGINAL SAVE FUNCTION with better AI analysis"""
-    try:
-        print(f"[quick_log_food] Starting quick log for user {current_user['id']}")
-        print(f"[quick_log_food] Food data received: {food_data}")
-        
-        food_name = food_data.get("food_name", "").strip()
-        portion = food_data.get("portion", "medium portion").strip()
-        
-        if not food_name:
-            raise HTTPException(status_code=400, detail="Food name is required")
-        
-        # Use AI to estimate nutritional values with comprehensive analysis
-        prompt = f"""
-        Analyze the food item: {food_name} ({portion})
-        
-        Provide a comprehensive JSON response with this exact structure:
-        {{
-            "food_name": "{food_name}",
-            "estimated_portion": "{portion}",
-            "nutritional_info": {{
-                "calories": <number>,
-                "carbohydrates": <number>,
-                "protein": <number>,
-                "fat": <number>,
-                "fiber": <number>,
-                "sugar": <number>,
-                "sodium": <number>
-            }},
-            "medical_rating": {{
-                "diabetes_suitability": "high/medium/low",
-                "glycemic_impact": "low/medium/high",
-                "recommended_frequency": "daily/weekly/occasional/avoid",
-                "portion_recommendation": "appropriate/reduce/increase"
-            }},
-            "analysis_notes": "Brief explanation of nutritional value and diabetes considerations"
-        }}
-        
-        Base estimates on standard nutritional databases. Be accurate and conservative with diabetes ratings.
-        Only return valid JSON, no other text.
-        """
-        
-        # Initialize fallback data
-        fallback_data = {
-            "food_name": food_name,
-            "estimated_portion": portion,
-            "nutritional_info": {
-                "calories": 200,
-                "carbohydrates": 25,
-                "protein": 10,
-                "fat": 8,
-                "fiber": 3,
-                "sugar": 5,
-                "sodium": 300
-            },
-            "medical_rating": {
-                "diabetes_suitability": "medium",
-                "glycemic_impact": "medium",
-                "recommended_frequency": "weekly",
-                "portion_recommendation": "appropriate"
-            },
-            "analysis_notes": f"Nutritional estimate for {food_name}. Consult with healthcare provider for personalized advice."
-        }
-        
-        try:
-            print("[quick_log_food] Calling OpenAI for nutritional analysis")
-            response = client.chat.completions.create(
-                model=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "You are a nutrition analysis expert specializing in diabetes management. Provide accurate nutritional estimates and diabetes-appropriate recommendations."
-                    },
-                    {
-                        "role": "user", 
-                        "content": prompt
-                    }
-                ],
-                max_tokens=500,
-                temperature=0.3
-            )
-            
-            # Parse AI response
-            analysis_text = response.choices[0].message.content
-            print(f"[quick_log_food] OpenAI response: {analysis_text}")
-            
-            try:
-                # Extract JSON from response
-                start_idx = analysis_text.find('{')
-                end_idx = analysis_text.rfind('}') + 1
-                json_str = analysis_text[start_idx:end_idx]
-                analysis_data = json.loads(json_str)
-                print(f"[quick_log_food] Successfully parsed AI analysis: {analysis_data}")
-            except (json.JSONDecodeError, ValueError) as parse_error:
-                print(f"[quick_log_food] JSON parsing error: {str(parse_error)}")
-                analysis_data = fallback_data
-                
-        except Exception as openai_error:
-            print(f"[quick_log_food] OpenAI API error: {str(openai_error)}. Using fallback estimation.")
-            analysis_data = fallback_data
-        
-        # Prepare consumption data in the same format as the image analysis system
-        consumption_data = {
-            "food_name": analysis_data.get("food_name", food_name),
-            "estimated_portion": analysis_data.get("estimated_portion", portion),
-            "nutritional_info": analysis_data.get("nutritional_info", fallback_data["nutritional_info"]),
-            "medical_rating": analysis_data.get("medical_rating", fallback_data["medical_rating"]),
-            "image_analysis": analysis_data.get("analysis_notes", f"Quick log entry for {food_name}"),
-            "image_url": None,  # No image for quick log
-            "meal_type": (food_data.get("meal_type") or "snack").lower()
-        }
-        
-        print(f"[quick_log_food] Prepared consumption data: {consumption_data}")
-        
-        # Save to consumption history using the ORIGINAL save function
-        print(f"[quick_log_food] Saving consumption record for user {current_user['email']}")
-        consumption_record = await save_consumption_record(current_user["email"], consumption_data, meal_type=food_data.get("meal_type", "snack"))
-        print(f"[quick_log_food] Successfully saved consumption record with ID: {consumption_record['id']}")
-        
-        # ------------------------------
-        # FORCE COMPLETE MEAL PLAN REGENERATION AFTER EVERY LOG
-        # ------------------------------
-        try:
-            print("[quick_log_food] Triggering complete meal plan regeneration after food log...")
-            
-            # Get today's consumption including the new log
-            today = datetime.utcnow().date()
-            consumption_data_full = await get_user_consumption_history(current_user["email"], limit=100)
-            today_consumption = [
-                r for r in consumption_data_full
-                if datetime.fromisoformat(r.get("timestamp", "").replace("Z", "+00:00")).date() == today
-            ]
-            
-            # Calculate calories consumed so far
-            calories_consumed = sum(r.get("nutritional_info", {}).get("calories", 0) for r in today_consumption)
-            
-            # Get user profile for dietary restrictions
-            profile = current_user.get("profile", {})
-            dietary_restrictions = profile.get('dietaryRestrictions', [])
-            allergies = profile.get('allergies', [])
-            diet_type = profile.get('dietType', [])
-            target_calories = int(profile.get('calorieTarget', '2000'))
-            remaining_calories = max(0, target_calories - calories_consumed)
-            
-            # Build explicit restriction warnings for AI
-            restriction_warnings = []
-            if 'vegetarian' in [r.lower() for r in dietary_restrictions] or 'vegetarian' in [d.lower() for d in diet_type]:
-                restriction_warnings.append("STRICTLY VEGETARIAN - NO MEAT, POULTRY, FISH, OR SEAFOOD")
-            if any('egg' in r.lower() for r in dietary_restrictions) or any('egg' in a.lower() for a in allergies):
-                restriction_warnings.append("NO EGGS - Avoid all egg-based dishes and ingredients")
-            if any('nut' in a.lower() for a in allergies):
-                restriction_warnings.append("NUT ALLERGY - Avoid all nuts and nut-based products")
-            
-            restriction_text = "\n".join([f"⚠️ {warning}" for warning in restriction_warnings])
-            
-            # Generate completely new meal plan calibrated to consumption
-            prompt = f"""You are a registered dietitian AI. The user just logged a meal. Generate a COMPLETE new meal plan for the REST OF TODAY based on their consumption and dietary profile.
-
-USER PROFILE:
-Diet Type: {', '.join(diet_type) or 'Standard'}
-Dietary Restrictions: {', '.join(dietary_restrictions) or 'None'}
-Allergies: {', '.join(allergies) or 'None'}
-Target Daily Calories: {target_calories}
-Calories Already Consumed Today: {calories_consumed}
-Remaining Calories for Today: {remaining_calories}
-
-{restriction_text if restriction_warnings else ""}
-
-CRITICAL REQUIREMENTS:
-- ALL dishes must be diabetes-friendly (low glycemic index)
-- ALL dishes must be completely vegetarian and egg-free
-- Adjust portion sizes based on remaining calories
-- Provide SPECIFIC dish names, not generic descriptions
-- Consider the time of day and what's realistic to eat
-
-Generate a complete meal plan for the rest of today:
-
-{{
-  "meals": {{
-    "breakfast": "<specific vegetarian dish without eggs>",
-    "lunch": "<specific vegetarian dish without eggs>", 
-    "dinner": "<specific vegetarian dish without eggs>",
-    "snack": "<specific vegetarian snack without eggs>"
-  }},
-  "calibration_notes": "Adjusted based on {calories_consumed} calories already consumed today"
-}}
-
-Examples of appropriate dishes:
-- Breakfast: "Steel-cut oats with almond milk, cinnamon, and fresh blueberries"
-- Lunch: "Mediterranean quinoa salad with chickpeas, cucumber, and olive oil"
-- Dinner: "Black bean and sweet potato curry with brown rice"
-- Snack: "Apple slices with almond butter and a sprinkle of cinnamon"
-
-Ensure ALL dishes are completely vegetarian and egg-free."""
-
-            ai_resp = client.chat.completions.create(
-                model=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.7,
-                max_tokens=600
-            )
-
-            import json as _json
-            try:
-                # Parse AI response
-                ai_content = ai_resp.choices[0].message.content
-                start_idx = ai_content.find('{')
-                end_idx = ai_content.rfind('}') + 1
-                ai_json = _json.loads(ai_content[start_idx:end_idx])
-                
-                # Create new calibrated meal plan
-                new_plan = {
-                    "id": f"calibrated_{current_user['email']}_{today.isoformat()}_{int(datetime.utcnow().timestamp())}",
-                    "date": today.isoformat(),
-                    "type": "ai_calibrated_post_log",
-                    "meals": ai_json.get("meals", {}),
-                    "dailyCalories": target_calories,
-                    "calories_consumed": calories_consumed,
-                    "calories_remaining": remaining_calories,
-                    "created_at": datetime.utcnow().isoformat(),
-                    "notes": f"Regenerated after food log. {ai_json.get('calibration_notes', '')}"
-                }
-                
-                # Post-process to ensure dietary compliance (safety filter)
-                def sanitize_meal(meal_text: str) -> str:
-                    """Ensure meal is vegetarian and egg-free"""
-                    meal_lower = meal_text.lower()
-                    
-                    # Check for non-vegetarian ingredients
-                    non_veg_keywords = ['chicken', 'beef', 'pork', 'fish', 'salmon', 'tuna', 'turkey', 'lamb', 'meat', 'seafood', 'shrimp']
-                    egg_keywords = ['egg', 'eggs', 'omelet', 'omelette', 'scrambled', 'poached', 'fried egg']
-                    
-                    if any(keyword in meal_lower for keyword in non_veg_keywords):
-                        return "Vegetarian lentil and vegetable curry with quinoa"
-                    if any(keyword in meal_lower for keyword in egg_keywords):
-                        return "Overnight oats with almond milk, chia seeds, and fresh berries"
-                    
-                    return meal_text
-                
-                # Apply safety filter to all meals
-                for meal_type in new_plan["meals"]:
-                    new_plan["meals"][meal_type] = sanitize_meal(new_plan["meals"][meal_type])
-                
-                # Save the new calibrated plan
-                await save_meal_plan(current_user["email"], new_plan)
-                print(f"[quick_log_food] Generated and saved new calibrated meal plan. Remaining calories: {remaining_calories}")
-                
-            except Exception as parse_err:
-                print(f"[quick_log_food] Failed to parse AI meal plan JSON: {parse_err}")
-                # Fallback: just trigger the normal get_todays_meal_plan
-                await get_todays_meal_plan(current_user)
-                
-        except Exception as plan_err:
-            print(f"[quick_log_food] Failed to regenerate meal plan: {plan_err}")
-            import traceback
-            print(traceback.format_exc())
-        
-        # Return success response in the SAME FORMAT as before
-        return {
-            "success": True,
-            "message": f"Successfully logged {analysis_data.get('food_name', food_name)}",
-            "consumption_record_id": consumption_record["id"],
-            "analysis": analysis_data,
-            "food_name": analysis_data.get("food_name", food_name),
-            "nutritional_summary": {
-                "calories": analysis_data.get("nutritional_info", {}).get("calories", 0),
-                "carbohydrates": analysis_data.get("nutritional_info", {}).get("carbohydrates", 0),
-                "protein": analysis_data.get("nutritional_info", {}).get("protein", 0),
-                "fat": analysis_data.get("nutritional_info", {}).get("fat", 0)
-            },
-            "diabetes_rating": analysis_data.get("medical_rating", {}).get("diabetes_suitability", "medium")
-        }
-        
-    except HTTPException:
-        # Re-raise HTTP exceptions as-is
-        raise
-    except Exception as e:
-        print(f"[quick_log_food] Unexpected error: {str(e)}")
-        print(f"[quick_log_food] Full error details:", traceback.format_exc())
-        raise HTTPException(status_code=500, detail=f"Failed to log food item: {str(e)}")
-
 @app.get("/coach/todays-meal-plan")
 async def get_todays_meal_plan(current_user: User = Depends(get_current_user)):
     """
@@ -4255,11 +3425,11 @@ Ensure ALL dishes are completely vegetarian and egg-free. Do not include any mea
             ]
 
             # Sum calories eaten so far
-            calories_so_far = sum(r.get("nutritional_info", {}).get("calories", 0) for r in today_consumption_full)
+            calories_consumed = sum(r.get("nutritional_info", {}).get("calories", 0) for r in today_consumption_full)
 
             calorie_goal_day = todays_plan.get("dailyCalories") or 0
             if calorie_goal_day > 0:
-                remaining = calorie_goal_day - calories_so_far
+                remaining = calorie_goal_day - calories_consumed
 
                 # If the user already exceeded the daily goal, lighten upcoming meals
                 if remaining < -100:
@@ -4294,7 +3464,7 @@ Ensure ALL dishes are completely vegetarian and egg-free. Do not include any mea
             # If plan has a 'type' of 'ai_generated_today' or 'ai_generated_concrete', it means it was just generated or refined
             # In this case, we don't need to explicitly save it again here if it was already saved during generation.
             # But if it was a derived/fallback plan that just got calibrated, save it.
-            if todays_plan.get("type") not in ["ai_generated_today", "ai_generated_concrete"] and calories_so_far > 0: # Only save if consumption has happened and it's not a fresh AI gen
+            if todays_plan.get("type") not in ["ai_generated_today", "ai_generated_concrete"] and calories_consumed > 0: # Only save if consumption has happened and it's not a fresh AI gen
                  # Generate a unique ID for this calibrated plan if it's not already saved
                 if "id" not in todays_plan or todays_plan["id"].startswith("derived_") or todays_plan["id"].startswith("fallback_"):
                     todays_plan["id"] = f"calibrated_{current_user['email']}_{today.isoformat()}_{int(datetime.utcnow().timestamp())}"

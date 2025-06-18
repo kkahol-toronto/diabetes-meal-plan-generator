@@ -56,6 +56,8 @@ import LocalFireDepartmentIcon from '@mui/icons-material/LocalFireDepartment';
 import FitnessCenterIcon from '@mui/icons-material/FitnessCenter';
 import GrainIcon from '@mui/icons-material/Grain';
 import DiningIcon from '@mui/icons-material/LocalDining';
+import KitchenIcon from '@mui/icons-material/Kitchen';
+import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import { useNavigate } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import { v4 as uuidv4 } from 'uuid';
@@ -97,7 +99,7 @@ interface Message {
   session_id: string;
   imageUrl?: string;
   metadata?: {
-    type?: 'food_analysis' | 'meal_suggestion' | 'general' | 'quick_action';
+    type?: 'food_analysis' | 'meal_suggestion' | 'general' | 'quick_action' | 'fridge_pantry_analysis_request' | 'fridge_pantry_analysis_response';
     data?: any;
   };
 }
@@ -145,6 +147,7 @@ const Chat = () => {
   const [userStats, setUserStats] = useState<any>(null);
   const [showQuickActions, setShowQuickActions] = useState(true);
   const [showImageSourceDialog, setShowImageSourceDialog] = useState(false);
+  const [imageAnalysisMode, setImageAnalysisMode] = useState<'food' | 'fridge_pantry'>('food');
 
   const quickActions: QuickAction[] = [
     {
@@ -363,22 +366,31 @@ const Chat = () => {
 
       let response: ApiResponse;
       if (selectedImage) {
-        // Handle image + message
         const formData = new FormData();
-        formData.append('message', input);
         formData.append('session_id', currentSession);
         formData.append('image', selectedImage);
-        if (mealType) {
-          formData.append('meal_type', mealType);
-        }
 
-        response = await fetch('/consumption/analyze-and-record', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-          },
-          body: formData,
-        });
+        if (imageAnalysisMode === 'food') {
+          formData.append('message', input);
+          if (mealType) {
+            formData.append('meal_type', mealType);
+          }
+          response = await fetch('/consumption/analyze-and-record', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${token}`,
+            },
+            body: formData,
+          });
+        } else { // imageAnalysisMode === 'fridge_pantry'
+          response = await fetch('/vision/analyze-pantry-fridge', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${token}`,
+            },
+            body: formData,
+          });
+        }
       } else {
         // Handle text only message
         response = await fetch('/chat/message', {
@@ -401,7 +413,9 @@ const Chat = () => {
           timestamp: new Date().toISOString(),
           session_id: currentSession,
           metadata: {
-            type: selectedImage ? 'food_analysis' : 'general',
+            type: selectedImage 
+              ? (imageAnalysisMode === 'food' ? 'food_analysis' : 'fridge_pantry_analysis_response') 
+              : 'general',
             data: data.analysis || data.metadata
           }
         }]);
@@ -523,8 +537,32 @@ const Chat = () => {
     }, 100);
   };
 
-  const formatMessage = (message: string) => {
-    // Enhanced message formatting with better styling
+  const formatMessage = (message: Message) => {
+    // Custom rendering for fridge_pantry_analysis_response
+    if (message.metadata?.type === 'fridge_pantry_analysis_response' && message.metadata.data) {
+      const analysis_data = message.metadata.data;
+      const identified_items = analysis_data.identified_items || [];
+      const notes = analysis_data.notes || '';
+
+      return (
+        <Box sx={{ mt: 2 }}>
+          <Typography variant="h6" sx={{ fontWeight: 'bold', mb: 1 }}>Identified Items:</Typography>
+          <List dense>
+            {identified_items.map((item: any, index: number) => (
+              <ListItem key={index} sx={{ py: 0.5, px: 0 }}>
+                <ListItemIcon sx={{ minWidth: '30px' }}>
+                  <CheckCircleOutlineIcon color="success" fontSize="small" />
+                </ListItemIcon>
+                <ListItemText primary={`${item.item_name}: ${item.quantity}`} />
+              </ListItem>
+            ))}
+          </List>
+          {notes && <Typography variant="body2" sx={{ mt: 1, fontStyle: 'italic' }}>Notes: {notes}</Typography>}
+        </Box>
+      );
+    }
+
+    // Enhanced message formatting with better styling for other message types
     return (
       <ReactMarkdown
         components={{
@@ -550,9 +588,8 @@ const Chat = () => {
             </Typography>
           ),
         }}
-      >
-        {message}
-      </ReactMarkdown>
+        children={message.message}
+      />
     );
   };
 
@@ -629,46 +666,66 @@ const Chat = () => {
             </Tooltip>
           </Box>
         </Box>
-      </Paper>
 
-      {/* Quick Actions */}
-      {showQuickActions && messages.length === 0 && (
-        <Fade in={showQuickActions}>
-          <Paper elevation={1} sx={{ p: 3, mb: 2, bgcolor: 'grey.50' }}>
-            <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <LightbulbIcon color="primary" />
-              Quick Actions
-            </Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              Get started with these common requests:
-            </Typography>
-            <Grid container spacing={1}>
-              {quickActions.map((action, index) => (
-                <Grid item xs={12} sm={6} md={4} key={index}>
-                  <Button
-                    variant="outlined"
-                    fullWidth
-                    startIcon={action.icon}
-                    onClick={() => handleQuickAction(action)}
-                    color={action.color}
-                    sx={{
-                      py: 1.5,
-                      justifyContent: 'flex-start',
-                      '&:hover': {
-                        transform: 'translateY(-2px)',
-                        boxShadow: 2
-                      },
-                      transition: 'all 0.2s ease-in-out'
-                    }}
-                  >
-                    {action.label}
-                  </Button>
-                </Grid>
-              ))}
-            </Grid>
-          </Paper>
-        </Fade>
-      )}
+        {/* Image Analysis Mode Selection */}
+        <Box sx={{ mb: 2 }}>
+          <ButtonGroup variant="outlined" aria-label="image analysis mode" fullWidth>
+            <Button 
+              onClick={() => setImageAnalysisMode('food')}
+              variant={imageAnalysisMode === 'food' ? 'contained' : 'outlined'}
+              startIcon={<RestaurantIcon />}
+            >
+              Food Analysis
+            </Button>
+            <Button 
+              onClick={() => setImageAnalysisMode('fridge_pantry')}
+              variant={imageAnalysisMode === 'fridge_pantry' ? 'contained' : 'outlined'}
+              startIcon={<KitchenIcon />}
+            >
+              Fridge/Pantry Analysis
+            </Button>
+          </ButtonGroup>
+        </Box>
+
+        {/* Quick Actions */}
+        {showQuickActions && messages.length === 0 && (
+          <Fade in={showQuickActions}>
+            <Paper elevation={1} sx={{ p: 3, mb: 2, bgcolor: 'grey.50' }}>
+              <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <LightbulbIcon color="primary" />
+                Quick Actions
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                Get started with these common requests:
+              </Typography>
+              <Grid container spacing={1}>
+                {quickActions.map((action, index) => (
+                  <Grid item xs={12} sm={6} md={4} key={index}>
+                    <Button
+                      variant="outlined"
+                      fullWidth
+                      startIcon={action.icon}
+                      onClick={() => handleQuickAction(action)}
+                      color={action.color}
+                      sx={{
+                        py: 1.5,
+                        justifyContent: 'flex-start',
+                        '&:hover': {
+                          transform: 'translateY(-2px)',
+                          boxShadow: 2
+                        },
+                        transition: 'all 0.2s ease-in-out'
+                      }}
+                    >
+                      {action.label}
+                    </Button>
+                  </Grid>
+                ))}
+              </Grid>
+            </Paper>
+          </Fade>
+        )}
+      </Paper>
 
       {/* Messages */}
       <Paper 
@@ -749,7 +806,7 @@ const Chat = () => {
                           />
                         </Box>
                       )}
-                      {formatMessage(message.message)}
+                      {formatMessage(message)}
                     </CardContent>
                     <Typography 
                       variant="caption" 
