@@ -830,7 +830,7 @@ const HomePage: React.FC = () => {
           <Tab icon={<AnalyticsIcon />} label="Overview" />
           <Tab icon={<TimelineIcon />} label="Analytics" />
           <Tab icon={<CoachIcon />} label="AI Insights" />
-          <Tab icon={<NotificationIcon />} label={`Notifications ${notifications.length > 0 ? `(${notifications.length})` : ''}`} />
+          <Tab icon={<NotificationIcon />} label={`Notifications ${notifications && notifications.length > 0 ? `(${notifications.length})` : ''}`} />
         </Tabs>
       </Box>
 
@@ -1436,7 +1436,7 @@ const HomePage: React.FC = () => {
                   <NotificationIcon sx={{ mr: 1 }} />
                   Your Notifications
                 </Typography>
-                {notifications.length > 0 ? (
+                {notifications && notifications.length > 0 ? (
                   <List>
                     {notifications.map((notification: any, index: number) => (
                       <React.Fragment key={index}>
