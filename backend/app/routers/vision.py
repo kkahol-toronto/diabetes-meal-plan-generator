@@ -30,7 +30,7 @@ async def analyze_pantry_fridge(
 ):
     """Analyze fridge/pantry image and identify items and quantities."""
     try:
-        print(f"[analyze_pantry_fridge] Starting analysis for user {current_user['id']}")
+        print(f"[analyze_pantry_fridge] Starting analysis for user {current_user['email']}")
         
         contents = await image.read()
         
