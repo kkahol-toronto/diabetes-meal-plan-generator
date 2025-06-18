@@ -301,9 +301,9 @@ const ConsumptionHistory: React.FC = () => {
 
       // Load all data in parallel with dynamic time range (using authenticated endpoints)
       const [historyResponse, analyticsResponse, insightsResponse] = await Promise.all([
-        fetch(`http://localhost:8000/consumption/history?limit=${historyLimit}`, { headers }),
-        fetch(`http://localhost:8000/consumption/analytics?days=${selectedDays}`, { headers }),
-        fetch('http://localhost:8000/coach/daily-insights', { headers })
+        fetch((process.env.REACT_APP_API_URL || 'http://localhost:8000') + `/consumption/history?limit=${historyLimit}`, { headers }),
+        fetch((process.env.REACT_APP_API_URL || 'http://localhost:8000') + `/consumption/analytics?days=${selectedDays}`, { headers }),
+        fetch((process.env.REACT_APP_API_URL || 'http://localhost:8000') + '/coach/daily-insights', { headers })
       ]);
 
       if (!historyResponse.ok) {

@@ -44,7 +44,7 @@ const AdminPanel = () => {
 
   const fetchPatients = useCallback(async () => {
     try {
-      const response = await fetch('http://localhost:8000/admin/patients', {
+      const response = await fetch((process.env.REACT_APP_API_URL || 'http://localhost:8000') + '/admin/patients', {
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`,
         },
@@ -67,7 +67,7 @@ const AdminPanel = () => {
 
   const handleCreatePatient = async () => {
     try {
-      const response = await fetch('http://localhost:8000/admin/create-patient', {
+      const response = await fetch((process.env.REACT_APP_API_URL || 'http://localhost:8000') + '/admin/create-patient', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -99,7 +99,7 @@ const AdminPanel = () => {
 
   const handleResendCode = async (patientId: string) => {
     try {
-      const response = await fetch(`http://localhost:8000/admin/resend-code/${patientId}`, {
+      const response = await fetch((process.env.REACT_APP_API_URL || 'http://localhost:8000') + `/admin/resend-code/${patientId}`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`,

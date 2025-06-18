@@ -1,4 +1,4 @@
-# Diabetes AI Diet Coach - Production-Ready Backend Dependencies
+﻿# Diabetes AI Diet Coach - Production-Ready Backend Dependencies
 # Updated: June 2025 - Enhanced AI Coach System with Meal Logging Integration
 
 # Core FastAPI and web framework dependencies
@@ -82,67 +82,3 @@ pytest-asyncio>=0.21.1
 black>=23.12.0
 isort>=5.13.0
 flake8>=7.0.0
-
-# ==========================================
-# AI Diet Coach System Features (June 2025):
-# ==========================================
-# 
-# 🤖 ENHANCED AI COACHING SYSTEM:
-# - Fixed AI Coach meal-suggestion endpoint with robust error handling
-# - Adaptive meal planning based on 30-day consumption history
-# - Real-time nutritional analysis and personalized recommendations
-# - Smart meal type detection (breakfast/lunch/dinner/snack) in chat
-# - Contextual AI responses based on user health conditions and dietary restrictions
-# - Streamlined chat interface with image attachment and meal logging integration
-# 
-# 📊 ADVANCED ANALYTICS & INSIGHTS:
-# - 30-day consumption pattern analysis with visual charts
-# - Meal timing optimization recommendations
-# - Favorite foods identification and incorporation
-# - Weekly performance trends and goal tracking
-# - Comprehensive nutritional data processing with Chart.js integration
-# - Real-time dashboard with tabbed interface (Overview, Analytics, AI Insights, Notifications)
-# 
-# 🎯 INTELLIGENT MEAL LOGGING FEATURES:
-# - Enhanced food logging camera with image attachment (no auto-analysis)
-# - AI-powered meal suggestions based on remaining calories and user context
-# - Quick food logging with automatic nutritional estimation
-# - Meal type context integration for proper meal plan calibration
-# - Diabetes-suitable meal percentage calculations
-# - Consumption records with meal_type parameter for better tracking
-# 
-# 🔔 SMART NOTIFICATION & UI SYSTEM:
-# - Cleaned homepage with removed floating action buttons (preventing errors)
-# - Fixed repeated "(recommended)" text in meal plan snacks
-# - Removed automatic notes display for cleaner UI
-# - Time-based meal reminders and progress-based alerts
-# - Achievement celebrations and milestone recognition
-# - Contextual coaching tips and hydration reminders
-# 
-# 📈 COMPREHENSIVE DATA PROCESSING:
-# - Real-time progress tracking with color-coded indicators
-# - Weekly achievement calculations and trend analysis
-# - Food frequency insights and adherence percentages
-# - Macronutrient distribution analysis with doughnut charts
-# - Goal adherence rate calculations
-# - PATCH endpoint for updating meal types (/consumption/{record_id}/meal-type)
-# 
-# 🏥 DIABETES-SPECIFIC FEATURES:
-# - Diabetes adherence rate monitoring (80%+ rewards)
-# - Blood sugar friendly meal recommendations
-# - Carbohydrate counting and glycemic index awareness
-# - Personalized portion size recommendations based on health conditions
-# - Medical condition-aware meal planning with comprehensive user context
-# - Enhanced user profile integration with dietary restrictions and allergies
-# 
-# 🔧 RECENT TECHNICAL IMPROVEMENTS (June 2025):
-# - Fixed AI Coach endpoint to handle both simple query and detailed formats
-# - Added proper error handling for user profile and consumption history retrieval
-# - Enhanced meal-suggestion endpoint with fallback mechanisms
-# - Improved chat interface with meal type detection using regex patterns
-# - Streamlined image upload behavior (attach without auto-analysis)
-# - Better integration between consumption logging and meal plan calibration
-# - Robust database query handling with try-catch blocks
-# - Dual response format (suggestion + response) for frontend compatibility
-# 
-# ==========================================
