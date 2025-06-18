@@ -85,7 +85,7 @@ const HomePage: React.FC = () => {
         throw new Error('Authentication token not found. Please log in.');
       }
 
-      const insightsResponse = await fetch('http://localhost:8000/coach/daily-insights', {
+      const insightsResponse = await fetch((process.env.REACT_APP_API_URL || 'http://localhost:8000') + '/coach/daily-insights', {
         headers: { Authorization: `Bearer ${token}` },
       });
 
@@ -101,7 +101,7 @@ const HomePage: React.FC = () => {
 
     } catch (err) {
       if (err instanceof Error && err.message.includes('Failed to fetch')) {
-        setError("Could not connect to the backend. Please ensure the server is running on http://localhost:8000.");
+        setError("Could not connect to the backend. Please ensure the server is running.");
       } else {
         setError(err instanceof Error ? err.message : 'An unknown error occurred');
       }
@@ -123,7 +123,7 @@ const HomePage: React.FC = () => {
         throw new Error('Authentication token not found. Please log in.');
       }
 
-      const response = await fetch('http://localhost:8000/coach/quick-log', {
+      const response = await fetch((process.env.REACT_APP_API_URL || 'http://localhost:8000') + '/coach/quick-log', {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',

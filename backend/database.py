@@ -9,6 +9,7 @@ import json
 import traceback
 import logging
 from openai import AzureOpenAI
+from typing import Optional, Dict, Any
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -341,7 +342,7 @@ async def get_user_shopping_lists(user_id: str):
     except Exception as e:
         raise Exception(f"Failed to get shopping lists: {str(e)}")
 
-async def save_chat_message(user_id: str, message: str, is_user: bool, session_id: str = None, image_url: str = None):
+async def save_chat_message(user_id: str, message: str, is_user: bool, session_id: str = None, image_url: str = None, metadata: Optional[Dict[str, Any]] = None):
     """Save a chat message to the database"""
     try:
         if not session_id:
@@ -355,7 +356,8 @@ async def save_chat_message(user_id: str, message: str, is_user: bool, session_i
             "timestamp": datetime.utcnow().isoformat(),
             "session_id": session_id,
             "id": f"chat_{session_id}_{datetime.utcnow().timestamp()}",
-            "image_url": image_url
+            "image_url": image_url,
+            "metadata": metadata
         }
         return interactions_container.create_item(body=chat_data)
     except Exception as e:

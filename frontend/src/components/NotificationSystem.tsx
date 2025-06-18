@@ -103,7 +103,7 @@ const NotificationSystem: React.FC<NotificationSystemProps> = ({ userId }) => {
       }
 
       // Fetch AI-generated notifications
-      const response = await fetch('http://localhost:8000/coach/notifications', {
+      const response = await fetch((process.env.REACT_APP_API_URL || 'http://localhost:8000') + '/coach/notifications', {
         headers: { 'Authorization': `Bearer ${token}` },
       });
 

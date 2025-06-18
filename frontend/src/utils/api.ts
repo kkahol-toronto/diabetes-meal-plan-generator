@@ -1,5 +1,4 @@
 import { isValidToken, logout } from './auth';
-import config from '../config/environment';
 
 // Note: ApiResponse interface available if needed in future
 // interface ApiResponse<T = any> {
@@ -15,9 +14,9 @@ interface ApiConfig {
   cache?: boolean;
 }
 
-const BASE_URL = config.API_URL;
-const DEFAULT_TIMEOUT = config.API_TIMEOUT;
-const DEFAULT_RETRIES = config.RETRY_ATTEMPTS;
+const BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+const DEFAULT_TIMEOUT = 30000; // Default to 30 seconds
+const DEFAULT_RETRIES = 3;
 const DEFAULT_RETRY_DELAY = 1000; // 1 second
 
 class ApiError extends Error {
