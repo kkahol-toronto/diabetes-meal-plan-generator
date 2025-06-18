@@ -1458,224 +1458,124 @@ async def send_chat_message(
         session_id=message.session_id
     )
     
-    # Get chat history for context
-    chat_history = await format_chat_history_for_prompt(
-        current_user["id"],
-        message.session_id or user_message["session_id"]
-    )
+    session_id = message.session_id or user_message["session_id"]
     
-    # 🧠 ENHANCED AI COACH CONTEXT - Get comprehensive user data
+    # Fetch recent chat history once to use for multiple purposes
+    try:
+        recent_messages = await get_recent_chat_history(current_user["id"], session_id, limit=10)
+    except Exception as e:
+        print(f"Error fetching chat history: {e}")
+        recent_messages = []
+
+    # Check for recipe suggestion intent
+    is_recipe_request = "recipe" in message.message.lower() or "suggest" in message.message.lower()
+    
+    # Get user profile for context
     profile = current_user.get("profile", {})
     
-    # Get recent meal plans (last 3 for context)
-    try:
-        recent_meal_plans = await get_user_meal_plans(current_user["id"])
-        recent_meal_plans = recent_meal_plans[:3]  # Last 3 meal plans
-    except Exception as e:
-        print(f"Error fetching meal plans for chat context: {e}")
-        recent_meal_plans = []
-    
-    # Get recent consumption history (last 7 days)
-    try:
-        recent_consumption = await get_user_consumption_history(current_user["id"], limit=20)
-        # Filter to last 7 days
-        from datetime import datetime, timedelta
-        seven_days_ago = datetime.utcnow() - timedelta(days=7)
-        recent_consumption = [
-            record for record in recent_consumption 
-            if datetime.fromisoformat(record.get("timestamp", "").replace("Z", "+00:00")) > seven_days_ago
-        ]
-    except Exception as e:
-        print(f"Error fetching consumption history for chat context: {e}")
-        recent_consumption = []
-    
-    # Get today's consumption for daily tracking
-    try:
-        today = datetime.utcnow().date()
-        tomorrow = today + timedelta(days=1)
-        today_consumption = [
-            record for record in recent_consumption
-            if today <= datetime.fromisoformat(record.get("timestamp", "").replace("Z", "+00:00")).date() < tomorrow
-        ]
-    except Exception as e:
-        print(f"Error filtering today's consumption: {e}")
-        today_consumption = []
-    
-    # Calculate today's nutritional totals
-    today_totals = {"calories": 0, "protein": 0, "carbs": 0, "fat": 0}
-    for record in today_consumption:
-        nutritional_info = record.get("nutritional_info", {})
-        today_totals["calories"] += nutritional_info.get("calories", 0)
-        today_totals["protein"] += nutritional_info.get("protein", 0)
-        today_totals["carbs"] += nutritional_info.get("carbohydrates", 0)
-        today_totals["fat"] += nutritional_info.get("fat", 0)
-    
-    # Get user's goals from profile or latest meal plan
-    calorie_goal = 2000  # Default
-    macro_goals = {"protein": 100, "carbs": 250, "fat": 70}  # Defaults
-    
-    if profile.get("calorieTarget"):
-        try:
-            calorie_goal = int(profile["calorieTarget"])
-        except:
-            pass
-    elif recent_meal_plans and recent_meal_plans[0].get("dailyCalories"):
-        calorie_goal = recent_meal_plans[0]["dailyCalories"]
-    
-    if profile.get("macroGoals"):
-        macro_goals.update(profile["macroGoals"])
-    elif recent_meal_plans and recent_meal_plans[0].get("macronutrients"):
-        macros = recent_meal_plans[0]["macronutrients"]
-        macro_goals = {
-            "protein": macros.get("protein", 100),
-            "carbs": macros.get("carbs", 250),
-            "fat": macros.get("fats", 70)
-        }
-    
-    # Calculate adherence and progress
-    calorie_adherence = (today_totals["calories"] / calorie_goal * 100) if calorie_goal > 0 else 0
-    protein_adherence = (today_totals["protein"] / macro_goals["protein"] * 100) if macro_goals["protein"] > 0 else 0
-    carb_adherence = (today_totals["carbs"] / macro_goals["carbs"] * 100) if macro_goals["carbs"] > 0 else 0
-    fat_adherence = (today_totals["fat"] / macro_goals["fat"] * 100) if macro_goals["fat"] > 0 else 0
-    
-    # Analyze recent consumption patterns
-    diabetes_suitable_count = 0
-    total_recent_records = len(recent_consumption)
-    for record in recent_consumption:
-        medical_rating = record.get("medical_rating", {})
-        diabetes_suitability = medical_rating.get("diabetes_suitability", "").lower()
-        if diabetes_suitability in ["high", "good", "suitable"]:
-            diabetes_suitable_count += 1
-    
-    diabetes_adherence = (diabetes_suitable_count / total_recent_records * 100) if total_recent_records > 0 else 0
-    
-    # Create comprehensive AI Coach system prompt
-    system_prompt = f"""You are an advanced AI Diet Coach and Diabetes Management Specialist. You are the central intelligence of a comprehensive diabetes meal planning and tracking system.
+    # Start with the default system prompt
+    system_prompt = f"""You are an advanced AI Diet Coach and Diabetes Management Specialist. You help users manage their diabetes through personalized meal planning, nutrition guidance, and health coaching.
 
-🎯 **YOUR ROLE**: You are not just a chatbot - you are the user's personal diet coach, meal planner, and diabetes management companion. You have full access to their meal plans, consumption history, and progress data.
+**Your Role:**
+- Provide evidence-based nutrition advice for diabetes management
+- Help users understand how food affects blood sugar levels
+- Suggest healthy meal options and recipes
+- Support users in making sustainable dietary changes
+- Answer questions about diabetes-friendly eating
 
-👤 **USER PROFILE**:
-- Name: {profile.get('name', 'Not specified')}
-- Age: {profile.get('age', 'Not specified')}
-- Gender: {profile.get('gender', 'Not specified')}
-- Weight: {profile.get('weight', 'Not specified')} kg
-- Height: {profile.get('height', 'Not specified')} cm
-- BMI: {profile.get('bmi', 'Not calculated')}
-- Blood Pressure: {profile.get('systolicBP', 'Not specified')}/{profile.get('diastolicBP', 'Not specified')} mmHg
-- Medical Conditions: {', '.join(profile.get('medicalConditions', []))}
-- Allergies: {', '.join(profile.get('allergies', []))}
-- Diet Type: {', '.join(profile.get('dietType', []))}
-- Dietary Restrictions: {', '.join(profile.get('dietaryRestrictions', []))}
+**Key Guidelines:**
+- Focus on balanced nutrition with appropriate carbohydrate management
+- Recommend foods with low to moderate glycemic index
+- Emphasize portion control and meal timing
+- Consider user's medical conditions, allergies, and preferences
+- Encourage regular monitoring and consultation with healthcare providers
+- Be supportive, encouraging, and non-judgmental
 
-🎯 **DAILY GOALS & PROGRESS**:
-- Calorie Goal: {calorie_goal} kcal
-- Protein Goal: {macro_goals['protein']}g
-- Carb Goal: {macro_goals['carbs']}g  
-- Fat Goal: {macro_goals['fat']}g
+**User Profile:**
+- Medical Conditions: {', '.join(profile.get('medicalConditions', ['Not specified']))}
+- Allergies: {', '.join(profile.get('allergies', ['None']))}
+- Dietary Restrictions: {', '.join(profile.get('dietaryRestrictions', ['None']))}
 
-📊 **TODAY'S PROGRESS** ({datetime.utcnow().strftime('%B %d, %Y')}):
-- Calories: {today_totals['calories']:.0f}/{calorie_goal} ({calorie_adherence:.1f}%)
-- Protein: {today_totals['protein']:.1f}/{macro_goals['protein']}g ({protein_adherence:.1f}%)
-- Carbs: {today_totals['carbs']:.1f}/{macro_goals['carbs']}g ({carb_adherence:.1f}%)
-- Fat: {today_totals['fat']:.1f}/{macro_goals['fat']}g ({fat_adherence:.1f}%)
-- Meals logged today: {len(today_consumption)}
+Please provide helpful, personalized advice while encouraging users to work with their healthcare team."""
 
-📈 **RECENT PERFORMANCE** (Last 7 days):
-- Total meals logged: {total_recent_records}
-- Diabetes-suitable meals: {diabetes_suitable_count} ({diabetes_adherence:.1f}%)
-- Recent meal plans available: {len(recent_meal_plans)}
+    # If it's a recipe request, try to find ingredients from the last AI message
+    if is_recipe_request and len(recent_messages) > 1:
+        last_ai_message = recent_messages[-2]
+        if not last_ai_message.get('is_user') and last_ai_message.get("metadata", {}).get("type") == "fridge_pantry_analysis_response":
+            try:
+                identified_items = last_ai_message["metadata"]["data"].get("identified_items", [])
+                item_names = [item['item_name'] for item in identified_items]
+                
+                if item_names:
+                    print(f"Recipe request detected. Using ingredients: {item_names}")
+                    # Override the system prompt for recipe generation
+                    system_prompt = f"""You are a helpful AI assistant specializing in creating recipes suitable for users with specific health conditions.
 
-🍽️ **RECENT MEAL PLANS**:
-{chr(10).join([f"- Plan {i+1} (Created: {plan.get('created_at', 'Unknown')[:10]}): {plan.get('dailyCalories', 'N/A')} kcal/day" for i, plan in enumerate(recent_meal_plans[:2])]) if recent_meal_plans else "- No recent meal plans found"}
+                    **User's Health Profile:**
+                    - Medical Conditions: {', '.join(profile.get('medicalConditions', ['Not specified']))}
+                    - Allergies: {', '.join(profile.get('allergies', ['None']))}
+                    - Dietary Restrictions: {', '.join(profile.get('dietaryRestrictions', ['None']))}
+                    
+                    **Available Ingredients:**
+                    {', '.join(item_names)}
+                    
+                    **Task:**
+                    Suggest 2-3 simple, healthy recipes based on the user's profile and available ingredients. For each recipe, provide a name, a brief description of its health suitability, ingredients, and instructions. Format the response clearly using Markdown."""
+            except Exception as e:
+                print(f"Could not retrieve ingredients for recipe suggestion: {e}")
 
-🥗 **TODAY'S CONSUMPTION**:
-{chr(10).join([f"- {record.get('food_name', 'Unknown food')} ({record.get('estimated_portion', 'Unknown portion')}) - {record.get('nutritional_info', {}).get('calories', 'N/A')} kcal" for record in today_consumption[-3:]]) if today_consumption else "- No meals logged today yet"}
-
-🧠 **YOUR COACHING INTELLIGENCE**:
-1. **Adaptive Recommendations**: Based on today's intake, suggest meal adjustments
-2. **Progress Recognition**: Celebrate achievements and provide encouragement
-3. **Smart Balancing**: If user exceeded calories/carbs, suggest lighter options for remaining meals
-4. **Reward System**: If user has been compliant, occasionally suggest enjoyable treats within limits
-5. **Meal Plan Integration**: Reference their actual meal plans and suggest modifications
-6. **Real-time Guidance**: Provide immediate feedback on food choices and portions
-
-🎯 **COACHING PRIORITIES**:
-1. **Diabetes Management**: Always prioritize blood sugar stability
-2. **Adherence Support**: Help user stick to their meal plans while being flexible
-3. **Behavioral Coaching**: Encourage positive habits and address challenges
-4. **Nutritional Education**: Explain the 'why' behind recommendations
-5. **Motivation**: Keep user engaged and motivated in their health journey
-
-💡 **RESPONSE STYLE**:
-- Be encouraging, supportive, and knowledgeable
-- Use specific data from their actual consumption and meal plans
-- Provide actionable, personalized advice
-- Acknowledge their progress and efforts
-- Be conversational but professional
-- Use emojis appropriately to make interactions engaging
-
-Remember: You have access to their complete meal planning and consumption history. Use this data to provide highly personalized, contextual advice that feels like it comes from someone who truly knows their journey."""
-    
-    # Ensure chat history is a list of message objects
+    # Format chat history for the prompt
     formatted_chat_history = []
-    for msg in chat_history:
-        if isinstance(msg, tuple) and len(msg) == 2:
-            content, is_user = msg
-            formatted_chat_history.append(
-                {"role": "user", "content": content} if is_user else {"role": "assistant", "content": content}
-            )
+    for msg in recent_messages:
+        role = "user" if msg.get("is_user") else "assistant"
+        content = msg.get("message_content")
+        # For fridge analysis, use placeholder text in history to avoid sending large JSON
+        if msg.get("metadata", {}).get("type") == "fridge_pantry_analysis_response":
+            content = "Here is the list of items I found in your fridge."
+        if content:
+            formatted_chat_history.append({"role": role, "content": content})
     
-    # Generate response using OpenAI
+    # Add the user's current message to the chat history
+    formatted_chat_history.append({"role": "user", "content": message.message})
+    
+    # Now, call OpenAI with the full context
     response = client.chat.completions.create(
         model=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
         messages=[
             {"role": "system", "content": system_prompt},
             *formatted_chat_history,
-            {"role": "user", "content": message.message}
         ],
-        max_tokens=1000,  # Increased for more comprehensive responses
-        temperature=0.8,  # Slightly more creative for engaging coaching
-        top_p=1.0,
-        frequency_penalty=0.0,
-        presence_penalty=0.0,
+        max_tokens=1500,
+        temperature=0.7,
         stream=True
     )
-    
+
     # Stream the response and collect the full message
     full_message = ""
     async def generate():
         nonlocal full_message
         try:
             for chunk in response:
-                if not chunk.choices:
-                    continue
-                if not chunk.choices[0].delta:
-                    continue
-                content = chunk.choices[0].delta.content
-                if content:
+                if chunk.choices and chunk.choices[0].delta and chunk.choices[0].delta.content:
+                    content = chunk.choices[0].delta.content
                     full_message += content
-                    # Yield as SSE JSON event
                     yield f"data: {json.dumps({'content': content})}\n\n"
         except Exception as e:
             print(f"Error in streaming response: {str(e)}")
             if full_message:
-                # Send whatever was accumulated as final SSE event
                 yield f"data: {json.dumps({'content': full_message})}\n\n"
-    
-    # Create a streaming response
+
     streaming_response = StreamingResponse(generate(), media_type="text/event-stream")
     
-    # Save the complete assistant message after streaming is done
     async def save_message():
         if full_message:
             await save_chat_message(
                 current_user["id"],
                 full_message,
                 is_user=False,
-                session_id=user_message["session_id"]
+                session_id=session_id
             )
-    
-    # Add a callback to save the message after streaming
+
     streaming_response.background = save_message
     
     return streaming_response
