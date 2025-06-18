@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Container,
   Paper,
@@ -19,7 +19,7 @@ import {
   DialogActions,
   Snackbar,
 } from '@mui/material';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 
 interface Patient {
   id: string;
@@ -42,11 +42,7 @@ const AdminPanel = () => {
     condition: '',
   });
 
-  useEffect(() => {
-    fetchPatients();
-  }, []);
-
-  const fetchPatients = async () => {
+  const fetchPatients = useCallback(async () => {
     try {
       const response = await fetch('http://localhost:8000/admin/patients', {
         headers: {
@@ -63,7 +59,11 @@ const AdminPanel = () => {
     } catch (err) {
       setError('Failed to fetch patients');
     }
-  };
+  }, [navigate]);
+
+  useEffect(() => {
+    fetchPatients();
+  }, [fetchPatients]);
 
   const handleCreatePatient = async () => {
     try {
@@ -170,13 +170,20 @@ const AdminPanel = () => {
                   <TableCell>
                     {new Date(patient.created_at).toLocaleString()}
                   </TableCell>
-                  <TableCell>
+                  <TableCell sx={{ display: 'flex', gap: 1 }}>
                     <Button
                       variant="outlined"
                       color="primary"
                       onClick={() => handleResendCode(patient.id)}
                     >
                       Resend Code
+                    </Button>
+                    <Button
+                      variant="contained"
+                      component={Link}
+                      to={`/admin/user/${patient.id}`}
+                    >
+                      Edit Profile
                     </Button>
                   </TableCell>
                 </TableRow>

@@ -1,11 +1,12 @@
 import { isValidToken, logout } from './auth';
 import config from '../config/environment';
 
-interface ApiResponse<T = any> {
-  data?: T;
-  error?: string;
-  success: boolean;
-}
+// Note: ApiResponse interface available if needed in future
+// interface ApiResponse<T = any> {
+//   data?: T;
+//   error?: string;
+//   success: boolean;
+// }
 
 interface ApiConfig {
   timeout?: number;
@@ -202,6 +203,11 @@ export const recipeApi = {
 export const consumptionApi = {
   getHistory: (limit = 50) => api.get(`/consumption/history?limit=${limit}`),
   getAnalytics: (days = 7) => api.get(`/consumption/analytics?days=${days}`),
+};
+
+export const adminApi = {
+  getUserProfile: (identifier: string) => api.get<{ profile: any }>(`/admin/profile/${identifier}`),
+  saveUserProfile: (identifier: string, profile: any) => api.post(`/admin/profile/${identifier}`, { profile }),
 };
 
 export { ApiError }; 

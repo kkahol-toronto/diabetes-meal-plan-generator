@@ -78,7 +78,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 # Import admin profile endpoints and register router
-import admin_profile_endpoints
+from backend import admin_profile_endpoints
 app.include_router(admin_profile_endpoints.router)
 
 # Configure OpenAI
@@ -4413,13 +4413,13 @@ Ensure ALL dishes are completely vegetarian and egg-free."""
                     meal_text = meal_text.replace(" (recommended) (recommended) (recommended) (recommended)", " (recommended)")
                     safe_meals[meal_type] = meal_text
             
-                todays_plan = {
+            todays_plan = {
                     "id": f"fresh_vegetarian_{current_user['email']}_{today.isoformat()}",
-                    "date": today.isoformat(),
+                "date": today.isoformat(),
                     "type": "fresh_vegetarian_generated",
                     "meals": safe_meals,
                     "dailyCalories": int(profile.get('calorieTarget', '2000')),
-                    "created_at": datetime.utcnow().isoformat(),
+                "created_at": datetime.utcnow().isoformat(),
                     "notes": ""  # Clean notes - no repetitive text
                 }
                 
@@ -5886,7 +5886,7 @@ Be conversational but informative, like a knowledgeable nutrition coach who know
         
         # 📝 LOG THE INTERACTION
         try:
-            await log_meal_suggestion(
+        await log_meal_suggestion(
             user_id=current_user["email"],
                 meal_type="ai_coach_query",
                 suggestion=ai_response,
@@ -5959,8 +5959,6 @@ async def log_meal_suggestion(user_id: str, meal_type: str, suggestion: str, con
     """Log meal suggestion for future reference"""
     try:
         suggestion_log = {
-            "id": f"meal_suggestion_{user_id}_{datetime.utcnow().isoformat()}",
-            "type": "meal_suggestion",
             "user_id": user_id,
             "meal_type": meal_type,
             "suggestion": suggestion,
@@ -5969,7 +5967,7 @@ async def log_meal_suggestion(user_id: str, meal_type: str, suggestion: str, con
         }
         
         # Save to database
-        interactions_container.create_item(body=suggestion_log)
+        await db.meal_suggestions.insert_one(suggestion_log)
     except Exception as e:
         logger.error(f"Error logging meal suggestion: {str(e)}")
         # Non-critical error, don't raise
@@ -6040,7 +6038,7 @@ async def get_meal_plans_history_alias(current_user: User = Depends(get_current_
 @app.patch("/consumption/{record_id}/meal-type")
 async def update_meal_type(record_id: str, payload: dict = Body(...), current_user: User = Depends(get_current_user)):
     meal_type = payload.get("meal_type", "").lower()
-    if meal_type not in ["breakfast", "lunch", "dinner", "snack"]:
+        if meal_type not in ["breakfast", "lunch", "dinner", "snack"]:
         raise HTTPException(status_code=400, detail="Invalid meal_type")
 
     try:

@@ -18,6 +18,7 @@ import MealPlanDetails from './components/MealPlanDetails';
 
 import ConsumptionHistory from './components/ConsumptionHistory';
 import NotificationSystem from './components/NotificationSystem';
+import AdminUserProfile from './components/AdminUserProfile';
 
 // Create a theme instance with purple gradient theme
 const theme = createTheme({
@@ -147,6 +148,7 @@ function App() {
               </AdminRoute>
             }
           />
+          <Route path="/admin/user/:userId" element={<AdminRoute><AdminUserProfile /></AdminRoute>} />
           
           {/* Other User Protected Routes */}
           <Route
