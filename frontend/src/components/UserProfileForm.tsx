@@ -43,9 +43,10 @@ import { UserProfile } from '../types';
 interface UserProfileFormProps {
   onSubmit: (profile: UserProfile) => void;
   initialProfile?: UserProfile;
+  isAdminView?: boolean;
 }
 
-const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProfile }) => {
+const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProfile, isAdminView = false }) => {
   const theme = useTheme();
   
   // Normalize profile data to handle old format
@@ -301,7 +302,13 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
 
   const handleSubmit = () => {
     if (validateForm()) {
-      onSubmit(profile);
+      // Add a timestamp to track when this profile was last updated
+      const updatedProfile = {
+        ...profile,
+        lastUpdated: new Date().toISOString()
+      };
+      console.log('Submitting updated profile:', updatedProfile);
+      onSubmit(updatedProfile);
     }
   };
 
@@ -1521,7 +1528,7 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
               transition: 'all 0.3s ease',
             }}
           >
-            🚀 Generate My Personalized Meal Plan
+            {isAdminView ? '💾 Save Changes' : '🚀 Generate My Personalized Meal Plan'}
           </Button>
         </Box>
       </Paper>

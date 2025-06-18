@@ -104,17 +104,19 @@ const MealPlanRequest: React.FC = () => {
         const token = localStorage.getItem('token');
         if (!token) return;
         
+        // Always fetch the latest profile from the server
         const response = await fetch('http://localhost:8000/user/profile', {
           headers: {
             'Authorization': `Bearer ${token}`,
           },
+          // Add cache busting to ensure we get the latest data
+          cache: 'no-cache',
         });
         
         if (response.ok) {
           const data = await response.json();
-          if (data && data.profile) {
-            setUserProfile(data.profile);
-          }
+          console.log('Loaded latest user profile:', data);
+          setUserProfile(data);
         }
       } catch (error) {
         console.error('Error loading profile:', error);

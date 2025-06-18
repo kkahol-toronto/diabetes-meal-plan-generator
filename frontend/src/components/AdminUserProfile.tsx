@@ -116,7 +116,7 @@ const AdminUserProfile: React.FC = () => {
         {!profile && <Alert severity="info" sx={{ mb: 2 }}>No profile yet – fill in the details below.</Alert>}
         {saving && <CircularProgress size={20} sx={{ mb: 2 }} />}
 
-        <UserProfileForm onSubmit={handleProfileSubmit} initialProfile={profile || undefined} />
+        <UserProfileForm onSubmit={handleProfileSubmit} initialProfile={profile || undefined} isAdminView={true} />
       </Paper>
     </Container>
   );

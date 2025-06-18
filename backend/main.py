@@ -1856,6 +1856,7 @@ async def save_user_profile(
     user_doc = await get_user_by_email(current_user["email"])
     if not user_doc:
         raise HTTPException(status_code=404, detail="User not found")
+    # Completely replace the profile with the new data
     user_doc["profile"] = profile
     user_container.replace_item(item=user_doc["id"], body=user_doc)
     return {"message": "Profile saved"}

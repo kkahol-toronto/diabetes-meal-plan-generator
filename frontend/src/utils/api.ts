@@ -12,6 +12,7 @@ interface ApiConfig {
   timeout?: number;
   retries?: number;
   retryDelay?: number;
+  cache?: boolean;
 }
 
 const BASE_URL = config.API_URL;
@@ -90,6 +91,7 @@ const makeRequest = async <T>(
     timeout = DEFAULT_TIMEOUT,
     retries = DEFAULT_RETRIES,
     retryDelay = DEFAULT_RETRY_DELAY,
+    cache = true,
   } = config;
 
   const fullUrl = url.startsWith('http') ? url : `${BASE_URL}${url}`;
@@ -113,6 +115,7 @@ const makeRequest = async <T>(
       const response = await fetch(fullUrl, {
         ...requestOptions,
         signal: controller.signal,
+        cache: cache ? 'default' : 'no-cache',
       });
 
       clearTimeout(timeoutId);
@@ -184,7 +187,7 @@ export const authApi = {
     name?: string;
   }) => api.post<{ message: string }>('/register', userData),
 
-  getUserProfile: () => api.get<any>('/user/profile'),
+  getUserProfile: () => api.get<any>('/user/profile', { cache: false }),
 };
 
 export const mealPlanApi = {
@@ -206,7 +209,7 @@ export const consumptionApi = {
 };
 
 export const adminApi = {
-  getUserProfile: (identifier: string) => api.get<{ profile: any }>(`/admin/profile/${identifier}`),
+  getUserProfile: (identifier: string) => api.get<{ profile: any }>(`/admin/profile/${identifier}`, { cache: false }),
   saveUserProfile: (identifier: string, profile: any) => api.post(`/admin/profile/${identifier}`, { profile }),
 };
 
