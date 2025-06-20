@@ -204,4 +204,11 @@ export const consumptionApi = {
   getAnalytics: (days = 7) => api.get(`/consumption/analytics?days=${days}`),
 };
 
+export const adminApi = {
+  getUserProfile: (userId: string) => api.get<{profile: any}>(`/admin/users/${userId}`),
+  updateUserProfile: (userId: string, data: any) => api.put(`/admin/users/${userId}`, data),
+  saveUserProfile: (userId: string, data: any) => api.put(`/admin/users/${userId}`, data),
+  getAllUsers: () => api.get('/admin/users'),
+};
+
 export { ApiError }; 

@@ -43,6 +43,7 @@ import { UserProfile } from '../types';
 interface UserProfileFormProps {
   onSubmit: (profile: UserProfile) => void;
   initialProfile?: UserProfile;
+  isAdminView?: boolean;
 }
 
 const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProfile }) => {

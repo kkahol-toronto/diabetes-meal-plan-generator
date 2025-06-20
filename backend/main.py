@@ -212,9 +212,80 @@ class RegistrationData(BaseModel):
     registration_code: str
     email: EmailStr
     password: str
+    consent_given: bool
 
 class ImageAnalysisRequest(BaseModel):
     prompt: str
+
+class UpdateConsent(BaseModel):
+    consent_given: bool
+    
+class UpdateConsentRequest(BaseModel):
+    email: str
+    password: str
+    consent_given: bool = True
+
+@app.post("/update-consent-unauthenticated")
+async def update_consent_unauthenticated(data: UpdateConsentRequest):
+    """Update user consent without requiring authentication"""
+    try:
+        print(f"Attempting to update consent for: {data.email}")
+        
+        # Validate user credentials
+        user = await get_user_by_email(data.email)
+        if not user:
+            print(f"User not found: {data.email}")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Incorrect username or password",
+            )
+            
+        if not verify_password(data.password, user["hashed_password"]):
+            print(f"Invalid password for user: {data.email}")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Incorrect username or password",
+            )
+        
+        print(f"User authenticated successfully: {data.email}")
+        
+        # Update user consent fields
+        user["consent_given"] = data.consent_given
+        user["consent_timestamp"] = datetime.utcnow().isoformat()
+        user["policy_version"] = "1.0"
+        
+        print(f"Updated user object: {json.dumps(user, default=str)}")
+        
+        # Save updated user data
+        try:
+            print(f"Attempting to replace item with ID: {user['id']}")
+            result = user_container.replace_item(item=user["id"], body=user)
+            print("User updated successfully")
+            
+            # Generate a token for the user
+            access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+            token_data = {
+                "sub": user["email"],
+                "is_admin": user.get("is_admin", False),
+            }
+            
+            access_token = create_access_token(
+                data=token_data,
+                expires_delta=access_token_expires
+            )
+            
+            return {"message": "Consent updated successfully", "access_token": access_token, "token_type": "bearer"}
+        except Exception as e:
+            print(f"Error updating user: {str(e)}")
+            print(f"Traceback: {traceback.format_exc()}")
+            raise HTTPException(status_code=500, detail=f"Error updating user: {str(e)}")
+    except HTTPException as he:
+        # Re-raise HTTP exceptions
+        raise he
+    except Exception as e:
+        print(f"Unexpected error: {str(e)}")
+        print(f"Traceback: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
 
 def get_password_hash(password: str) -> str:
     """Hash a password using bcrypt"""
@@ -299,6 +370,14 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
             headers={"WWW-Authenticate": "Bearer"},
         )
     
+    # Check if the user has given consent
+    if not user.get("consent_given", False):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Consent required",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
     print(f"User found: {user}")
     
     # Get patient info if available
@@ -363,6 +442,12 @@ async def register(data: RegistrationData):
         "patient_id": patient["id"],
         "profile": initial_profile  # Include initial profile from patient data
     }
+    
+    if not data.consent_given:
+        raise HTTPException(status_code=400, detail="Consent required")
+    user_data["consent_given"] = True
+    user_data["consent_timestamp"] = datetime.utcnow()
+    user_data["policy_version"] = "1.0"
     
     await create_user(user_data)
     return {
@@ -1441,384 +1526,6 @@ async def export_consolidated_meal_plan(current_user: User = Depends(get_current
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/export/{type}")
-async def export_document(
-    type: str,
-    request: FastAPIRequest,
-    current_user: User = Depends(get_current_user)
-):
-    try:
-        data = await request.json()
-        
-        if type == "meal-plan":
-            content = data["meal_plan"]
-            title = "Meal Plan"
-        elif type == "recipes":
-            content = data["recipes"]
-            title = "Recipe Collection"
-        elif type == "shopping-list":
-            content = data["shopping_list"]
-            title = "Shopping List"
-        else:
-            raise HTTPException(status_code=400, detail="Invalid export type")
-
-        # Generate PDF using reportlab
-        buffer = BytesIO()
-        doc = SimpleDocTemplate(buffer, pagesize=landscape(letter))
-        elements = []
-
-        # Add title
-        styles = getSampleStyleSheet()
-        elements.append(Paragraph(title, styles['Title']))
-        elements.append(Spacer(1, 12))
-
-        # Add content based on type
-        if type == "meal-plan":
-            # Create table for meal plan
-            data = [["Day", "Breakfast", "Lunch", "Dinner", "Snacks"]]
-            days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
-            for i, day in enumerate(days):
-                data.append([
-                    day,
-                    content["breakfast"][i] if i < len(content["breakfast"]) else "",
-                    content["lunch"][i] if i < len(content["lunch"]) else "",
-                    content["dinner"][i] if i < len(content["dinner"]) else "",
-                    content["snacks"][i] if i < len(content["snacks"]) else "",
-                ])
-            # Set column widths
-            col_widths = [0.8*inch, 2.5*inch, 2.5*inch, 2.5*inch, 2.5*inch]
-            table = Table(data, colWidths=col_widths)
-            table.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
-                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                ('FONTSIZE', (0, 0), (-1, 0), 14),
-                ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-                ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
-                ('TEXTCOLOR', (0, 1), (-1, -1), colors.black),
-                ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
-                ('FONTSIZE', (0, 1), (-1, -1), 10),
-                ('GRID', (0, 0), (-1, -1), 1, colors.black),
-                ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-            ]))
-            # Enable word wrap for all cells except header
-            for row in range(1, len(data)):
-                for col in range(1, 5):
-                    table._cellvalues[row][col] = Paragraph(str(table._cellvalues[row][col]), styles['BodyText'])
-            elements.append(table)
-
-        elif type == "recipes":
-            # Add each recipe
-            for recipe in content:
-                elements.append(Paragraph(recipe["name"], styles['Heading1']))
-                elements.append(Spacer(1, 12))
-
-                # Nutritional info
-                elements.append(Paragraph("Nutritional Information", styles['Heading2']))
-                elements.append(Paragraph(f"Calories: {recipe['nutritional_info']['calories']}", styles['Normal']))
-                elements.append(Paragraph(f"Protein: {recipe['nutritional_info']['protein']}", styles['Normal']))
-                elements.append(Paragraph(f"Carbs: {recipe['nutritional_info']['carbs']}", styles['Normal']))
-                elements.append(Paragraph(f"Fat: {recipe['nutritional_info']['fat']}", styles['Normal']))
-                elements.append(Spacer(1, 12))
-
-                # Ingredients
-                elements.append(Paragraph("Ingredients", styles['Heading2']))
-                for ingredient in recipe["ingredients"]:
-                    elements.append(Paragraph(f"• {ingredient}", styles['Normal']))
-                elements.append(Spacer(1, 12))
-
-                # Instructions
-                elements.append(Paragraph("Instructions", styles['Heading2']))
-                for i, instruction in enumerate(recipe["instructions"], 1):
-                    elements.append(Paragraph(f"{i}. {instruction}", styles['Normal']))
-                elements.append(Spacer(1, 24))
-
-        elif type == "shopping-list":
-            # Group items by category
-            categories = {}
-            for item in content:
-                if item["category"] not in categories:
-                    categories[item["category"]] = []
-                categories[item["category"]].append(item)
-
-            # Add each category
-            for category, items in categories.items():
-                elements.append(Paragraph(category, styles['Heading1']))
-                elements.append(Spacer(1, 12))
-                for item in items:
-                    elements.append(Paragraph(f"• {item['name']} - {item['amount']}", styles['Normal']))
-                elements.append(Spacer(1, 24))
-
-        # Build PDF
-        doc.build(elements)
-        buffer.seek(0)
-
-        return StreamingResponse(
-            buffer,
-            media_type="application/pdf",
-            headers={"Content-Disposition": f"attachment; filename={type}-{datetime.now().strftime('%Y%m%d')}.pdf"}
-        )
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/chat/message")
-async def send_chat_message(
-    message: ChatMessage,
-    current_user: User = Depends(get_current_user)
-):
-    # Save user message
-    user_message = await save_chat_message(
-        current_user["id"],
-        message.message,
-        is_user=True,
-        session_id=message.session_id
-    )
-    
-    # Get chat history for context
-    chat_history = await format_chat_history_for_prompt(
-        current_user["id"],
-        message.session_id or user_message["session_id"]
-    )
-    
-    # 🧠 ENHANCED AI COACH CONTEXT - Get comprehensive user data
-    profile = current_user.get("profile", {})
-    
-    # Get recent meal plans (last 3 for context)
-    try:
-        recent_meal_plans = await get_user_meal_plans(current_user["id"])
-        recent_meal_plans = recent_meal_plans[:3]  # Last 3 meal plans
-    except Exception as e:
-        print(f"Error fetching meal plans for chat context: {e}")
-        recent_meal_plans = []
-    
-    # Get recent consumption history (last 7 days)
-    try:
-        recent_consumption = await get_user_consumption_history(current_user["id"], limit=20)
-        # Filter to last 7 days
-        from datetime import datetime, timedelta
-        seven_days_ago = datetime.utcnow() - timedelta(days=7)
-        recent_consumption = [
-            record for record in recent_consumption 
-            if datetime.fromisoformat(record.get("timestamp", "").replace("Z", "+00:00")) > seven_days_ago
-        ]
-    except Exception as e:
-        print(f"Error fetching consumption history for chat context: {e}")
-        recent_consumption = []
-    
-    # Get today's consumption for daily tracking
-    try:
-        today = datetime.utcnow().date()
-        tomorrow = today + timedelta(days=1)
-        today_consumption = [
-            record for record in recent_consumption
-            if today <= datetime.fromisoformat(record.get("timestamp", "").replace("Z", "+00:00")).date() < tomorrow
-        ]
-    except Exception as e:
-        print(f"Error filtering today's consumption: {e}")
-        today_consumption = []
-    
-    # Calculate today's nutritional totals
-    today_totals = {"calories": 0, "protein": 0, "carbs": 0, "fat": 0}
-    for record in today_consumption:
-        nutritional_info = record.get("nutritional_info", {})
-        today_totals["calories"] += nutritional_info.get("calories", 0)
-        today_totals["protein"] += nutritional_info.get("protein", 0)
-        today_totals["carbs"] += nutritional_info.get("carbohydrates", 0)
-        today_totals["fat"] += nutritional_info.get("fat", 0)
-    
-    # Get user's goals from profile or latest meal plan
-    calorie_goal = 2000  # Default
-    macro_goals = {"protein": 100, "carbs": 250, "fat": 70}  # Defaults
-    
-    if profile.get("calorieTarget"):
-        try:
-            calorie_goal = int(profile["calorieTarget"])
-        except:
-            pass
-    elif recent_meal_plans and recent_meal_plans[0].get("dailyCalories"):
-        calorie_goal = recent_meal_plans[0]["dailyCalories"]
-    
-    if profile.get("macroGoals"):
-        macro_goals.update(profile["macroGoals"])
-    elif recent_meal_plans and recent_meal_plans[0].get("macronutrients"):
-        macros = recent_meal_plans[0]["macronutrients"]
-        macro_goals = {
-            "protein": macros.get("protein", 100),
-            "carbs": macros.get("carbs", 250),
-            "fat": macros.get("fats", 70)
-        }
-    
-    # Calculate adherence and progress
-    calorie_adherence = (today_totals["calories"] / calorie_goal * 100) if calorie_goal > 0 else 0
-    protein_adherence = (today_totals["protein"] / macro_goals["protein"] * 100) if macro_goals["protein"] > 0 else 0
-    carb_adherence = (today_totals["carbs"] / macro_goals["carbs"] * 100) if macro_goals["carbs"] > 0 else 0
-    fat_adherence = (today_totals["fat"] / macro_goals["fat"] * 100) if macro_goals["fat"] > 0 else 0
-    
-    # Analyze recent consumption patterns
-    diabetes_suitable_count = 0
-    total_recent_records = len(recent_consumption)
-    for record in recent_consumption:
-        medical_rating = record.get("medical_rating", {})
-        diabetes_suitability = medical_rating.get("diabetes_suitability", "").lower()
-        if diabetes_suitability in ["high", "good", "suitable"]:
-            diabetes_suitable_count += 1
-    
-    diabetes_adherence = (diabetes_suitable_count / total_recent_records * 100) if total_recent_records > 0 else 0
-    
-    # Create comprehensive AI Coach system prompt
-    system_prompt = f"""You are an advanced AI Diet Coach and Diabetes Management Specialist. You are the central intelligence of a comprehensive diabetes meal planning and tracking system.
-
-🎯 **YOUR ROLE**: You are not just a chatbot - you are the user's personal diet coach, meal planner, and diabetes management companion. You have full access to their meal plans, consumption history, and progress data.
-
-👤 **USER PROFILE**:
-- Name: {profile.get('name', 'Not specified')}
-- Age: {profile.get('age', 'Not specified')}
-- Gender: {profile.get('gender', 'Not specified')}
-- Weight: {profile.get('weight', 'Not specified')} kg
-- Height: {profile.get('height', 'Not specified')} cm
-- BMI: {profile.get('bmi', 'Not calculated')}
-- Blood Pressure: {profile.get('systolicBP', 'Not specified')}/{profile.get('diastolicBP', 'Not specified')} mmHg
-- Medical Conditions: {', '.join(profile.get('medicalConditions', []))}
-- Allergies: {', '.join(profile.get('allergies', []))}
-- Diet Type: {', '.join(profile.get('dietType', []))}
-- Dietary Restrictions: {', '.join(profile.get('dietaryRestrictions', []))}
-
-🎯 **DAILY GOALS & PROGRESS**:
-- Calorie Goal: {calorie_goal} kcal
-- Protein Goal: {macro_goals['protein']}g
-- Carb Goal: {macro_goals['carbs']}g  
-- Fat Goal: {macro_goals['fat']}g
-
-📊 **TODAY'S PROGRESS** ({datetime.utcnow().strftime('%B %d, %Y')}):
-- Calories: {today_totals['calories']:.0f}/{calorie_goal} ({calorie_adherence:.1f}%)
-- Protein: {today_totals['protein']:.1f}/{macro_goals['protein']}g ({protein_adherence:.1f}%)
-- Carbs: {today_totals['carbs']:.1f}/{macro_goals['carbs']}g ({carb_adherence:.1f}%)
-- Fat: {today_totals['fat']:.1f}/{macro_goals['fat']}g ({fat_adherence:.1f}%)
-- Meals logged today: {len(today_consumption)}
-
-📈 **RECENT PERFORMANCE** (Last 7 days):
-- Total meals logged: {total_recent_records}
-- Diabetes-suitable meals: {diabetes_suitable_count} ({diabetes_adherence:.1f}%)
-- Recent meal plans available: {len(recent_meal_plans)}
-
-🍽️ **RECENT MEAL PLANS**:
-{chr(10).join([f"- Plan {i+1} (Created: {plan.get('created_at', 'Unknown')[:10]}): {plan.get('dailyCalories', 'N/A')} kcal/day" for i, plan in enumerate(recent_meal_plans[:2])]) if recent_meal_plans else "- No recent meal plans found"}
-
-🥗 **TODAY'S CONSUMPTION**:
-{chr(10).join([f"- {record.get('food_name', 'Unknown food')} ({record.get('estimated_portion', 'Unknown portion')}) - {record.get('nutritional_info', {}).get('calories', 'N/A')} kcal" for record in today_consumption[-3:]]) if today_consumption else "- No meals logged today yet"}
-
-🧠 **YOUR COACHING INTELLIGENCE**:
-1. **Adaptive Recommendations**: Based on today's intake, suggest meal adjustments
-2. **Progress Recognition**: Celebrate achievements and provide encouragement
-3. **Smart Balancing**: If user exceeded calories/carbs, suggest lighter options for remaining meals
-4. **Reward System**: If user has been compliant, occasionally suggest enjoyable treats within limits
-5. **Meal Plan Integration**: Reference their actual meal plans and suggest modifications
-6. **Real-time Guidance**: Provide immediate feedback on food choices and portions
-
-🎯 **COACHING PRIORITIES**:
-1. **Diabetes Management**: Always prioritize blood sugar stability
-2. **Adherence Support**: Help user stick to their meal plans while being flexible
-3. **Behavioral Coaching**: Encourage positive habits and address challenges
-4. **Nutritional Education**: Explain the 'why' behind recommendations
-5. **Motivation**: Keep user engaged and motivated in their health journey
-
-💡 **RESPONSE STYLE**:
-- Be encouraging, supportive, and knowledgeable
-- Use specific data from their actual consumption and meal plans
-- Provide actionable, personalized advice
-- Acknowledge their progress and efforts
-- Be conversational but professional
-- Use emojis appropriately to make interactions engaging
-
-Remember: You have access to their complete meal planning and consumption history. Use this data to provide highly personalized, contextual advice that feels like it comes from someone who truly knows their journey."""
-    
-    # Ensure chat history is a list of message objects
-    formatted_chat_history = []
-    for msg in chat_history:
-        if isinstance(msg, tuple) and len(msg) == 2:
-            content, is_user = msg
-            formatted_chat_history.append(
-                {"role": "user", "content": content} if is_user else {"role": "assistant", "content": content}
-            )
-    
-    # Generate response using OpenAI
-    response = client.chat.completions.create(
-        model=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
-        messages=[
-            {"role": "system", "content": system_prompt},
-            *formatted_chat_history,
-            {"role": "user", "content": message.message}
-        ],
-        max_tokens=1000,  # Increased for more comprehensive responses
-        temperature=0.8,  # Slightly more creative for engaging coaching
-        top_p=1.0,
-        frequency_penalty=0.0,
-        presence_penalty=0.0,
-        stream=True
-    )
-    
-    # Stream the response and collect the full message
-    full_message = ""
-    async def generate():
-        nonlocal full_message
-        try:
-            for chunk in response:
-                if not chunk.choices:
-                    continue
-                if not chunk.choices[0].delta:
-                    continue
-                content = chunk.choices[0].delta.content
-                if content:
-                    full_message += content
-                    # Yield as SSE JSON event
-                    yield f"data: {json.dumps({'content': content})}\n\n"
-        except Exception as e:
-            print(f"Error in streaming response: {str(e)}")
-            if full_message:
-                # Send whatever was accumulated as final SSE event
-                yield f"data: {json.dumps({'content': full_message})}\n\n"
-    
-    # Create a streaming response
-    streaming_response = StreamingResponse(generate(), media_type="text/event-stream")
-    
-    # Save the complete assistant message after streaming is done
-    async def save_message():
-        if full_message:
-            await save_chat_message(
-                current_user["id"],
-                full_message,
-                is_user=False,
-                session_id=user_message["session_id"]
-            )
-    
-    # Add a callback to save the message after streaming
-    streaming_response.background = save_message
-    
-    return streaming_response
-
-@app.get("/chat/history")
-async def get_chat_history(
-    session_id: Optional[str] = None,
-    current_user: User = Depends(get_current_user)
-):
-    messages = await get_recent_chat_history(current_user["id"], session_id)
-    return messages
-
-@app.get("/chat/sessions")
-async def get_chat_sessions(current_user: User = Depends(get_current_user)):
-    sessions = await get_user_sessions(current_user["id"])
-    return sessions
-
-@app.delete("/chat/history")
-async def delete_chat_history(
-    session_id: Optional[str] = None,
-    current_user: User = Depends(get_current_user)
-):
-    await clear_chat_history(current_user["id"], session_id)
-    return {"message": "Chat history cleared successfully"}
-
 @app.get("/users/me")
 async def get_current_user_info(current_user: User = Depends(get_current_user)):
     """Get current user information"""
@@ -1863,6 +1570,27 @@ async def get_user_profile(current_user: User = Depends(get_current_user)):
     if not user_doc or "profile" not in user_doc:
         return {}
     return user_doc["profile"]
+
+@app.post("/user/update-consent")
+async def update_user_consent(
+    data: UpdateConsent,
+    current_user: User = Depends(get_current_user)
+):
+    user = await get_user_by_email(current_user["email"])
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Update user consent fields
+    user["consent_given"] = True
+    user["consent_timestamp"] = datetime.utcnow()
+    user["policy_version"] = "1.0"
+    
+    # Save updated user data
+    try:
+        result = user_container.replace_item(item=user["id"], body=user)
+        return {"message": "Consent updated successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/generate-recipe")
 async def generate_recipe(
@@ -2720,11 +2448,29 @@ async def analyze_and_record_food(
         print(f"[analyze_and_record_food] Full error details:", traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/consumption/history")
-async def get_consumption_history(
-    limit: int = 50,
+@app.post("/user/update-consent")
+async def update_user_consent(
+    data: UpdateConsent,
     current_user: User = Depends(get_current_user)
 ):
+    user = await get_user_by_email(current_user["email"])
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Update user consent fields
+    user["consent_given"] = True
+    user["consent_timestamp"] = datetime.utcnow()
+    user["policy_version"] = "1.0"
+    
+    # Save updated user data
+    try:
+        result = user_container.replace_item(item=user["id"], body=user)
+        return {"message": "Consent updated successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/user/shopping-list")
+async def get_user_shopping_list(current_user: User = Depends(get_current_user)):
     """Get consumption history - USING ORIGINAL FUNCTION with better error handling"""
     try:
         print(f"[get_consumption_history] Getting history for user {current_user['id']}")
@@ -3251,7 +2997,7 @@ How can I help you today?
 
     # Save assistant response
     await save_chat_message(
-        current_user["email"],
+        current_user["id"],
         assistant_message,
         is_user=False,
         session_id=session_id
@@ -3628,7 +3374,7 @@ async def get_daily_coaching_insights(current_user: User = Depends(get_current_u
             recommendations.append({
                 "type": "weekly_good",
                 "priority": "low",
-                "message": f"Good progress! {health_adherence:.0f}% health-suitable meals. Let's aim for 80%+ this week.",
+                "message": f"Good progress! {health_adherence:.0f} health-suitable meals. Let's aim for 80%+ this week.",
                 "action": "improve"
             })
         else:
