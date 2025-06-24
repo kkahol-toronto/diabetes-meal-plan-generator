@@ -8,8 +8,49 @@ from typing import Dict, Any, List
 import traceback
 
 # Import the new consumption system
-from consumption_system import consumption_tracker
-from main import get_current_user
+from consumption_system import ConsumptionTracker
+from fastapi import Depends
+from fastapi.security import OAuth2PasswordBearer
+
+# Create OAuth2 scheme for token authentication
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
+
+# Define get_current_user function to avoid circular imports
+async def get_current_user(token: str = Depends(oauth2_scheme)):
+    # This is just a placeholder - the actual implementation will be in main.py
+    # The main.py will pass the real get_current_user function when registering endpoints
+    pass
+
+# Initialize the consumption tracker - this will be created lazily when needed
+consumption_tracker = None
+
+def get_tracker():
+    """Get or create the consumption tracker instance"""
+    global consumption_tracker
+    if consumption_tracker is None:
+        try:
+            consumption_tracker = ConsumptionTracker()
+            print("ConsumptionTracker initialized successfully")
+        except Exception as e:
+            print(f"Error initializing consumption tracker: {str(e)}")
+            # Create a minimal implementation for endpoints to work
+            from types import SimpleNamespace
+            from database import get_user_consumption_history, get_consumption_analytics
+            
+            # Create a minimal tracker that uses database functions directly
+            tracker = SimpleNamespace()
+            tracker.get_consumption_history = get_user_consumption_history
+            tracker.get_consumption_analytics = get_consumption_analytics
+            
+            # Add a dummy quick_log_food method
+            async def dummy_quick_log(*args, **kwargs):
+                return {"success": False, "error": "ConsumptionTracker not available"}
+            
+            tracker.quick_log_food = dummy_quick_log
+            consumption_tracker = tracker
+            
+            print("Created fallback consumption tracker with basic functionality")
+    return consumption_tracker
 
 async def quick_log_food_endpoint(food_data: dict, current_user: Dict = Depends(get_current_user)) -> Dict[str, Any]:
     """
@@ -26,8 +67,11 @@ async def quick_log_food_endpoint(food_data: dict, current_user: Dict = Depends(
         if not food_name:
             raise HTTPException(status_code=400, detail="Food name is required")
         
+        # Get the consumption tracker
+        tracker = get_tracker()
+        
         # Use the consumption tracker
-        result = await consumption_tracker.quick_log_food(
+        result = await tracker.quick_log_food(
             user_id=current_user["id"],
             food_name=food_name,
             portion=portion
@@ -51,8 +95,11 @@ async def get_consumption_history_endpoint(limit: int = 50, current_user: Dict =
     try:
         print(f"[ConsumptionHistoryEndpoint] Getting history for user {current_user['id']}")
         
+        # Get the consumption tracker
+        tracker = get_tracker()
+        
         # Get consumption history
-        history = await consumption_tracker.get_consumption_history(
+        history = await tracker.get_consumption_history(
             user_id=current_user["id"],
             limit=limit
         )
@@ -73,8 +120,11 @@ async def get_consumption_analytics_endpoint(days: int = 30, current_user: Dict 
     try:
         print(f"[ConsumptionAnalyticsEndpoint] Getting analytics for user {current_user['id']} for {days} days")
         
+        # Get the consumption tracker
+        tracker = get_tracker()
+        
         # Get consumption analytics
-        analytics = await consumption_tracker.get_consumption_analytics(
+        analytics = await tracker.get_consumption_analytics(
             user_id=current_user["id"],
             days=days
         )
@@ -95,14 +145,17 @@ async def get_daily_insights_endpoint(current_user: Dict = Depends(get_current_u
     try:
         print(f"[DailyInsightsEndpoint] Getting insights for user {current_user['id']}")
         
+        # Get the consumption tracker
+        tracker = get_tracker()
+        
         # Get today's consumption data
-        today_analytics = await consumption_tracker.get_consumption_analytics(
+        today_analytics = await tracker.get_consumption_analytics(
             user_id=current_user["id"],
             days=1
         )
         
         # Get weekly data for trends
-        weekly_analytics = await consumption_tracker.get_consumption_analytics(
+        weekly_analytics = await tracker.get_consumption_analytics(
             user_id=current_user["id"],
             days=7
         )

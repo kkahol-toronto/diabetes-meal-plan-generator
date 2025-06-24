@@ -17,18 +17,33 @@ from database import interactions_container
 # OpenAI client
 from openai import AzureOpenAI
 
-# Initialize OpenAI client
-client = AzureOpenAI(
-    api_key=os.getenv("AZURE_OPENAI_API_KEY"),
-    api_version=os.getenv("AZURE_OPENAI_API_VERSION"),
-    azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT")
-)
+# We'll initialize the client in the class to avoid issues with environment variables
+# not being loaded when the module is imported
 
 class ConsumptionTracker:
     """Complete consumption tracking system with AI integration"""
     
     def __init__(self):
         self.container = interactions_container
+        self.client = None
+        
+        # Initialize OpenAI client only if all required environment variables are present
+        api_key = os.getenv("AZURE_OPENAI_API_KEY")
+        api_version = os.getenv("AZURE_OPENAI_API_VERSION")
+        azure_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
+        
+        if api_key and api_version and azure_endpoint:
+            try:
+                self.client = AzureOpenAI(
+                    api_key=api_key,
+                    api_version=api_version,
+                    azure_endpoint=azure_endpoint
+                )
+                print("OpenAI client initialized successfully")
+            except Exception as e:
+                print(f"Warning: Could not initialize OpenAI client: {str(e)}")
+        else:
+            print("Warning: Missing OpenAI credentials in environment variables")
     
     async def quick_log_food(self, user_id: str, food_name: str, portion: str = "medium portion") -> Dict[str, Any]:
         """
@@ -122,7 +137,12 @@ class ConsumptionTracker:
         try:
             print(f"[ConsumptionTracker] Getting AI analysis for {food_name}")
             
-            response = client.chat.completions.create(
+            # Check if client is initialized
+            if not self.client:
+                print(f"[ConsumptionTracker] OpenAI client not initialized, using fallback data")
+                return fallback_data
+                
+            response = self.client.chat.completions.create(
                 model=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
                 messages=[
                     {
@@ -217,6 +237,9 @@ class ConsumptionTracker:
     
     def _determine_meal_type(self, timestamp: datetime) -> str:
         """Determine meal type based on time"""
+        if not timestamp:
+            return "unknown"
+            
         hour = timestamp.hour
         
         if 5 <= hour < 11:
@@ -341,7 +364,7 @@ class ConsumptionTracker:
             "fiber": 0, "sugar": 0, "sodium": 0, "meals_count": 0
         })
         food_frequency = defaultdict(lambda: {"frequency": 0, "total_calories": 0})
-        meal_type_counts = {"breakfast": 0, "lunch": 0, "dinner": 0, "snack": 0}
+        meal_type_counts = {"breakfast": 0, "lunch": 0, "dinner": 0, "snack": 0, "unknown": 0}
         diabetes_suitable_count = 0
         
         # Daily goals
@@ -389,8 +412,11 @@ class ConsumptionTracker:
             food_frequency[food_name]["frequency"] += 1
             food_frequency[food_name]["total_calories"] += calories
             
-            # Count meal types
-            meal_type_counts[meal_type] += 1
+            # Count meal types - ensure meal_type is not empty
+            if meal_type:  # Only count if meal_type is not empty
+                meal_type_counts[meal_type] += 1
+            else:
+                meal_type_counts["unknown"] += 1  # Use "unknown" for empty meal types
             
             # Check diabetes suitability
             diabetes_suitability = medical_rating.get("diabetes_suitability", "").lower()
@@ -475,5 +501,5 @@ class ConsumptionTracker:
             "daily_nutrition_history": daily_nutrition_history
         }
 
-# Global instance
-consumption_tracker = ConsumptionTracker() 
+# We'll create the instance in the consumption_endpoints.py file instead of here
+# This avoids initialization errors when the module is imported

@@ -30,12 +30,25 @@ database = client.get_database_client("diabetes_diet_manager")
 interactions_container = database.get_container_client(INTERACTIONS_CONTAINER)
 user_container = database.get_container_client(USER_INFORMATION_CONTAINER)
 
-# Initialize Azure OpenAI client
-openai_client = AzureOpenAI(
-    api_key=os.getenv("AZURE_OPENAI_KEY"),
-    azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
-    api_version=os.getenv("AZURE_OPENAI_API_VERSION"),
-)
+# Initialize Azure OpenAI client with error handling
+try:
+    openai_client = AzureOpenAI(
+        api_key=os.getenv("AZURE_OPENAI_KEY"),
+        azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
+        api_version=os.getenv("AZURE_OPENAI_API_VERSION"),
+        # Remove proxies parameter which is causing the error
+    )
+except TypeError as e:
+    if "unexpected keyword argument 'proxies'" in str(e):
+        # Try initializing without problematic parameters
+        print("Warning: Initializing OpenAI client without proxies parameter")
+        openai_client = None
+    else:
+        print(f"Error initializing OpenAI client: {e}")
+        openai_client = None
+except Exception as e:
+    print(f"Error initializing OpenAI client: {e}")
+    openai_client = None
 
 def generate_session_id():
     """Generate a unique session ID"""

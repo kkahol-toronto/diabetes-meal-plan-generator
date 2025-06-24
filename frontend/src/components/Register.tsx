@@ -19,6 +19,7 @@ import ConsentModal from './ConsentModal';
 const Register = () => {
   const navigate = useNavigate();
   const [formData, setFormData] = useState({
+    registration_code: '',
     email: '',
     password: '',
     confirmPassword: '',
@@ -56,6 +57,11 @@ const Register = () => {
       return;
     }
 
+    if (!formData.registration_code) {
+      setError('Registration code is required');
+      return;
+    }
+
     try {
       const response = await fetch('http://localhost:8000/register', {
         method: 'POST',
@@ -63,6 +69,7 @@ const Register = () => {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
+          registration_code: formData.registration_code,
           email: formData.email,
           password: formData.password,
           first_name: formData.first_name,
@@ -157,6 +164,42 @@ const Register = () => {
         )}
 
         <form onSubmit={handleSubmit}>
+          <Box sx={{ mb: 2 }}>
+            <InputLabel 
+              htmlFor="registration_code" 
+              sx={{ 
+                color: 'white', 
+                mb: 1, 
+                fontWeight: 500,
+                fontSize: '0.9rem',
+                textAlign: 'left'
+              }}
+            >
+              Registration Code
+            </InputLabel>
+            <TextField
+              id="registration_code"
+              fullWidth
+              name="registration_code"
+              value={formData.registration_code}
+              onChange={handleChange}
+              required
+              variant="outlined"
+              placeholder="Enter your registration code"
+              sx={{
+                '& .MuiOutlinedInput-root': {
+                  bgcolor: 'rgba(255,255,255,0.1)',
+                  color: 'white',
+                  '& fieldset': { borderColor: 'rgba(255,255,255,0.3)' },
+                  '&:hover fieldset': { borderColor: 'rgba(255,255,255,0.5)' },
+                  '&.Mui-focused fieldset': { borderColor: 'white' }
+                },
+                '& .MuiInputLabel-root': { display: 'none' },
+              }}
+              InputLabelProps={{ shrink: true }}
+            />
+          </Box>
+
           <Grid container spacing={2}>
             <Grid item xs={12} sm={6}>
               <Box sx={{ mb: 2 }}>

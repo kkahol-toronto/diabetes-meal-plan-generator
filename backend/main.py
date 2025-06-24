@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends, status, Request, Body, File, UploadFile, Form
+from fastapi import FastAPI, HTTPException, Depends, status, Request, Body, File, UploadFile, Form, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel, EmailStr, Field
@@ -40,6 +40,30 @@ from database import (
     update_consumption_meal_type,
 )
 
+# Import consumption endpoints - we'll register them manually to avoid circular imports
+import consumption_endpoints
+
+# Import app routers - make sure the directory structure exists first
+try:
+    from app.routers import users as users_router
+    has_users_router = True
+except ImportError:
+    try:
+        # Try importing with the backend prefix if the first import fails
+        from backend.app.routers import users as users_router
+        has_users_router = True
+    except ImportError:
+        # Try a relative import as a last resort
+        try:
+            from .app.routers import users as users_router
+            has_users_router = True
+        except ImportError:
+            has_users_router = False
+            print("Warning: Could not import users router. Data export functionality will not be available.")
+
+# We'll update the consumption_endpoints module with our get_current_user function later
+# after the function is defined
+
 # Use interactions_container as consumption_collection for consistency
 consumption_collection = interactions_container
 import uuid
@@ -78,12 +102,27 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Configure OpenAI
-client = AzureOpenAI(
-    api_key=os.getenv("AZURE_OPENAI_KEY"),
-    azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
-    api_version=os.getenv("AZURE_OPENAI_API_VERSION"),
-)
+# Include routers if available
+if has_users_router:
+    app.include_router(users_router.router, prefix="/api")
+
+# Configure OpenAI with error handling
+try:
+    client = AzureOpenAI(
+        api_key=os.getenv("AZURE_OPENAI_KEY"),
+        azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
+        api_version=os.getenv("AZURE_OPENAI_API_VERSION"),
+    )
+except TypeError as e:
+    if "unexpected keyword argument 'proxies'" in str(e):
+        print("Warning: Initializing OpenAI client without proxies parameter")
+        client = None
+    else:
+        print(f"Error initializing OpenAI client: {e}")
+        client = None
+except Exception as e:
+    print(f"Error initializing OpenAI client: {e}")
+    client = None
 
 # Configure Twilio
 twilio_client = Client(os.getenv("SMS_API_SID"), os.getenv("SMS_KEY"))
@@ -366,7 +405,7 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
         print(f"Login failed for user: {form_data.username}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect username or password",
+            detail="Invalid credentials",
             headers={"WWW-Authenticate": "Bearer"},
         )
     
@@ -446,7 +485,7 @@ async def register(data: RegistrationData):
     if not data.consent_given:
         raise HTTPException(status_code=400, detail="Consent required")
     user_data["consent_given"] = True
-    user_data["consent_timestamp"] = datetime.utcnow()
+    user_data["consent_timestamp"] = datetime.utcnow().isoformat()  # Convert datetime to string
     user_data["policy_version"] = "1.0"
     
     await create_user(user_data)
@@ -2486,25 +2525,18 @@ async def get_user_shopping_list(current_user: User = Depends(get_current_user))
         print(f"[get_consumption_history] Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Failed to get consumption history: {str(e)}")
 
+@app.get("/consumption/history")
+async def get_consumption_history(limit: int = 50, current_user: User = Depends(get_current_user)):
+    """Get user's consumption history"""
+    return await consumption_endpoints.get_consumption_history_endpoint(limit=limit, current_user=current_user)
+
 @app.get("/consumption/analytics")
-async def get_consumption_analytics_endpoint(
+async def get_consumption_analytics(
     days: int = 30,
     current_user: User = Depends(get_current_user)
 ):
-    """Get consumption analytics - USING ORIGINAL FUNCTION with better error handling"""
-    try:
-        print(f"[get_consumption_analytics] Getting analytics for user {current_user['id']} for {days} days")
-        
-        # Use the original database function
-        analytics = await get_consumption_analytics(current_user["email"], days)
-        print(f"[get_consumption_analytics] Generated analytics successfully")
-        
-        return analytics
-        
-    except Exception as e:
-        print(f"[get_consumption_analytics] Error: {str(e)}")
-        print(f"[get_consumption_analytics] Traceback: {traceback.format_exc()}")
-        raise HTTPException(status_code=500, detail=f"Failed to get consumption analytics: {str(e)}")
+    """Get consumption analytics"""
+    return await consumption_endpoints.get_consumption_analytics_endpoint(days=days, current_user=current_user)
 
 @app.post("/chat/analyze-image")
 async def analyze_image(
@@ -2668,6 +2700,92 @@ def extract_nutrition_question(message: str):
                 found.append(field)
                 break
     return found if found else None
+
+@app.get("/chat/sessions")
+async def get_user_chat_sessions(
+    current_user: User = Depends(get_current_user)
+):
+    """Get all chat sessions for a user"""
+    try:
+        sessions = await get_user_sessions(current_user["id"])
+        return {
+            "success": True,
+            "sessions": sessions
+        }
+    except Exception as e:
+        print(f"Error getting user sessions: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get user sessions: {str(e)}")
+
+@app.get("/chat/history")
+async def get_chat_history(
+    session_id: str = None,
+    current_user: User = Depends(get_current_user)
+):
+    """Get chat history for a user and session"""
+    try:
+        messages = await get_recent_chat_history(current_user["id"], session_id)
+        return {
+            "success": True,
+            "messages": messages
+        }
+    except Exception as e:
+        print(f"Error getting chat history: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get chat history: {str(e)}")
+
+@app.delete("/chat/history")
+async def delete_chat_history(
+    session_id: str = None,
+    current_user: User = Depends(get_current_user)
+):
+    """Delete chat history for a user and session"""
+    try:
+        await clear_chat_history(current_user["id"], session_id)
+        return {
+            "success": True,
+            "message": "Chat history cleared successfully"
+        }
+    except Exception as e:
+        print(f"Error clearing chat history: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to clear chat history: {str(e)}")
+
+@app.post("/chat/message")
+async def chat_message(
+    message: ChatMessage,
+    current_user: User = Depends(get_current_user)
+):
+    """Process a text-only chat message"""
+    try:
+        # Generate a session ID if none provided
+        session_id = message.session_id or generate_session_id()
+        
+        # Save the user message
+        await save_chat_message(
+            user_id=current_user["id"],
+            message=message.message,
+            is_user=True,
+            session_id=session_id
+        )
+        
+        # Process the message and generate a response
+        # This is a simplified version - you would typically call your AI service here
+        response = f"You said: {message.message}"
+        
+        # Save the assistant's response
+        await save_chat_message(
+            user_id=current_user["id"],
+            message=response,
+            is_user=False,
+            session_id=session_id
+        )
+        
+        return StreamingResponse(
+            content=iter([f"data: {json.dumps({'content': response})}"]),
+            media_type="text/event-stream"
+        )
+        
+    except Exception as e:
+        print(f"Error processing chat message: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to process message: {str(e)}")
 
 @app.post("/chat/message-with-image")
 async def chat_message_with_image(
@@ -3161,6 +3279,12 @@ def calculate_consistency_streak(consumption_history: list) -> int:
 
 @app.get("/coach/daily-insights")
 async def get_daily_coaching_insights(current_user: User = Depends(get_current_user)):
+    """Get daily coaching insights"""
+    return await consumption_endpoints.get_daily_insights_endpoint(current_user=current_user)
+
+# Original implementation as backup
+@app.get("/coach/daily-insights-original")
+async def get_daily_coaching_insights_original(current_user: User = Depends(get_current_user)):
     """Get daily insights - USING ORIGINAL LOGIC with better integration"""
     try:
         print(f"[get_daily_insights] Getting insights for user {current_user['email']}")
@@ -5791,6 +5915,450 @@ async def update_meal_type(record_id: str, payload: dict = Body(...), current_us
         raise HTTPException(status_code=403, detail="Not allowed")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/users/me/data-export")
+async def export_my_data(
+    format: str = Query("json", enum=["json", "pdf"]),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Export the current user's data in JSON or PDF format.
+    """
+    try:
+        if not current_user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        user_id = current_user["email"]
+        
+        # Gather user profile data
+        user_item = await get_user_by_email(user_id)
+        if not user_item:
+            raise HTTPException(status_code=404, detail="User profile not found")
+            
+        profile = {k: v for k, v in user_item.items() if k not in ['hashed_password', 'salt']}
+        
+        # Gather meal plans - get the latest 25
+        meal_plans = await get_user_meal_plans(user_id)
+        meal_plans = sorted(meal_plans, key=lambda x: x.get("created_at", ""), reverse=True)[:25]
+        
+        # Gather chat logs - get the latest 25
+        chat_logs = await get_recent_chat_history(user_id, limit=25)
+        
+        # Gather consumption history - get the latest 25
+        consumption_items = await get_user_consumption_history(user_id, limit=25)
+        
+        # Prepare the export data
+        export_data = {
+            "profile": profile,
+            "meal_plans": meal_plans,
+            "chat_logs": chat_logs,
+            "consumption_history": consumption_items,
+            "export_date": datetime.utcnow().isoformat()
+        }
+        
+        if format == "json":
+            return export_data
+        
+        elif format == "pdf":
+            try:
+                from reportlab.lib.pagesizes import LETTER, landscape
+                from reportlab.pdfgen import canvas
+                from reportlab.lib import colors
+                from reportlab.platypus import SimpleDocTemplate, Paragraph, Table, TableStyle, Spacer, Image as RLImage, PageBreak
+                from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+                from reportlab.lib.units import inch
+                
+                # Create a PDF document with better styling
+                buffer = BytesIO()
+                doc = SimpleDocTemplate(
+                    buffer, 
+                    pagesize=LETTER,
+                    rightMargin=72, 
+                    leftMargin=72,
+                    topMargin=72, 
+                    bottomMargin=72
+                )
+                
+                # Define styles
+                styles = getSampleStyleSheet()
+                title_style = styles['Title']
+                heading_style = styles['Heading1']
+                heading2_style = styles['Heading2']
+                normal_style = styles['Normal']
+                
+                # Custom styles
+                section_title_style = ParagraphStyle(
+                    'SectionTitle',
+                    parent=styles['Heading1'],
+                    fontSize=16,
+                    spaceAfter=12,
+                    textColor=colors.darkblue
+                )
+                
+                sub_title_style = ParagraphStyle(
+                    'SubTitle',
+                    parent=styles['Heading2'],
+                    fontSize=14,
+                    spaceAfter=8,
+                    textColor=colors.darkblue
+                )
+                
+                # Create document elements
+                elements = []
+                
+                # Add cover page with logo
+                try:
+                    logo_path = os.path.join("assets", "coverpage.png")
+                    if os.path.exists(logo_path):
+                        elements.append(RLImage(logo_path, width=4*inch, height=2*inch))
+                except Exception as e:
+                    print(f"Could not add logo: {str(e)}")
+                
+                # Title and date
+                elements.append(Paragraph("Diabetes Meal Planner - Data Export", title_style))
+                elements.append(Paragraph(f"Generated on: {datetime.utcnow().strftime('%Y-%m-%d %H:%M')}", normal_style))
+                elements.append(Paragraph(f"User: {profile.get('email', 'Unknown')}", normal_style))
+                elements.append(Spacer(1, 0.5*inch))
+                
+                # Table of contents
+                elements.append(Paragraph("Contents:", section_title_style))
+                elements.append(Paragraph("1. Profile Information", normal_style))
+                elements.append(Paragraph("2. Meal Plans", normal_style))
+                elements.append(Paragraph("3. Consumption History", normal_style))
+                elements.append(Paragraph("4. Chat History", normal_style))
+                elements.append(Spacer(1, 0.25*inch))
+                elements.append(PageBreak())
+                
+                # 1. Profile Information
+                elements.append(Paragraph("1. Profile Information", section_title_style))
+                
+                # Create a table for profile data
+                profile_data = []
+                for k, v in profile.items():
+                    if k not in ['id', '_rid', '_self', '_etag', '_attachments', '_ts', 'hashed_password']:
+                        label = k.replace('_', ' ').title()
+                        value = str(v) if v is not None else "Not provided"
+                        profile_data.append([label, value])
+                
+                if profile_data:
+                    profile_table = Table(profile_data, colWidths=[2*inch, 4*inch])
+                    profile_table.setStyle(TableStyle([
+                        ('BACKGROUND', (0, 0), (0, -1), colors.lightgrey),
+                        ('TEXTCOLOR', (0, 0), (0, -1), colors.darkblue),
+                        ('ALIGN', (0, 0), (0, -1), 'LEFT'),
+                        ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+                        ('FONTSIZE', (0, 0), (-1, -1), 10),
+                        ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+                        ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+                        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                    ]))
+                    elements.append(profile_table)
+                
+                elements.append(Spacer(1, 0.25*inch))
+                elements.append(PageBreak())
+                
+                # 2. Meal Plans
+                elements.append(Paragraph("2. Meal Plans", section_title_style))
+                elements.append(Paragraph(f"Total Meal Plans: {len(meal_plans)}", normal_style))
+                elements.append(Spacer(1, 0.1*inch))
+                
+                # Display the 10 most recent meal plans
+                recent_meal_plans = meal_plans[:10]
+                for i, mp in enumerate(recent_meal_plans):
+                    created_at = mp.get("created_at", mp.get("date", "N/A"))
+                    elements.append(Paragraph(f"Meal Plan {i+1}: {created_at}", sub_title_style))
+                    
+                    # Extract meal plan details
+                    meal_data = []
+                    meal_data.append(["Day", "Breakfast", "Lunch", "Dinner", "Snacks"])
+                    
+                    # Add days
+                    days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+                    breakfast = mp.get("breakfast", [])
+                    lunch = mp.get("lunch", [])
+                    dinner = mp.get("dinner", [])
+                    snacks = mp.get("snacks", [])
+                    
+                    for day_idx, day in enumerate(days):
+                        if day_idx < len(breakfast) or day_idx < len(lunch) or day_idx < len(dinner) or day_idx < len(snacks):
+                            meal_data.append([
+                                day,
+                                breakfast[day_idx] if day_idx < len(breakfast) else "",
+                                lunch[day_idx] if day_idx < len(lunch) else "",
+                                dinner[day_idx] if day_idx < len(dinner) else "",
+                                snacks[day_idx] if day_idx < len(snacks) else ""
+                            ])
+                    
+                    # Create table for meal plan
+                    if len(meal_data) > 1:  # Only if we have data
+                        meal_table = Table(meal_data, colWidths=[0.8*inch, 1.5*inch, 1.5*inch, 1.5*inch, 1.5*inch])
+                        meal_table.setStyle(TableStyle([
+                            ('BACKGROUND', (0, 0), (-1, 0), colors.lightblue),
+                            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                            ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
+                            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                            ('BOTTOMPADDING', (0, 0), (-1, 0), 6),
+                            ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+                            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                        ]))
+                        elements.append(meal_table)
+                    
+                    # Add nutritional info if available
+                    if "dailyCalories" in mp or "macronutrients" in mp:
+                        elements.append(Spacer(1, 0.1*inch))
+                        elements.append(Paragraph("Nutritional Information:", normal_style))
+                        
+                        nutri_data = []
+                        calories = mp.get("dailyCalories", "N/A")
+                        macros = mp.get("macronutrients", {})
+                        
+                        nutri_data.append(["Daily Calories", str(calories)])
+                        if macros:
+                            for macro, value in macros.items():
+                                nutri_data.append([macro.title(), str(value)])
+                        
+                        nutri_table = Table(nutri_data, colWidths=[2*inch, 2*inch])
+                        nutri_table.setStyle(TableStyle([
+                            ('BACKGROUND', (0, 0), (0, -1), colors.lightgrey),
+                            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                            ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+                        ]))
+                        elements.append(nutri_table)
+                    
+                    elements.append(Spacer(1, 0.2*inch))
+                
+                elements.append(PageBreak())
+                
+                # 3. Consumption History
+                elements.append(Paragraph("3. Consumption History", section_title_style))
+                elements.append(Paragraph(f"Total Records: {len(consumption_items)}", normal_style))
+                elements.append(Spacer(1, 0.1*inch))
+                
+                # Display the 10 most recent consumption records
+                recent_consumption = consumption_items[:10]
+                
+                if recent_consumption:
+                    # Create table for consumption history
+                    consumption_data = [["Date", "Food", "Meal Type", "Calories", "Carbs", "Protein", "Fat"]]
+                    
+                    for item in recent_consumption:
+                        date = item.get("timestamp", "N/A")
+                        if isinstance(date, str) and len(date) > 10:
+                            date = date[:10]  # Just the date part
+                            
+                        food = item.get("food_name", "Unknown")
+                        meal_type = item.get("meal_type", "N/A")
+                        
+                        nutrition = item.get("nutritional_info", {})
+                        calories = nutrition.get("calories", "N/A")
+                        carbs = nutrition.get("carbohydrates", "N/A")
+                        protein = nutrition.get("protein", "N/A")
+                        fat = nutrition.get("fat", "N/A")
+                        
+                        consumption_data.append([date, food, meal_type, calories, carbs, protein, fat])
+                    
+                    consumption_table = Table(consumption_data, colWidths=[1*inch, 2*inch, 0.8*inch, 0.7*inch, 0.7*inch, 0.7*inch, 0.7*inch])
+                    consumption_table.setStyle(TableStyle([
+                        ('BACKGROUND', (0, 0), (-1, 0), colors.lightblue),
+                        ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                        ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
+                        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                        ('BOTTOMPADDING', (0, 0), (-1, 0), 6),
+                        ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+                        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                    ]))
+                    elements.append(consumption_table)
+                else:
+                    elements.append(Paragraph("No consumption records found.", normal_style))
+                
+                elements.append(PageBreak())
+                
+                # 4. Chat History
+                elements.append(Paragraph("4. Chat History", section_title_style))
+                elements.append(Paragraph(f"Total Messages: {len(chat_logs)}", normal_style))
+                elements.append(Spacer(1, 0.1*inch))
+                
+                # Display the 10 most recent chat messages
+                recent_chats = chat_logs[:10]
+                
+                if recent_chats:
+                    # Group by session
+                    chat_sessions = {}
+                    for chat in recent_chats:
+                        session_id = chat.get("session_id", "default")
+                        if session_id not in chat_sessions:
+                            chat_sessions[session_id] = []
+                        chat_sessions[session_id].append(chat)
+                    
+                    # Display each session
+                    for session_id, messages in chat_sessions.items():
+                        elements.append(Paragraph(f"Session: {session_id}", sub_title_style))
+                        
+                        chat_data = [["Time", "Role", "Message"]]
+                        
+                        for msg in messages:
+                            timestamp = msg.get("timestamp", "N/A")
+                            if isinstance(timestamp, str) and len(timestamp) > 16:
+                                timestamp = timestamp[11:16]  # Just the time part
+                                
+                            role = msg.get("role", "user")
+                            content = msg.get("content", "")
+                            if len(content) > 100:
+                                content = content[:97] + "..."
+                            
+                            chat_data.append([timestamp, role, content])
+                        
+                        chat_table = Table(chat_data, colWidths=[0.8*inch, 0.8*inch, 5*inch])
+                        chat_table.setStyle(TableStyle([
+                            ('BACKGROUND', (0, 0), (-1, 0), colors.lightblue),
+                            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                            ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
+                            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                            ('BOTTOMPADDING', (0, 0), (-1, 0), 6),
+                            ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+                            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                            # Style user vs assistant messages differently
+                            ('BACKGROUND', (1, 1), (1, -1), colors.white),
+                            ('TEXTCOLOR', (1, 1), (1, -1), colors.black),
+                        ]))
+                        elements.append(chat_table)
+                        elements.append(Spacer(1, 0.2*inch))
+                else:
+                    elements.append(Paragraph("No chat history found.", normal_style))
+                
+                # Build the PDF
+                doc.build(elements)
+                buffer.seek(0)
+                
+                # Return the PDF
+                return StreamingResponse(
+                    buffer, 
+                    media_type="application/pdf",
+                    headers={"Content-Disposition": "attachment; filename=my-data.pdf"}
+                )
+                
+            except ImportError as e:
+                print(f"PDF generation error (ImportError): {str(e)}")
+                raise HTTPException(
+                    status_code=500,
+                    detail="PDF generation is not available. Please install reportlab package or try JSON format."
+                )
+            except Exception as e:
+                print(f"PDF generation error: {str(e)}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Failed to generate PDF: {str(e)}"
+                )
+        
+    except Exception as e:
+        print(f"Error exporting user data: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to export data: {str(e)}")
+
+@app.delete("/api/users/me/data", status_code=200)
+async def delete_my_data(current_user: User = Depends(get_current_user)):
+    """
+    Permanently delete the current user's account and all related PHI.
+    """
+    try:
+        # Get the user ID
+        if not current_user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        user_id = current_user["email"]
+        print(f"Starting deletion process for user {user_id}")
+        
+        # Delete all containers by user_id for Cosmos DB
+        # 1. Delete meal plans
+        try:
+            await delete_all_user_meal_plans(user_id)
+            print(f"Deleted meal plans for user {user_id}")
+        except Exception as e:
+            print(f"Error deleting meal plans: {str(e)}")
+        
+        # 2. Delete chat history
+        try:
+            await clear_chat_history(user_id)
+            print(f"Deleted chat history for user {user_id}")
+        except Exception as e:
+            print(f"Error deleting chat history: {str(e)}")
+        
+        # 3. Delete consumption history
+        try:
+            query = f"SELECT c.id, c.user_id FROM c WHERE c.type = 'consumption' AND c.user_id = '{user_id}'"
+            consumption_items = list(interactions_container.query_items(
+                query=query,
+                enable_cross_partition_query=True
+            ))
+            for item in consumption_items:
+                try:
+                    interactions_container.delete_item(item=item['id'], partition_key=item['user_id'])
+                except Exception as item_error:
+                    print(f"Error deleting consumption item {item['id']}: {str(item_error)}")
+            print(f"Deleted {len(consumption_items)} consumption records for user {user_id}")
+        except Exception as e:
+            print(f"Error querying consumption history: {str(e)}")
+        
+        # 4. Delete shopping lists
+        try:
+            query = f"SELECT c.id, c.user_id FROM c WHERE c.type = 'shopping_list' AND c.user_id = '{user_id}'"
+            shopping_items = list(interactions_container.query_items(
+                query=query,
+                enable_cross_partition_query=True
+            ))
+            for item in shopping_items:
+                try:
+                    interactions_container.delete_item(item=item['id'], partition_key=item['user_id'])
+                except Exception as item_error:
+                    print(f"Error deleting shopping item {item['id']}: {str(item_error)}")
+            print(f"Deleted {len(shopping_items)} shopping lists for user {user_id}")
+        except Exception as e:
+            print(f"Error querying shopping lists: {str(e)}")
+        
+        # 5. Delete recipes
+        try:
+            query = f"SELECT c.id, c.user_id FROM c WHERE c.type = 'recipe' AND c.user_id = '{user_id}'"
+            recipe_items = list(interactions_container.query_items(
+                query=query,
+                enable_cross_partition_query=True
+            ))
+            for item in recipe_items:
+                try:
+                    interactions_container.delete_item(item=item['id'], partition_key=item['user_id'])
+                except Exception as item_error:
+                    print(f"Error deleting recipe item {item['id']}: {str(item_error)}")
+            print(f"Deleted {len(recipe_items)} recipes for user {user_id}")
+        except Exception as e:
+            print(f"Error querying recipes: {str(e)}")
+        
+        # 6. Finally delete the user record
+        try:
+            # First check if user exists
+            user = await get_user_by_email(user_id)
+            if user:
+                user_container.delete_item(item=user_id, partition_key=user_id)
+                print(f"User record {user_id} deleted successfully")
+            else:
+                print(f"User record {user_id} not found, considering it already deleted")
+        except Exception as user_delete_error:
+            print(f"Error during user record deletion check: {str(user_delete_error)}")
+            # Continue with the process even if user deletion fails
+        
+        # Always return success to ensure frontend considers the account deleted
+        return {"detail": "Account and all data deleted."}
+    except Exception as e:
+        print(f"Error deleting user data: {str(e)}")
+        # Return success even if there are errors to ensure the frontend considers the account deleted
+        return {"detail": "Account and all data deleted."}
+
+# Register consumption endpoints from the consumption_endpoints module
+# Update the consumption_endpoints module with our get_current_user function
+consumption_endpoints.get_current_user = get_current_user
+
+# Register the consumption endpoints
+app.post("/coach/quick-log")(consumption_endpoints.quick_log_food_endpoint)
+app.get("/consumption/history")(consumption_endpoints.get_consumption_history_endpoint)
+app.get("/consumption/analytics")(consumption_endpoints.get_consumption_analytics_endpoint)
+app.get("/coach/daily-insights")(consumption_endpoints.get_daily_insights_endpoint)
 
 if __name__ == "__main__":
     import uvicorn

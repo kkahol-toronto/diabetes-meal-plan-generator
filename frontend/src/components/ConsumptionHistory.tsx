@@ -70,6 +70,7 @@ import {
   Filler
 } from 'chart.js';
 import { Bar, Pie, Line, Doughnut } from 'react-chartjs-2';
+import { api } from '../utils/api';
 
 // Register Chart.js components
 ChartJS.register(
@@ -288,49 +289,45 @@ const ConsumptionHistory: React.FC = () => {
       const selectedDays = parseInt(selectedTimeRange);
       const historyLimit = selectedDays === 1 ? 20 : selectedDays * 5; // More data for longer periods
 
-      // Get the auth token
-      const token = localStorage.getItem('token');
-      if (!token) {
-        throw new Error('No authentication token found. Please log in again.');
+      try {
+        // Use the API utility instead of direct fetch calls with individual try/catch for each request
+        const historyData = await api.get<ConsumptionRecord[]>(`/consumption/history?limit=${historyLimit}`);
+        setConsumptionHistory(historyData);
+        console.log('Loaded consumption history:', historyData);
+      } catch (historyError) {
+        console.error('Error loading consumption history:', historyError);
+        // Continue with other requests
       }
-
-      const headers = {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      };
-
-      // Load all data in parallel with dynamic time range (using authenticated endpoints)
-      const [historyResponse, analyticsResponse, insightsResponse] = await Promise.all([
-        fetch(`http://localhost:8000/consumption/history?limit=${historyLimit}`, { headers }),
-        fetch(`http://localhost:8000/consumption/analytics?days=${selectedDays}`, { headers }),
-        fetch('http://localhost:8000/coach/daily-insights', { headers })
-      ]);
-
-      if (!historyResponse.ok) {
-        throw new Error(`Failed to load consumption history: ${historyResponse.statusText}`);
+      
+      try {
+        const analyticsData = await api.get<ConsumptionAnalytics>(`/consumption/analytics?days=${selectedDays}`);
+        setAnalytics(analyticsData);
+        console.log('Loaded consumption analytics:', analyticsData);
+      } catch (analyticsError) {
+        console.error('Error loading consumption analytics:', analyticsError);
+        // Continue with other requests
       }
-      if (!analyticsResponse.ok) {
-        throw new Error(`Failed to load analytics: ${analyticsResponse.statusText}`);
+      
+      try {
+        const insightsData = await api.get<DailyInsights>('/coach/daily-insights');
+        setDailyInsights(insightsData);
+        console.log('Loaded daily insights:', insightsData);
+      } catch (insightsError) {
+        console.error('Error loading daily insights:', insightsError);
+        // Continue with other requests
       }
-      if (!insightsResponse.ok) {
-        throw new Error(`Failed to load daily insights: ${insightsResponse.statusText}`);
-      }
-
-      const historyData = await historyResponse.json();
-      const analyticsData = await analyticsResponse.json();
-      const insightsData = await insightsResponse.json();
-
-      console.log('Loaded consumption data:', { historyData, analyticsData, insightsData });
-
-      setConsumptionHistory(historyData);
-      setAnalytics(analyticsData);
-      setDailyInsights(insightsData);
 
     } catch (err) {
       console.error('Error loading consumption data:', err);
       setError(err instanceof Error ? err.message : 'Failed to load consumption data');
     } finally {
+      // Even if there were individual errors, only show loading false if we have at least some data
       setLoading(false);
+      
+      // Show a specific error message only if all requests failed
+      if (!consumptionHistory.length && !analytics && !dailyInsights) {
+        setError('Unable to load any consumption data. Please try again later.');
+      }
     }
   };
 

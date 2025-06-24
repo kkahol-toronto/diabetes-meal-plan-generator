@@ -1,5 +1,6 @@
 import { isValidToken, logout } from './auth';
 import config from '../config/environment';
+import axios from 'axios';
 
 interface ApiResponse<T = any> {
   data?: T;
@@ -184,6 +185,20 @@ export const authApi = {
   }) => api.post<{ message: string }>('/register', userData),
 
   getUserProfile: () => api.get<any>('/user/profile'),
+};
+
+// User data deletion
+export const deleteUserData = () => api.delete<{ detail: string }>('/api/users/me/data');
+
+// User data export
+export const downloadUserData = async (format: 'json' | 'pdf') => {
+  const token = localStorage.getItem('token');
+  return axios.get(`${BASE_URL}/api/users/me/data-export?format=${format}`, {
+    headers: {
+      Authorization: `Bearer ${token}`
+    },
+    responseType: format === 'pdf' ? 'blob' : 'json'
+  });
 };
 
 export const mealPlanApi = {

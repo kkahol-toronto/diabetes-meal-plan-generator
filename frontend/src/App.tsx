@@ -13,6 +13,7 @@ import Navigation from './components/Navigation';
 import ThankYou from './components/ThankYou';
 import AllRecipesPage from './pages/AllRecipesPage';
 import AllShoppingListsPage from './pages/AllShoppingListsPage';
+import SettingsPage from './pages/SettingsPage';
 import MealPlanHistory from './components/MealPlanHistory';
 import MealPlanDetails from './components/MealPlanDetails';
 
@@ -194,6 +195,15 @@ function App() {
             element={
               <ProtectedRoute>
                 <MealPlanDetails />
+              </ProtectedRoute>
+            }
+          />
+          
+          <Route
+            path="/settings"
+            element={
+              <ProtectedRoute>
+                <SettingsPage />
               </ProtectedRoute>
             }
           />
