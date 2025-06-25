@@ -281,18 +281,48 @@ const ConsumptionHistory: React.FC = () => {
     loadConsumptionData();
   }, [selectedTimeRange]);
 
-  const loadConsumptionData = async () => {
+  // Add effect for automatic retry after error
+  useEffect(() => {
+    // If there's an error, try once more after a delay
+    if (error) {
+      const retryTimer = setTimeout(() => {
+        console.log("Automatically retrying after error...");
+        loadConsumptionData();
+      }, 3000); // Wait 3 seconds before auto-retry
+      
+      return () => clearTimeout(retryTimer);
+    }
+  }, [error]);
+
+  const loadConsumptionData = async (retryCount = 0, maxRetries = 5) => {
     try {
       setLoading(true);
-      setError(null);
+      // Only clear error if this is not a retry attempt
+      if (retryCount === 0) {
+        setError(null);
+      }
 
       const selectedDays = parseInt(selectedTimeRange);
       const historyLimit = selectedDays === 1 ? 20 : selectedDays * 5; // More data for longer periods
 
+      // Add a small initial delay to allow services to initialize
+      // This helps with the initial load that might fail if backend services are still initializing
+      if (retryCount === 0) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+      
+      let hasAnyData = false;
+      let allFailures = true;
+      
       try {
         // Use the API utility instead of direct fetch calls with individual try/catch for each request
-        const historyData = await api.get<ConsumptionRecord[]>(`/consumption/history?limit=${historyLimit}`);
+        const historyData = await api.get<ConsumptionRecord[]>(`/consumption/history?limit=${historyLimit}`, { 
+          retries: 2,
+          retryDelay: 1000
+        });
         setConsumptionHistory(historyData);
+        hasAnyData = true;
+        allFailures = false;
         console.log('Loaded consumption history:', historyData);
       } catch (historyError) {
         console.error('Error loading consumption history:', historyError);
@@ -302,6 +332,8 @@ const ConsumptionHistory: React.FC = () => {
       try {
         const analyticsData = await api.get<ConsumptionAnalytics>(`/consumption/analytics?days=${selectedDays}`);
         setAnalytics(analyticsData);
+        hasAnyData = true;
+        allFailures = false;
         console.log('Loaded consumption analytics:', analyticsData);
       } catch (analyticsError) {
         console.error('Error loading consumption analytics:', analyticsError);
@@ -311,22 +343,54 @@ const ConsumptionHistory: React.FC = () => {
       try {
         const insightsData = await api.get<DailyInsights>('/coach/daily-insights');
         setDailyInsights(insightsData);
+        hasAnyData = true;
+        allFailures = false;
         console.log('Loaded daily insights:', insightsData);
       } catch (insightsError) {
         console.error('Error loading daily insights:', insightsError);
         // Continue with other requests
       }
 
-    } catch (err) {
-      console.error('Error loading consumption data:', err);
-      setError(err instanceof Error ? err.message : 'Failed to load consumption data');
-    } finally {
-      // Even if there were individual errors, only show loading false if we have at least some data
-      setLoading(false);
+      // If we got some data, we're done
+      if (hasAnyData) {
+        setLoading(false);
+        return;
+      }
       
-      // Show a specific error message only if all requests failed
-      if (!consumptionHistory.length && !analytics && !dailyInsights) {
-        setError('Unable to load any consumption data. Please try again later.');
+      // If all requests failed, but we still have retries left
+      if (allFailures && retryCount < maxRetries) {
+        console.log(`All requests failed. Retry attempt ${retryCount + 1}/${maxRetries}`);
+        // Keep loading state active and retry after a delay
+        const retryDelay = Math.min(2000 * Math.pow(1.5, retryCount), 10000); // Exponential backoff with max 10s
+        setTimeout(() => {
+          loadConsumptionData(retryCount + 1, maxRetries);
+        }, retryDelay);
+        return; // Don't turn off loading state
+      }
+      
+      // Only reached here if all requests failed and we're out of retries
+      if (allFailures && retryCount >= maxRetries) {
+        console.error('All requests failed after maximum retries');
+        setError('Failed to load data after multiple attempts');
+        setLoading(false);
+      } else {
+        setLoading(false);
+      }
+      
+    } catch (err) {
+      console.error('Error in loadConsumptionData:', err);
+      
+      if (retryCount < maxRetries) {
+        console.log(`Error caught. Retry attempt ${retryCount + 1}/${maxRetries}`);
+        // Keep loading state active and retry after a delay
+        const retryDelay = Math.min(2000 * Math.pow(1.5, retryCount), 10000); // Exponential backoff with max 10s
+        setTimeout(() => {
+          loadConsumptionData(retryCount + 1, maxRetries);
+        }, retryDelay);
+      } else {
+        // Only show error after all retries are exhausted
+        setError('Unable to connect to server');
+        setLoading(false);
       }
     }
   };
@@ -500,24 +564,40 @@ const ConsumptionHistory: React.FC = () => {
   };
 
   if (loading) {
+    // Show a different message for first load vs refresh
+    const isInitialLoad = !consumptionHistory.length && !analytics && !dailyInsights;
+    
     return (
       <Box display="flex" flexDirection="column" alignItems="center" justifyContent="center" minHeight="400px">
         <CircularProgress size={60} sx={{ mb: 2 }} />
-        <Typography color="textSecondary">Loading consumption data...</Typography>
+        <Typography color="textSecondary" sx={{ mb: 1 }}>
+          {isInitialLoad 
+            ? "Loading consumption data..." 
+            : "Refreshing your nutrition data..."}
+        </Typography>
+        {isInitialLoad && (
+          <Typography variant="body2" color="textSecondary" sx={{ maxWidth: 400, textAlign: 'center' }}>
+            This might take a moment during first load while the system initializes
+          </Typography>
+        )}
       </Box>
     );
   }
 
+
+
   if (error) {
+    // If we've exhausted all retries and still failed, show loading state
+    // This will keep showing the loading spinner instead of an error message
     return (
-      <Box maxWidth="600px" mx="auto" p={3}>
-        <Alert severity="error" sx={{ mb: 2 }}>
-          <Typography variant="h6" gutterBottom>Error Loading Data</Typography>
-          <Typography>{error}</Typography>
-          </Alert>
-        <Button variant="contained" onClick={loadConsumptionData} startIcon={<RefreshIcon />}>
-          Try Again
-        </Button>
+      <Box display="flex" flexDirection="column" alignItems="center" justifyContent="center" minHeight="400px">
+        <CircularProgress size={60} sx={{ mb: 2 }} />
+        <Typography color="textSecondary" sx={{ mb: 1 }}>
+          Loading consumption data...
+        </Typography>
+        <Typography variant="body2" color="textSecondary" sx={{ maxWidth: 400, textAlign: 'center' }}>
+          This might take a moment while we connect to the server
+        </Typography>
       </Box>
     );
   }
@@ -538,7 +618,11 @@ const ConsumptionHistory: React.FC = () => {
           <Stack direction="row" spacing={2} alignItems="center">
                   <Button
               variant="contained"
-              onClick={loadConsumptionData}
+              onClick={() => {
+                setLoading(true);
+                setError(null);
+                loadConsumptionData(0, 5);
+              }}
               startIcon={<RefreshIcon />}
               sx={{ bgcolor: 'rgba(255,255,255,0.2)', '&:hover': { bgcolor: 'rgba(255,255,255,0.3)' } }}
             >

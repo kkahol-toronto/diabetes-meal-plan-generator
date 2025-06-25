@@ -143,29 +143,29 @@ const makeRequest = async <T>(
 // Convenience methods
 export const api = {
   get: <T>(url: string, config?: ApiConfig): Promise<T> =>
-    makeRequest<T>(url, { method: 'GET' }, config),
+    makeRequest<T>(url, { method: 'GET' }, { retries: 2, retryDelay: 800, ...config }),
 
   post: <T>(url: string, data?: any, config?: ApiConfig): Promise<T> =>
     makeRequest<T>(url, {
       method: 'POST',
       body: data instanceof FormData ? data : JSON.stringify(data),
       headers: data instanceof FormData ? {} : { 'Content-Type': 'application/json' },
-    }, config),
+    }, { retries: 2, retryDelay: 800, ...config }),
 
   put: <T>(url: string, data?: any, config?: ApiConfig): Promise<T> =>
     makeRequest<T>(url, {
       method: 'PUT',
       body: JSON.stringify(data),
-    }, config),
+    }, { retries: 2, retryDelay: 800, ...config }),
 
   patch: <T>(url: string, data?: any, config?: ApiConfig): Promise<T> =>
     makeRequest<T>(url, {
       method: 'PATCH',
       body: JSON.stringify(data),
-    }, config),
+    }, { retries: 2, retryDelay: 800, ...config }),
 
   delete: <T>(url: string, config?: ApiConfig): Promise<T> =>
-    makeRequest<T>(url, { method: 'DELETE' }, config),
+    makeRequest<T>(url, { method: 'DELETE' }, { retries: 2, retryDelay: 800, ...config }),
 };
 
 // Specific API methods for common operations

@@ -414,6 +414,15 @@ const Register = () => {
                   >
                     Terms and Conditions
                   </Link>
+                  {' '}and{' '}
+                  <Link 
+                    component="button"
+                    variant="body2"
+                    onClick={openConsentModal}
+                    sx={{ color: 'rgba(255,255,255,0.8)', fontWeight: 'bold', textDecoration: 'underline', '&:hover': { color: 'white' } }}
+                  >
+                    Privacy Policy
+                  </Link>
                 </Typography>
               }
               sx={{ 
