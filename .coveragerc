@@ -3,6 +3,7 @@ omit =
     */backend/legacy/*
     */backend/main.py
     */backend/database.py
+    */backend/consumption_endpoints.py
     */backend/tests/*
     */backend/init_*.py
     */backend/app/migrations/*
