@@ -1,0 +1,15 @@
+[run]
+omit =
+    */backend/legacy/*
+    */backend/main.py
+    */backend/database.py
+    */backend/tests/*
+    */backend/init_*.py
+    */backend/app/migrations/*
+
+[report]
+exclude_lines =
+    pragma: no cover
+    if __name__ == .__main__.
+    pass
+    raise NotImplementedError 
