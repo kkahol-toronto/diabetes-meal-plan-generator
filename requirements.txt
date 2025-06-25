@@ -4,6 +4,6 @@ pytest
 pytest-cov
 pytest-asyncio
 pylint
-"azure-cosmos>=4.0.0"  # Only needed for runtime; tests mock it
+azure-cosmos>=4.0.0  # Only needed for runtime; tests mock it
 openai
 python-dotenv 
