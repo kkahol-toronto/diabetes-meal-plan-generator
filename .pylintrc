@@ -1,0 +1,20 @@
+[MASTER]
+ignore-paths=meal_env
+
+[MESSAGES CONTROL]
+disable=
+    C0114,  # missing-module-docstring
+    C0115,  # missing-class-docstring
+    C0116,  # missing-function-docstring
+    R0903,  # too-few-public-methods
+    R0913,  # too-many-arguments
+    R0914,  # too-many-locals
+    R0915,  # too-many-statements
+    W0511,  # fixme
+
+[FORMAT]
+max-line-length=100
+
+[REPORTS]
+# Set evaluation so that a score of 10.00 is achieved when there are no errors.
+evaluation = 10.0 - ((float(5 * error + warning + refactor + convention) ) / statement) 

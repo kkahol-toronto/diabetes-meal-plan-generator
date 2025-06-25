@@ -16,8 +16,6 @@ import AllShoppingListsPage from './pages/AllShoppingListsPage';
 import SettingsPage from './pages/SettingsPage';
 import MealPlanHistory from './components/MealPlanHistory';
 import MealPlanDetails from './components/MealPlanDetails';
-import ConsentPage from './components/ConsentPage';
-
 import ConsumptionHistory from './components/ConsumptionHistory';
 import NotificationSystem from './components/NotificationSystem';
 
@@ -137,7 +135,6 @@ function App() {
           <Route path="/" element={<HomePage />} />
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
-          <Route path="/consent" element={<ConsentPage />} />
           <Route path="/admin/login" element={<AdminLogin />} />
           <Route path="/thank-you" element={<ThankYou />} />
 
