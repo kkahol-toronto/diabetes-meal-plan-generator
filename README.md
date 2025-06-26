@@ -246,6 +246,18 @@ REACT_APP_API_URL=https://your-api-domain.com
 - ✅ **Better Integration**: Improved connection between consumption logging and meal planning
 - ✅ **Performance Optimization**: Enhanced response times and error recovery
 
+## 🧪 Testing & Linting
+
+After setting up the backend virtual-env:
+
+```bash
+pytest                 # run full suite
+pytest --cov=backend --cov-config=.coveragerc --cov-report=term-missing  # with coverage
+pylint backend tests   # lint (score ≥ 9.5)
+```
+
+CI runs the same commands on every push to `refactor-production-polish` (see `.github/workflows/test.yml`).
+
 ## 🤝 **Contributing**
 
 1. Fork the repository

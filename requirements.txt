@@ -6,4 +6,6 @@ pytest-asyncio
 pylint
 azure-cosmos>=4.0.0  # Only needed for runtime; tests mock it
 openai
-python-dotenv 
+python-dotenv
+uvicorn[standard]
+httpx 

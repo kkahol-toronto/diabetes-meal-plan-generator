@@ -4,7 +4,8 @@
   "description": "A comprehensive web application for diabetes patients to manage their diet, track meals, and get personalized recommendations.",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "pytest",
+    "lint": "pylint backend tests"
   },
   "repository": {
     "type": "git",
