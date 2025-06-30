@@ -1,0 +1,36 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<h1 class="mb-4">Admin Panel</h1>
+<div class="d-flex justify-content-end mb-3">
+    <a class="btn btn-success" href="#" role="button">Create New Patient</a>
+</div>
+
+<table class="table table-hover table-bordered bg-white shadow-sm">
+    <thead class="table-light">
+        <tr>
+            <th>Name</th>
+            <th>Phone</th>
+            <th>Condition</th>
+            <th>Registration Code</th>
+            <th>Created At</th>
+            <th style="width: 150px;">Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for u in users %}
+        <tr>
+            <td>{{ u.name }}</td>
+            <td>{{ u.phone }}</td>
+            <td>{{ u.condition }}</td>
+            <td>{{ u.code }}</td>
+            <td>{{ u.created }}</td>
+            <td>
+                <a class="btn btn-sm btn-primary" href="/users/{{ u.id }}">Profile</a>
+                <a class="btn btn-sm btn-outline-secondary" href="#">Resend Code</a>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endblock %} 

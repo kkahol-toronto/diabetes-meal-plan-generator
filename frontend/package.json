@@ -2,7 +2,6 @@
   "name": "diabetes-diet-manager-frontend",
   "version": "0.1.0",
   "private": true,
-  "proxy": "http://localhost:8000",
   "scripts": {
     "start": "react-scripts start",
     "build": "react-scripts build",

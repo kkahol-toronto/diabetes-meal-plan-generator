@@ -1,0 +1,75 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<a href="/" class="btn btn-link mb-3">&larr; Back to Admin Panel</a>
+<h2 class="mb-4">Comprehensive Health Profile – {{ user.full_name }}</h2>
+
+<!-- Patient Demographics -->
+<div class="card mb-4 shadow-sm">
+  <div class="card-header bg-primary text-white">
+    🧑‍⚕️ Patient Demographics
+  </div>
+  <div class="card-body">
+    <div class="row g-3">
+      <div class="col-md-6">
+        <label class="form-label">Full Name</label>
+        <input type="text" class="form-control" value="{{ user.full_name }}" readonly>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Date of Birth</label>
+        <input type="text" class="form-control" value="{{ user.date_of_birth }}" readonly>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Age</label>
+        <input type="text" class="form-control" value="{{ user.age }}" readonly>
+      </div>
+      <div class="col-md-12">
+        <label class="form-label me-3">Sex</label>
+        <span class="badge bg-info text-dark">{{ user.sex }}</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Vital Signs -->
+<div class="card mb-4 shadow-sm">
+  <div class="card-header bg-primary text-white">
+    ❤️ Vital Signs
+  </div>
+  <div class="card-body">
+    <div class="row g-3">
+      <div class="col-md-3">
+        <label class="form-label">Height (cm)</label>
+        <input type="text" class="form-control" value="{{ user.height_cm }}" readonly>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Weight (kg)</label>
+        <input type="text" class="form-control" value="{{ user.weight_kg }}" readonly>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">BMI</label>
+        <input type="text" class="form-control" value="{{ user.bmi }}" readonly>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Waist (cm)</label>
+        <input type="text" class="form-control" value="{{ user.waist_cm }}" readonly>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">BP Systolic</label>
+        <input type="text" class="form-control" value="{{ user.bp_systolic }}" readonly>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">BP Diastolic</label>
+        <input type="text" class="form-control" value="{{ user.bp_diastolic }}" readonly>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Heart Rate</label>
+        <input type="text" class="form-control" value="{{ user.heart_rate }}" readonly>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Additional sections (Medical History, Medications, etc.) can be added here -->
+
+{% endblock %} 

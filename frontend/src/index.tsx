@@ -4,6 +4,7 @@ import { BrowserRouter as Router } from 'react-router-dom';
 import './index.css';
 import App from './App';
 import reportWebVitals from './reportWebVitals';
+import './setupFetchInterceptor';
 
 const root = ReactDOM.createRoot(
   document.getElementById('root') as HTMLElement
