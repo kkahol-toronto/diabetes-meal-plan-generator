@@ -107,6 +107,16 @@ npm start
 
 The application will be available at `http://localhost:3000`
 
+### **Admin Portal (New)**
+The standalone Admin Portal lets staff manage user profiles and view the same comprehensive health profile form used during meal-plan generation.
+
+```bash
+# From project root (ensure your virtualenv is active)
+uvicorn admin_portal.main:app --reload --port 8001
+```
+
+Open `http://localhost:8001/` in your browser.  The root path shows the Admin Panel table; clicking a user opens their full profile.
+
 ## 🎯 **Core Functionality**
 
 ### **1. Enhanced AI-Powered Dashboard**

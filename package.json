@@ -5,7 +5,8 @@
   "main": "index.js",
   "scripts": {
     "test": "pytest",
-    "lint": "pylint backend tests"
+    "lint": "pylint backend tests",
+    "admin": "uvicorn admin_portal.main:app --reload --port 8001"
   },
   "repository": {
     "type": "git",
