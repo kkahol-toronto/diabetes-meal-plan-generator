@@ -1031,3 +1031,37 @@ async def update_consumption_meal_type(user_id: str, record_id: str, meal_type: 
     except Exception as e:
         print(f"[update_consumption_meal_type] Error: {e}")
         raise 
+
+async def get_all_users():
+    """Get all users from the database"""
+    try:
+        query = "SELECT * FROM c WHERE c.type = 'user'"
+        return list(user_container.query_items(query=query, enable_cross_partition_query=True))
+    except Exception as e:
+        raise Exception(f"Failed to get users: {str(e)}")
+
+async def get_user_by_id(user_id: str):
+    """Get user by ID"""
+    try:
+        query = f"SELECT * FROM c WHERE c.type = 'user' AND c.id = '{user_id}'"
+        items = list(user_container.query_items(query=query, enable_cross_partition_query=True))
+        return items[0] if items else None
+    except Exception as e:
+        raise Exception(f"Failed to get user: {str(e)}")
+
+async def update_user(user_id: str, user_data: dict):
+    """Update a user's profile"""
+    try:
+        # Get existing user first
+        user = await get_user_by_id(user_id)
+        if not user:
+            raise Exception("User not found")
+            
+        # Update user data while preserving type and id
+        user.update(user_data)
+        user["type"] = "user"  # Ensure type is preserved
+        user["id"] = user_id   # Ensure id is preserved
+        
+        return user_container.upsert_item(body=user)
+    except Exception as e:
+        raise Exception(f"Failed to update user: {str(e)}") 

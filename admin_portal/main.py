@@ -1,22 +1,18 @@
-from fastapi import FastAPI, Depends, Request, HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, Depends, Request, HTTPException, status
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from typing import List
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from typing import List, Optional
 import os
+from datetime import datetime, timedelta
+from jose import JWTError, jwt
+from passlib.context import CryptContext
 
 # Re-use database connection & models from the primary backend
-try:
-    from backend.app.database.dependencies import get_db  # type: ignore
-    from backend.app.models.user import User              # type: ignore
-except ModuleNotFoundError:
-    # Fallback stubs when backend package is not importable (e.g. during CI linting)
-    def get_db():
-        yield None
-
-    class User(dict):
-        pass
-
+from backend import database as db
+from backend.app.models.user import User
+from backend.app.services.auth import SECRET_KEY, ALGORITHM
 
 ADMIN_PORTAL_TITLE = "Diabetes Diet Manager – Admin Portal"
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
@@ -30,53 +26,150 @@ if os.path.isdir(STATIC_DIR):
 
 templates = Jinja2Templates(directory=TEMPLATES_DIR)
 
+# Security
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/token")
 
-@app.get("/", response_class=HTMLResponse, tags=["Admin Panel"])
-async def admin_panel(request: Request, db=Depends(get_db)):
-    """Render the main admin panel table with all registered users."""
+# Session management
+from starlette.middleware.sessions import SessionMiddleware
+app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY)
 
-    # TODO: Replace this stub with real user retrieval logic from Cosmos DB
-    users: List[User]
-    if db:
-        # Example when using an ORM: users = db.query(User).all()
-        users = []  # pragma: no cover
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
+    to_encode = data.copy()
+    if expires_delta:
+        expire = datetime.utcnow() + expires_delta
     else:
-        # Stub data for development without a database connection
-        users = [
-            User(id="1", name="Alice", phone="1234567890", condition="Diabetes", code="ABC123", created="2025-05-14 12:46:16"),
-            User(id="2", name="Bob", phone="0987654321", condition="Diabetes", code="XYZ987", created="2025-05-26 18:21:23"),
-        ]
+        expire = datetime.utcnow() + timedelta(minutes=15)
+    to_encode.update({"exp": expire})
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
 
-    return templates.TemplateResponse("admin_panel.html", {"request": request, "users": users, "title": ADMIN_PORTAL_TITLE})
+async def get_current_admin_user(request: Request):
+    """Get current admin user from session token."""
+    token = request.session.get("token")
+    if not token:
+        return None
+        
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        username: str = payload.get("sub")
+        if username is None:
+            return None
+        
+        # Get user from database
+        user = await db.get_user_by_email(username)
+        
+        if not user or not user.get("is_admin", False):
+            return None
+            
+        return user
+    except JWTError:
+        return None
 
+@app.get("/")
+async def root(request: Request):
+    """Root endpoint that redirects to admin panel if authenticated, login if not."""
+    user = await get_current_admin_user(request)
+    if user:
+        return RedirectResponse(url="/admin", status_code=status.HTTP_302_FOUND)
+    return RedirectResponse(url="/login", status_code=status.HTTP_302_FOUND)
 
-@app.get("/users/{user_id}", response_class=HTMLResponse, tags=["Admin Panel"])
-async def user_profile(user_id: str, request: Request, db=Depends(get_db)):
-    """Display (and eventually edit) the comprehensive health profile for a single user."""
+@app.get("/login", response_class=HTMLResponse)
+async def login_page(request: Request):
+    """Render the login page."""
+    # If already logged in, redirect to admin panel
+    user = await get_current_admin_user(request)
+    if user:
+        return RedirectResponse(url="/admin", status_code=status.HTTP_302_FOUND)
+    return templates.TemplateResponse("login.html", {"request": request, "title": ADMIN_PORTAL_TITLE})
 
-    # TODO: Fetch the real user document/profile from the database
-    user: User | None
-    if db:
-        # Example ORM style; adjust for Cosmos DB SDK as needed
-        user = None  # pragma: no cover
-    else:
-        # Stub profile matching the meal-plan generation form fields (simplified)
-        user = User(
-            id=user_id,
-            full_name="John Doe",
-            date_of_birth="2005-11-10",
-            age=19,
-            sex="Male",
-            height_cm=175,
-            weight_kg=63,
-            bmi="20.6 (Normal)",
-            waist_cm=56,
-            bp_systolic=120,
-            bp_diastolic=77,
-            heart_rate=72,
+@app.post("/token")
+async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends()):
+    """Handle admin login."""
+    user = await db.get_user_by_email(form_data.username)
+    if not user or not user.get("is_admin") or not pwd_context.verify(form_data.password, user["hashed_password"]):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid admin credentials",
+            headers={"WWW-Authenticate": "Bearer"},
         )
+    
+    access_token_expires = timedelta(minutes=30)
+    access_token = create_access_token(
+        data={"sub": user["email"], "is_admin": True},
+        expires_delta=access_token_expires
+    )
+    
+    # Store token in session
+    request.session["token"] = access_token
+    
+    return {"access_token": access_token, "token_type": "bearer"}
 
+@app.get("/logout")
+async def logout(request: Request):
+    """Handle logout."""
+    request.session.clear()
+    return RedirectResponse(url="/login", status_code=status.HTTP_302_FOUND)
+
+@app.get("/admin", response_class=HTMLResponse)
+async def admin_panel(request: Request):
+    """Render the main admin panel table with all registered users."""
+    user = await get_current_admin_user(request)
     if not user:
+        return RedirectResponse(url="/login", status_code=status.HTTP_302_FOUND)
+        
+    # Get all patients from the database
+    users = await db.get_all_patients()
+    
+    return templates.TemplateResponse(
+        "admin_panel.html", 
+        {
+            "request": request, 
+            "users": users, 
+            "title": ADMIN_PORTAL_TITLE,
+            "current_user": user
+        }
+    )
+
+@app.get("/users/{user_id}", response_class=HTMLResponse)
+async def user_profile(user_id: str, request: Request):
+    """Display and edit the comprehensive health profile for a single user."""
+    user = await get_current_admin_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=status.HTTP_302_FOUND)
+        
+    profile = await db.get_user_by_id(user_id)
+    if not profile:
         raise HTTPException(status_code=404, detail="User not found")
 
-    return templates.TemplateResponse("profile.html", {"request": request, "user": user, "title": ADMIN_PORTAL_TITLE}) 
+    return templates.TemplateResponse(
+        "profile.html", 
+        {
+            "request": request, 
+            "user": profile, 
+            "title": ADMIN_PORTAL_TITLE,
+            "current_user": user
+        }
+    )
+
+@app.post("/users/{user_id}/update", response_class=HTMLResponse)
+async def update_user_profile(user_id: str, request: Request):
+    """Update a user's profile."""
+    user = await get_current_admin_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=status.HTTP_302_FOUND)
+        
+    form_data = await request.form()
+    user_data = dict(form_data)
+    
+    try:
+        await db.update_user(user_id, user_data)
+        return RedirectResponse(
+            url=f"/users/{user_id}", 
+            status_code=status.HTTP_302_FOUND
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        ) 

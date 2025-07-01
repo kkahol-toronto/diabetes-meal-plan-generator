@@ -1,36 +1,120 @@
 {% extends 'base.html' %}
 
 {% block content %}
-<h1 class="mb-4">Admin Panel</h1>
-<div class="d-flex justify-content-end mb-3">
-    <a class="btn btn-success" href="#" role="button">Create New Patient</a>
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1>Admin Panel</h1>
+    <button type="button" class="btn btn-success" data-bs-toggle="modal" data-bs-target="#createUserModal">
+        Create New User
+    </button>
 </div>
 
-<table class="table table-hover table-bordered bg-white shadow-sm">
-    <thead class="table-light">
-        <tr>
-            <th>Name</th>
-            <th>Phone</th>
-            <th>Condition</th>
-            <th>Registration Code</th>
-            <th>Created At</th>
-            <th style="width: 150px;">Actions</th>
-        </tr>
-    </thead>
-    <tbody>
-        {% for u in users %}
-        <tr>
-            <td>{{ u.name }}</td>
-            <td>{{ u.phone }}</td>
-            <td>{{ u.condition }}</td>
-            <td>{{ u.code }}</td>
-            <td>{{ u.created }}</td>
-            <td>
-                <a class="btn btn-sm btn-primary" href="/users/{{ u.id }}">Profile</a>
-                <a class="btn btn-sm btn-outline-secondary" href="#">Resend Code</a>
-            </td>
-        </tr>
-        {% endfor %}
-    </tbody>
-</table>
+{% if error %}
+<div class="alert alert-danger" role="alert">
+    {{ error }}
+</div>
+{% endif %}
+
+{% if success %}
+<div class="alert alert-success" role="alert">
+    {{ success }}
+</div>
+{% endif %}
+
+<div class="card shadow-sm">
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-hover">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Email</th>
+                        <th>Phone</th>
+                        <th>Condition</th>
+                        <th>Registration Code</th>
+                        <th>Created At</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for user in users %}
+                    <tr>
+                        <td>{{ user.name }}</td>
+                        <td>{{ user.email }}</td>
+                        <td>{{ user.phone }}</td>
+                        <td>{{ user.condition }}</td>
+                        <td>{{ user.registration_code }}</td>
+                        <td>{{ user.created_at }}</td>
+                        <td>
+                            <div class="btn-group" role="group">
+                                <a href="/users/{{ user.id }}" class="btn btn-sm btn-primary">View Profile</a>
+                                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="resendCode('{{ user.id }}')">
+                                    Resend Code
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Create User Modal -->
+<div class="modal fade" id="createUserModal" tabindex="-1" aria-labelledby="createUserModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="createUserModalLabel">Create New User</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form action="/users/create" method="POST">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="name" class="form-label">Name</label>
+                        <input type="text" class="form-control" id="name" name="name" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="email" class="form-label">Email</label>
+                        <input type="email" class="form-control" id="email" name="email" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="phone" class="form-label">Phone</label>
+                        <input type="tel" class="form-control" id="phone" name="phone" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="condition" class="form-label">Condition</label>
+                        <input type="text" class="form-control" id="condition" name="condition" required>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                    <button type="submit" class="btn btn-primary">Create User</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+async function resendCode(userId) {
+    try {
+        const response = await fetch(`/users/${userId}/resend-code`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        const data = await response.json();
+        if (response.ok) {
+            alert('Registration code resent successfully!');
+        } else {
+            alert(data.detail || 'Failed to resend code');
+        }
+    } catch (error) {
+        alert('An error occurred while resending the code');
+    }
+}
+</script>
 {% endblock %} 

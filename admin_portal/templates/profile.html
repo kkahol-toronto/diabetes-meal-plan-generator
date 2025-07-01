@@ -1,75 +1,131 @@
 {% extends 'base.html' %}
 
 {% block content %}
-<a href="/" class="btn btn-link mb-3">&larr; Back to Admin Panel</a>
-<h2 class="mb-4">Comprehensive Health Profile – {{ user.full_name }}</h2>
-
-<!-- Patient Demographics -->
-<div class="card mb-4 shadow-sm">
-  <div class="card-header bg-primary text-white">
-    🧑‍⚕️ Patient Demographics
-  </div>
-  <div class="card-body">
-    <div class="row g-3">
-      <div class="col-md-6">
-        <label class="form-label">Full Name</label>
-        <input type="text" class="form-control" value="{{ user.full_name }}" readonly>
-      </div>
-      <div class="col-md-3">
-        <label class="form-label">Date of Birth</label>
-        <input type="text" class="form-control" value="{{ user.date_of_birth }}" readonly>
-      </div>
-      <div class="col-md-3">
-        <label class="form-label">Age</label>
-        <input type="text" class="form-control" value="{{ user.age }}" readonly>
-      </div>
-      <div class="col-md-12">
-        <label class="form-label me-3">Sex</label>
-        <span class="badge bg-info text-dark">{{ user.sex }}</span>
-      </div>
-    </div>
-  </div>
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1>User Profile</h1>
+    <a href="/" class="btn btn-outline-secondary">Back to Users</a>
 </div>
 
-<!-- Vital Signs -->
-<div class="card mb-4 shadow-sm">
-  <div class="card-header bg-primary text-white">
-    ❤️ Vital Signs
-  </div>
-  <div class="card-body">
-    <div class="row g-3">
-      <div class="col-md-3">
-        <label class="form-label">Height (cm)</label>
-        <input type="text" class="form-control" value="{{ user.height_cm }}" readonly>
-      </div>
-      <div class="col-md-3">
-        <label class="form-label">Weight (kg)</label>
-        <input type="text" class="form-control" value="{{ user.weight_kg }}" readonly>
-      </div>
-      <div class="col-md-3">
-        <label class="form-label">BMI</label>
-        <input type="text" class="form-control" value="{{ user.bmi }}" readonly>
-      </div>
-      <div class="col-md-3">
-        <label class="form-label">Waist (cm)</label>
-        <input type="text" class="form-control" value="{{ user.waist_cm }}" readonly>
-      </div>
-      <div class="col-md-3">
-        <label class="form-label">BP Systolic</label>
-        <input type="text" class="form-control" value="{{ user.bp_systolic }}" readonly>
-      </div>
-      <div class="col-md-3">
-        <label class="form-label">BP Diastolic</label>
-        <input type="text" class="form-control" value="{{ user.bp_diastolic }}" readonly>
-      </div>
-      <div class="col-md-3">
-        <label class="form-label">Heart Rate</label>
-        <input type="text" class="form-control" value="{{ user.heart_rate }}" readonly>
-      </div>
+{% if error %}
+<div class="alert alert-danger" role="alert">
+    {{ error }}
+</div>
+{% endif %}
+
+{% if success %}
+<div class="alert alert-success" role="alert">
+    {{ success }}
+</div>
+{% endif %}
+
+<div class="card shadow-sm">
+    <div class="card-body">
+        <form action="/users/{{ user.id }}/update" method="POST">
+            <div class="row">
+                <div class="col-md-6 mb-3">
+                    <label for="name" class="form-label">Full Name</label>
+                    <input type="text" class="form-control" id="name" name="name" value="{{ user.name }}" required>
+                </div>
+                <div class="col-md-6 mb-3">
+                    <label for="email" class="form-label">Email</label>
+                    <input type="email" class="form-control" id="email" name="email" value="{{ user.email }}" required>
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col-md-6 mb-3">
+                    <label for="phone" class="form-label">Phone</label>
+                    <input type="tel" class="form-control" id="phone" name="phone" value="{{ user.phone }}" required>
+                </div>
+                <div class="col-md-6 mb-3">
+                    <label for="date_of_birth" class="form-label">Date of Birth</label>
+                    <input type="date" class="form-control" id="date_of_birth" name="date_of_birth" value="{{ user.date_of_birth }}">
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col-md-6 mb-3">
+                    <label for="sex" class="form-label">Sex</label>
+                    <select class="form-select" id="sex" name="sex">
+                        <option value="">Select...</option>
+                        <option value="Male" {% if user.sex == 'Male' %}selected{% endif %}>Male</option>
+                        <option value="Female" {% if user.sex == 'Female' %}selected{% endif %}>Female</option>
+                        <option value="Other" {% if user.sex == 'Other' %}selected{% endif %}>Other</option>
+                    </select>
+                </div>
+                <div class="col-md-6 mb-3">
+                    <label for="condition" class="form-label">Condition</label>
+                    <input type="text" class="form-control" id="condition" name="condition" value="{{ user.condition }}">
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col-md-4 mb-3">
+                    <label for="height_cm" class="form-label">Height (cm)</label>
+                    <input type="number" class="form-control" id="height_cm" name="height_cm" value="{{ user.height_cm }}">
+                </div>
+                <div class="col-md-4 mb-3">
+                    <label for="weight_kg" class="form-label">Weight (kg)</label>
+                    <input type="number" class="form-control" id="weight_kg" name="weight_kg" value="{{ user.weight_kg }}">
+                </div>
+                <div class="col-md-4 mb-3">
+                    <label for="waist_cm" class="form-label">Waist (cm)</label>
+                    <input type="number" class="form-control" id="waist_cm" name="waist_cm" value="{{ user.waist_cm }}">
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col-md-4 mb-3">
+                    <label for="bp_systolic" class="form-label">BP Systolic</label>
+                    <input type="number" class="form-control" id="bp_systolic" name="bp_systolic" value="{{ user.bp_systolic }}">
+                </div>
+                <div class="col-md-4 mb-3">
+                    <label for="bp_diastolic" class="form-label">BP Diastolic</label>
+                    <input type="number" class="form-control" id="bp_diastolic" name="bp_diastolic" value="{{ user.bp_diastolic }}">
+                </div>
+                <div class="col-md-4 mb-3">
+                    <label for="heart_rate" class="form-label">Heart Rate</label>
+                    <input type="number" class="form-control" id="heart_rate" name="heart_rate" value="{{ user.heart_rate }}">
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col-12">
+                    <button type="submit" class="btn btn-primary">Save Changes</button>
+                </div>
+            </div>
+        </form>
     </div>
-  </div>
 </div>
 
-<!-- Additional sections (Medical History, Medications, etc.) can be added here -->
-
+<div class="card shadow-sm mt-4">
+    <div class="card-header">
+        <h5 class="card-title mb-0">Account Information</h5>
+    </div>
+    <div class="card-body">
+        <div class="row">
+            <div class="col-md-6">
+                <p><strong>Registration Code:</strong> {{ user.registration_code }}</p>
+                <p><strong>Created At:</strong> {{ user.created_at }}</p>
+                <p><strong>Last Login:</strong> {{ user.last_login or 'Never' }}</p>
+            </div>
+            <div class="col-md-6">
+                <p><strong>Account Status:</strong> 
+                    {% if user.disabled %}
+                    <span class="badge bg-danger">Disabled</span>
+                    {% else %}
+                    <span class="badge bg-success">Active</span>
+                    {% endif %}
+                </p>
+                <p><strong>Consent Given:</strong> 
+                    {% if user.consent_given %}
+                    <span class="badge bg-success">Yes</span>
+                    {% else %}
+                    <span class="badge bg-warning">No</span>
+                    {% endif %}
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %} 
