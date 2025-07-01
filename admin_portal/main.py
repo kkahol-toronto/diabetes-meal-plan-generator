@@ -138,7 +138,7 @@ async def user_profile(user_id: str, request: Request):
     if not user:
         return RedirectResponse(url="/login", status_code=status.HTTP_302_FOUND)
         
-    profile = await db.get_user_by_id(user_id)
+    profile = await db.get_patient_by_id(user_id)
     if not profile:
         raise HTTPException(status_code=404, detail="User not found")
 
@@ -163,6 +163,12 @@ async def update_user_profile(user_id: str, request: Request):
     user_data = dict(form_data)
     
     try:
+        # First check if patient exists
+        patient = await db.get_patient_by_id(user_id)
+        if not patient:
+            raise HTTPException(status_code=404, detail="User not found")
+            
+        # Update the patient data
         await db.update_user(user_id, user_data)
         return RedirectResponse(
             url=f"/users/{user_id}", 
