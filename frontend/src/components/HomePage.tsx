@@ -272,7 +272,7 @@ const HomePage: React.FC = () => {
       setDashboardData(dailyData);
       setAnalyticsData(analytics); // Existing analytics data, consider renaming for clarity
       setProgressData(progress);
-      setNotifications(notifs);
+      setNotifications(Array.isArray(notifs) ? notifs : []);
       setTodaysMealPlan(mealPlan);
 
     } catch (err) {
