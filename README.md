@@ -4,6 +4,10 @@ A **fully integrated, intelligent diabetes management platform** powered by AI t
 
 ## 🌟 Key Features
 
+### 📝 **Consent Management** *(New)*
+- **In-App Consent Modal & Page**: Users must scroll through Terms & Conditions and explicitly agree before accessing protected areas.
+- **Standalone /consent Route**: Added `ConsentPage` wrapper so the modal can be visited directly via deep-link.
+
 ### 🧠 **Enhanced AI Health Coach** *(Recently Improved)*
 - **Fixed AI Coach Functionality**: Robust meal-suggestion endpoint with proper error handling
 - **Comprehensive User Context**: AI has access to complete user history, preferences, and health data

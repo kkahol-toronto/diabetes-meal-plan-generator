@@ -1,5 +1,5 @@
 # Diabetes AI Diet Coach - Production-Ready Backend Dependencies
-# Updated: June 2025 - Enhanced AI Coach System with Meal Logging Integration
+# Updated: July 2025 - Added Consent Management feature and minor UI improvements
 
 # Core FastAPI and web framework dependencies
 fastapi>=0.109.0

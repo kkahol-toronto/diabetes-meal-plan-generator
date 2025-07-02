@@ -1,6 +1,6 @@
 {
   "name": "diabetes-meal-plan-generator",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "A comprehensive web application for diabetes patients to manage their diet, track meals, and get personalized recommendations.",
   "main": "index.js",
   "scripts": {
