@@ -169,7 +169,7 @@ async def update_user_profile(user_id: str, request: Request):
             raise HTTPException(status_code=404, detail="User not found")
             
         # Update the patient data
-        await db.update_user(user_id, user_data)
+        await db.update_patient(user_id, user_data)
         return RedirectResponse(
             url=f"/users/{user_id}", 
             status_code=status.HTTP_302_FOUND

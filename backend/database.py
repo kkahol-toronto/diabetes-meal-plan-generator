@@ -1065,3 +1065,20 @@ async def update_user(user_id: str, user_data: dict):
         return user_container.upsert_item(body=user)
     except Exception as e:
         raise Exception(f"Failed to update user: {str(e)}") 
+
+async def update_patient(patient_id: str, patient_data: dict):
+    """Update a patient's profile"""
+    try:
+        # Get existing patient first
+        patient = await get_patient_by_id(patient_id)
+        if not patient:
+            raise Exception("Patient not found")
+            
+        # Update patient data while preserving type and id
+        patient.update(patient_data)
+        patient["type"] = "patient"  # Ensure type is preserved
+        patient["id"] = patient_id   # Ensure id is preserved
+        
+        return user_container.upsert_item(body=patient)
+    except Exception as e:
+        raise Exception(f"Failed to update patient: {str(e)}") 
