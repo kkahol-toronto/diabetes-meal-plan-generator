@@ -168,6 +168,31 @@ async def update_user_profile(user_id: str, request: Request):
         if not patient:
             raise HTTPException(status_code=404, detail="User not found")
             
+        # Create a nested labValues structure
+        lab_fields = ['a1c', 'fastingGlucose', 'ldlCholesterol', 'hdlCholesterol', 
+                     'triglycerides', 'totalCholesterol', 'egfr', 'vitaminD']
+        
+        lab_values = {}
+        for field in lab_fields:
+            if field in user_data:
+                lab_values[field] = user_data.pop(field)
+        
+        if lab_values:
+            user_data['labValues'] = lab_values
+            
+        # Handle arrays for medical conditions and medications
+        if 'medicalConditions' in user_data:
+            if isinstance(user_data['medicalConditions'], str):
+                user_data['medicalConditions'] = [user_data['medicalConditions']]
+                
+        if 'currentMedications' in user_data:
+            if isinstance(user_data['currentMedications'], str):
+                user_data['currentMedications'] = [user_data['currentMedications']]
+                
+        if 'ethnicity' in user_data:
+            if isinstance(user_data['ethnicity'], str):
+                user_data['ethnicity'] = [user_data['ethnicity']]
+            
         # Update the patient data
         await db.update_patient(user_id, user_data)
         return RedirectResponse(

@@ -18,9 +18,13 @@
 </div>
 {% endif %}
 
-<div class="card shadow-sm">
-    <div class="card-body">
-        <form action="/users/{{ user.id }}/update" method="POST">
+<form action="/users/{{ user.id }}/update" method="POST">
+    <!-- Patient Demographics -->
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-primary text-white">
+            <h5 class="card-title mb-0">👤 Patient Demographics</h5>
+        </div>
+        <div class="card-body">
             <div class="row">
                 <div class="col-md-6 mb-3">
                     <label for="name" class="form-label">Full Name</label>
@@ -33,73 +37,340 @@
             </div>
 
             <div class="row">
-                <div class="col-md-6 mb-3">
+                <div class="col-md-4 mb-3">
                     <label for="phone" class="form-label">Phone</label>
                     <input type="tel" class="form-control" id="phone" name="phone" value="{{ user.phone }}" required>
                 </div>
-                <div class="col-md-6 mb-3">
-                    <label for="date_of_birth" class="form-label">Date of Birth</label>
-                    <input type="date" class="form-control" id="date_of_birth" name="date_of_birth" value="{{ user.date_of_birth }}">
+                <div class="col-md-4 mb-3">
+                    <label for="dateOfBirth" class="form-label">Date of Birth</label>
+                    <input type="date" class="form-control" id="dateOfBirth" name="dateOfBirth" value="{{ user.dateOfBirth }}">
                 </div>
-            </div>
-
-            <div class="row">
-                <div class="col-md-6 mb-3">
-                    <label for="sex" class="form-label">Sex</label>
-                    <select class="form-select" id="sex" name="sex">
+                <div class="col-md-4 mb-3">
+                    <label for="gender" class="form-label">Gender</label>
+                    <select class="form-select" id="gender" name="gender">
                         <option value="">Select...</option>
-                        <option value="Male" {% if user.sex == 'Male' %}selected{% endif %}>Male</option>
-                        <option value="Female" {% if user.sex == 'Female' %}selected{% endif %}>Female</option>
-                        <option value="Other" {% if user.sex == 'Other' %}selected{% endif %}>Other</option>
+                        <option value="Male" {% if user.gender == 'Male' %}selected{% endif %}>Male</option>
+                        <option value="Female" {% if user.gender == 'Female' %}selected{% endif %}>Female</option>
+                        <option value="Other" {% if user.gender == 'Other' %}selected{% endif %}>Other</option>
                     </select>
                 </div>
-                <div class="col-md-6 mb-3">
-                    <label for="condition" class="form-label">Condition</label>
-                    <input type="text" class="form-control" id="condition" name="condition" value="{{ user.condition }}">
+            </div>
+
+            <div class="row">
+                <div class="col-12 mb-3">
+                    <label for="ethnicity" class="form-label">Ethnicity</label>
+                    <select class="form-select" id="ethnicity" name="ethnicity" multiple>
+                        {% for ethnic in ['South Asian – North Indian', 'South Asian – Pakistani', 'South Asian – Sri Lankan', 'East Asian – Chinese', 'East Asian – Korean', 'Filipino', 'Caucasian / White', 'Black / African / African-American', 'Caribbean', 'Middle Eastern', 'Hispanic / Latin American'] %}
+                        <option value="{{ ethnic }}" {% if ethnic in user.ethnicity %}selected{% endif %}>{{ ethnic }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Vital Signs -->
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-primary text-white">
+            <h5 class="card-title mb-0">📏 Vital Signs</h5>
+        </div>
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-4 mb-3">
+                    <label for="height" class="form-label">Height (cm)</label>
+                    <input type="number" class="form-control" id="height" name="height" value="{{ user.height }}">
+                </div>
+                <div class="col-md-4 mb-3">
+                    <label for="weight" class="form-label">Weight (kg)</label>
+                    <input type="number" class="form-control" id="weight" name="weight" value="{{ user.weight }}">
+                </div>
+                <div class="col-md-4 mb-3">
+                    <label for="waistCircumference" class="form-label">Waist (cm)</label>
+                    <input type="number" class="form-control" id="waistCircumference" name="waistCircumference" value="{{ user.waistCircumference }}">
                 </div>
             </div>
 
             <div class="row">
                 <div class="col-md-4 mb-3">
-                    <label for="height_cm" class="form-label">Height (cm)</label>
-                    <input type="number" class="form-control" id="height_cm" name="height_cm" value="{{ user.height_cm }}">
+                    <label for="systolicBP" class="form-label">BP Systolic</label>
+                    <input type="number" class="form-control" id="systolicBP" name="systolicBP" value="{{ user.systolicBP }}">
                 </div>
                 <div class="col-md-4 mb-3">
-                    <label for="weight_kg" class="form-label">Weight (kg)</label>
-                    <input type="number" class="form-control" id="weight_kg" name="weight_kg" value="{{ user.weight_kg }}">
+                    <label for="diastolicBP" class="form-label">BP Diastolic</label>
+                    <input type="number" class="form-control" id="diastolicBP" name="diastolicBP" value="{{ user.diastolicBP }}">
                 </div>
                 <div class="col-md-4 mb-3">
-                    <label for="waist_cm" class="form-label">Waist (cm)</label>
-                    <input type="number" class="form-control" id="waist_cm" name="waist_cm" value="{{ user.waist_cm }}">
+                    <label for="heartRate" class="form-label">Heart Rate</label>
+                    <input type="number" class="form-control" id="heartRate" name="heartRate" value="{{ user.heartRate }}">
                 </div>
             </div>
+        </div>
+    </div>
 
-            <div class="row">
-                <div class="col-md-4 mb-3">
-                    <label for="bp_systolic" class="form-label">BP Systolic</label>
-                    <input type="number" class="form-control" id="bp_systolic" name="bp_systolic" value="{{ user.bp_systolic }}">
-                </div>
-                <div class="col-md-4 mb-3">
-                    <label for="bp_diastolic" class="form-label">BP Diastolic</label>
-                    <input type="number" class="form-control" id="bp_diastolic" name="bp_diastolic" value="{{ user.bp_diastolic }}">
-                </div>
-                <div class="col-md-4 mb-3">
-                    <label for="heart_rate" class="form-label">Heart Rate</label>
-                    <input type="number" class="form-control" id="heart_rate" name="heart_rate" value="{{ user.heart_rate }}">
-                </div>
-            </div>
-
+    <!-- Medical History -->
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-primary text-white">
+            <h5 class="card-title mb-0">🩺 Medical History</h5>
+        </div>
+        <div class="card-body">
             <div class="row">
                 <div class="col-12">
-                    <button type="submit" class="btn btn-primary">Save Changes</button>
+                    <label class="form-label">Medical Conditions</label>
+                    <div class="row">
+                        {% for condition in ['Type 2 Diabetes', 'Type 1 Diabetes', 'Obesity', 'Hypertension', 'High Cholesterol', 'High Triglycerides', 'Coronary Artery Disease', 'Stroke', 'Peripheral Vascular Disease', 'Fatty Liver', 'Chronic Kidney Disease', 'Proteinuria', 'Elevated Potassium', 'PCOS', 'Hypothyroidism', 'Osteoporosis', 'GERD / acid reflux', 'B12 deficiency', 'Iron deficiency / anemia'] %}
+                        <div class="col-md-6">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" name="medicalConditions" value="{{ condition }}" id="condition_{{ loop.index }}"
+                                    {% if condition in user.medicalConditions %}checked{% endif %}>
+                                <label class="form-check-label" for="condition_{{ loop.index }}">
+                                    {{ condition }}
+                                </label>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
                 </div>
             </div>
-        </form>
+        </div>
     </div>
-</div>
 
-<div class="card shadow-sm mt-4">
-    <div class="card-header">
+    <!-- Current Medications -->
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-primary text-white">
+            <h5 class="card-title mb-0">💊 Current Medications</h5>
+        </div>
+        <div class="card-body">
+            <div class="row">
+                <div class="col-12">
+                    <div class="row">
+                        {% for medication in ['Metformin', 'Insulin', 'GLP-1 agonist (e.g., Ozempic, Trulicity)', 'SGLT2 inhibitor (e.g., Jardiance, Farxiga)', 'Statin', 'Diuretic', 'Thyroid hormone', 'Antihypertensives', 'Anticoagulants (e.g., Aspirin, Eliquis)'] %}
+                        <div class="col-md-6">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" name="currentMedications" value="{{ medication }}" id="med_{{ loop.index }}"
+                                    {% if medication in user.currentMedications %}checked{% endif %}>
+                                <label class="form-check-label" for="med_{{ loop.index }}">
+                                    {{ medication }}
+                                </label>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Lab Values -->
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-primary text-white">
+            <h5 class="card-title mb-0">🧪 Lab Values</h5>
+        </div>
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-4 mb-3">
+                    <label for="a1c" class="form-label">A1C (%)</label>
+                    <input type="text" class="form-control" id="a1c" name="a1c" value="{{ user.labValues.a1c if user.labValues else user.a1c }}">
+                </div>
+                <div class="col-md-4 mb-3">
+                    <label for="fastingGlucose" class="form-label">Fasting Glucose (mmol/L)</label>
+                    <input type="text" class="form-control" id="fastingGlucose" name="fastingGlucose" value="{{ user.labValues.fastingGlucose if user.labValues else user.fastingGlucose }}">
+                </div>
+                <div class="col-md-4 mb-3">
+                    <label for="ldlCholesterol" class="form-label">LDL-C (mmol/L)</label>
+                    <input type="text" class="form-control" id="ldlCholesterol" name="ldlCholesterol" value="{{ user.labValues.ldlCholesterol if user.labValues else user.ldlCholesterol }}">
+                </div>
+                <div class="col-md-4 mb-3">
+                    <label for="hdlCholesterol" class="form-label">HDL-C (mmol/L)</label>
+                    <input type="text" class="form-control" id="hdlCholesterol" name="hdlCholesterol" value="{{ user.labValues.hdlCholesterol if user.labValues else user.hdlCholesterol }}">
+                </div>
+                <div class="col-md-4 mb-3">
+                    <label for="triglycerides" class="form-label">Triglycerides (mmol/L)</label>
+                    <input type="text" class="form-control" id="triglycerides" name="triglycerides" value="{{ user.labValues.triglycerides if user.labValues else user.triglycerides }}">
+                </div>
+                <div class="col-md-4 mb-3">
+                    <label for="totalCholesterol" class="form-label">Total Cholesterol (mmol/L)</label>
+                    <input type="text" class="form-control" id="totalCholesterol" name="totalCholesterol" value="{{ user.labValues.totalCholesterol if user.labValues else user.totalCholesterol }}">
+                </div>
+                <div class="col-md-4 mb-3">
+                    <label for="egfr" class="form-label">eGFR</label>
+                    <input type="text" class="form-control" id="egfr" name="egfr" value="{{ user.labValues.egfr if user.labValues else user.egfr }}">
+                </div>
+                <div class="col-md-4 mb-3">
+                    <label for="vitaminD" class="form-label">Vitamin D (nmol/L)</label>
+                    <input type="text" class="form-control" id="vitaminD" name="vitaminD" value="{{ user.labValues.vitaminD if user.labValues else user.vitaminD }}">
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Dietary Information -->
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-primary text-white">
+            <h5 class="card-title mb-0">🍽️ Dietary Information</h5>
+        </div>
+        <div class="card-body">
+            <div class="row">
+                <div class="col-12 mb-3">
+                    <label for="dietType" class="form-label">Diet Type</label>
+                    <select class="form-select" id="dietType" name="dietType" multiple>
+                        {% for diet in ['Western', 'Mediterranean', 'South Asian – North Indian', 'South Asian – Pakistani', 'South Asian – Sri Lankan', 'South Asian – South Indian', 'East Asian – Chinese / Korean', 'Caribbean – Jamaican / Guyanese', 'Filipino'] %}
+                        <option value="{{ diet }}" {% if diet in user.dietType %}selected{% endif %}>{{ diet }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                
+                <div class="col-12 mb-3">
+                    <label for="dietaryFeatures" class="form-label">Dietary Features</label>
+                    <select class="form-select" id="dietaryFeatures" name="dietaryFeatures" multiple>
+                        {% for feature in ['Low Carb', 'High Protein', 'Normal Protein', 'Low Saturated Fat', 'Low Potassium', 'Predominantly Plant-Based', 'Plant-Based + Egg Whites / Chicken / Fish', 'Vegetarian (with eggs)', 'Vegetarian (no eggs)', 'Soft Texture Required', 'Gluten-Free', 'Lactose-Free'] %}
+                        <option value="{{ feature }}" {% if feature in user.dietaryFeatures %}selected{% endif %}>{{ feature }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="col-md-6 mb-3">
+                    <label for="dietaryRestrictions" class="form-label">Dietary Restrictions</label>
+                    <textarea class="form-control" id="dietaryRestrictions" name="dietaryRestrictions" rows="3">{{ user.dietaryRestrictions | join('\n') }}</textarea>
+                </div>
+
+                <div class="col-md-6 mb-3">
+                    <label for="allergies" class="form-label">Food Allergies</label>
+                    <textarea class="form-control" id="allergies" name="allergies" rows="3">{{ user.allergies | join('\n') }}</textarea>
+                </div>
+
+                <div class="col-md-6 mb-3">
+                    <label for="foodPreferences" class="form-label">Food Preferences</label>
+                    <textarea class="form-control" id="foodPreferences" name="foodPreferences" rows="3">{{ user.foodPreferences | join('\n') }}</textarea>
+                </div>
+
+                <div class="col-md-6 mb-3">
+                    <label for="strongDislikes" class="form-label">Strong Dislikes</label>
+                    <textarea class="form-control" id="strongDislikes" name="strongDislikes" rows="3">{{ user.strongDislikes | join('\n') }}</textarea>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Physical Activity Profile -->
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-primary text-white">
+            <h5 class="card-title mb-0">🏃 Physical Activity Profile</h5>
+        </div>
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-6 mb-3">
+                    <label for="workActivityLevel" class="form-label">Work Activity Level</label>
+                    <select class="form-select" id="workActivityLevel" name="workActivityLevel">
+                        <option value="">Select...</option>
+                        <option value="Sedentary" {% if user.workActivityLevel == 'Sedentary' %}selected{% endif %}>Sedentary (e.g., desk work)</option>
+                        <option value="Moderately Active" {% if user.workActivityLevel == 'Moderately Active' %}selected{% endif %}>Moderately Active (e.g., walking, light lifting)</option>
+                        <option value="Active" {% if user.workActivityLevel == 'Active' %}selected{% endif %}>Active / Physical Labor</option>
+                    </select>
+                </div>
+
+                <div class="col-md-6 mb-3">
+                    <label for="exerciseFrequency" class="form-label">Exercise Frequency</label>
+                    <select class="form-select" id="exerciseFrequency" name="exerciseFrequency">
+                        <option value="">Select...</option>
+                        <option value="Never" {% if user.exerciseFrequency == 'Never' %}selected{% endif %}>Never</option>
+                        <option value="1-2 times/week" {% if user.exerciseFrequency == '1-2 times/week' %}selected{% endif %}>1-2 times/week</option>
+                        <option value="3-4 times/week" {% if user.exerciseFrequency == '3-4 times/week' %}selected{% endif %}>3-4 times/week</option>
+                        <option value="5+ times/week" {% if user.exerciseFrequency == '5+ times/week' %}selected{% endif %}>5+ times/week</option>
+                    </select>
+                </div>
+
+                <div class="col-12 mb-3">
+                    <label class="form-label">Exercise Types</label>
+                    <div class="row">
+                        {% for exercise in ['Walking', 'Jogging', 'Resistance training / weights', 'Yoga / Pilates', 'Swimming', 'Cycling (indoor/outdoor)', 'Fitness classes (e.g., Zumba, aerobics)', 'Home workouts'] %}
+                        <div class="col-md-6">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" name="exerciseTypes" value="{{ exercise }}" id="exercise_{{ loop.index }}"
+                                    {% if exercise in user.exerciseTypes %}checked{% endif %}>
+                                <label class="form-check-label" for="exercise_{{ loop.index }}">
+                                    {{ exercise }}
+                                </label>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+
+                <div class="col-12 mb-3">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="mobilityIssues" name="mobilityIssues" {% if user.mobilityIssues %}checked{% endif %}>
+                        <label class="form-check-label" for="mobilityIssues">
+                            Has Mobility Issues
+                        </label>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Goals & Preferences -->
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-primary text-white">
+            <h5 class="card-title mb-0">🎯 Goals & Preferences</h5>
+        </div>
+        <div class="card-body">
+            <div class="row">
+                <div class="col-12 mb-3">
+                    <label class="form-label">Primary Goals</label>
+                    <div class="row">
+                        {% for goal in ['Weight loss', 'Improve A1C', 'Lower cholesterol / triglycerides', 'Improve energy / stamina', 'Reduce blood pressure', 'Improve digestion', 'General wellness'] %}
+                        <div class="col-md-6">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" name="primaryGoals" value="{{ goal }}" id="goal_{{ loop.index }}"
+                                    {% if goal in user.primaryGoals %}checked{% endif %}>
+                                <label class="form-check-label" for="goal_{{ loop.index }}">
+                                    {{ goal }}
+                                </label>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+
+                <div class="col-md-6 mb-3">
+                    <label for="readinessToChange" class="form-label">Readiness to Change</label>
+                    <select class="form-select" id="readinessToChange" name="readinessToChange">
+                        <option value="">Select...</option>
+                        <option value="Not ready" {% if user.readinessToChange == 'Not ready' %}selected{% endif %}>Not ready</option>
+                        <option value="Thinking about it" {% if user.readinessToChange == 'Thinking about it' %}selected{% endif %}>Thinking about it</option>
+                        <option value="Ready to start" {% if user.readinessToChange == 'Ready to start' %}selected{% endif %}>Ready to start</option>
+                        <option value="Already making changes" {% if user.readinessToChange == 'Already making changes' %}selected{% endif %}>Already making changes</option>
+                    </select>
+                </div>
+
+                <div class="col-md-6 mb-3">
+                    <label for="calorieTarget" class="form-label">Daily Calorie Target</label>
+                    <input type="text" class="form-control" id="calorieTarget" name="calorieTarget" value="{{ user.calorieTarget }}">
+                </div>
+
+                <div class="col-12 mb-3">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="wantsWeightLoss" name="wantsWeightLoss" {% if user.wantsWeightLoss %}checked{% endif %}>
+                        <label class="form-check-label" for="wantsWeightLoss">
+                            Wants Weight Loss
+                        </label>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Save Button -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <button type="submit" class="btn btn-primary">Save Changes</button>
+        </div>
+    </div>
+</form>
+
+<!-- Account Information -->
+<div class="card shadow-sm mb-4">
+    <div class="card-header bg-primary text-white">
         <h5 class="card-title mb-0">Account Information</h5>
     </div>
     <div class="card-body">
@@ -128,4 +399,4 @@
         </div>
     </div>
 </div>
-{% endblock %} 
+{% endblock %}
