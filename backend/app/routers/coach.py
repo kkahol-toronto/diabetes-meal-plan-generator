@@ -6,6 +6,15 @@ from ..services.auth import get_current_user
 from ..services.meal_service import get_user_meal_history, get_user_profile
 from ..services.ai_service import get_ai_suggestion
 from ..utils.logger import logger
+import sys
+import os
+
+# Add the backend directory to the path so we can import consumption_endpoints
+backend_path = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+if backend_path not in sys.path:
+    sys.path.insert(0, backend_path)
+
+from consumption_endpoints import get_daily_insights_endpoint
 
 router = APIRouter()
 
@@ -145,4 +154,23 @@ def analyze_meal_patterns(meal_history: List[Dict]) -> Dict:
                     "last_consumed": meal.get("timestamp")
                 })
     
-    return patterns 
+    return patterns
+
+@router.get("/daily-insights")
+async def get_daily_insights(
+    current_user: User = Depends(get_current_user)
+) -> Dict:
+    """Get daily nutrition insights and recommendations"""
+    try:
+        # Ensure user has id field for consumption endpoints
+        user_dict = dict(current_user)
+        if 'id' not in user_dict and 'email' in user_dict:
+            user_dict['id'] = user_dict['email']
+        
+        insights = await get_daily_insights_endpoint(user_dict)
+        
+        return insights
+        
+    except Exception as e:
+        logger.error(f"Error getting daily insights: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get daily insights: {str(e)}")

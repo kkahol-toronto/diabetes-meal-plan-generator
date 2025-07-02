@@ -408,7 +408,7 @@ const ConsumptionHistory: React.FC = () => {
 
     if (selectedChartType === 'pie' || selectedChartType === 'doughnut') {
       // For pie charts, show distribution across meal types
-      const mealDistribution = analytics.meal_distribution;
+      const mealDistribution = analytics.meal_distribution || {};
       return {
         labels: Object.keys(mealDistribution),
         datasets: [{
@@ -750,7 +750,7 @@ const ConsumptionHistory: React.FC = () => {
 
         {/* Daily Insights Tab */}
         <TabPanel value={activeTab} index={0}>
-          {dailyInsights && (
+          {dailyInsights && dailyInsights.today_totals && dailyInsights.goals && dailyInsights.adherence && (
             <Box>
               {/* Today's Progress */}
               <Card sx={{ mb: 3 }}>
@@ -763,11 +763,11 @@ const ConsumptionHistory: React.FC = () => {
                     <Grid item xs={12} sm={6} md={3}>
                       <Box>
                         <Typography variant="body2" color="textSecondary">
-                          Calories: {Math.round(dailyInsights.today_totals.calories)}/{dailyInsights.goals.calories}
+                          Calories: {Math.round(dailyInsights.today_totals.calories || 0)}/{dailyInsights.goals.calories || 0}
                         </Typography>
                         <LinearProgress
                           variant="determinate"
-                          value={Math.min(100, dailyInsights.adherence.calories)}
+                          value={Math.min(100, dailyInsights.adherence.calories || 0)}
                           sx={{ mt: 1 }}
                         />
                             </Box>
@@ -775,11 +775,11 @@ const ConsumptionHistory: React.FC = () => {
                     <Grid item xs={12} sm={6} md={3}>
                       <Box>
                         <Typography variant="body2" color="textSecondary">
-                          Protein: {Math.round(dailyInsights.today_totals.protein)}g/{dailyInsights.goals.protein}g
+                          Protein: {Math.round(dailyInsights.today_totals.protein || 0)}g/{dailyInsights.goals.protein || 0}g
                             </Typography>
                             <LinearProgress
                               variant="determinate"
-                          value={Math.min(100, dailyInsights.adherence.protein)}
+                          value={Math.min(100, dailyInsights.adherence.protein || 0)}
                           sx={{ mt: 1 }}
                         />
                       </Box>
@@ -787,11 +787,11 @@ const ConsumptionHistory: React.FC = () => {
                     <Grid item xs={12} sm={6} md={3}>
                       <Box>
                         <Typography variant="body2" color="textSecondary">
-                          Carbs: {Math.round(dailyInsights.today_totals.carbohydrates)}g/{dailyInsights.goals.carbohydrates}g
+                          Carbs: {Math.round(dailyInsights.today_totals.carbohydrates || 0)}g/{dailyInsights.goals.carbohydrates || 0}g
                             </Typography>
                         <LinearProgress
                           variant="determinate"
-                          value={Math.min(100, dailyInsights.adherence.carbohydrates)}
+                          value={Math.min(100, dailyInsights.adherence.carbohydrates || 0)}
                           sx={{ mt: 1 }}
                         />
                       </Box>
@@ -799,11 +799,11 @@ const ConsumptionHistory: React.FC = () => {
                     <Grid item xs={12} sm={6} md={3}>
                       <Box>
                         <Typography variant="body2" color="textSecondary">
-                          Fat: {Math.round(dailyInsights.today_totals.fat)}g/{dailyInsights.goals.fat}g
+                          Fat: {Math.round(dailyInsights.today_totals.fat || 0)}g/{dailyInsights.goals.fat || 0}g
                         </Typography>
                         <LinearProgress
                           variant="determinate"
-                          value={Math.min(100, dailyInsights.adherence.fat)}
+                          value={Math.min(100, dailyInsights.adherence.fat || 0)}
                           sx={{ mt: 1 }}
                         />
           </Box>
@@ -813,7 +813,7 @@ const ConsumptionHistory: React.FC = () => {
               </Card>
 
               {/* Recommendations */}
-              {dailyInsights.recommendations.length > 0 && (
+              {dailyInsights.recommendations && dailyInsights.recommendations.length > 0 && (
                 <Card>
                   <CardContent>
                     <Typography variant="h6" gutterBottom>
@@ -992,7 +992,7 @@ const ConsumptionHistory: React.FC = () => {
             <Grid item xs={12} sm={6} md={3}>
                       <Paper sx={{ p: 3, textAlign: 'center', bgcolor: 'primary.light', color: 'primary.contrastText' }}>
                         <Typography variant="h3" fontWeight="bold">
-                          {analytics.total_meals}
+                          {analytics.total_meals || 0}
                   </Typography>
                         <Typography variant="h6">Total Meals</Typography>
                         <Typography variant="body2" sx={{ opacity: 0.8 }}>
@@ -1003,7 +1003,7 @@ const ConsumptionHistory: React.FC = () => {
             <Grid item xs={12} sm={6} md={3}>
                       <Paper sx={{ p: 3, textAlign: 'center', bgcolor: 'success.light', color: 'success.contrastText' }}>
                         <Typography variant="h3" fontWeight="bold">
-                          {Math.round(analytics.adherence_stats.diabetes_suitable_percentage)}%
+                          {Math.round(analytics.adherence_stats?.diabetes_suitable_percentage || 0)}%
                   </Typography>
                         <Typography variant="h6">Diabetes Suitable</Typography>
                         <Typography variant="body2" sx={{ opacity: 0.8 }}>
@@ -1014,7 +1014,7 @@ const ConsumptionHistory: React.FC = () => {
                     <Grid item xs={12} sm={6} md={3}>
                       <Paper sx={{ p: 3, textAlign: 'center', bgcolor: 'warning.light', color: 'warning.contrastText' }}>
                         <Typography variant="h3" fontWeight="bold">
-                          {Math.round(analytics.daily_averages.calories)}
+                          {Math.round(analytics.daily_averages?.calories || 0)}
                     </Typography>
                         <Typography variant="h6">Avg Calories</Typography>
                         <Typography variant="body2" sx={{ opacity: 0.8 }}>
@@ -1025,7 +1025,7 @@ const ConsumptionHistory: React.FC = () => {
                     <Grid item xs={12} sm={6} md={3}>
                       <Paper sx={{ p: 3, textAlign: 'center', bgcolor: 'secondary.light', color: 'secondary.contrastText' }}>
                         <Typography variant="h3" fontWeight="bold">
-                          {Math.round(analytics.daily_averages.protein)}g
+                          {Math.round(analytics.daily_averages?.protein || 0)}g
                         </Typography>
                         <Typography variant="h6">Avg Protein</Typography>
                         <Typography variant="body2" sx={{ opacity: 0.8 }}>
@@ -1053,7 +1053,7 @@ const ConsumptionHistory: React.FC = () => {
                 </AccordionSummary>
                 <AccordionDetails>
                   <Grid container spacing={3}>
-                    {Object.entries(analytics.meal_distribution).map(([meal, count]) => (
+                    {Object.entries(analytics.meal_distribution || {}).map(([meal, count]) => (
                       <Grid item xs={6} sm={3} key={meal}>
             <Paper 
               sx={{ 
@@ -1077,7 +1077,7 @@ const ConsumptionHistory: React.FC = () => {
                             {meal}
                           </Typography>
                           <Typography variant="body2" color="textSecondary">
-                            {Math.round((count / analytics.total_meals) * 100)}% of total
+                            {Math.round(((count as number) / (analytics.total_meals || 1)) * 100)}% of total
                           </Typography>
                         </Paper>
                       </Grid>
@@ -1101,7 +1101,7 @@ const ConsumptionHistory: React.FC = () => {
                   <Typography variant="h6">🥗 Top Foods Analysis</Typography>
                 </AccordionSummary>
                 <AccordionDetails>
-                  {analytics.top_foods.length > 0 ? (
+                  {analytics.top_foods && analytics.top_foods.length > 0 ? (
                     <List>
                       {analytics.top_foods.slice(0, 10).map((food, index) => (
                         <ListItem 
@@ -1142,7 +1142,7 @@ const ConsumptionHistory: React.FC = () => {
                               sx={{ mb: 1 }}
                             />
                             <Typography variant="caption" display="block" color="textSecondary">
-                              {Math.round((food.frequency / analytics.total_meals) * 100)}% frequency
+                              {Math.round((food.frequency / (analytics.total_meals || 1)) * 100)}% frequency
                           </Typography>
                         </Box>
                         </ListItem>
@@ -1195,15 +1195,15 @@ const ConsumptionHistory: React.FC = () => {
                       <Stack spacing={2}>
                         <Box display="flex" justifyContent="space-between" alignItems="center">
                           <Typography>Fiber</Typography>
-                          <Typography fontWeight="bold">{Math.round(analytics.daily_averages.fiber || 0)}g/day</Typography>
+                          <Typography fontWeight="bold">{Math.round(analytics.daily_averages?.fiber || 0)}g/day</Typography>
                           </Box>
                         <Box display="flex" justifyContent="space-between" alignItems="center">
                           <Typography>Sugar</Typography>
-                          <Typography fontWeight="bold">{Math.round(analytics.daily_averages.sugar || 0)}g/day</Typography>
+                          <Typography fontWeight="bold">{Math.round(analytics.daily_averages?.sugar || 0)}g/day</Typography>
                           </Box>
                         <Box display="flex" justifyContent="space-between" alignItems="center">
                           <Typography>Sodium</Typography>
-                          <Typography fontWeight="bold">{Math.round(analytics.daily_averages.sodium || 0)}mg/day</Typography>
+                          <Typography fontWeight="bold">{Math.round(analytics.daily_averages?.sodium || 0)}mg/day</Typography>
                             </Box>
                       </Stack>
                     </CardContent>

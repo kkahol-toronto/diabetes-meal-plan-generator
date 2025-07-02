@@ -23,6 +23,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from backend.app.routers.coach import router as coach_router  # existing router
 from backend.app.routers.auth import router as auth_router  # login router
 from backend.app.routers.compat import router as compat_router  # legacy fallbacks
+from backend.app.routers.consumption import router as consumption_router  # consumption analytics
+from backend.app.routers.meal_plans import router as meal_plans_router  # meal plans management
 
 app = FastAPI(title="Diabetes Meal-Plan API")
 
@@ -57,6 +59,16 @@ app.include_router(auth_router, prefix=API_PREFIX, tags=["auth-v1"])
 
 # Mount legacy compatibility router first (no prefix) so its paths are available
 app.include_router(compat_router, tags=["compat"])
+
+# Mount consumption router for nutrition analytics
+consumption_prefix = f"{API_PREFIX}/consumption"
+app.include_router(consumption_router, prefix=consumption_prefix, tags=["consumption"])
+app.include_router(consumption_router, prefix="/consumption", tags=["consumption-root"])
+
+# Mount meal plans router for meal plan management
+meal_plans_prefix = f"{API_PREFIX}/meal_plans"
+app.include_router(meal_plans_router, prefix=meal_plans_prefix, tags=["meal-plans"])
+app.include_router(meal_plans_router, prefix="/meal_plans", tags=["meal-plans-root"])
 
 @app.get(f"{API_PREFIX}/health", tags=["misc"])
 async def health_check() -> dict[str, str]:
