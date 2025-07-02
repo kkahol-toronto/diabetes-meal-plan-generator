@@ -1,54 +1,103 @@
 {% extends 'base.html' %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-4">
-    <h1>Admin Panel</h1>
-    <button type="button" class="btn btn-success" data-bs-toggle="modal" data-bs-target="#createUserModal">
-        Create New User
-    </button>
+<div class="row mb-4">
+    <div class="col">
+        <h1 class="display-4 fw-bold" style="
+            background: linear-gradient(45deg, var(--primary-color), var(--secondary-color));
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            text-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        ">
+            <i class="fas fa-users-cog me-2"></i>
+            User Management
+        </h1>
+    </div>
 </div>
 
-{% if error %}
-<div class="alert alert-danger" role="alert">
-    {{ error }}
-</div>
-{% endif %}
-
-{% if success %}
-<div class="alert alert-success" role="alert">
-    {{ success }}
-</div>
-{% endif %}
-
-<div class="card shadow-sm">
-    <div class="card-body">
+<div class="card">
+    <div class="card-header">
+        <div class="d-flex justify-content-between align-items-center">
+            <h5 class="mb-0">
+                <i class="fas fa-table me-2"></i>
+                Registered Users
+            </h5>
+            <div class="d-flex gap-2">
+                <div class="input-group">
+                    <span class="input-group-text">
+                        <i class="fas fa-search"></i>
+                    </span>
+                    <input type="text" class="form-control" id="userSearch" placeholder="Search users...">
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="card-body p-0">
         <div class="table-responsive">
-            <table class="table table-hover">
+            <table class="table table-hover align-middle mb-0">
                 <thead>
                     <tr>
                         <th>Name</th>
                         <th>Email</th>
-                        <th>Phone</th>
-                        <th>Condition</th>
-                        <th>Registration Code</th>
-                        <th>Created At</th>
+                        <th>Registration Date</th>
+                        <th>Medical Conditions</th>
                         <th>Actions</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for user in users %}
-                    <tr>
-                        <td>{{ user.name }}</td>
-                        <td>{{ user.email }}</td>
-                        <td>{{ user.phone }}</td>
-                        <td>{{ user.condition }}</td>
-                        <td>{{ user.registration_code }}</td>
-                        <td>{{ user.created_at }}</td>
+                    <tr class="align-middle">
                         <td>
-                            <div class="btn-group" role="group">
-                                <a href="/users/{{ user.id }}" class="btn btn-sm btn-primary">View Profile</a>
-                                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="resendCode('{{ user.id }}')">
-                                    Resend Code
+                            <div class="d-flex align-items-center">
+                                <div class="avatar-circle" style="
+                                    width: 40px;
+                                    height: 40px;
+                                    border-radius: 50%;
+                                    background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+                                    color: white;
+                                    display: flex;
+                                    align-items: center;
+                                    justify-content: center;
+                                    font-weight: bold;
+                                    margin-right: 10px;
+                                ">
+                                    {{ user.name[:1].upper() }}
+                                </div>
+                                <div>
+                                    <h6 class="mb-0">{{ user.name }}</h6>
+                                    <small class="text-muted">ID: {{ user.id[:8] }}...</small>
+                                </div>
+                            </div>
+                        </td>
+                        <td>{{ user.email }}</td>
+                        <td>
+                            {% if user.created_at %}
+                                {{ user.created_at.split('T')[0] }}
+                            {% else %}
+                                N/A
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if user.medicalConditions %}
+                                {% for condition in user.medicalConditions[:2] %}
+                                    <span class="badge bg-info me-1">{{ condition }}</span>
+                                {% endfor %}
+                                {% if user.medicalConditions|length > 2 %}
+                                    <span class="badge bg-secondary">+{{ user.medicalConditions|length - 2 }} more</span>
+                                {% endif %}
+                            {% else %}
+                                <span class="text-muted">None specified</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <div class="btn-group">
+                                <a href="/users/{{ user.id }}" class="btn btn-sm btn-primary">
+                                    <i class="fas fa-user-edit me-1"></i>
+                                    View Profile
+                                </a>
+                                <button type="button" class="btn btn-sm btn-outline-danger">
+                                    <i class="fas fa-trash-alt"></i>
                                 </button>
                             </div>
                         </td>
@@ -60,61 +109,18 @@
     </div>
 </div>
 
-<!-- Create User Modal -->
-<div class="modal fade" id="createUserModal" tabindex="-1" aria-labelledby="createUserModalLabel" aria-hidden="true">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="createUserModalLabel">Create New User</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <form action="/users/create" method="POST">
-                <div class="modal-body">
-                    <div class="mb-3">
-                        <label for="name" class="form-label">Name</label>
-                        <input type="text" class="form-control" id="name" name="name" required>
-                    </div>
-                    <div class="mb-3">
-                        <label for="email" class="form-label">Email</label>
-                        <input type="email" class="form-control" id="email" name="email" required>
-                    </div>
-                    <div class="mb-3">
-                        <label for="phone" class="form-label">Phone</label>
-                        <input type="tel" class="form-control" id="phone" name="phone" required>
-                    </div>
-                    <div class="mb-3">
-                        <label for="condition" class="form-label">Condition</label>
-                        <input type="text" class="form-control" id="condition" name="condition" required>
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-                    <button type="submit" class="btn btn-primary">Create User</button>
-                </div>
-            </form>
-        </div>
-    </div>
-</div>
-
 <script>
-async function resendCode(userId) {
-    try {
-        const response = await fetch(`/users/${userId}/resend-code`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            }
-        });
-        
-        const data = await response.json();
-        if (response.ok) {
-            alert('Registration code resent successfully!');
-        } else {
-            alert(data.detail || 'Failed to resend code');
-        }
-    } catch (error) {
-        alert('An error occurred while resending the code');
-    }
-}
+// Search functionality
+document.getElementById('userSearch').addEventListener('keyup', function() {
+    const searchText = this.value.toLowerCase();
+    const rows = document.querySelectorAll('tbody tr');
+    
+    rows.forEach(row => {
+        const name = row.querySelector('h6').textContent.toLowerCase();
+        const email = row.querySelector('td:nth-child(2)').textContent.toLowerCase();
+        const shouldShow = name.includes(searchText) || email.includes(searchText);
+        row.style.display = shouldShow ? '' : 'none';
+    });
+});
 </script>
 {% endblock %} 
