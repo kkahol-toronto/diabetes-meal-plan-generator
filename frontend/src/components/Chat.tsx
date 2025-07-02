@@ -280,7 +280,8 @@ const Chat = () => {
         return;
       }
 
-      const response = await fetch('/chat/sessions', {
+      const baseUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+      const response = await fetch(`${baseUrl}/chat/sessions`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
@@ -309,7 +310,8 @@ const Chat = () => {
 
       setIsLoading(true);
       
-      const response = await fetch(`/chat/history?session_id=${currentSession}`, {
+      const baseUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+      const response = await fetch(`${baseUrl}/chat/history?session_id=${currentSession}`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
@@ -365,7 +367,8 @@ const Chat = () => {
         formData.append('image', selectedImage);
         formData.append('session_id', currentSession);
 
-        response = await fetch('/chat/message-with-image', {
+        const baseUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+        response = await fetch(`${baseUrl}/chat/message-with-image`, {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${token}`,
@@ -374,7 +377,8 @@ const Chat = () => {
         });
       } else {
         // Handle text-only message
-        response = await fetch('/chat/message', {
+        const baseUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+        response = await fetch(`${baseUrl}/chat/message`, {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${token}`,
@@ -473,23 +477,36 @@ const Chat = () => {
 
   const handleClearHistory = async () => {
     try {
+      // Clear messages locally (since we're not persisting chat history)
+      setMessages([]);
+      setShowQuickActions(true);
+      
+      // Optional: If you want to try to clear on the backend as well
       const token = localStorage.getItem('token');
-      if (!token) return;
-
-      const response = await fetch(`/chat/history?session_id=${currentSession}`, {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-      });
-
-      if (response.ok) {
-        setMessages([]);
-        setShowQuickActions(true);
+      if (token) {
+        try {
+          // Use proper API URL and endpoint
+          const baseUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+          const response = await fetch(`${baseUrl}/chat/history?session_id=${currentSession}`, {
+            method: 'DELETE',
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+          });
+          // Don't wait for this to succeed - clear works locally regardless
+          if (response.ok) {
+            console.log('Chat history cleared on server');
+          }
+        } catch (serverError) {
+          console.log('Could not clear on server, but cleared locally:', serverError);
+        }
       }
     } catch (error) {
       console.error('Error clearing history:', error);
+      // Even if there's an error, try to clear locally
+      setMessages([]);
+      setShowQuickActions(true);
     }
   };
 
@@ -612,10 +629,16 @@ const Chat = () => {
           <FormControl size="small" sx={{ minWidth: 200 }}>
             <InputLabel>Chat Session</InputLabel>
             <Select
-              value={currentSession}
+              value={currentSession && sessions.some(s => s.session_id === currentSession) ? currentSession : ''}
               onChange={handleSessionChange}
               label="Chat Session"
+              displayEmpty
             >
+              {sessions.length === 0 && (
+                <MenuItem value="" disabled>
+                  No sessions available
+                </MenuItem>
+              )}
               {sessions.map((session) => (
                 <MenuItem key={session.session_id} value={session.session_id}>
                   {new Date(session.timestamp).toLocaleDateString()} - {session.messages?.length || 0} messages

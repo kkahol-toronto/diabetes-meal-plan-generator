@@ -104,10 +104,13 @@ const MealPlanHistory = () => {
   const clearAllDeletedIds = () => {
     try {
       localStorage.removeItem('deleted_meal_plan_ids');
+      console.log('Cleared all deleted meal plan IDs from localStorage');
     } catch (error) {
       console.log('Failed to clear deleted IDs from localStorage:', error);
     }
   };
+
+
 
   const fetchMealPlans = async () => {
     setLoading(true);
@@ -518,14 +521,15 @@ const MealPlanHistory = () => {
             <Typography variant="h6" color="text.secondary" gutterBottom>
               {searchQuery ? 'No matching meal plans found' : 'No meal plans found'}
             </Typography>
-            <Button
-              variant="contained"
-              color="primary"
-              onClick={() => navigate('/meal-plan')}
-              sx={{ mt: 2 }}
-            >
-              Create New Meal Plan
-            </Button>
+            <Box sx={{ mt: 2, display: 'flex', gap: 2, justifyContent: 'center', flexWrap: 'wrap' }}>
+              <Button
+                variant="contained"
+                color="primary"
+                onClick={() => navigate('/meal-plan')}
+              >
+                Create New Meal Plan
+              </Button>
+            </Box>
           </Box>
         ) : (
           <Grid container spacing={3}>

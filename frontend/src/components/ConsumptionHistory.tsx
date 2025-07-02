@@ -1117,18 +1117,20 @@ const ConsumptionHistory: React.FC = () => {
                               {index + 1}
                             </Avatar>
                           </ListItemIcon>
-                          <ListItemText
+                                                    <ListItemText
+                            primaryTypographyProps={{ component: 'div' }}
+                            secondaryTypographyProps={{ component: 'div' }}
                             primary={
-                              <Typography variant="h6" fontWeight="medium">
+                              <Typography variant="h6" fontWeight="medium" component="div">
                                 {food.food}
-                        </Typography>
+                              </Typography>
                             }
                             secondary={
                               <Box>
-                                <Typography variant="body2" color="textSecondary">
+                                <Typography variant="body2" color="textSecondary" component="div">
                                   Consumed {food.frequency} times • {Math.round(food.total_calories)} total calories
                                 </Typography>
-                                <Typography variant="body2" color="primary">
+                                <Typography variant="body2" color="primary" component="div">
                                   Average: {Math.round(food.total_calories / food.frequency)} cal per serving
                                 </Typography>
                               </Box>

@@ -15,9 +15,13 @@ import {
 } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 import ConsentModal from './ConsentModal';
+import { authApi } from '../utils/api';
+import { useApp } from '../contexts/AppContext';
+import config from '../config/environment';
 
 const Register = () => {
   const navigate = useNavigate();
+  const { showNotification } = useApp();
   const [formData, setFormData] = useState({
     registration_code: '',
     email: '',
@@ -30,6 +34,7 @@ const Register = () => {
   const [hasScrolledToBottom, setHasScrolledToBottom] = useState(false);
   const [consentGiven, setConsentGiven] = useState(false);
   const [consentModalOpen, setConsentModalOpen] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = event.target;
@@ -63,7 +68,10 @@ const Register = () => {
     }
 
     try {
-      const response = await fetch('http://localhost:8000/register', {
+      setIsSubmitting(true);
+      setError(null);
+
+      const response = await fetch(`${config.API_URL}/register`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -80,25 +88,15 @@ const Register = () => {
 
       if (response.ok) {
         // Automatic login after registration
-        const loginFormData = new FormData();
-        loginFormData.append('username', formData.email);
-        loginFormData.append('password', formData.password);
-
-        const loginResponse = await fetch('http://localhost:8000/login', {
-          method: 'POST',
-          headers: {
-            'Accept': 'application/json',
-          },
-          body: loginFormData,
-        });
-
-        if (loginResponse.ok) {
-          const loginData = await loginResponse.json();
-          localStorage.setItem('token', loginData.access_token);
+        try {
+          const loginResponse = await authApi.login(formData.email, formData.password);
+          localStorage.setItem('token', loginResponse.access_token);
+          showNotification('Registration successful! Welcome!', 'success');
           navigate('/');
           window.location.reload();
-        } else {
+        } catch (loginErr) {
           // If login fails, still go to login page
+          showNotification('Registration successful! Please log in.', 'success');
           navigate('/login');
         }
       } else {
@@ -112,7 +110,10 @@ const Register = () => {
         }
       }
     } catch (err) {
-      setError('An error occurred during registration');
+      console.error('Registration error:', err);
+      setError('An error occurred during registration. Please try again later.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -441,21 +442,29 @@ const Register = () => {
             >
               Already have an account? Login
             </Link>
-            <Button
+            <Button 
               type="submit"
+              fullWidth
               variant="contained"
-              size="large"
+              color="primary"
+              disabled={!consentGiven || !hasScrolledToBottom || isSubmitting}
               sx={{ 
-                bgcolor: 'rgba(255,255,255,0.2)', 
-                color: 'white',
-                fontWeight: 'bold',
-                px: 4,
-                py: 1,
-                boxShadow: '0 4px 8px rgba(0,0,0,0.15)',
-                '&:hover': { bgcolor: 'rgba(255,255,255,0.3)' }
+                mt: 3, 
+                mb: 2,
+                py: 1.5,
+                bgcolor: '#ffffff',
+                color: '#764ba2',
+                fontWeight: 700,
+                '&:hover': {
+                  bgcolor: 'rgba(255,255,255,0.9)',
+                },
+                '&.Mui-disabled': {
+                  bgcolor: 'rgba(255,255,255,0.4)',
+                  color: 'rgba(118, 75, 162, 0.5)',
+                }
               }}
             >
-              REGISTER
+              {isSubmitting ? 'Registering...' : 'Register'}
             </Button>
           </Box>
         </form>

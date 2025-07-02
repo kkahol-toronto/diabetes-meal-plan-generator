@@ -49,12 +49,18 @@ const handleResponse = async <T>(response: Response): Promise<T> => {
     try {
       if (contentType?.includes('application/json')) {
         const errorData = await response.json();
-        errorMessage = errorData.detail || errorData.message || errorMessage;
+        errorMessage = errorData.detail || errorData.message || errorData.error || errorMessage;
+        
+        // Check for array of validation errors common in FastAPI
+        if (Array.isArray(errorData.detail)) {
+          errorMessage = errorData.detail.map((err: any) => err.msg || err.message).join(', ');
+        }
       } else {
         errorMessage = await response.text() || errorMessage;
       }
-    } catch {
+    } catch (err) {
       // Fallback to status text if parsing fails
+      console.error('Error parsing error response:', err);
       errorMessage = response.statusText || errorMessage;
     }
 
@@ -74,7 +80,12 @@ const handleResponse = async <T>(response: Response): Promise<T> => {
 
   // Parse JSON response
   if (contentType?.includes('application/json')) {
-    return response.json();
+    try {
+      return await response.json();
+    } catch (err) {
+      console.error('Error parsing JSON response:', err);
+      throw new ApiError('Invalid JSON response from server', response.status, 'INVALID_JSON');
+    }
   }
 
   // Return text for non-JSON responses
@@ -104,19 +115,27 @@ const makeRequest = async <T>(
   };
 
   let lastError: Error = new Error('Request failed');
+  let attempt = 0;
 
-  for (let attempt = 0; attempt <= retries; attempt++) {
+  while (attempt <= retries) {
     try {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), timeout);
 
-      const response = await fetch(fullUrl, {
-        ...requestOptions,
-        signal: controller.signal,
-      });
+      try {
+        const response = await fetch(fullUrl, {
+          ...requestOptions,
+          signal: controller.signal,
+        });
 
-      clearTimeout(timeoutId);
-      return await handleResponse<T>(response);
+        clearTimeout(timeoutId);
+        return await handleResponse<T>(response);
+      } catch (error: unknown) {
+        if (error instanceof Error && error.name === 'AbortError') {
+          throw new ApiError(`Request timeout after ${timeout}ms`, 408, 'REQUEST_TIMEOUT');
+        }
+        throw error;
+      }
     } catch (error) {
       lastError = error as Error;
       
@@ -132,8 +151,11 @@ const makeRequest = async <T>(
         break;
       }
 
-      // Wait before retrying
-      await sleep(retryDelay * Math.pow(2, attempt)); // Exponential backoff
+      // Wait before retrying with exponential backoff
+      const delayTime = retryDelay * Math.pow(2, attempt);
+      console.log(`API request failed, retrying in ${delayTime}ms (attempt ${attempt + 1}/${retries})`);
+      await sleep(delayTime);
+      attempt++;
     }
   }
 
@@ -182,6 +204,7 @@ export const authApi = {
     password: string;
     email?: string;
     name?: string;
+    consent_given: boolean; // Adding required consent_given field
   }) => api.post<{ message: string }>('/register', userData),
 
   getUserProfile: () => api.get<any>('/user/profile'),
@@ -193,12 +216,21 @@ export const deleteUserData = () => api.delete<{ detail: string }>('/api/users/m
 // User data export
 export const downloadUserData = async (format: 'json' | 'pdf') => {
   const token = localStorage.getItem('token');
-  return axios.get(`${BASE_URL}/api/users/me/data-export?format=${format}`, {
-    headers: {
-      Authorization: `Bearer ${token}`
-    },
-    responseType: format === 'pdf' ? 'blob' : 'json'
-  });
+  try {
+    return await axios.get(`${BASE_URL}/api/users/me/data-export?format=${format}`, {
+      headers: {
+        Authorization: `Bearer ${token}`
+      },
+      responseType: format === 'pdf' ? 'blob' : 'json'
+    });
+  } catch (error: unknown) {
+    console.error('Error downloading user data:', error);
+    const axiosError = error as any;
+    throw new ApiError(
+      axiosError.response?.data?.detail || 'Failed to download user data', 
+      axiosError.response?.status
+    );
+  }
 };
 
 export const mealPlanApi = {

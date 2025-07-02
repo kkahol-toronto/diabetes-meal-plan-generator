@@ -50,7 +50,7 @@ try:
 except ImportError:
     try:
         # Try importing with the backend prefix if the first import fails
-        from backend.app.routers import users as users_router
+        from app.routers import users as users_router
         has_users_router = True
     except ImportError:
         # Try a relative import as a last resort

@@ -560,7 +560,11 @@ class ScriptDirectory:
             **self.messaging_opts,
         ):
             util.template_to_file(
-                src, dest, self.output_encoding, append=True, **kw
+                src,
+                dest,
+                self.output_encoding,
+                append_with_newlines=True,
+                **kw,
             )
 
     def _generate_template(self, src: Path, dest: Path, **kw: Any) -> None:
@@ -846,7 +850,7 @@ class Script(revision.Revision):
                 doc = doc.decode(  # type: ignore[attr-defined]
                     self.module._alembic_source_encoding
                 )
-            return doc.strip()  # type: ignore[union-attr]
+            return doc.strip()
         else:
             return ""
 
