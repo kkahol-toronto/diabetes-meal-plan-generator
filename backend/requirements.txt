@@ -1,7 +1,3 @@
-# Diabetes AI Diet Coach - Production-Ready Backend Dependencies
-# Updated: June 2025 - Enhanced AI Coach System with Meal Logging Integration
-
-# Core FastAPI and web framework dependencies
 fastapi>=0.109.0
 uvicorn[standard]>=0.27.0
 python-dotenv>=1.0.0
@@ -10,139 +6,43 @@ pydantic-settings>=2.1.0
 python-multipart>=0.0.6
 starlette>=0.36.3
 typing-extensions>=4.9.0
-
-# AI and OpenAI integration (Enhanced for AI Diet Coach)
 openai>=1.3.0
 tiktoken>=0.9.0
-
-# Database and storage (Azure Cosmos DB integration)
 azure-cosmos>=4.5.1
 sqlalchemy>=2.0.25
 alembic>=1.13.1
-pymongo>=4.6.0  # Added for enhanced MongoDB operations
-
-# Authentication and security
+pymongo>=4.6.0
 python-jose[cryptography]>=3.3.0
 passlib[bcrypt]>=1.7.4
 bcrypt>=4.0.1
 cryptography>=42.0.0
-
-# Communication and notifications (Enhanced for AI coaching notifications)
 twilio>=8.10.0
 email-validator>=2.1.0
-
-# PDF generation and file handling
 reportlab>=4.0.8
 aiofiles>=23.2.1
-
-# Image processing (for food image analysis and consumption logging)
 pillow>=11.2.1
-
-# HTTP and API utilities
 requests>=2.31.0
 httpx>=0.26.0
-
-# Date and time handling (Enhanced for comprehensive analytics)
 python-dateutil>=2.8.2
 pytz>=2023.3
-arrow>=1.3.0  # Added for advanced date/time operations
-
-# JSON processing (for enhanced profile form data handling)
+arrow>=1.3.0
 orjson>=3.9.12
-
-# Data processing and analytics (Enhanced for AI Diet Coach)
-pandas>=2.1.4  # Added for comprehensive consumption analytics
-numpy>=1.24.3  # Added for numerical computations in analytics
-scipy>=1.11.4  # Added for statistical analysis
-
-# Machine Learning and AI enhancements (Enhanced for adaptive coaching)
-scikit-learn>=1.3.2  # Added for pattern recognition in eating habits
-matplotlib>=3.8.2  # Added for data visualization in backend analytics
-seaborn>=0.13.0  # Added for enhanced statistical visualizations
-
-# Production server and monitoring
+pandas>=2.1.4
+numpy>=1.24.3
+scipy>=1.11.4
+scikit-learn>=1.3.2
+matplotlib>=3.8.2
+seaborn>=0.13.0
 gunicorn>=21.2.0
 prometheus-client>=0.19.0
-
-# Additional utilities
 python-json-logger>=2.0.7
 redis>=5.0.1
-
-# Enhanced logging and monitoring (Enhanced for AI Coach system)
 structlog>=23.2.0
-loguru>=0.7.2  # Added for enhanced logging capabilities
-
-# Performance optimization and caching
+loguru>=0.7.2
 cachetools>=5.3.2
-asyncio-throttle>=1.0.2  # Added for API rate limiting
-
-# Development and testing (optional)
+asyncio-throttle>=1.0.2
 pytest>=7.4.0
 pytest-asyncio>=0.21.1
 black>=23.12.0
 isort>=5.13.0
-flake8>=7.0.0
-
-# ==========================================
-# AI Diet Coach System Features (June 2025):
-# ==========================================
-# 
-# 🤖 ENHANCED AI COACHING SYSTEM:
-# - Fixed AI Coach meal-suggestion endpoint with robust error handling
-# - Adaptive meal planning based on 30-day consumption history
-# - Real-time nutritional analysis and personalized recommendations
-# - Smart meal type detection (breakfast/lunch/dinner/snack) in chat
-# - Contextual AI responses based on user health conditions and dietary restrictions
-# - Streamlined chat interface with image attachment and meal logging integration
-# 
-# 📊 ADVANCED ANALYTICS & INSIGHTS:
-# - 30-day consumption pattern analysis with visual charts
-# - Meal timing optimization recommendations
-# - Favorite foods identification and incorporation
-# - Weekly performance trends and goal tracking
-# - Comprehensive nutritional data processing with Chart.js integration
-# - Real-time dashboard with tabbed interface (Overview, Analytics, AI Insights, Notifications)
-# 
-# 🎯 INTELLIGENT MEAL LOGGING FEATURES:
-# - Enhanced food logging camera with image attachment (no auto-analysis)
-# - AI-powered meal suggestions based on remaining calories and user context
-# - Quick food logging with automatic nutritional estimation
-# - Meal type context integration for proper meal plan calibration
-# - Diabetes-suitable meal percentage calculations
-# - Consumption records with meal_type parameter for better tracking
-# 
-# 🔔 SMART NOTIFICATION & UI SYSTEM:
-# - Cleaned homepage with removed floating action buttons (preventing errors)
-# - Fixed repeated "(recommended)" text in meal plan snacks
-# - Removed automatic notes display for cleaner UI
-# - Time-based meal reminders and progress-based alerts
-# - Achievement celebrations and milestone recognition
-# - Contextual coaching tips and hydration reminders
-# 
-# 📈 COMPREHENSIVE DATA PROCESSING:
-# - Real-time progress tracking with color-coded indicators
-# - Weekly achievement calculations and trend analysis
-# - Food frequency insights and adherence percentages
-# - Macronutrient distribution analysis with doughnut charts
-# - Goal adherence rate calculations
-# - PATCH endpoint for updating meal types (/consumption/{record_id}/meal-type)
-# 
-# 🏥 DIABETES-SPECIFIC FEATURES:
-# - Diabetes adherence rate monitoring (80%+ rewards)
-# - Blood sugar friendly meal recommendations
-# - Carbohydrate counting and glycemic index awareness
-# - Personalized portion size recommendations based on health conditions
-# - Medical condition-aware meal planning with comprehensive user context
-# - Enhanced user profile integration with dietary restrictions and allergies
-# 
-# 🔧 RECENT TECHNICAL IMPROVEMENTS (June 2025):
-# - Fixed AI Coach endpoint to handle both simple query and detailed formats
-# - Added proper error handling for user profile and consumption history retrieval
-# - Enhanced meal-suggestion endpoint with fallback mechanisms
-# - Improved chat interface with meal type detection using regex patterns
-# - Streamlined image upload behavior (attach without auto-analysis)
-# - Better integration between consumption logging and meal plan calibration
-# - Robust database query handling with try-catch blocks
-# - Dual response format (suggestion + response) for frontend compatibility
-# 
-# ==========================================
+flake8>=7.0.0 
