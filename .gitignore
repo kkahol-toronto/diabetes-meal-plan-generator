@@ -18,6 +18,8 @@ diab_env/
 .ddp_env\*
 ddp_env/
 dp_env/
+denv/
+meal_env/
 
 # FastAPI/Starlette
 instance/
