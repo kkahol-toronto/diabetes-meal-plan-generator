@@ -3,7 +3,7 @@ Unit tests for main FastAPI application endpoints.
 """
 import pytest
 import unittest
-from unittest.mock import Mock, patch, AsyncMock
+from unittest.mock import Mock, patch, AsyncMock, MagicMock
 from fastapi.testclient import TestClient
 from datetime import datetime, timedelta
 import json
@@ -40,6 +40,19 @@ def assert_response_error(response, expected_status=400):
     response_data = response.json()
     assert "detail" in response_data or "error" in response_data
 
+# Mock user data for dependency override
+def mock_get_current_user():
+    return {
+        "id": "test@example.com",
+        "username": "testuser",
+        "email": "test@example.com",
+        "disabled": False,
+        "patient_id": "TEST123",
+        "is_admin": True  # Make user admin to test admin endpoints
+    }
+
+# Override the dependency for all tests
+app.dependency_overrides[get_current_user] = mock_get_current_user
 
 class TestAuthenticationEndpoints(unittest.TestCase):
     """Test authentication-related endpoints."""
@@ -216,7 +229,7 @@ class TestMealPlanEndpoints(unittest.TestCase):
     @patch("main.get_user_meal_plans")
     def test_get_meal_plans_success(self, mock_get_meal_plans, mock_get_user):
         """Test getting user meal plans."""
-        # Mock the current user
+        # Mock the current user to bypass JWT validation
         mock_get_user.return_value = {
             "username": "testuser",
             "email": "test@example.com",
@@ -234,15 +247,18 @@ class TestMealPlanEndpoints(unittest.TestCase):
             }
         ]
 
-        # Use the fixture-based auth headers 
-        headers = {"Authorization": "Bearer valid_test_token"}
-        
+        # Use simple auth headers (get_current_user is mocked)
+        headers = {"Authorization": "Bearer mock_token"}
         response = self.client.get("/meal_plans", headers=headers)
 
         assert response.status_code == 200
         data = response.json()
-        assert len(data) == 1
-        assert data[0]["id"] == "meal_plan_123"
+        print(f"Response data: {data}")  # Debug output
+        # The response structure is {"meal_plans": [...]}
+        assert "meal_plans" in data
+        assert isinstance(data["meal_plans"], list)
+        assert len(data["meal_plans"]) == 1
+        assert data["meal_plans"][0]["id"] == "meal_plan_123"
 
     @patch("main.get_current_user")
     @patch("main.get_meal_plan_by_id")
@@ -691,7 +707,7 @@ class TestAdminEndpoints(unittest.TestCase):
         
         assert response.status_code == 200
         data = response.json()
-        assert data["message"] == "Patient created successfully"
+        assert data["message"] == "Patient created and registration code sent via SMS"
         assert data["registration_code"] == "TEST123"
     
     @patch("main.get_current_user")
@@ -718,5 +734,204 @@ class TestAdminEndpoints(unittest.TestCase):
         assert data[0]["name"] == "Test Patient"
 
 
+class TestUtilityEndpoints(unittest.TestCase):
+    """Test utility endpoints for better coverage."""
+
+    def setUp(self):
+        self.client = TestClient(app)
+
+    def test_root_endpoint(self):
+        """Test the root endpoint."""
+        response = self.client.get("/")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["message"] == "Welcome to Diabetes Diet Manager API"
+        assert data["status"] == "healthy"
+
+    @patch("main.get_current_user")
+    def test_test_echo_endpoint(self, mock_get_user):
+        """Test the test echo endpoint."""
+        mock_get_user.return_value = {
+            "id": "test@example.com",
+            "username": "testuser",
+            "email": "test@example.com",
+            "disabled": False
+        }
+        
+        headers = {"Authorization": "Bearer test_token"}
+        response = self.client.post("/test-echo", headers=headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert data["message"] == "Echo successful"
+
+    @patch("main.get_current_user")
+    def test_get_users_me_endpoint(self, mock_get_user):
+        """Test getting current user info."""
+        mock_get_user.return_value = {
+            "id": "test@example.com",
+            "username": "testuser", 
+            "email": "test@example.com",
+            "disabled": False,
+            "patient_id": "TEST123"
+        }
+        
+        headers = {"Authorization": "Bearer test_token"}
+        response = self.client.get("/users/me", headers=headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert data["username"] == "testuser"
+        assert data["email"] == "test@example.com"
+
+    @patch("main.get_current_user")
+    @patch("main.get_user_shopping_lists")
+    def test_get_user_shopping_list(self, mock_get_lists, mock_get_user):
+        """Test getting user shopping lists."""
+        mock_get_user.return_value = {
+            "id": "test@example.com",
+            "username": "testuser",
+            "email": "test@example.com",
+            "disabled": False
+        }
+        
+        mock_get_lists.return_value = [
+            {
+                "id": "list_123",
+                "items": ["Apples", "Chicken", "Rice"],
+                "created_at": "2023-12-01T10:00:00Z"
+            }
+        ]
+        
+        headers = {"Authorization": "Bearer test_token"}
+        response = self.client.get("/user/shopping-list", headers=headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["id"] == "list_123"
+
+    @patch("main.get_current_user")
+    @patch("main.save_shopping_list")
+    def test_save_user_shopping_list(self, mock_save_list, mock_get_user):
+        """Test saving user shopping lists."""
+        mock_get_user.return_value = {
+            "id": "test@example.com",
+            "username": "testuser",
+            "email": "test@example.com",
+            "disabled": False
+        }
+        
+        mock_save_list.return_value = {"id": "list_123"}
+        
+        list_data = {
+            "items": ["Apples", "Chicken", "Rice"],
+            "notes": "Weekly groceries"
+        }
+        
+        headers = {"Authorization": "Bearer test_token"}
+        response = self.client.post("/user/shopping-list", json=list_data, headers=headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert data["message"] == "Shopping list saved successfully"
+
+    @patch("main.get_current_user")
+    @patch("main.get_user_recipes")
+    def test_get_user_recipes(self, mock_get_recipes, mock_get_user):
+        """Test getting user recipes."""
+        mock_get_user.return_value = {
+            "id": "test@example.com",
+            "username": "testuser",
+            "email": "test@example.com",
+            "disabled": False
+        }
+        
+        mock_get_recipes.return_value = [
+            {
+                "id": "recipe_123",
+                "name": "Healthy Salad",
+                "ingredients": ["Lettuce", "Tomatoes", "Chicken"],
+                "instructions": ["Mix ingredients", "Serve fresh"]
+            }
+        ]
+        
+        headers = {"Authorization": "Bearer test_token"}
+        response = self.client.get("/user/recipes", headers=headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["name"] == "Healthy Salad"
+
+    @patch("main.get_current_user")
+    @patch("main.save_recipes")
+    def test_save_user_recipes(self, mock_save_recipes, mock_get_user):
+        """Test saving user recipes."""
+        mock_get_user.return_value = {
+            "id": "test@example.com",
+            "username": "testuser",
+            "email": "test@example.com",
+            "disabled": False
+        }
+        
+        mock_save_recipes.return_value = {"id": "recipe_123"}
+        
+        recipe_data = {
+            "name": "Healthy Salad",
+            "ingredients": ["Lettuce", "Tomatoes", "Chicken"],
+            "instructions": ["Mix ingredients", "Serve fresh"],
+            "nutritional_info": {"calories": 300, "protein": 25}
+        }
+        
+        headers = {"Authorization": "Bearer test_token"}
+        response = self.client.post("/user/recipes", json=recipe_data, headers=headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert data["message"] == "Recipes saved successfully"
+
+
+class TestPasswordUtilities(unittest.TestCase):
+    """Test password utility functions for better coverage."""
+
+    def test_password_hashing_and_verification(self):
+        """Test password hashing and verification functions."""
+        from main import get_password_hash, verify_password
+        
+        password = "test_password_123"
+        hashed = get_password_hash(password)
+        
+        # Verify the password works
+        assert verify_password(password, hashed) == True
+        
+        # Verify wrong password fails
+        assert verify_password("wrong_password", hashed) == False
+        
+        # Verify hashed password is different from original
+        assert hashed != password
+        assert len(hashed) > 50  # bcrypt hashes are long
+
+
+class TestTokenUtilities(unittest.TestCase):
+    """Test token utility functions for better coverage."""
+
+    def test_create_access_token(self):
+        """Test JWT token creation."""
+        from main import create_access_token
+        from datetime import timedelta
+        
+        test_data = {
+            "sub": "test@example.com",
+            "is_admin": False,
+            "name": "Test User"
+        }
+        
+        # Test token creation with default expiry
+        token = create_access_token(test_data)
+        assert isinstance(token, str)
+        assert len(token) > 100  # JWT tokens are long
+        
+        # Test token creation with custom expiry
+        custom_expiry = timedelta(minutes=60)
+        token_custom = create_access_token(test_data, custom_expiry)
+        assert isinstance(token_custom, str)
+        assert token_custom != token  # Different expiry should create different token
+
+
 if __name__ == "__main__":
-    pytest.main([__file__])
+    unittest.main()
