@@ -212,6 +212,9 @@ class RegistrationData(BaseModel):
     registration_code: str
     email: EmailStr
     password: str
+    consent_given: bool
+    consent_timestamp: str
+    policy_version: str
 
 class ImageAnalysisRequest(BaseModel):
     prompt: str
@@ -287,7 +290,7 @@ def send_registration_code(phone: str, code: str):
         return None
 
 @app.post("/login", response_model=Token)
-async def login(form_data: OAuth2PasswordRequestForm = Depends()):
+async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends()):
     print(f"Login attempt for user: {form_data.username}")
     
     user = await get_user_by_email(form_data.username)
@@ -300,6 +303,45 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
         )
     
     print(f"User found: {user}")
+    
+    # Get form data directly from the request
+    form = await request.form()
+    consent_given = form.get('consent_given', 'false').lower() == 'true'
+    consent_timestamp = form.get('consent_timestamp')
+    policy_version = form.get('policy_version')
+    
+    if not consent_given:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Consent is required to login"
+        )
+    
+    # Update user's consent information
+    try:
+        # Build a new dictionary with only the fields we want to update
+        update_dict = {
+            "id": user["id"],  # Required for upsert
+            "type": "user",    # Required for querying
+            "consent_given": consent_given,
+            "consent_timestamp": consent_timestamp,
+            "policy_version": policy_version,
+            # Preserve other critical fields
+            "email": user["email"],
+            "username": user["username"],
+            "hashed_password": user["hashed_password"],
+            "disabled": user.get("disabled", False),
+            "patient_id": user.get("patient_id"),
+            "profile": user.get("profile", {}),
+            "created_at": user.get("created_at"),
+            "updated_at": datetime.utcnow().isoformat(),
+            "updated_by": "system"
+        }
+        
+        # Perform the upsert
+        user_container.upsert_item(body=update_dict)
+    except Exception as e:
+        print(f"Error during user update: {e}")
+        # If update fails, continue with login since consent info is not critical
     
     # Get patient info if available
     patient_name = None
@@ -321,7 +363,10 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
     token_data = {
         "sub": user["email"],
         "is_admin": user.get("is_admin", False),
-        "name": patient_name
+        "name": patient_name,
+        "consent_given": user.get("consent_given", False),
+        "consent_timestamp": user.get("consent_timestamp"),
+        "policy_version": user.get("policy_version")
     }
     print(f"Creating token with data: {token_data}")
     
@@ -361,7 +406,10 @@ async def register(data: RegistrationData):
         "hashed_password": hashed_password,
         "disabled": False,
         "patient_id": patient["id"],
-        "profile": initial_profile  # Include initial profile from patient data
+        "profile": initial_profile,  # Include initial profile from patient data
+        "consent_given": data.consent_given,
+        "consent_timestamp": data.consent_timestamp,
+        "policy_version": data.policy_version
     }
     
     await create_user(user_data)

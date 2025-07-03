@@ -8,8 +8,14 @@ import {
   Box,
   Link,
   Alert,
+  FormControlLabel,
+  Checkbox,
+  Button as MuiButton,
 } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
+import ConsentForm from './ConsentForm';
+
+const CURRENT_POLICY_VERSION = '1.0.0';
 
 const Register = () => {
   const navigate = useNavigate();
@@ -20,6 +26,8 @@ const Register = () => {
     confirmPassword: '',
   });
   const [error, setError] = useState<string | null>(null);
+  const [consentChecked, setConsentChecked] = useState(false);
+  const [showConsentForm, setShowConsentForm] = useState(false);
 
   const handleChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = event.target;
@@ -29,11 +37,33 @@ const Register = () => {
     }));
   };
 
+  const handleConsentCheck = (event: React.ChangeEvent<HTMLInputElement>) => {
+    setConsentChecked(event.target.checked);
+  };
+
+  const handleOpenConsentForm = () => {
+    setShowConsentForm(true);
+  };
+
+  const handleCloseConsentForm = () => {
+    setShowConsentForm(false);
+  };
+
+  const handleAcceptConsent = () => {
+    setConsentChecked(true);
+    setShowConsentForm(false);
+  };
+
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     
     if (formData.password !== formData.confirmPassword) {
       setError('Passwords do not match');
+      return;
+    }
+
+    if (!consentChecked) {
+      setError('You must agree to the Privacy Policy to register');
       return;
     }
 
@@ -47,6 +77,9 @@ const Register = () => {
           registration_code: formData.registrationCode,
           email: formData.email,
           password: formData.password,
+          consent_given: consentChecked,
+          consent_timestamp: new Date().toISOString(),
+          policy_version: CURRENT_POLICY_VERSION,
         }),
       });
 
@@ -171,6 +204,38 @@ const Register = () => {
               '& .MuiInputLabel-root.Mui-focused': { color: 'white' }
             }}
           />
+
+          <Box sx={{ mt: 2 }}>
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={consentChecked}
+                  onChange={handleConsentCheck}
+                  sx={{ color: 'white' }}
+                />
+              }
+              label={
+                <Box component="span" sx={{ color: 'white', fontSize: '0.9rem' }}>
+                  I agree to the collection and use of my health information as described in the{' '}
+                  <MuiButton
+                    onClick={handleOpenConsentForm}
+                    sx={{
+                      color: 'white',
+                      textDecoration: 'underline',
+                      p: 0,
+                      minWidth: 'auto',
+                      textTransform: 'none',
+                      verticalAlign: 'baseline',
+                      fontSize: 'inherit',
+                    }}
+                  >
+                    Privacy Policy
+                  </MuiButton>
+                </Box>
+              }
+            />
+          </Box>
+
           <Box sx={{ mt: 3, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <Link
               component="button"
@@ -195,6 +260,12 @@ const Register = () => {
           </Box>
         </form>
       </Paper>
+
+      <ConsentForm
+        open={showConsentForm}
+        onClose={handleCloseConsentForm}
+        onAccept={handleAcceptConsent}
+      />
     </Container>
   );
 };

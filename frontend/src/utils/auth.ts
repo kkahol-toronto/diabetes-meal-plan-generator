@@ -20,6 +20,9 @@ interface TokenPayload {
   is_admin?: boolean;
   name?: string;
   email?: string;
+  consent_given?: boolean;
+  consent_timestamp?: string;
+  policy_version?: string;
 }
 
 export const isTokenExpired = (token: string): boolean => {
@@ -73,6 +76,14 @@ export const requireAuth = (): boolean => {
     logout();
     return false;
   }
+
+  const user = getTokenPayload(token);
+  if (!user?.consent_given) {
+    logout();
+    alert('You must provide consent to access this application. Please register again.');
+    return false;
+  }
+
   return true;
 };
 
