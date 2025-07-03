@@ -1135,45 +1135,163 @@ const HomePage: React.FC = () => {
 
           {/* Quick Actions */}
           <Grid item xs={12}>
-            <Card>
-              <CardContent>
-                <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
-                  <SpeedIcon sx={{ mr: 1 }} />
-                  Quick Actions
-                </Typography>
-                <Grid container spacing={2}>
-                  <Grid item xs={12} sm={6} md={3}>
-                    <Button
-                      variant="outlined"
-                      fullWidth
-                      startIcon={<AddIcon />}
+            <Card 
+              elevation={8}
+              sx={{ 
+                background: 'linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)',
+                border: '1px solid rgba(0,0,0,0.08)',
+                borderRadius: 3
+              }}
+            >
+              <CardContent sx={{ p: 4 }}>
+                <Box sx={{ textAlign: 'center', mb: 4 }}>
+                  <Typography 
+                    variant="h5" 
+                    component="h2"
+                    gutterBottom 
+                    sx={{ 
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      justifyContent: 'center',
+                      fontWeight: 'bold',
+                      color: '#2c3e50',
+                      mb: 1
+                    }}
+                  >
+                    <SpeedIcon sx={{ mr: 2, fontSize: 28 }} />
+                    Quick Actions
+                  </Typography>
+                  <Typography 
+                    variant="body1" 
+                    color="text.secondary"
+                    sx={{ fontWeight: 300 }}
+                  >
+                    Take action on your health journey with these essential tools
+                  </Typography>
+                </Box>
+                
+                <Grid container spacing={3} justifyContent="center">
+                  <Grid item xs={12} sm={6} md={4}>
+                    <Card 
+                      elevation={4}
+                      sx={{ 
+                        height: '100%',
+                        cursor: 'pointer',
+                        transition: 'all 0.3s ease-in-out',
+                        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                        '&:hover': {
+                          transform: 'translateY(-8px)',
+                          boxShadow: '0 12px 24px rgba(102, 126, 234, 0.3)',
+                        }
+                      }}
                       onClick={() => setShowQuickLogDialog(true)}
-                      sx={{ py: 1.5 }}
                     >
-                      Log Food
-                    </Button>
+                      <CardContent sx={{ p: 3, textAlign: 'center', color: 'white' }}>
+                        <Box sx={{ mb: 2 }}>
+                          <AddIcon sx={{ fontSize: 48, color: 'white' }} />
+                        </Box>
+                        <Typography 
+                          variant="h6" 
+                          component="h3" 
+                          gutterBottom
+                          sx={{ fontWeight: 'bold', mb: 1 }}
+                        >
+                          LOG FOOD
+                        </Typography>
+                        <Typography 
+                          variant="body2" 
+                          sx={{ 
+                            color: 'rgba(255,255,255,0.9)',
+                            lineHeight: 1.4,
+                            fontSize: '0.9rem'
+                          }}
+                        >
+                          Quickly record what you've eaten with AI-powered nutrition analysis
+                        </Typography>
+                      </CardContent>
+                    </Card>
                   </Grid>
-                  <Grid item xs={12} sm={6} md={3}>
-                    <Button
-                      variant="outlined"
-                      fullWidth
-                      startIcon={<ChatIcon />}
+                  
+                  <Grid item xs={12} sm={6} md={4}>
+                    <Card 
+                      elevation={4}
+                      sx={{ 
+                        height: '100%',
+                        cursor: 'pointer',
+                        transition: 'all 0.3s ease-in-out',
+                        background: 'linear-gradient(135deg, #11998e 0%, #38ef7d 100%)',
+                        '&:hover': {
+                          transform: 'translateY(-8px)',
+                          boxShadow: '0 12px 24px rgba(17, 153, 142, 0.3)',
+                        }
+                      }}
                       onClick={() => navigate('/chat')}
-                      sx={{ py: 1.5 }}
                     >
-                      Chat with AI
-                    </Button>
+                      <CardContent sx={{ p: 3, textAlign: 'center', color: 'white' }}>
+                        <Box sx={{ mb: 2 }}>
+                          <ChatIcon sx={{ fontSize: 48, color: 'white' }} />
+                        </Box>
+                        <Typography 
+                          variant="h6" 
+                          component="h3" 
+                          gutterBottom
+                          sx={{ fontWeight: 'bold', mb: 1 }}
+                        >
+                          CHAT WITH AI
+                        </Typography>
+                        <Typography 
+                          variant="body2" 
+                          sx={{ 
+                            color: 'rgba(255,255,255,0.9)',
+                            lineHeight: 1.4,
+                            fontSize: '0.9rem'
+                          }}
+                        >
+                          Get personalized health advice from your AI nutrition coach
+                        </Typography>
+                      </CardContent>
+                    </Card>
                   </Grid>
-                  <Grid item xs={12} sm={6} md={3}>
-                    <Button
-                      variant="outlined"
-                      fullWidth
-                      startIcon={<HistoryIcon />}
+                  
+                  <Grid item xs={12} sm={6} md={4}>
+                    <Card 
+                      elevation={4}
+                      sx={{ 
+                        height: '100%',
+                        cursor: 'pointer',
+                        transition: 'all 0.3s ease-in-out',
+                        background: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
+                        '&:hover': {
+                          transform: 'translateY(-8px)',
+                          boxShadow: '0 12px 24px rgba(240, 147, 251, 0.3)',
+                        }
+                      }}
                       onClick={() => navigate('/consumption-history')}
-                      sx={{ py: 1.5 }}
                     >
-                      View History
-                    </Button>
+                      <CardContent sx={{ p: 3, textAlign: 'center', color: 'white' }}>
+                        <Box sx={{ mb: 2 }}>
+                          <HistoryIcon sx={{ fontSize: 48, color: 'white' }} />
+                        </Box>
+                        <Typography 
+                          variant="h6" 
+                          component="h3" 
+                          gutterBottom
+                          sx={{ fontWeight: 'bold', mb: 1 }}
+                        >
+                          VIEW HISTORY
+                        </Typography>
+                        <Typography 
+                          variant="body2" 
+                          sx={{ 
+                            color: 'rgba(255,255,255,0.9)',
+                            lineHeight: 1.4,
+                            fontSize: '0.9rem'
+                          }}
+                        >
+                          Track your progress and review your nutrition journey
+                        </Typography>
+                      </CardContent>
+                    </Card>
                   </Grid>
                 </Grid>
               </CardContent>

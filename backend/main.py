@@ -2976,6 +2976,7 @@ async def chat_message_with_image(
     message: str = Form(...),
     image: UploadFile = File(None),
     session_id: str = Form(None),
+    analysis_mode: str = Form("analysis"),  # New parameter for analysis mode
     current_user: User = Depends(get_current_user)
 ):
     """
@@ -3099,44 +3100,70 @@ async def chat_message_with_image(
         image_url=image_url
     )
 
-    # If there's an image, analyze it for food logging
+    # If there's an image, analyze it based on the analysis mode
     if img_str:
+        # Configure analysis based on mode
+        if analysis_mode == "fridge":
+            # Fridge analysis - different approach
+            system_prompt = """You are a culinary AI assistant specializing in fridge analysis for diabetes patients. 
+            Analyze the fridge/pantry image and provide helpful cooking suggestions.
+            Return a JSON response with this format:
+            {
+                "items_detected": ["list of food items visible"],
+                "suggested_meals": ["3-4 diabetes-friendly meal suggestions using these ingredients"],
+                "cooking_tips": "practical cooking advice for diabetes management",
+                "missing_ingredients": ["optional ingredients that would complement these items"],
+                "health_notes": "diabetes-specific guidance for using these ingredients"
+            }
+            Focus on diabetes-friendly combinations and portion control."""
+            
+            user_prompt = "Analyze my fridge/pantry contents and suggest what I can cook that's suitable for diabetes management."
+            
+        else:
+            # Food analysis (logging, analysis, question modes)
+            system_prompt = """You are a nutrition analysis expert for diabetes patients. 
+            Analyze the food image and return a structured JSON response with the following format:
+            {
+                "food_name": "descriptive name of the food",
+                "estimated_portion": "portion size estimate",
+                "nutritional_info": {
+                    "calories": number,
+                    "carbohydrates": number (in grams),
+                    "protein": number (in grams),
+                    "fat": number (in grams),
+                    "fiber": number (in grams),
+                    "sugar": number (in grams),
+                    "sodium": number (in mg)
+                },
+                "medical_rating": {
+                    "diabetes_suitability": "high/medium/low",
+                    "glycemic_impact": "low/medium/high",
+                    "recommended_frequency": "daily/weekly/occasional/avoid",
+                    "portion_recommendation": "recommended portion size for diabetes patients"
+                },
+                "analysis_notes": "detailed explanation of nutritional analysis and diabetes considerations"
+            }
+            Provide realistic estimates based on visual analysis. Be conservative with diabetes suitability ratings."""
+            
+            if analysis_mode == "question":
+                user_prompt = f"Analyze this food image and then answer this specific question: {message}"
+            else:
+                user_prompt = "Analyze this food image and provide detailed nutritional information and diabetes suitability rating."
+
         # Generate structured analysis using OpenAI
         response = client.chat.completions.create(
             model=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
             messages=[
                 {
                     "role": "system",
-                    "content": """You are a nutrition analysis expert for diabetes patients. 
-                    Analyze the food image and return a structured JSON response with the following format:
-                    {
-                        "food_name": "descriptive name of the food",
-                        "estimated_portion": "portion size estimate",
-                        "nutritional_info": {
-                            "calories": number,
-                            "carbohydrates": number (in grams),
-                            "protein": number (in grams),
-                            "fat": number (in grams),
-                            "fiber": number (in grams),
-                            "sugar": number (in grams),
-                            "sodium": number (in mg)
-                        },
-                        "medical_rating": {
-                            "diabetes_suitability": "high/medium/low",
-                            "glycemic_impact": "low/medium/high",
-                            "recommended_frequency": "daily/weekly/occasional/avoid",
-                            "portion_recommendation": "recommended portion size for diabetes patients"
-                        },
-                        "analysis_notes": "detailed explanation of nutritional analysis and diabetes considerations"
-                    }
-                    Provide realistic estimates based on visual analysis. Be conservative with diabetes suitability ratings."""
+                    "content": system_prompt
                 },
                 {
                     "role": "user",
                     "content": [
                         {
                             "type": "text",
-                            "text": "Analyze this food image and provide detailed nutritional information and diabetes suitability rating."
+                            "text": user_prompt
                         },
                         {
                             "type": "image_url",
@@ -3147,7 +3174,7 @@ async def chat_message_with_image(
                     ]
                 }
             ],
-            max_tokens=800,
+            max_tokens=1000,
             temperature=0.3
         )
         analysis_text = response.choices[0].message.content
@@ -3160,21 +3187,124 @@ async def chat_message_with_image(
         except Exception:
             analysis_data = None
 
-    # Detect logging intent in the message
-    if has_logging_intent(message) and (analysis_data or recent_context):
-        # Use analysis_data if available (from current image), otherwise use recent_context
-        food_data = analysis_data or recent_context
-        # Save consumption record
+    # Handle different analysis modes
+    if analysis_mode == "fridge" and analysis_data:
+        # Fridge analysis response
+        items = analysis_data.get('items_detected', [])
+        meals = analysis_data.get('suggested_meals', [])
+        tips = analysis_data.get('cooking_tips', '')
+        missing = analysis_data.get('missing_ingredients', [])
+        health_notes = analysis_data.get('health_notes', '')
+        
+        assistant_message = f"""🧊 **Fridge Analysis Complete!**
+
+📋 **Items Detected:**
+{chr(10).join([f"• {item}" for item in items]) if items else "• No specific items detected"}
+
+👩‍🍳 **Diabetes-Friendly Meal Suggestions:**
+{chr(10).join([f"{i+1}. {meal}" for i, meal in enumerate(meals)]) if meals else "1. No specific suggestions available"}
+
+💡 **Cooking Tips for Diabetes Management:**
+{tips if tips else "Cook with minimal added sugars and focus on portion control."}
+
+🛒 **Optional Ingredients to Enhance Your Meals:**
+{chr(10).join([f"• {item}" for item in missing]) if missing else "• Your fridge looks well-stocked!"}
+
+🏥 **Health Notes:**
+{health_notes if health_notes else "Focus on balanced portions and regular meal timing for optimal blood sugar management."}
+
+Would you like me to create a detailed recipe for any of these meal suggestions?"""
+
+    elif analysis_mode == "logging" and analysis_data:
+        # Food logging mode - save to consumption history
+        food_data = analysis_data
         consumption_data = {
             "food_name": food_data.get("food_name"),
             "estimated_portion": food_data.get("estimated_portion"),
             "nutritional_info": food_data.get("nutritional_info", {}),
             "image_analysis": food_data.get("analysis_notes"),
-            "image_url": img_str if analysis_data else None  # Only include image if from current analysis
+            "image_url": img_str
         }
         await save_consumption_record(current_user["email"], consumption_data, meal_type=meal_type or "")
 
-        # FORCE SIMPLE FOOD LOGGING RESPONSE - Skip comprehensive AI for now
+        meal_type_text = f" as your **{meal_type}**" if meal_type else ""
+        
+        assistant_message = f"""🍽️ **Food Logged{meal_type_text}: {food_data.get('food_name')}**
+
+📊 **Nutritional Info** (per {food_data.get('estimated_portion')}):
+• Calories: {food_data.get('nutritional_info', {}).get('calories', 'N/A')}
+• Carbs: {food_data.get('nutritional_info', {}).get('carbohydrates', 'N/A')}g
+• Protein: {food_data.get('nutritional_info', {}).get('protein', 'N/A')}g
+• Fat: {food_data.get('nutritional_info', {}).get('fat', 'N/A')}g
+• Fiber: {food_data.get('nutritional_info', {}).get('fiber', 'N/A')}g
+
+🩺 **Diabetes Suitability:** {food_data.get('medical_rating', {}).get('diabetes_suitability', 'N/A').title()}
+📈 **Glycemic Impact:** {food_data.get('medical_rating', {}).get('glycemic_impact', 'N/A').title()}
+
+✅ **Successfully logged to your consumption history!**
+
+💡 **Analysis Notes:** {food_data.get('analysis_notes', 'No additional notes available.')}
+
+Your daily tracking and meal planning will be updated to reflect this logged meal."""
+
+    elif analysis_mode == "question" and analysis_data:
+        # Question mode - provide specific answer based on the user's question
+        assistant_message = f"""❓ **Question about {analysis_data.get('food_name', 'your food')}:**
+
+Based on the image analysis, here's what I can tell you:
+
+📊 **Nutritional Breakdown** (per {analysis_data.get('estimated_portion')}):
+• Calories: {analysis_data.get('nutritional_info', {}).get('calories', 'N/A')}
+• Carbs: {analysis_data.get('nutritional_info', {}).get('carbohydrates', 'N/A')}g
+• Protein: {analysis_data.get('nutritional_info', {}).get('protein', 'N/A')}g
+• Fat: {analysis_data.get('nutritional_info', {}).get('fat', 'N/A')}g
+• Fiber: {analysis_data.get('nutritional_info', {}).get('fiber', 'N/A')}g
+• Sugar: {analysis_data.get('nutritional_info', {}).get('sugar', 'N/A')}g
+
+🩺 **For Diabetes Management:**
+• **Suitability:** {analysis_data.get('medical_rating', {}).get('diabetes_suitability', 'N/A').title()}
+• **Glycemic Impact:** {analysis_data.get('medical_rating', {}).get('glycemic_impact', 'N/A').title()}
+• **Recommended Frequency:** {analysis_data.get('medical_rating', {}).get('recommended_frequency', 'N/A')}
+
+💡 **Additional Notes:** {analysis_data.get('analysis_notes', 'No additional analysis available.')}
+
+Is there anything specific about this food you'd like me to explain further?"""
+
+    elif analysis_mode == "analysis" and analysis_data:
+        # Pure analysis mode - no logging
+        assistant_message = f"""🔍 **Food Analysis: {analysis_data.get('food_name')}**
+
+📊 **Nutritional Breakdown** (per {analysis_data.get('estimated_portion')}):
+• Calories: {analysis_data.get('nutritional_info', {}).get('calories', 'N/A')}
+• Carbs: {analysis_data.get('nutritional_info', {}).get('carbohydrates', 'N/A')}g
+• Protein: {analysis_data.get('nutritional_info', {}).get('protein', 'N/A')}g
+• Fat: {analysis_data.get('nutritional_info', {}).get('fat', 'N/A')}g
+• Fiber: {analysis_data.get('nutritional_info', {}).get('fiber', 'N/A')}g
+• Sugar: {analysis_data.get('nutritional_info', {}).get('sugar', 'N/A')}g
+• Sodium: {analysis_data.get('nutritional_info', {}).get('sodium', 'N/A')}mg
+
+🩺 **Diabetes Management Insights:**
+• **Suitability:** {analysis_data.get('medical_rating', {}).get('diabetes_suitability', 'N/A').title()}
+• **Glycemic Impact:** {analysis_data.get('medical_rating', {}).get('glycemic_impact', 'N/A').title()}
+• **Recommended Frequency:** {analysis_data.get('medical_rating', {}).get('recommended_frequency', 'N/A')}
+• **Portion Recommendation:** {analysis_data.get('medical_rating', {}).get('portion_recommendation', 'N/A')}
+
+💡 **Analysis Notes:** {analysis_data.get('analysis_notes', 'No additional notes available.')}
+
+Would you like me to log this to your consumption history? Just say "log this as my [breakfast/lunch/dinner/snack]"!"""
+
+    elif has_logging_intent(message) and (analysis_data or recent_context):
+        # Legacy logging support
+        food_data = analysis_data or recent_context
+        consumption_data = {
+            "food_name": food_data.get("food_name"),
+            "estimated_portion": food_data.get("estimated_portion"),
+            "nutritional_info": food_data.get("nutritional_info", {}),
+            "image_analysis": food_data.get("analysis_notes"),
+            "image_url": img_str if analysis_data else None
+        }
+        await save_consumption_record(current_user["email"], consumption_data, meal_type=meal_type or "")
+
         context_note = " (from previous analysis)" if recent_context and not analysis_data else ""
         meal_type_text = f" as your **{meal_type}**" if meal_type else ""
         

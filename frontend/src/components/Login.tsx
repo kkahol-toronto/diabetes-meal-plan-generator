@@ -11,6 +11,9 @@ import {
   FormControlLabel,
   Checkbox,
   Button as MuiButton,
+  InputLabel,
+  Stack,
+  Divider,
 } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 import ConsentForm from './ConsentForm';
@@ -102,121 +105,254 @@ const Login = () => {
   };
 
   return (
-    <Container maxWidth="sm" sx={{ py: 4 }}>
+    <Container maxWidth="sm" sx={{ py: 6, display: 'flex', alignItems: 'center', minHeight: '100vh' }}>
       <Paper 
-        elevation={3} 
+        elevation={8} 
         sx={{ 
-          p: 4,
+          p: 5,
+          width: '100%',
           background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-          color: 'white'
+          color: 'white',
+          borderRadius: 3,
+          boxShadow: '0 10px 40px rgba(0,0,0,0.2)'
         }}
       >
-        <Typography variant="h4" component="h1" gutterBottom align="center" sx={{ color: 'white' }}>
-          Login
-        </Typography>
+        {/* Header Section */}
+        <Box sx={{ textAlign: 'center', mb: 4 }}>
+          <Typography 
+            variant="h3" 
+            component="h1" 
+            sx={{ 
+              color: 'white',
+              fontWeight: 'bold',
+              letterSpacing: '2px',
+              mb: 1,
+              textShadow: '2px 2px 4px rgba(0,0,0,0.3)'
+            }}
+          >
+            YOUR DIET MANAGER
+          </Typography>
+          <Typography 
+            variant="subtitle1" 
+            sx={{ 
+              color: 'rgba(255,255,255,0.9)',
+              fontWeight: 300,
+              letterSpacing: '0.5px'
+            }}
+          >
+            Welcome back! Please sign in to your account
+          </Typography>
+        </Box>
+
+        <Divider sx={{ mb: 4, borderColor: 'rgba(255,255,255,0.2)' }} />
 
         {error && (
-          <Alert severity="error" sx={{ mb: 2 }}>
+          <Alert 
+            severity="error" 
+            sx={{ 
+              mb: 3,
+              bgcolor: 'rgba(211, 47, 47, 0.1)',
+              color: 'white',
+              border: '1px solid rgba(211, 47, 47, 0.3)'
+            }}
+          >
             {error}
           </Alert>
         )}
 
         <form onSubmit={handleSubmit}>
-          <TextField
-            fullWidth
-            label="Username"
-            name="username"
-            value={formData.username}
-            onChange={handleChange}
-            margin="normal"
-            required
-            sx={{
-              '& .MuiOutlinedInput-root': {
-                bgcolor: 'rgba(255,255,255,0.1)',
-                color: 'white',
-                '& fieldset': { borderColor: 'rgba(255,255,255,0.3)' },
-                '&:hover fieldset': { borderColor: 'rgba(255,255,255,0.5)' },
-                '&.Mui-focused fieldset': { borderColor: 'white' }
-              },
-              '& .MuiInputLabel-root': { color: 'rgba(255,255,255,0.8)' },
-              '& .MuiInputLabel-root.Mui-focused': { color: 'white' }
-            }}
-          />
-          <TextField
-            fullWidth
-            label="Password"
-            name="password"
-            type="password"
-            value={formData.password}
-            onChange={handleChange}
-            margin="normal"
-            required
-            sx={{
-              '& .MuiOutlinedInput-root': {
-                bgcolor: 'rgba(255,255,255,0.1)',
-                color: 'white',
-                '& fieldset': { borderColor: 'rgba(255,255,255,0.3)' },
-                '&:hover fieldset': { borderColor: 'rgba(255,255,255,0.5)' },
-                '&.Mui-focused fieldset': { borderColor: 'white' }
-              },
-              '& .MuiInputLabel-root': { color: 'rgba(255,255,255,0.8)' },
-              '& .MuiInputLabel-root.Mui-focused': { color: 'white' }
-            }}
-          />
+          <Stack spacing={3}>
+            {/* Username Field */}
+            <Box>
+              <InputLabel 
+                sx={{ 
+                  color: 'white', 
+                  mb: 1, 
+                  fontSize: '1rem',
+                  fontWeight: 500,
+                  display: 'block'
+                }}
+              >
+                Username
+              </InputLabel>
+              <TextField
+                fullWidth
+                name="username"
+                value={formData.username}
+                onChange={handleChange}
+                required
+                placeholder="Enter your username"
+                sx={{
+                  '& .MuiOutlinedInput-root': {
+                    bgcolor: 'rgba(255,255,255,0.15)',
+                    color: 'white',
+                    borderRadius: 2,
+                    fontSize: '1.1rem',
+                    '& fieldset': { 
+                      borderColor: 'rgba(255,255,255,0.3)',
+                      borderWidth: 2
+                    },
+                    '&:hover fieldset': { 
+                      borderColor: 'rgba(255,255,255,0.6)' 
+                    },
+                    '&.Mui-focused fieldset': { 
+                      borderColor: 'white',
+                      borderWidth: 2
+                    }
+                  },
+                  '& .MuiOutlinedInput-input': {
+                    padding: '14px 16px'
+                  },
+                  '& .MuiInputBase-input::placeholder': {
+                    color: 'rgba(255,255,255,0.6)',
+                    opacity: 1
+                  }
+                }}
+              />
+            </Box>
 
-          <Box sx={{ mt: 2 }}>
-            <FormControlLabel
-              control={
-                <Checkbox
-                  checked={consentChecked}
-                  onChange={handleConsentCheck}
-                  sx={{ color: 'white' }}
-                />
-              }
-              label={
-                <Box component="span" sx={{ color: 'white', fontSize: '0.9rem' }}>
-                  I agree to the collection and use of my health information as described in the{' '}
-                  <MuiButton
-                    onClick={handleOpenConsentForm}
-                    sx={{
-                      color: 'white',
-                      textDecoration: 'underline',
-                      p: 0,
-                      minWidth: 'auto',
-                      textTransform: 'none',
-                      verticalAlign: 'baseline',
-                      fontSize: 'inherit',
+            {/* Password Field */}
+            <Box>
+              <InputLabel 
+                sx={{ 
+                  color: 'white', 
+                  mb: 1, 
+                  fontSize: '1rem',
+                  fontWeight: 500,
+                  display: 'block'
+                }}
+              >
+                Password
+              </InputLabel>
+              <TextField
+                fullWidth
+                name="password"
+                type="password"
+                value={formData.password}
+                onChange={handleChange}
+                required
+                placeholder="Enter your password"
+                sx={{
+                  '& .MuiOutlinedInput-root': {
+                    bgcolor: 'rgba(255,255,255,0.15)',
+                    color: 'white',
+                    borderRadius: 2,
+                    fontSize: '1.1rem',
+                    '& fieldset': { 
+                      borderColor: 'rgba(255,255,255,0.3)',
+                      borderWidth: 2
+                    },
+                    '&:hover fieldset': { 
+                      borderColor: 'rgba(255,255,255,0.6)' 
+                    },
+                    '&.Mui-focused fieldset': { 
+                      borderColor: 'white',
+                      borderWidth: 2
+                    }
+                  },
+                  '& .MuiOutlinedInput-input': {
+                    padding: '14px 16px'
+                  },
+                  '& .MuiInputBase-input::placeholder': {
+                    color: 'rgba(255,255,255,0.6)',
+                    opacity: 1
+                  }
+                }}
+              />
+            </Box>
+
+            {/* Consent Checkbox */}
+            <Box sx={{ mt: 2 }}>
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    checked={consentChecked}
+                    onChange={handleConsentCheck}
+                    sx={{ 
+                      color: 'rgba(255,255,255,0.8)',
+                      '&.Mui-checked': { color: 'white' }
                     }}
-                  >
-                    Privacy Policy
-                  </MuiButton>
-                </Box>
-              }
-            />
-          </Box>
+                  />
+                }
+                label={
+                  <Box component="span" sx={{ color: 'rgba(255,255,255,0.9)', fontSize: '0.95rem', lineHeight: 1.4 }}>
+                    I agree to the collection and use of my health information as described in the{' '}
+                    <MuiButton
+                      onClick={handleOpenConsentForm}
+                      sx={{
+                        color: 'white',
+                        textDecoration: 'underline',
+                        p: 0,
+                        minWidth: 'auto',
+                        textTransform: 'none',
+                        verticalAlign: 'baseline',
+                        fontSize: 'inherit',
+                        fontWeight: 500,
+                        '&:hover': {
+                          backgroundColor: 'transparent',
+                          textDecoration: 'underline'
+                        }
+                      }}
+                    >
+                      Privacy Policy
+                    </MuiButton>
+                  </Box>
+                }
+              />
+            </Box>
 
-          <Box sx={{ mt: 3, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Link
-              component="button"
-              variant="body2"
-              onClick={() => navigate('/register')}
-              sx={{ color: 'rgba(255,255,255,0.8)', '&:hover': { color: 'white' } }}
-            >
-              Don't have an account? Register
-            </Link>
-            <Button
-              type="submit"
-              variant="contained"
-              size="large"
-              sx={{ 
-                bgcolor: 'rgba(255,255,255,0.2)', 
-                color: 'white',
-                '&:hover': { bgcolor: 'rgba(255,255,255,0.3)' }
-              }}
-            >
-              Login
-            </Button>
-          </Box>
+            {/* Action Buttons */}
+            <Box sx={{ mt: 4 }}>
+              <Button
+                type="submit"
+                fullWidth
+                variant="contained"
+                size="large"
+                sx={{ 
+                  bgcolor: 'rgba(255,255,255,0.2)', 
+                  color: 'white',
+                  py: 1.5,
+                  fontSize: '1.1rem',
+                  fontWeight: 600,
+                  borderRadius: 2,
+                  textTransform: 'uppercase',
+                  letterSpacing: '1px',
+                  border: '2px solid rgba(255,255,255,0.3)',
+                  '&:hover': { 
+                    bgcolor: 'rgba(255,255,255,0.3)',
+                    borderColor: 'rgba(255,255,255,0.5)',
+                    transform: 'translateY(-1px)',
+                    boxShadow: '0 4px 12px rgba(0,0,0,0.2)'
+                  },
+                  transition: 'all 0.2s ease-in-out'
+                }}
+              >
+                Sign In
+              </Button>
+            </Box>
+
+            {/* Register Link */}
+            <Box sx={{ textAlign: 'center', mt: 3 }}>
+              <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.8)' }}>
+                Don't have an account?{' '}
+                <Link
+                  component="button"
+                  variant="body2"
+                  onClick={() => navigate('/register')}
+                  sx={{ 
+                    color: 'white', 
+                    fontWeight: 600,
+                    textDecoration: 'underline',
+                    '&:hover': { 
+                      color: 'rgba(255,255,255,0.8)' 
+                    }
+                  }}
+                >
+                  Register here
+                </Link>
+              </Typography>
+            </Box>
+          </Stack>
         </form>
       </Paper>
 

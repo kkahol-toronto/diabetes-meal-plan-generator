@@ -87,6 +87,16 @@ const typewriter = keyframes`
   to { width: 100%; }
 `;
 
+// Import new icons for enhanced features
+import {
+  CameraAlt as FoodLogIcon,
+  Search as AnalyzeIcon,
+  QuestionAnswer as QuestionIcon,
+  Kitchen as FridgeIcon,
+  PhotoCamera as PhotoIcon,
+  Close as CancelIcon
+} from '@mui/icons-material';
+
 interface Message {
   id: string;
   message: string;
@@ -95,8 +105,10 @@ interface Message {
   session_id: string;
   imageUrl?: string;
   metadata?: {
-    type?: 'food_analysis' | 'meal_suggestion' | 'general' | 'quick_action';
+    type?: 'food_analysis' | 'meal_suggestion' | 'general' | 'quick_action' | 'food_logging' | 'fridge_analysis';
     data?: any;
+    image_type?: 'food' | 'fridge';
+    analysis_mode?: 'logging' | 'analysis' | 'question' | 'fridge';
   };
 }
 
@@ -111,6 +123,16 @@ interface QuickAction {
   icon: React.ReactNode;
   action: () => void;
   color: 'primary' | 'secondary' | 'success' | 'warning' | 'info';
+}
+
+// New interface for image analysis options
+interface ImageAnalysisOption {
+  id: string;
+  title: string;
+  description: string;
+  icon: React.ReactNode;
+  color: string;
+  action: (file: File) => void;
 }
 
 const Chat = () => {
@@ -136,6 +158,11 @@ const Chat = () => {
   const [userStats, setUserStats] = useState<any>(null);
   const [showQuickActions, setShowQuickActions] = useState(true);
 
+  // New state for enhanced image analysis
+  const [imageOptionsDialog, setImageOptionsDialog] = useState(false);
+  const [selectedAnalysisMode, setSelectedAnalysisMode] = useState<'logging' | 'analysis' | 'question' | 'fridge' | null>(null);
+  const [pendingImageFile, setPendingImageFile] = useState<File | null>(null);
+
   const quickActions: QuickAction[] = [
     {
       label: 'Meal Suggestion',
@@ -160,6 +187,42 @@ const Chat = () => {
       icon: <FavoriteIcon />,
       action: () => setInput("Give me some diabetes management tips"),
       color: 'warning'
+    }
+  ];
+
+  // Enhanced image analysis options
+  const imageAnalysisOptions: ImageAnalysisOption[] = [
+    {
+      id: 'food_logging',
+      title: 'Log Food',
+      description: 'Analyze and automatically log this food to your consumption history',
+      icon: <FoodLogIcon sx={{ fontSize: 40 }} />,
+      color: '#667eea',
+      action: (file: File) => handleImageAnalysisSelection('logging', file)
+    },
+    {
+      id: 'food_analysis',
+      title: 'Analyze Food',
+      description: 'Get detailed nutritional analysis without logging to history',
+      icon: <AnalyzeIcon sx={{ fontSize: 40 }} />,
+      color: '#11998e',
+      action: (file: File) => handleImageAnalysisSelection('analysis', file)
+    },
+    {
+      id: 'food_question',
+      title: 'Ask About Food',
+      description: 'Upload food image and ask specific questions about it',
+      icon: <QuestionIcon sx={{ fontSize: 40 }} />,
+      color: '#f093fb',
+      action: (file: File) => handleImageAnalysisSelection('question', file)
+    },
+    {
+      id: 'fridge_analysis',
+      title: 'Fridge Analysis',
+      description: 'Analyze your fridge contents and get cooking suggestions',
+      icon: <FridgeIcon sx={{ fontSize: 40 }} />,
+      color: '#ff9a9e',
+      action: (file: File) => handleImageAnalysisSelection('fridge', file)
     }
   ];
 
@@ -346,12 +409,18 @@ const Chat = () => {
       timestamp: new Date().toISOString(),
       session_id: currentSession,
       imageUrl: imagePreviewUrl || undefined,
+      metadata: selectedImage ? {
+        type: 'food_analysis',
+        image_type: selectedAnalysisMode === 'fridge' ? 'fridge' : 'food',
+        analysis_mode: selectedAnalysisMode || 'analysis'
+      } : undefined
     };
 
     setMessages(prev => [...prev, userMessage]);
     setInput('');
     setSelectedImage(null);
     setImagePreviewUrl(null);
+    setSelectedAnalysisMode(null);
     setIsLoading(true);
     setShowQuickActions(false);
 
@@ -359,11 +428,12 @@ const Chat = () => {
       let response;
       
       if (selectedImage) {
-        // Handle image + message
+        // Handle image + message with enhanced analysis mode
         const formData = new FormData();
         formData.append('message', input);
         formData.append('image', selectedImage);
         formData.append('session_id', currentSession);
+        formData.append('analysis_mode', selectedAnalysisMode || 'analysis');
 
         response = await fetch('/chat/message-with-image', {
           method: 'POST',
@@ -400,6 +470,11 @@ const Chat = () => {
           is_user: false,
           timestamp: new Date().toISOString(),
           session_id: currentSession,
+          metadata: selectedImage ? {
+            type: selectedAnalysisMode === 'fridge' ? 'fridge_analysis' : 'food_analysis',
+            image_type: selectedAnalysisMode === 'fridge' ? 'fridge' : 'food',
+            analysis_mode: selectedAnalysisMode || 'analysis'
+          } : undefined
         };
         setMessages(prev => [...prev, aiMessage]);
 
@@ -509,11 +584,38 @@ const Chat = () => {
       return;
     }
 
+    // Store the file and show options dialog
+    setPendingImageFile(file);
+    setImageOptionsDialog(true);
+  };
+
+  const handleImageAnalysisSelection = (mode: 'logging' | 'analysis' | 'question' | 'fridge', file: File) => {
+    setSelectedAnalysisMode(mode);
     setSelectedImage(file);
     
     // Create preview URL
     const previewUrl = URL.createObjectURL(file);
     setImagePreviewUrl(previewUrl);
+    
+    // Close dialogs
+    setImageOptionsDialog(false);
+    setPendingImageFile(null);
+    
+    // Set appropriate input based on mode
+    switch (mode) {
+      case 'logging':
+        setInput('Please analyze this food and log it to my consumption history.');
+        break;
+      case 'analysis':
+        setInput('Please provide a detailed nutritional analysis of this food.');
+        break;
+      case 'question':
+        setInput('I have a question about this food: ');
+        break;
+      case 'fridge':
+        setInput('Please analyze my fridge contents and suggest what I can cook.');
+        break;
+    }
   };
 
   const handleRecordFoodButtonClick = () => {
@@ -634,10 +736,10 @@ const Chat = () => {
           </ButtonGroup>
 
           <Box sx={{ ml: 'auto', display: 'flex', gap: 1 }}>
-            <Tooltip title="Log Food (attach image)">
+            <Tooltip title="Enhanced Image Analysis">
               <IconButton onClick={handleRecordFoodButtonClick} color="primary">
-                <Badge badgeContent="AI" color="secondary">
-                  <CameraAltIcon />
+                <Badge badgeContent="NEW" color="secondary">
+                  <PhotoIcon />
                 </Badge>
               </IconButton>
             </Tooltip>
@@ -754,9 +856,9 @@ const Chat = () => {
                       color: message.is_user ? 'white' : 'text.primary',
                       borderRadius: 2,
                       position: 'relative',
-                      animation: message.metadata?.type === 'food_analysis' ? `${pulse} 2s ease-in-out` : 'none',
-                      border: message.metadata?.type === 'food_analysis' ? '2px solid' : 'none',
-                      borderColor: message.metadata?.type === 'food_analysis' ? 'success.main' : 'transparent',
+                      animation: message.metadata?.type === 'food_analysis' || message.metadata?.type === 'fridge_analysis' ? `${pulse} 2s ease-in-out` : 'none',
+                      border: message.metadata?.type === 'food_analysis' || message.metadata?.type === 'fridge_analysis' ? '2px solid' : 'none',
+                      borderColor: message.metadata?.type === 'food_analysis' || message.metadata?.type === 'fridge_analysis' ? 'success.main' : 'transparent',
                     }}
                   >
                     {message.imageUrl && (
@@ -775,8 +877,17 @@ const Chat = () => {
                     
                     {message.metadata?.type === 'food_analysis' && (
                       <Chip
-                        label="Food Analysis"
+                        label={`Food ${message.metadata.analysis_mode === 'logging' ? 'Logged' : 'Analysis'}`}
                         color="success"
+                        size="small"
+                        sx={{ mb: 1 }}
+                      />
+                    )}
+
+                    {message.metadata?.type === 'fridge_analysis' && (
+                      <Chip
+                        label="Fridge Analysis"
+                        color="info"
                         size="small"
                         sx={{ mb: 1 }}
                       />
@@ -838,9 +949,16 @@ const Chat = () => {
         {selectedImage && (
           <Box sx={{ mb: 2, p: 1, bgcolor: 'grey.50', borderRadius: 1 }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-              <CameraAltIcon color="primary" />
-              <Typography variant="body2">Image attached</Typography>
-              <IconButton size="small" onClick={() => { setSelectedImage(null); setImagePreviewUrl(null); }}>
+              {selectedAnalysisMode === 'fridge' ? <FridgeIcon color="primary" /> : <CameraAltIcon color="primary" />}
+              <Typography variant="body2">
+                {selectedAnalysisMode === 'fridge' ? 'Fridge image attached' : 'Food image attached'} 
+                {selectedAnalysisMode && ` (${selectedAnalysisMode} mode)`}
+              </Typography>
+              <IconButton size="small" onClick={() => { 
+                setSelectedImage(null); 
+                setImagePreviewUrl(null); 
+                setSelectedAnalysisMode(null);
+              }}>
                 <CloseIcon />
               </IconButton>
             </Box>
@@ -861,7 +979,7 @@ const Chat = () => {
             maxRows={4}
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Ask your AI health coach anything about diabetes, nutrition, or meal planning..."
+            placeholder="Ask your AI health coach anything about diabetes, nutrition, meal planning, or upload images for analysis..."
             variant="outlined"
             onKeyPress={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
@@ -905,6 +1023,76 @@ const Chat = () => {
         accept="image/*"
         onChange={handleImageUpload}
       />
+
+      {/* Enhanced Image Analysis Options Dialog */}
+      <Dialog 
+        open={imageOptionsDialog} 
+        onClose={() => {
+          setImageOptionsDialog(false);
+          setPendingImageFile(null);
+        }} 
+        maxWidth="md" 
+        fullWidth
+        PaperProps={{
+          sx: { borderRadius: 3 }
+        }}
+      >
+        <DialogTitle sx={{ textAlign: 'center', pb: 1 }}>
+          <PhotoIcon sx={{ fontSize: 40, color: 'primary.main', mb: 1 }} />
+          <Typography variant="h5" component="div" sx={{ fontWeight: 'bold' }}>
+            Choose Analysis Type
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+            How would you like to analyze your image?
+          </Typography>
+        </DialogTitle>
+        
+        <DialogContent sx={{ p: 3 }}>
+          <Grid container spacing={3}>
+            {imageAnalysisOptions.map((option) => (
+              <Grid item xs={12} sm={6} key={option.id}>
+                <Card
+                  sx={{
+                    cursor: 'pointer',
+                    transition: 'all 0.3s ease-in-out',
+                    border: '2px solid transparent',
+                    '&:hover': {
+                      transform: 'translateY(-4px)',
+                      borderColor: option.color,
+                      boxShadow: `0 8px 25px ${alpha(option.color, 0.3)}`,
+                    }
+                  }}
+                  onClick={() => pendingImageFile && option.action(pendingImageFile)}
+                >
+                  <CardContent sx={{ p: 3, textAlign: 'center' }}>
+                    <Box sx={{ color: option.color, mb: 2 }}>
+                      {option.icon}
+                    </Box>
+                    <Typography variant="h6" gutterBottom sx={{ fontWeight: 'bold' }}>
+                      {option.title}
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary" sx={{ lineHeight: 1.5 }}>
+                      {option.description}
+                    </Typography>
+                  </CardContent>
+                </Card>
+              </Grid>
+            ))}
+          </Grid>
+        </DialogContent>
+        
+        <DialogActions sx={{ p: 3, pt: 0 }}>
+          <Button 
+            onClick={() => {
+              setImageOptionsDialog(false);
+              setPendingImageFile(null);
+            }}
+            startIcon={<CancelIcon />}
+          >
+            Cancel
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Food Analysis Result Dialog */}
       <Dialog open={recordFoodDialog} onClose={handleCloseRecordDialog} maxWidth="sm" fullWidth>
