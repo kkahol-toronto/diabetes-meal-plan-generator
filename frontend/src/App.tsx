@@ -15,6 +15,7 @@ import AllRecipesPage from './pages/AllRecipesPage';
 import AllShoppingListsPage from './pages/AllShoppingListsPage';
 import MealPlanHistory from './components/MealPlanHistory';
 import MealPlanDetails from './components/MealPlanDetails';
+import Settings from './components/Settings';
 
 import ConsumptionHistory from './components/ConsumptionHistory';
 import NotificationSystem from './components/NotificationSystem';
@@ -194,6 +195,14 @@ function App() {
             element={
               <ProtectedRoute>
                 <MealPlanDetails />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/settings"
+            element={
+              <ProtectedRoute>
+                <Settings />
               </ProtectedRoute>
             }
           />

@@ -1,4 +1,5 @@
 from fastapi import FastAPI, HTTPException, Depends, status, Request, Body, File, UploadFile, Form
+from fastapi.responses import StreamingResponse, JSONResponse, FileResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel, EmailStr, Field
@@ -49,7 +50,6 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, Tabl
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib.units import inch
-from fastapi.responses import StreamingResponse, JSONResponse, FileResponse
 import re
 import traceback
 import sys
@@ -113,6 +113,14 @@ class User(BaseModel):
     username: str
     email: EmailStr
     disabled: Optional[bool] = None
+    # Privacy & Consent Fields
+    consent_given: Optional[bool] = None
+    consent_timestamp: Optional[str] = None
+    policy_version: Optional[str] = None
+    data_retention_preference: Optional[str] = "standard"  # "minimal", "standard", "extended"
+    marketing_consent: Optional[bool] = False
+    analytics_consent: Optional[bool] = True
+    last_consent_update: Optional[str] = None
 
 class UserInDB(User):
     hashed_password: str
@@ -215,6 +223,9 @@ class RegistrationData(BaseModel):
     consent_given: bool
     consent_timestamp: str
     policy_version: str
+    data_retention_preference: Optional[str] = "standard"
+    marketing_consent: Optional[bool] = False
+    analytics_consent: Optional[bool] = True
 
 class ImageAnalysisRequest(BaseModel):
     prompt: str
@@ -409,7 +420,11 @@ async def register(data: RegistrationData):
         "profile": initial_profile,  # Include initial profile from patient data
         "consent_given": data.consent_given,
         "consent_timestamp": data.consent_timestamp,
-        "policy_version": data.policy_version
+        "policy_version": data.policy_version,
+        "data_retention_preference": data.data_retention_preference,
+        "marketing_consent": data.marketing_consent,
+        "analytics_consent": data.analytics_consent,
+        "last_consent_update": data.consent_timestamp
     }
     
     await create_user(user_data)
@@ -1886,7 +1901,10 @@ async def get_current_user_info(current_user: User = Depends(get_current_user)):
         "email": current_user["email"],
         "username": current_user["username"],
         "is_admin": current_user.get("is_admin", False),
-        "name": patient_name
+        "name": patient_name,
+        "consent_given": current_user.get("consent_given", False),
+        "consent_timestamp": current_user.get("consent_timestamp", None),
+        "policy_version": current_user.get("policy_version", None)
     }
 
 @app.post("/user/profile")
@@ -4649,6 +4667,7 @@ Ensure ALL dishes are completely vegetarian and egg-free."""
         print(f"[get_todays_meal_plan] Full error details:", traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Failed to retrieve or generate meal plan: {str(e)}")
 
+
 @app.post("/coach/adaptive-meal-plan")
 async def create_adaptive_meal_plan(
     payload: dict = Body(None),
@@ -6223,6 +6242,1181 @@ async def update_meal_type(record_id: str, payload: dict = Body(...), current_us
         raise HTTPException(status_code=403, detail="Not allowed")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+# ============================================================================
+# PRIVACY & GDPR COMPLIANCE ENDPOINTS
+# ============================================================================
+
+class DataExportRequest(BaseModel):
+    data_types: List[str]  # ["profile", "meal_plans", "consumption_history", "chat_history", "recipes", "shopping_lists"]
+    format_type: str = "pdf"  # "pdf", "json", "docx"
+
+class AccountDeletionRequest(BaseModel):
+    deletion_type: str = "complete"  # "complete" or "anonymize"
+    confirmation: str  # User must type "DELETE" to confirm
+
+class ConsentUpdateRequest(BaseModel):
+    consent_given: Optional[bool] = None
+    marketing_consent: Optional[bool] = None
+    analytics_consent: Optional[bool] = None
+    data_retention_preference: Optional[str] = None
+    policy_version: Optional[str] = None
+
+@app.post("/privacy/export-data")
+async def export_user_data(
+    export_request: DataExportRequest,
+    current_user: User = Depends(get_current_user)
+):
+    """Export user data in specified format with user-selected data types"""
+    try:
+        user_email = current_user["email"]
+        data_types = export_request.data_types
+        format_type = export_request.format_type
+        
+        print(f"[PRIVACY] Exporting data for user {user_email}, types: {data_types}, format: {format_type}")
+        
+        # Collect requested data
+        export_data = {}
+        
+        if "profile" in data_types:
+            export_data["profile"] = current_user.get("profile", {})
+            export_data["user_info"] = {
+                "email": current_user.get("email"),
+                "username": current_user.get("username"),
+                "consent_given": current_user.get("consent_given"),
+                "consent_timestamp": current_user.get("consent_timestamp"),
+                "policy_version": current_user.get("policy_version"),
+                "data_retention_preference": current_user.get("data_retention_preference"),
+                "marketing_consent": current_user.get("marketing_consent"),
+                "analytics_consent": current_user.get("analytics_consent")
+            }
+        
+        if "meal_plans" in data_types:
+            export_data["meal_plans"] = await get_user_meal_plans(user_email)
+        
+        if "consumption_history" in data_types:
+            export_data["consumption_history"] = await get_user_consumption_history(user_email, limit=1000)
+        
+        if "chat_history" in data_types:
+            export_data["chat_history"] = await get_all_user_chat_history(user_email)
+        
+        if "recipes" in data_types:
+            export_data["recipes"] = await get_user_recipes(user_email)
+        
+        if "shopping_lists" in data_types:
+            export_data["shopping_lists"] = await get_user_shopping_lists(user_email)
+        
+        # Generate document based on format
+        if format_type == "pdf":
+            return await generate_data_export_pdf(export_data, current_user)
+        elif format_type == "json":
+            # Limit data to last 10 items for consistency
+            limited_export_data = {}
+            for key, value in export_data.items():
+                if isinstance(value, list) and len(value) > 10:
+                    limited_export_data[key] = value[-10:]  # Last 10 items
+                else:
+                    limited_export_data[key] = value
+            
+            # Add comprehensive metadata
+            limited_export_data["metadata"] = {
+                "export_date": datetime.utcnow().isoformat(),
+                "export_date_formatted": datetime.now().strftime("%B %d, %Y at %I:%M %p"),
+                "user_email": user_email,
+                "patient_name": limited_export_data.get("profile", {}).get("name", "Not specified"),
+                "data_types_included": data_types,
+                "policy_version": current_user.get("policy_version", "1.0"),
+                "consent_status": "granted" if current_user.get("consent_given") else "not_granted",
+                "marketing_consent": current_user.get("marketing_consent", False),
+                "analytics_consent": current_user.get("analytics_consent", False),
+                "data_retention_preference": current_user.get("data_retention_preference", "standard"),
+                "total_records": sum(len(v) if isinstance(v, list) else 1 for v in limited_export_data.values() if key != "metadata"),
+                "export_format": "json",
+                "gdpr_compliance": "Article 20 - Right to Data Portability"
+            }
+            
+            filename = f"health_data_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+            return JSONResponse(
+                content=limited_export_data,
+                headers={"Content-Disposition": f"attachment; filename={filename}"}
+            )
+        elif format_type == "docx":
+            return await generate_data_export_docx(export_data, current_user)
+        else:
+            raise HTTPException(status_code=400, detail="Unsupported format type")
+            
+    except Exception as e:
+        print(f"[PRIVACY] Error exporting data: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Data export failed: {str(e)}")
+
+@app.delete("/privacy/delete-account")
+async def delete_user_account(
+    deletion_request: AccountDeletionRequest,
+    current_user: User = Depends(get_current_user)
+):
+    """Delete user account and all associated data"""
+    try:
+        # Validate confirmation
+        if deletion_request.confirmation.upper() != "DELETE":
+            raise HTTPException(status_code=400, detail="Invalid confirmation. Please type 'DELETE' to confirm.")
+        
+        user_email = current_user["email"]
+        deletion_type = deletion_request.deletion_type
+        
+        print(f"[PRIVACY] Account deletion requested for {user_email}, type: {deletion_type}")
+        
+        if deletion_type == "complete":
+            # Delete all user data
+            await delete_all_user_data(user_email)
+        else:
+            # Anonymize user data
+            await anonymize_user_data(user_email)
+        
+        # Log deletion for compliance
+        await log_data_deletion(user_email, deletion_type)
+        
+        return {"message": "Account deletion completed successfully", "deletion_type": deletion_type}
+    
+    except Exception as e:
+        print(f"[PRIVACY] Error deleting account: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Account deletion failed: {str(e)}")
+
+@app.put("/privacy/update-consent")
+async def update_user_consent(
+    consent_data: ConsentUpdateRequest,
+    current_user: User = Depends(get_current_user)
+):
+    """Update user consent preferences"""
+    try:
+        user_email = current_user["email"]
+        
+        # Update consent in database
+        await update_user_consent_preferences(user_email, consent_data.dict(exclude_unset=True))
+        
+        return {"message": "Consent preferences updated successfully"}
+    
+    except Exception as e:
+        print(f"[PRIVACY] Error updating consent: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Consent update failed: {str(e)}")
+
+# ============================================================================
+# PRIVACY HELPER FUNCTIONS
+# ============================================================================
+
+async def get_all_user_chat_history(user_email: str):
+    """Get all chat history for a user"""
+    try:
+        query = f"""
+        SELECT *
+        FROM c
+        WHERE c.type = 'chat_message'
+        AND c.user_id = '{user_email}'
+        ORDER BY c.timestamp ASC
+        """
+        
+        chat_messages = list(interactions_container.query_items(
+            query=query,
+            enable_cross_partition_query=True
+        ))
+        
+        return chat_messages
+    except Exception as e:
+        print(f"Error getting chat history: {str(e)}")
+        return []
+
+async def delete_all_user_data(user_email: str):
+    """Completely delete all user data"""
+    try:
+        print(f"[PRIVACY] Starting complete data deletion for {user_email}")
+        
+        # Delete from interactions container (meal plans, consumption, chat, etc.)
+        collections_to_clean = [
+            "meal_plan",
+            "consumption_record", 
+            "chat_message",
+            "shopping_list",
+            "recipe"
+        ]
+        
+        total_deleted = 0
+        for doc_type in collections_to_clean:
+            query = f"SELECT * FROM c WHERE c.type = '{doc_type}' AND c.user_id = '{user_email}'"
+            items = list(interactions_container.query_items(query=query, enable_cross_partition_query=True))
+            
+            for item in items:
+                try:
+                    interactions_container.delete_item(
+                        item=item["id"], 
+                        partition_key=item.get("session_id", user_email)
+                    )
+                    total_deleted += 1
+                except Exception as e:
+                    print(f"Error deleting item {item.get('id')}: {str(e)}")
+        
+        # Delete user account from user container
+        try:
+            user_container.delete_item(item=user_email, partition_key=user_email)
+            total_deleted += 1
+        except Exception as e:
+            print(f"Error deleting user account: {str(e)}")
+        
+        print(f"[PRIVACY] Deleted {total_deleted} records for user {user_email}")
+        
+    except Exception as e:
+        print(f"[PRIVACY] Error in complete data deletion: {str(e)}")
+        raise Exception(f"Failed to delete user data: {str(e)}")
+
+async def anonymize_user_data(user_email: str):
+    """Anonymize user data while preserving analytics value"""
+    try:
+        print(f"[PRIVACY] Starting data anonymization for {user_email}")
+        
+        # Generate anonymous ID
+        anonymous_id = f"anon_{uuid.uuid4().hex[:8]}"
+        
+        # Anonymize user profile
+        anonymized_profile = {
+            "name": "Anonymized User",
+            "age": None,
+            "gender": None,
+            "medicalConditions": ["Anonymized"],
+            "anonymized": True,
+            "anonymization_date": datetime.utcnow().isoformat()
+        }
+        
+        # Update user record with anonymized data
+        user_update = {
+            "username": anonymous_id,
+            "email": f"{anonymous_id}@anonymized.local",
+            "profile": anonymized_profile,
+            "anonymized": True,
+            "original_email_hash": hash(user_email),
+            "anonymization_date": datetime.utcnow().isoformat()
+        }
+        
+        # Get current user data for anonymization
+        current_user_data = await get_user_by_email(user_email)
+        if not current_user_data:
+            raise Exception("User not found for anonymization")
+        
+        # Update user in database
+        user_container.upsert_item(body={**current_user_data, **user_update})
+        
+        print(f"[PRIVACY] User {user_email} anonymized as {anonymous_id}")
+        
+    except Exception as e:
+        print(f"[PRIVACY] Error in anonymization: {str(e)}")
+        raise Exception(f"Failed to anonymize user data: {str(e)}")
+
+async def log_data_deletion(user_email: str, deletion_type: str):
+    """Log data deletion for compliance"""
+    try:
+        deletion_log = {
+            "type": "data_deletion_log",
+            "user_email": user_email,
+            "deletion_type": deletion_type,
+            "timestamp": datetime.utcnow().isoformat(),
+            "id": f"deletion_{uuid.uuid4().hex}",
+            "session_id": "privacy_logs"
+        }
+        
+        interactions_container.create_item(body=deletion_log)
+        print(f"[PRIVACY] Logged {deletion_type} deletion for {user_email}")
+        
+    except Exception as e:
+        print(f"[PRIVACY] Error logging deletion: {str(e)}")
+
+async def update_user_consent_preferences(user_email: str, consent_updates: dict):
+    """Update user consent preferences"""
+    try:
+        # Add timestamp for consent update
+        consent_updates["last_consent_update"] = datetime.utcnow().isoformat()
+        
+        # Get current user data
+        current_user_data = await get_user_by_email(user_email)
+        if not current_user_data:
+            raise Exception("User not found")
+        
+        # Update user with new consent preferences
+        updated_user = {**current_user_data, **consent_updates}
+        user_container.upsert_item(body=updated_user)
+        
+        print(f"[PRIVACY] Updated consent preferences for {user_email}")
+        
+    except Exception as e:
+        print(f"[PRIVACY] Error updating consent: {str(e)}")
+        raise Exception(f"Failed to update consent preferences: {str(e)}")
+
+async def generate_data_export_pdf(export_data: dict, user_info: dict):
+    """Generate professional PDF export of user data with logo and improved layout"""
+    try:
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib import colors
+        from reportlab.lib.pagesizes import letter, A4
+        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
+        from reportlab.lib.units import inch
+        from reportlab.lib.enums import TA_JUSTIFY, TA_LEFT, TA_CENTER, TA_RIGHT
+        import os
+        
+        buffer = BytesIO()
+        doc = SimpleDocTemplate(
+            buffer, 
+            pagesize=A4,
+            rightMargin=72, leftMargin=72,
+            topMargin=100, bottomMargin=72,
+            title="Health Data Export"
+        )
+        
+        # Custom styles
+        styles = getSampleStyleSheet()
+        
+        # Define custom styles
+        title_style = ParagraphStyle(
+            'CustomTitle',
+            parent=styles['Title'],
+            fontSize=24,
+            spaceAfter=30,
+            alignment=TA_CENTER,
+            textColor=colors.HexColor('#2E7D32')
+        )
+        
+        section_title_style = ParagraphStyle(
+            'SectionTitle',
+            parent=styles['Heading1'],
+            fontSize=18,
+            spaceAfter=20,
+            spaceBefore=30,
+            textColor=colors.HexColor('#1976D2'),
+            borderWidth=1,
+            borderColor=colors.HexColor('#1976D2'),
+            borderPadding=10,
+            backColor=colors.HexColor('#E3F2FD')
+        )
+        
+        subsection_style = ParagraphStyle(
+            'SubSection',
+            parent=styles['Heading2'],
+            fontSize=14,
+            spaceAfter=12,
+            spaceBefore=15,
+            textColor=colors.HexColor('#424242')
+        )
+        
+        normal_style = ParagraphStyle(
+            'CustomNormal',
+            parent=styles['Normal'],
+            fontSize=10,
+            leading=12,
+            alignment=TA_JUSTIFY
+        )
+        
+        story = []
+        
+        # Header with logo
+        def add_logo_header():
+            header_content = []
+            logo_path = os.path.join(os.path.dirname(__file__), "assets", "coverpage2.png")
+            
+            if os.path.exists(logo_path):
+                try:
+                    # Create header table with logo
+                    logo_img = RLImage(logo_path, width=2*inch, height=1*inch)
+                    header_data = [
+                        ["Diabetes Meal Plan Generator", logo_img],
+                        ["Personal Health Data Export", ""]
+                    ]
+                    header_table = Table(header_data, colWidths=[5*inch, 2*inch])
+                    header_table.setStyle(TableStyle([
+                        ('ALIGN', (0,0), (0,-1), 'LEFT'),
+                        ('ALIGN', (1,0), (1,-1), 'RIGHT'),
+                        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+                        ('FONTSIZE', (0,0), (0,0), 16),
+                        ('FONTSIZE', (0,1), (0,1), 12),
+                        ('TEXTCOLOR', (0,0), (0,-1), colors.HexColor('#2E7D32')),
+                        ('BOTTOMPADDING', (0,0), (-1,-1), 10),
+                    ]))
+                    header_content.append(header_table)
+                except Exception as e:
+                    print(f"Error adding logo: {e}")
+                    # Fallback without logo
+                    header_content.append(Paragraph("Diabetes Meal Plan Generator", title_style))
+                    header_content.append(Paragraph("Personal Health Data Export", subsection_style))
+            else:
+                # Fallback without logo
+                header_content.append(Paragraph("Diabetes Meal Plan Generator", title_style))
+                header_content.append(Paragraph("Personal Health Data Export", subsection_style))
+            
+            return header_content
+        
+        # Add header
+        story.extend(add_logo_header())
+        story.append(Spacer(1, 30))
+        
+        # Export metadata
+        story.append(Paragraph("Export Information", section_title_style))
+        
+        export_date = datetime.now().strftime("%B %d, %Y at %I:%M %p")
+        user_profile = export_data.get("profile", {})
+        
+        metadata_data = [
+            ["Export Date:", export_date],
+            ["Account Email:", user_info.get("email", "Not specified")],
+            ["Patient Name:", user_profile.get("name", "Not specified")],
+            ["Data Policy Version:", user_info.get("policy_version", "1.0")],
+            ["Consent Status:", "✓ Granted" if user_info.get("consent_given") else "✗ Not granted"],
+            ["Marketing Consent:", "✓ Yes" if user_info.get("marketing_consent") else "✗ No"],
+            ["Analytics Consent:", "✓ Yes" if user_info.get("analytics_consent") else "✗ No"],
+            ["Data Retention:", user_info.get("data_retention_preference", "Standard").title()],
+        ]
+        
+        metadata_table = Table(metadata_data, colWidths=[2.5*inch, 4*inch])
+        metadata_table.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (0,-1), colors.HexColor('#F5F5F5')),
+            ('TEXTCOLOR', (0,0), (-1,-1), colors.black),
+            ('ALIGN', (0,0), (0,-1), 'RIGHT'),
+            ('ALIGN', (1,0), (1,-1), 'LEFT'),
+            ('FONTNAME', (0,0), (0,-1), 'Helvetica-Bold'),
+            ('FONTNAME', (1,0), (1,-1), 'Helvetica'),
+            ('FONTSIZE', (0,0), (-1,-1), 10),
+            ('GRID', (0,0), (-1,-1), 1, colors.HexColor('#E0E0E0')),
+            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+            ('LEFTPADDING', (0,0), (-1,-1), 10),
+            ('RIGHTPADDING', (0,0), (-1,-1), 10),
+            ('TOPPADDING', (0,0), (-1,-1), 8),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 8),
+        ]))
+        story.append(metadata_table)
+        story.append(PageBreak())
+        
+        # Patient Profile Section
+        if "profile" in export_data and export_data["profile"]:
+            story.extend(generate_profile_pdf_section(export_data["profile"], styles))
+        
+        # Meal Plans Section (last 10)
+        if "meal_plans" in export_data and export_data["meal_plans"]:
+            story.extend(generate_meal_plans_pdf_section(export_data["meal_plans"][-10:], styles))
+        
+        # Consumption History Section (last 10)
+        if "consumption_history" in export_data and export_data["consumption_history"]:
+            story.extend(generate_consumption_pdf_section(export_data["consumption_history"][-10:], styles))
+        
+        # AI Coach Conversations Section (last 10)
+        if "chat_history" in export_data and export_data["chat_history"]:
+            story.extend(generate_chat_pdf_section(export_data["chat_history"][-10:], styles))
+        
+        # Recipes Section (last 10)
+        if "recipes" in export_data and export_data["recipes"]:
+            story.extend(generate_recipes_pdf_section(export_data["recipes"][-10:], styles))
+        
+        # Shopping Lists Section (last 10)
+        if "shopping_lists" in export_data and export_data["shopping_lists"]:
+            story.extend(generate_shopping_lists_pdf_section(export_data["shopping_lists"][-10:], styles))
+        
+        # Privacy Notice Section
+        story.append(PageBreak())
+        story.append(Paragraph("Privacy & Compliance Notice", section_title_style))
+        
+        # Privacy Notice Section - split into multiple paragraphs to avoid ReportLab parsing issues
+        export_timestamp = datetime.now().isoformat()
+        
+        privacy_paragraphs = [
+            "<b>Data Protection Compliance:</b> This document contains your personal health data exported from the Diabetes Meal Plan Generator system in compliance with the General Data Protection Regulation (GDPR) Article 20 - Right to Data Portability.",
+            
+            "<b>Data Security:</b> Please store this document securely and do not share it with unauthorized parties. This data export includes sensitive health information that should be protected according to applicable privacy laws.",
+            
+            "<b>Data Usage:</b> You have the right to use this data for your personal health management, share it with healthcare providers, or transfer it to other compatible health management systems.",
+            
+            f"<b>Support:</b> For questions about your data, privacy rights, or technical support, please contact our support team at support@diabetesmealplangenerator.com",
+            
+            f"<b>Export Timestamp:</b> {export_timestamp}"
+        ]
+        
+        for para_text in privacy_paragraphs:
+            story.append(Paragraph(para_text, normal_style))
+            story.append(Spacer(1, 12))
+        
+        # Build PDF
+        doc.build(story)
+        buffer.seek(0)
+        
+        filename = f"health_data_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+        
+        return StreamingResponse(
+            BytesIO(buffer.read()),
+            media_type="application/pdf",
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+        
+    except Exception as e:
+        print(f"[PRIVACY] Error generating PDF: {str(e)}")
+        raise Exception(f"Failed to generate PDF export: {str(e)}")
+
+def generate_profile_pdf_section(profile: dict, styles):
+    """Generate comprehensive profile section for PDF"""
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.lib import colors
+    from reportlab.platypus import Paragraph, Spacer, Table, TableStyle, PageBreak
+    from reportlab.lib.units import inch
+    from reportlab.lib.enums import TA_LEFT, TA_CENTER
+    
+    story = []
+    
+    section_title_style = ParagraphStyle(
+        'SectionTitle',
+        parent=styles['Heading1'],
+        fontSize=18,
+        spaceAfter=20,
+        spaceBefore=30,
+        textColor=colors.HexColor('#1976D2'),
+        borderWidth=1,
+        borderColor=colors.HexColor('#1976D2'),
+        borderPadding=10,
+        backColor=colors.HexColor('#E3F2FD')
+    )
+    
+    subsection_style = ParagraphStyle(
+        'SubSection',
+        parent=styles['Heading2'],
+        fontSize=14,
+        spaceAfter=12,
+        spaceBefore=15,
+        textColor=colors.HexColor('#424242')
+    )
+    
+    story.append(Paragraph("Patient Health Profile", section_title_style))
+    
+    # Demographics
+    story.append(Paragraph("Personal Information", subsection_style))
+    demo_data = [
+        ["Name:", profile.get("name", "Not specified")],
+        ["Age:", str(profile.get("age", "Not specified"))],
+        ["Gender:", profile.get("gender", "Not specified")],
+        ["Date of Birth:", profile.get("dateOfBirth", "Not specified")],
+    ]
+    
+    demo_table = Table(demo_data, colWidths=[2*inch, 4*inch])
+    demo_table.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (0,-1), colors.HexColor('#F8F9FA')),
+        ('FONTNAME', (0,0), (0,-1), 'Helvetica-Bold'),
+        ('FONTNAME', (1,0), (1,-1), 'Helvetica'),
+        ('FONTSIZE', (0,0), (-1,-1), 10),
+        ('GRID', (0,0), (-1,-1), 1, colors.HexColor('#DEE2E6')),
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('LEFTPADDING', (0,0), (-1,-1), 8),
+        ('RIGHTPADDING', (0,0), (-1,-1), 8),
+        ('TOPPADDING', (0,0), (-1,-1), 6),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+    ]))
+    story.append(demo_table)
+    story.append(Spacer(1, 15))
+    
+    # Medical Information
+    story.append(Paragraph("Medical Information", subsection_style))
+    medical_conditions = profile.get("medicalConditions", profile.get("medical_conditions", []))
+    medications = profile.get("currentMedications", [])
+    allergies = profile.get("allergies", [])
+    
+    medical_data = [
+        ["Medical Conditions:", ", ".join(medical_conditions) if medical_conditions else "None specified"],
+        ["Current Medications:", ", ".join(medications) if medications else "None specified"],
+        ["Allergies:", ", ".join(allergies) if allergies else "None specified"],
+    ]
+    
+    medical_table = Table(medical_data, colWidths=[2*inch, 4*inch])
+    medical_table.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (0,-1), colors.HexColor('#FFF3E0')),
+        ('FONTNAME', (0,0), (0,-1), 'Helvetica-Bold'),
+        ('FONTNAME', (1,0), (1,-1), 'Helvetica'),
+        ('FONTSIZE', (0,0), (-1,-1), 10),
+        ('GRID', (0,0), (-1,-1), 1, colors.HexColor('#FFB74D')),
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('LEFTPADDING', (0,0), (-1,-1), 8),
+        ('RIGHTPADDING', (0,0), (-1,-1), 8),
+        ('TOPPADDING', (0,0), (-1,-1), 6),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+    ]))
+    story.append(medical_table)
+    story.append(Spacer(1, 15))
+    
+    # Vital Signs
+    if any([profile.get("height"), profile.get("weight"), profile.get("bmi")]):
+        story.append(Paragraph("Vital Signs & Measurements", subsection_style))
+        vital_data = [
+            ["Height:", f"{profile.get('height', 'Not recorded')} cm" if profile.get('height') else "Not recorded"],
+            ["Weight:", f"{profile.get('weight', 'Not recorded')} kg" if profile.get('weight') else "Not recorded"],
+            ["BMI:", f"{profile.get('bmi', 'Not calculated')}" if profile.get('bmi') else "Not calculated"],
+            ["Blood Pressure:", f"{profile.get('systolicBP', 'N/A')}/{profile.get('diastolicBP', 'N/A')} mmHg" if profile.get('systolicBP') else "Not recorded"],
+            ["Heart Rate:", f"{profile.get('heartRate', 'Not recorded')} bpm" if profile.get('heartRate') else "Not recorded"],
+        ]
+        
+        vital_table = Table(vital_data, colWidths=[2*inch, 4*inch])
+        vital_table.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (0,-1), colors.HexColor('#E8F5E8')),
+            ('FONTNAME', (0,0), (0,-1), 'Helvetica-Bold'),
+            ('FONTNAME', (1,0), (1,-1), 'Helvetica'),
+            ('FONTSIZE', (0,0), (-1,-1), 10),
+            ('GRID', (0,0), (-1,-1), 1, colors.HexColor('#4CAF50')),
+            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+            ('LEFTPADDING', (0,0), (-1,-1), 8),
+            ('RIGHTPADDING', (0,0), (-1,-1), 8),
+            ('TOPPADDING', (0,0), (-1,-1), 6),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+        ]))
+        story.append(vital_table)
+        story.append(Spacer(1, 15))
+    
+    story.append(PageBreak())
+    return story
+
+def generate_meal_plans_pdf_section(meal_plans: List[dict], styles):
+    """Generate enhanced meal plans section for PDF"""
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.lib import colors
+    from reportlab.platypus import Paragraph, Spacer, Table, TableStyle, PageBreak
+    from reportlab.lib.units import inch
+    from reportlab.lib.enums import TA_LEFT, TA_CENTER
+    
+    story = []
+    
+    section_title_style = ParagraphStyle(
+        'SectionTitle',
+        parent=styles['Heading1'],
+        fontSize=18,
+        spaceAfter=20,
+        spaceBefore=30,
+        textColor=colors.HexColor('#1976D2'),
+        borderWidth=1,
+        borderColor=colors.HexColor('#1976D2'),
+        borderPadding=10,
+        backColor=colors.HexColor('#E3F2FD')
+    )
+    
+    subsection_style = ParagraphStyle(
+        'SubSection',
+        parent=styles['Heading2'],
+        fontSize=14,
+        spaceAfter=12,
+        spaceBefore=15,
+        textColor=colors.HexColor('#424242')
+    )
+    
+    story.append(Paragraph("Meal Plans (Last 10)", section_title_style))
+    story.append(Paragraph(f"Total meal plans in system: {len(meal_plans)}", styles['Normal']))
+    story.append(Spacer(1, 15))
+    
+    for i, plan in enumerate(meal_plans[:10], 1):  # Limit to 10
+        story.append(Paragraph(f"Meal Plan #{i}", subsection_style))
+        
+        # Plan Overview
+        created_date = plan.get("created_at", "Unknown date")
+        daily_calories = plan.get("dailyCalories", "Not specified")
+        macros = plan.get("macronutrients", {})
+        
+        overview_data = [
+            ["Created:", created_date],
+            ["Daily Calories:", str(daily_calories)],
+            ["Carbs:", f"{macros.get('carbs', 'N/A')}%"],
+            ["Protein:", f"{macros.get('protein', 'N/A')}%"],
+            ["Fat:", f"{macros.get('fat', 'N/A')}%"],
+        ]
+        
+        overview_table = Table(overview_data, colWidths=[1.5*inch, 2*inch])
+        overview_table.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (0,-1), colors.HexColor('#FFF8E1')),
+            ('FONTNAME', (0,0), (0,-1), 'Helvetica-Bold'),
+            ('FONTSIZE', (0,0), (-1,-1), 9),
+            ('GRID', (0,0), (-1,-1), 1, colors.HexColor('#FFD54F')),
+            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+            ('LEFTPADDING', (0,0), (-1,-1), 6),
+            ('RIGHTPADDING', (0,0), (-1,-1), 6),
+            ('TOPPADDING', (0,0), (-1,-1), 4),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 4),
+        ]))
+        story.append(overview_table)
+        
+        # Meals breakdown
+        meals = plan.get("meals", {})
+        if meals:
+            story.append(Spacer(1, 10))
+            story.append(Paragraph("Daily Meals:", styles['Heading4']))
+            
+            meal_data = [["Meal Type", "Description"]]
+            for meal_type, meal_list in meals.items():
+                if isinstance(meal_list, list) and meal_list:
+                    meal_text = "; ".join(meal_list[:3])  # First 3 meals
+                    if len(meal_list) > 3:
+                        meal_text += f" ... (and {len(meal_list) - 3} more)"
+                elif isinstance(meal_list, str):
+                    meal_text = meal_list[:100] + "..." if len(meal_list) > 100 else meal_list
+                else:
+                    meal_text = "Not specified"
+                
+                meal_data.append([meal_type.title(), meal_text])
+            
+            meal_table = Table(meal_data, colWidths=[1.5*inch, 4.5*inch])
+            meal_table.setStyle(TableStyle([
+                ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#E1F5FE')),
+                ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0,0), (-1,-1), 8),
+                ('GRID', (0,0), (-1,-1), 1, colors.HexColor('#81D4FA')),
+                ('VALIGN', (0,0), (-1,-1), 'TOP'),
+                ('LEFTPADDING', (0,0), (-1,-1), 6),
+                ('RIGHTPADDING', (0,0), (-1,-1), 6),
+                ('TOPPADDING', (0,0), (-1,-1), 4),
+                ('BOTTOMPADDING', (0,0), (-1,-1), 4),
+            ]))
+            story.append(meal_table)
+        
+        story.append(Spacer(1, 20))
+    
+    story.append(PageBreak())
+    return story
+
+def generate_consumption_pdf_section(consumption_history: List[dict], styles):
+    """Generate enhanced consumption history section for PDF"""
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.lib import colors
+    from reportlab.platypus import Paragraph, Spacer, Table, TableStyle, PageBreak
+    from reportlab.lib.units import inch
+    from reportlab.lib.enums import TA_LEFT, TA_CENTER
+    
+    story = []
+    
+    section_title_style = ParagraphStyle(
+        'SectionTitle',
+        parent=styles['Heading1'],
+        fontSize=18,
+        spaceAfter=20,
+        spaceBefore=30,
+        textColor=colors.HexColor('#1976D2'),
+        borderWidth=1,
+        borderColor=colors.HexColor('#1976D2'),
+        borderPadding=10,
+        backColor=colors.HexColor('#E3F2FD')
+    )
+    
+    subsection_style = ParagraphStyle(
+        'SubSection',
+        parent=styles['Heading2'],
+        fontSize=14,
+        spaceAfter=12,
+        spaceBefore=15,
+        textColor=colors.HexColor('#424242')
+    )
+    
+    story.append(Paragraph("Food Consumption History (Last 10)", section_title_style))
+    
+    if not consumption_history:
+        story.append(Paragraph("No consumption records found.", styles['Normal']))
+        story.append(PageBreak())
+        return story
+    
+    # Analytics summary
+    total_calories = sum(
+        record.get("nutritional_info", {}).get("calories", 0) 
+        for record in consumption_history 
+        if record.get("nutritional_info", {}).get("calories")
+    )
+    avg_calories = total_calories / len(consumption_history) if consumption_history else 0
+    
+    story.append(Paragraph("Summary Statistics", subsection_style))
+    summary_data = [
+        ["Total Records:", str(len(consumption_history))],
+        ["Total Calories Logged:", f"{total_calories:.0f} kcal"],
+        ["Average Calories per Entry:", f"{avg_calories:.1f} kcal"],
+    ]
+    
+    summary_table = Table(summary_data, colWidths=[2.5*inch, 2*inch])
+    summary_table.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (0,-1), colors.HexColor('#E8F5E8')),
+        ('FONTNAME', (0,0), (0,-1), 'Helvetica-Bold'),
+        ('FONTSIZE', (0,0), (-1,-1), 10),
+        ('GRID', (0,0), (-1,-1), 1, colors.HexColor('#4CAF50')),
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('LEFTPADDING', (0,0), (-1,-1), 8),
+        ('RIGHTPADDING', (0,0), (-1,-1), 8),
+        ('TOPPADDING', (0,0), (-1,-1), 6),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+    ]))
+    story.append(summary_table)
+    story.append(Spacer(1, 20))
+    
+    # Detailed consumption records
+    story.append(Paragraph("Recent Food Entries", subsection_style))
+    
+    consumption_data = [["Date", "Food", "Portion", "Calories", "Medical Rating"]]
+    
+    for record in consumption_history[:10]:  # Last 10
+        timestamp = record.get("timestamp", "Unknown")
+        try:
+            from datetime import datetime
+            if timestamp != "Unknown":
+                dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+                formatted_date = dt.strftime("%m/%d/%Y")
+            else:
+                formatted_date = "Unknown"
+        except:
+            formatted_date = timestamp
+        
+        food_name = record.get("food_name", "Unknown food")
+        portion = record.get("estimated_portion", "Unknown")
+        
+        nutrition = record.get("nutritional_info", {})
+        calories = nutrition.get("calories", "N/A")
+        
+        medical_rating = record.get("medical_rating", {})
+        rating_score = medical_rating.get("overall_rating", "N/A")
+        rating_text = f"{rating_score}/5" if rating_score != "N/A" else "N/A"
+        
+        consumption_data.append([
+            formatted_date,
+            food_name[:30] + "..." if len(food_name) > 30 else food_name,
+            str(portion)[:20] + "..." if len(str(portion)) > 20 else str(portion),
+            f"{calories} kcal" if calories != "N/A" else "N/A",
+            rating_text
+        ])
+    
+    consumption_table = Table(consumption_data, colWidths=[1*inch, 2*inch, 1.5*inch, 1*inch, 1*inch])
+    consumption_table.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#FFE0B2')),
+        ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0,0), (-1,-1), 8),
+        ('GRID', (0,0), (-1,-1), 1, colors.HexColor('#FF9800')),
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('LEFTPADDING', (0,0), (-1,-1), 4),
+        ('RIGHTPADDING', (0,0), (-1,-1), 4),
+        ('TOPPADDING', (0,0), (-1,-1), 4),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 4),
+    ]))
+    story.append(consumption_table)
+    
+    story.append(PageBreak())
+    return story
+
+def generate_chat_pdf_section(chat_history: List[dict], styles):
+    """Generate enhanced AI coach conversations section for PDF"""
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.lib import colors
+    from reportlab.platypus import Paragraph, Spacer, Table, TableStyle, PageBreak
+    from reportlab.lib.units import inch
+    from reportlab.lib.enums import TA_LEFT, TA_CENTER
+    
+    story = []
+    
+    section_title_style = ParagraphStyle(
+        'SectionTitle',
+        parent=styles['Heading1'],
+        fontSize=18,
+        spaceAfter=20,
+        spaceBefore=30,
+        textColor=colors.HexColor('#1976D2'),
+        borderWidth=1,
+        borderColor=colors.HexColor('#1976D2'),
+        borderPadding=10,
+        backColor=colors.HexColor('#E3F2FD')
+    )
+    
+    subsection_style = ParagraphStyle(
+        'SubSection',
+        parent=styles['Heading2'],
+        fontSize=14,
+        spaceAfter=12,
+        spaceBefore=15,
+        textColor=colors.HexColor('#424242')
+    )
+    
+    story.append(Paragraph("AI Health Coach Conversations (Last 10)", section_title_style))
+    
+    if not chat_history:
+        story.append(Paragraph("No chat history found.", styles['Normal']))
+        story.append(PageBreak())
+        return story
+    
+    story.append(Paragraph(f"Total chat messages: {len(chat_history)}", styles['Normal']))
+    story.append(Spacer(1, 15))
+    
+    # Show conversations in a more readable format
+    story.append(Paragraph("Recent Conversations", subsection_style))
+    
+    for i, message in enumerate(chat_history[-10:], 1):  # Last 10 messages
+        role = "You" if message.get("is_user") else "AI Health Coach"
+        content = message.get("message_content", "")
+        timestamp = message.get("timestamp", "Unknown time")
+        
+        try:
+            from datetime import datetime
+            if timestamp != "Unknown time":
+                dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+                formatted_time = dt.strftime("%m/%d/%Y %I:%M %p")
+            else:
+                formatted_time = "Unknown time"
+        except:
+            formatted_time = timestamp
+        
+        # Create conversation entry
+        role_color = colors.HexColor('#2196F3') if role == "You" else colors.HexColor('#4CAF50')
+        
+        conversation_data = [
+            [f"{role} - {formatted_time}", ""],
+            [content[:500] + "..." if len(content) > 500 else content, ""]
+        ]
+        
+        conversation_table = Table(conversation_data, colWidths=[6*inch, 0.5*inch])
+        conversation_table.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,0), role_color),
+            ('TEXTCOLOR', (0,0), (-1,0), colors.white),
+            ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0,0), (-1,0), 10),
+            ('FONTSIZE', (0,1), (-1,1), 9),
+            ('VALIGN', (0,0), (-1,-1), 'TOP'),
+            ('LEFTPADDING', (0,0), (-1,-1), 8),
+            ('RIGHTPADDING', (0,0), (-1,-1), 8),
+            ('TOPPADDING', (0,0), (-1,-1), 6),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+            ('GRID', (0,0), (-1,-1), 1, colors.HexColor('#E0E0E0')),
+        ]))
+        story.append(conversation_table)
+        story.append(Spacer(1, 10))
+    
+    story.append(PageBreak())
+    return story
+
+def generate_recipes_pdf_section(recipes: List[dict], styles):
+    """Generate recipes section for PDF"""
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.lib import colors
+    from reportlab.platypus import Paragraph, Spacer, Table, TableStyle, PageBreak
+    from reportlab.lib.units import inch
+    
+    story = []
+    
+    section_title_style = ParagraphStyle(
+        'SectionTitle',
+        parent=styles['Heading1'],
+        fontSize=18,
+        spaceAfter=20,
+        spaceBefore=30,
+        textColor=colors.HexColor('#1976D2'),
+        borderWidth=1,
+        borderColor=colors.HexColor('#1976D2'),
+        borderPadding=10,
+        backColor=colors.HexColor('#E3F2FD')
+    )
+    
+    story.append(Paragraph("Saved Recipes (Last 10)", section_title_style))
+    
+    if not recipes:
+        story.append(Paragraph("No saved recipes found.", styles['Normal']))
+        story.append(PageBreak())
+        return story
+    
+    story.append(Paragraph(f"Total saved recipes: {len(recipes)}", styles['Normal']))
+    story.append(Spacer(1, 15))
+    
+    for i, recipe_collection in enumerate(recipes[:10], 1):  # Last 10
+        recipe_list = recipe_collection.get("recipes", [])
+        created_date = recipe_collection.get("created_at", "Unknown date")
+        
+        story.append(Paragraph(f"Recipe Collection #{i} - {created_date}", styles['Heading3']))
+        
+        if recipe_list:
+            for recipe in recipe_list[:5]:  # Show first 5 recipes from each collection
+                recipe_name = recipe.get("name", "Unnamed Recipe")
+                ingredients = recipe.get("ingredients", [])
+                instructions = recipe.get("instructions", "No instructions provided")
+                
+                story.append(Paragraph(recipe_name, styles['Heading4']))
+                story.append(Paragraph(f"<b>Ingredients:</b> {', '.join(ingredients[:10])}", styles['Normal']))
+                story.append(Paragraph(f"<b>Instructions:</b> {instructions[:200]}...", styles['Normal']))
+                story.append(Spacer(1, 10))
+        
+        story.append(Spacer(1, 15))
+    
+    story.append(PageBreak())
+    return story
+
+def generate_shopping_lists_pdf_section(shopping_lists: List[dict], styles):
+    """Generate shopping lists section for PDF"""
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.lib import colors
+    from reportlab.platypus import Paragraph, Spacer, Table, TableStyle, PageBreak
+    from reportlab.lib.units import inch
+    
+    story = []
+    
+    section_title_style = ParagraphStyle(
+        'SectionTitle',
+        parent=styles['Heading1'],
+        fontSize=18,
+        spaceAfter=20,
+        spaceBefore=30,
+        textColor=colors.HexColor('#1976D2'),
+        borderWidth=1,
+        borderColor=colors.HexColor('#1976D2'),
+        borderPadding=10,
+        backColor=colors.HexColor('#E3F2FD')
+    )
+    
+    story.append(Paragraph("Shopping Lists (Last 10)", section_title_style))
+    
+    if not shopping_lists:
+        story.append(Paragraph("No shopping lists found.", styles['Normal']))
+        story.append(PageBreak())
+        return story
+    
+    story.append(Paragraph(f"Total shopping lists: {len(shopping_lists)}", styles['Normal']))
+    story.append(Spacer(1, 15))
+    
+    for i, shopping_list in enumerate(shopping_lists[:10], 1):  # Last 10
+        created_date = shopping_list.get("created_at", "Unknown date")
+        items = shopping_list.get("items", [])
+        
+        story.append(Paragraph(f"Shopping List #{i} - {created_date}", styles['Heading3']))
+        
+        if items:
+            # Group items by category if available
+            categorized = {}
+            for item in items:
+                category = item.get("category", "Miscellaneous")
+                if category not in categorized:
+                    categorized[category] = []
+                categorized[category].append(item.get("name", "Unknown item"))
+            
+            for category, category_items in categorized.items():
+                story.append(Paragraph(f"<b>{category}:</b>", styles['Heading4']))
+                items_text = ", ".join(category_items)
+                story.append(Paragraph(items_text, styles['Normal']))
+                story.append(Spacer(1, 8))
+        
+        story.append(Spacer(1, 15))
+    
+    story.append(PageBreak())
+    return story
+
+async def generate_data_export_docx(export_data: dict, user_info: dict):
+    """Generate simplified DOCX export using HTML format"""
+    try:
+        # Limit data to last 10 items for consistency
+        limited_export_data = {}
+        for key, value in export_data.items():
+            if isinstance(value, list) and len(value) > 10:
+                limited_export_data[key] = value[-10:]  # Last 10 items
+            else:
+                limited_export_data[key] = value
+        
+        # Create a comprehensive text-based export that can be saved as DOCX
+        export_date = datetime.now().strftime("%B %d, %Y at %I:%M %p")
+        user_profile = limited_export_data.get("profile", {})
+        
+        content = f"""
+        DIABETES MEAL PLAN GENERATOR
+        Personal Health Data Export
+        
+        ========================================
+        EXPORT INFORMATION
+        ========================================
+        
+        Export Date: {export_date}
+        Account Email: {user_info.get("email", "Not specified")}
+        Patient Name: {user_profile.get("name", "Not specified")}
+        Data Policy Version: {user_info.get("policy_version", "1.0")}
+        Consent Status: {"✓ Granted" if user_info.get("consent_given") else "✗ Not granted"}
+        Marketing Consent: {"✓ Yes" if user_info.get("marketing_consent") else "✗ No"}
+        Analytics Consent: {"✓ Yes" if user_info.get("analytics_consent") else "✗ No"}
+        Data Retention: {user_info.get("data_retention_preference", "Standard").title()}
+        
+        ========================================
+        PATIENT HEALTH PROFILE
+        ========================================
+        
+        Personal Information:
+        - Name: {user_profile.get("name", "Not specified")}
+        - Age: {user_profile.get("age", "Not specified")}
+        - Gender: {user_profile.get("gender", "Not specified")}
+        - Date of Birth: {user_profile.get("dateOfBirth", "Not specified")}
+        
+        Medical Information:
+        - Medical Conditions: {", ".join(user_profile.get("medicalConditions", user_profile.get("medical_conditions", []))) or "None specified"}
+        - Current Medications: {", ".join(user_profile.get("currentMedications", [])) or "None specified"}
+        - Allergies: {", ".join(user_profile.get("allergies", [])) or "None specified"}
+        
+        """
+        
+        # Add meal plans section
+        if "meal_plans" in limited_export_data and limited_export_data["meal_plans"]:
+            content += "\n========================================\n"
+            content += "MEAL PLANS (LAST 10)\n"
+            content += "========================================\n\n"
+            
+            for i, plan in enumerate(limited_export_data["meal_plans"][:10], 1):
+                content += f"Meal Plan #{i}\n"
+                content += f"Created: {plan.get('created_at', 'Unknown date')}\n"
+                content += f"Daily Calories: {plan.get('dailyCalories', 'Not specified')}\n"
+                macros = plan.get("macronutrients", {})
+                content += f"Macros - Carbs: {macros.get('carbs', 'N/A')}%, Protein: {macros.get('protein', 'N/A')}%, Fat: {macros.get('fat', 'N/A')}%\n\n"
+        
+        # Add consumption history section
+        if "consumption_history" in limited_export_data and limited_export_data["consumption_history"]:
+            content += "\n========================================\n"
+            content += "FOOD CONSUMPTION HISTORY (LAST 10)\n"
+            content += "========================================\n\n"
+            
+            for record in limited_export_data["consumption_history"][:10]:
+                content += f"Date: {record.get('timestamp', 'Unknown')}\n"
+                content += f"Food: {record.get('food_name', 'Unknown food')}\n"
+                content += f"Portion: {record.get('estimated_portion', 'Unknown')}\n"
+                nutrition = record.get("nutritional_info", {})
+                content += f"Calories: {nutrition.get('calories', 'N/A')} kcal\n"
+                medical_rating = record.get("medical_rating", {})
+                rating_score = medical_rating.get("overall_rating", "N/A")
+                content += f"Medical Rating: {rating_score}/5\n\n"
+        
+        # Add chat history section
+        if "chat_history" in limited_export_data and limited_export_data["chat_history"]:
+            content += "\n========================================\n"
+            content += "AI HEALTH COACH CONVERSATIONS (LAST 10)\n"
+            content += "========================================\n\n"
+            
+            for message in limited_export_data["chat_history"][-10:]:
+                role = "You" if message.get("is_user") else "AI Health Coach"
+                content += f"{role}: {message.get('message_content', '')}\n"
+                content += f"Time: {message.get('timestamp', 'Unknown time')}\n\n"
+        
+        # Add privacy notice
+        content += "\n========================================\n"
+        content += "PRIVACY & COMPLIANCE NOTICE\n"
+        content += "========================================\n\n"
+        content += """Data Protection Compliance: This document contains your personal health data exported from the Diabetes Meal Plan Generator system in compliance with the General Data Protection Regulation (GDPR) Article 20 - Right to Data Portability.
+
+Data Security: Please store this document securely and do not share it with unauthorized parties. This data export includes sensitive health information that should be protected according to applicable privacy laws.
+
+Data Usage: You have the right to use this data for your personal health management, share it with healthcare providers, or transfer it to other compatible health management systems.
+
+Support: For questions about your data, privacy rights, or technical support, please contact our support team at support@diabetesmealplangenerator.com
+
+Export Timestamp: """ + datetime.now().isoformat()
+        
+        # Return as downloadable text file that can be opened in Word
+        filename = f"health_data_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.docx"
+        
+        return Response(
+            content=content,
+            media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+        
+    except Exception as e:
+        print(f"[PRIVACY] Error generating DOCX: {str(e)}")
+        # Fallback to JSON if DOCX generation fails
+        return JSONResponse(content={
+            "message": "DOCX export encountered an error, providing JSON format instead",
+            "error": str(e),
+            "data": limited_export_data,
+            "metadata": {
+                "export_date": datetime.now().isoformat(),
+                "format": "json_fallback"
+            }
+        })
 
 if __name__ == "__main__":
     import uvicorn

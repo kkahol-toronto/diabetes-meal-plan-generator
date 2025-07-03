@@ -26,6 +26,7 @@ import ChatIcon from '@mui/icons-material/Chat';
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
 import AccountCircleIcon from '@mui/icons-material/AccountCircle';
 import HistoryIcon from '@mui/icons-material/History';
+import SettingsIcon from '@mui/icons-material/Settings';
 import { isTokenExpired } from '../utils/auth';
 import { useApp } from '../contexts/AppContext';
 import ShoppingCartIcon from '@mui/icons-material/ShoppingCart';
@@ -100,6 +101,7 @@ const Navigation = () => {
     { text: 'Chat', icon: <ChatIcon />, path: '/chat' },
     { text: 'Consumption History', icon: <HistoryIcon />, path: '/consumption-history' },
     { text: 'Meal Plan History', icon: <BookIcon />, path: '/meal_plans' },
+    { text: 'Settings', icon: <SettingsIcon />, path: '/settings' },
   ];
 
   // Add admin panel link if user is admin
