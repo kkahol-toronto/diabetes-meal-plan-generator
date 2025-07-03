@@ -138,13 +138,18 @@ async def save_meal_plan(user_id: str, meal_plan_data: dict):
         print(f"[save_meal_plan] Error saving item {item.get('id')}: {e}")
         raise
 
-async def get_user_meal_plans(user_id: str):
-    """Get all meal plans for a user"""
+async def get_user_meal_plans(user_id: str, limit: int = None):
+    """Get meal plans for a user with optional limit"""
     try:
         if not user_id:
             raise ValueError("User ID is required")
 
-        query = f"SELECT * FROM c WHERE c.type = 'meal_plan' AND c.user_id = '{user_id}' ORDER BY c.created_at DESC"
+        # Build query with optional TOP clause for database-level limiting
+        if limit:
+            query = f"SELECT TOP {limit} * FROM c WHERE c.type = 'meal_plan' AND c.user_id = '{user_id}' ORDER BY c.created_at DESC"
+        else:
+            query = f"SELECT * FROM c WHERE c.type = 'meal_plan' AND c.user_id = '{user_id}' ORDER BY c.created_at DESC"
+        
         meal_plans = list(interactions_container.query_items(
             query=query,
             enable_cross_partition_query=True
@@ -333,10 +338,15 @@ async def save_shopping_list(user_id: str, shopping_list: dict):
     except Exception as e:
         raise Exception(f"Failed to save shopping list: {str(e)}")
 
-async def get_user_shopping_lists(user_id: str):
-    """Get all shopping lists for a user"""
+async def get_user_shopping_lists(user_id: str, limit: int = None):
+    """Get shopping lists for a user with optional limit"""
     try:
-        query = f"SELECT * FROM c WHERE c.type = 'shopping_list' AND c.user_id = '{user_id}'"
+        # Build query with optional TOP clause for database-level limiting
+        if limit:
+            query = f"SELECT TOP {limit} * FROM c WHERE c.type = 'shopping_list' AND c.user_id = '{user_id}' ORDER BY c.id DESC"
+        else:
+            query = f"SELECT * FROM c WHERE c.type = 'shopping_list' AND c.user_id = '{user_id}' ORDER BY c.id DESC"
+        
         return list(interactions_container.query_items(query=query, enable_cross_partition_query=True))
     except Exception as e:
         raise Exception(f"Failed to get shopping lists: {str(e)}")
@@ -473,10 +483,15 @@ async def save_recipes(user_id: str, recipes: list):
     except Exception as e:
         raise Exception(f"Failed to save recipes: {str(e)}")
 
-async def get_user_recipes(user_id: str):
-    """Get all recipes for a user"""
+async def get_user_recipes(user_id: str, limit: int = None):
+    """Get recipes for a user with optional limit"""
     try:
-        query = f"SELECT * FROM c WHERE c.type = 'recipes' AND c.user_id = '{user_id}'"
+        # Build query with optional TOP clause for database-level limiting
+        if limit:
+            query = f"SELECT TOP {limit} * FROM c WHERE c.type = 'recipes' AND c.user_id = '{user_id}' ORDER BY c.id DESC"
+        else:
+            query = f"SELECT * FROM c WHERE c.type = 'recipes' AND c.user_id = '{user_id}' ORDER BY c.id DESC"
+        
         return list(interactions_container.query_items(query=query, enable_cross_partition_query=True))
     except Exception as e:
         raise Exception(f"Failed to get recipes: {str(e)}")
@@ -620,14 +635,23 @@ async def get_user_consumption_history(user_id: str, limit: int = 50):
             raise ValueError("User ID is required")
 
         print(f"[get_user_consumption_history] Querying consumption records for user {user_id}")
-        # Use a more specific query to ensure we get all fields
-        query = (
-            "SELECT c.id, c.timestamp, c.food_name, c.estimated_portion, "
-            "c.nutritional_info, c.medical_rating, c.image_analysis, c.image_url "
-            "FROM c WHERE c.type = 'consumption_record' "
-            f"AND c.user_id = '{user_id}' "
-            "ORDER BY c.timestamp DESC"
-        )
+        # Build query with optional TOP clause for database-level limiting
+        if limit:
+            query = (
+                f"SELECT TOP {limit} c.id, c.timestamp, c.food_name, c.estimated_portion, "
+                "c.nutritional_info, c.medical_rating, c.image_analysis, c.image_url "
+                "FROM c WHERE c.type = 'consumption_record' "
+                f"AND c.user_id = '{user_id}' "
+                "ORDER BY c.timestamp DESC"
+            )
+        else:
+            query = (
+                "SELECT c.id, c.timestamp, c.food_name, c.estimated_portion, "
+                "c.nutritional_info, c.medical_rating, c.image_analysis, c.image_url "
+                "FROM c WHERE c.type = 'consumption_record' "
+                f"AND c.user_id = '{user_id}' "
+                "ORDER BY c.timestamp DESC"
+            )
         print(f"[get_user_consumption_history] Query: {query}")
         
         try:
@@ -642,7 +666,7 @@ async def get_user_consumption_history(user_id: str, limit: int = 50):
             print(f"[get_user_consumption_history] Query error details:", traceback.format_exc())
             raise
         
-        print(f"[get_user_consumption_history] Raw consumption records count: {len(consumption_records)}")
+        print(f"[get_user_consumption_history] Retrieved {len(consumption_records)} records from database")
         if consumption_records:
             print(f"[get_user_consumption_history] First record: {consumption_records[0]}")
             print(f"[get_user_consumption_history] First record type: {type(consumption_records[0])}")
@@ -650,10 +674,8 @@ async def get_user_consumption_history(user_id: str, limit: int = 50):
         else:
             print("[get_user_consumption_history] No records found")
         
-        # Apply limit
-        limited_records = consumption_records[:limit] if limit else consumption_records
-        print(f"[get_user_consumption_history] Returning {len(limited_records)} records after applying limit")
-        return limited_records
+        print(f"[get_user_consumption_history] Returning {len(consumption_records)} records")
+        return consumption_records
         
     except ValueError as e:
         print(f"[get_user_consumption_history] ValueError: {str(e)}")

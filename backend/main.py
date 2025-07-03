@@ -6292,19 +6292,19 @@ async def export_user_data(
             }
         
         if "meal_plans" in data_types:
-            export_data["meal_plans"] = await get_user_meal_plans(user_email)
+            export_data["meal_plans"] = await get_user_meal_plans(user_email, limit=10)
         
         if "consumption_history" in data_types:
-            export_data["consumption_history"] = await get_user_consumption_history(user_email, limit=1000)
+            export_data["consumption_history"] = await get_user_consumption_history(user_email, limit=10)
         
         if "chat_history" in data_types:
-            export_data["chat_history"] = await get_all_user_chat_history(user_email)
+            export_data["chat_history"] = await get_all_user_chat_history(user_email, limit=10)
         
         if "recipes" in data_types:
-            export_data["recipes"] = await get_user_recipes(user_email)
+            export_data["recipes"] = await get_user_recipes(user_email, limit=10)
         
         if "shopping_lists" in data_types:
-            export_data["shopping_lists"] = await get_user_shopping_lists(user_email)
+            export_data["shopping_lists"] = await get_user_shopping_lists(user_email, limit=10)
         
         # Generate document based on format
         if format_type == "pdf":
@@ -6403,16 +6403,26 @@ async def update_user_consent(
 # PRIVACY HELPER FUNCTIONS
 # ============================================================================
 
-async def get_all_user_chat_history(user_email: str):
-    """Get all chat history for a user"""
+async def get_all_user_chat_history(user_email: str, limit: int = None):
+    """Get chat history for a user with optional limit"""
     try:
-        query = f"""
-        SELECT *
-        FROM c
-        WHERE c.type = 'chat_message'
-        AND c.user_id = '{user_email}'
-        ORDER BY c.timestamp ASC
-        """
+        # Build query with optional TOP clause for database-level limiting
+        if limit:
+            query = f"""
+            SELECT TOP {limit} *
+            FROM c
+            WHERE c.type = 'chat_message'
+            AND c.user_id = '{user_email}'
+            ORDER BY c.timestamp DESC
+            """
+        else:
+            query = f"""
+            SELECT *
+            FROM c
+            WHERE c.type = 'chat_message'
+            AND c.user_id = '{user_email}'
+            ORDER BY c.timestamp ASC
+            """
         
         chat_messages = list(interactions_container.query_items(
             query=query,
