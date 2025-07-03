@@ -37,9 +37,11 @@ openai_client = AzureOpenAI(
     api_version=os.getenv("AZURE_OPENAI_API_VERSION"),
 )
 
+
 def generate_session_id():
     """Generate a unique session ID"""
     return str(uuid.uuid4())
+
 
 async def create_user(user_data: dict):
     """Create a new user in the database"""
@@ -51,6 +53,7 @@ async def create_user(user_data: dict):
     except Exception as e:
         raise Exception(f"Failed to create user: {str(e)}")
 
+
 async def get_user_by_email(email: str):
     """Get user by email"""
     try:
@@ -59,6 +62,7 @@ async def get_user_by_email(email: str):
         return items[0] if items else None
     except Exception as e:
         raise Exception(f"Failed to get user: {str(e)}")
+
 
 async def create_patient(patient_data: dict):
     """Create a new patient record"""
@@ -70,6 +74,7 @@ async def create_patient(patient_data: dict):
     except Exception as e:
         raise Exception(f"Failed to create patient: {str(e)}")
 
+
 async def get_patient_by_registration_code(code: str):
     """Get patient by registration code"""
     try:
@@ -79,6 +84,7 @@ async def get_patient_by_registration_code(code: str):
     except Exception as e:
         raise Exception(f"Failed to get patient: {str(e)}")
 
+
 async def get_all_patients():
     """Get all patients"""
     try:
@@ -86,6 +92,7 @@ async def get_all_patients():
         return list(user_container.query_items(query=query, enable_cross_partition_query=True))
     except Exception as e:
         raise Exception(f"Failed to get patients: {str(e)}")
+
 
 async def get_patient_by_id(patient_id: str):
     """Get patient by ID"""
@@ -96,29 +103,31 @@ async def get_patient_by_id(patient_id: str):
     except Exception as e:
         raise Exception(f"Failed to get patient: {str(e)}")
 
+
 async def save_meal_plan(user_id: str, meal_plan_data: dict):
     """Saves a user's meal plan to Cosmos DB."""
-    
+
     # Rebuild the item dictionary explicitly to avoid potential CosmosDict issues
     item = {}
     for key, value in meal_plan_data.items():
         item[key] = value
-        
+
     # Ensure partition key and required fields are included
     item['user_id'] = user_id  # Ensure user_id is set from the authenticated user
-    item['id'] = meal_plan_data.get('id', str(uuid.uuid4())) # Use existing ID or generate new one
-    item['type'] = 'meal_plan' # Add a type discriminator
-    item['_partitionKey'] = user_id # Explicitly set the partition key
-    item['created_at'] = datetime.utcnow().isoformat() # Add timestamp
-    
-    print(f"[save_meal_plan] Attempting to save item: {item.get('id')}, type: {item.get('type')}, user_id: {item.get('user_id')}")
+    item['id'] = meal_plan_data.get('id', str(uuid.uuid4()))  # Use existing ID or generate new one
+    item['type'] = 'meal_plan'  # Add a type discriminator
+    item['_partitionKey'] = user_id  # Explicitly set the partition key
+    item['created_at'] = datetime.utcnow().isoformat()  # Add timestamp
+
+    print(
+        f"[save_meal_plan] Attempting to save item: {item.get('id')}, type: {item.get('type')}, user_id: {item.get('user_id')}")
     print(f"[save_meal_plan] Full item data (partial): {list(item.keys())}")
-    
+
     try:
         # Use upsert_item to create or replace the item
         print(f"[save_meal_plan] Type of interactions_container: {type(interactions_container)}")
         print(f"[save_meal_plan] Type of item: {type(item)}")
-        
+
         # Capture the result of upsert_item and convert it
         saved_item = interactions_container.upsert_item(body=item)
         print(f"[save_meal_plan] Successfully saved item: {saved_item.get('id')}")
@@ -128,7 +137,7 @@ async def save_meal_plan(user_id: str, meal_plan_data: dict):
             # json is already imported at the top of database.py
             plain_saved_item = json.loads(json.dumps(saved_item))
             print("[save_meal_plan] Converted saved_item returned by SDK to plain dict before returning")
-            return plain_saved_item # Return the converted item
+            return plain_saved_item  # Return the converted item
         except Exception as convert_error:
             print(f"[save_meal_plan] Failed to convert saved_item returned by SDK to plain dict: {convert_error}")
             # If conversion fails, return the original saved_item - the error might occur again
@@ -137,6 +146,7 @@ async def save_meal_plan(user_id: str, meal_plan_data: dict):
     except Exception as e:
         print(f"[save_meal_plan] Error saving item {item.get('id')}: {e}")
         raise
+
 
 async def get_user_meal_plans(user_id: str, limit: int = None):
     """Get meal plans for a user with optional limit"""
@@ -149,7 +159,7 @@ async def get_user_meal_plans(user_id: str, limit: int = None):
             query = f"SELECT TOP {limit} * FROM c WHERE c.type = 'meal_plan' AND c.user_id = '{user_id}' ORDER BY c.created_at DESC"
         else:
             query = f"SELECT * FROM c WHERE c.type = 'meal_plan' AND c.user_id = '{user_id}' ORDER BY c.created_at DESC"
-        
+
         meal_plans = list(interactions_container.query_items(
             query=query,
             enable_cross_partition_query=True
@@ -179,6 +189,7 @@ async def get_user_meal_plans(user_id: str, limit: int = None):
     except Exception as e:
         raise Exception(f"Failed to get meal plans: {str(e)}")
 
+
 async def get_meal_plan_by_id(plan_id: str, user_id: str):
     """Get a specific meal plan by ID"""
     try:
@@ -197,7 +208,7 @@ async def get_meal_plan_by_id(plan_id: str, user_id: str):
             return None
 
         meal_plan = items[0]
-        
+
         # Validate meal plan has required fields
         required_fields = ['breakfast', 'lunch', 'dinner', 'snacks', 'dailyCalories', 'macronutrients']
         missing_fields = [field for field in required_fields if field not in meal_plan]
@@ -209,6 +220,7 @@ async def get_meal_plan_by_id(plan_id: str, user_id: str):
         raise ValueError(f"Invalid request: {str(e)}")
     except Exception as e:
         raise Exception(f"Failed to get meal plan: {str(e)}")
+
 
 async def delete_meal_plan_by_id(plan_id: str, user_id: str):
     """Deletes a meal plan by its ID and user ID."""
@@ -239,7 +251,7 @@ async def delete_meal_plan_by_id(plan_id: str, user_id: str):
         meal_plan = items[0]
         required_fields = ['created_at', 'dailyCalories', 'macronutrients']
         missing_fields = [field for field in required_fields if field not in meal_plan]
-        
+
         if missing_fields:
             print(f"[delete_meal_plan_by_id] Plan {plan_id} is missing required fields: {', '.join(missing_fields)}")
             # Still delete the corrupted plan
@@ -269,13 +281,14 @@ async def delete_meal_plan_by_id(plan_id: str, user_id: str):
         traceback.print_exc()
         raise Exception(f"Failed to delete meal plan: {str(e)}")
 
+
 async def delete_all_user_meal_plans(user_id: str):
     """Deletes all meal plans for a specific user."""
     print(f"[delete_all_user_meal_plans] Attempting to delete all plans for user_id: {user_id}")
     try:
         if not user_id:
-             print("[delete_all_user_meal_plans] User ID is missing.")
-             return 0 # Or raise an error, depending on desired behavior
+            print("[delete_all_user_meal_plans] User ID is missing.")
+            return 0  # Or raise an error, depending on desired behavior
 
         # Find all meal plans for the user, including their partition key (user_id)
         query = f"SELECT c.id, c.user_id FROM c WHERE c.type = 'meal_plan' AND c.user_id = '{user_id}'"
@@ -290,32 +303,34 @@ async def delete_all_user_meal_plans(user_id: str):
 
         # Assuming user_id is the partition key
         # partition_key = user_id # We will now get partition key from each item
-        
+
         for item in items:
             item_id = item.get('id')
-            item_partition_key = item.get('user_id') # Assuming user_id is the partition key
+            item_partition_key = item.get('user_id')  # Assuming user_id is the partition key
 
             if not item_id or not item_partition_key:
-                 print(f"[delete_all_user_meal_plans] Skipping item due to missing id or partition key: {item}")
-                 continue # Skip items that don't have necessary info
+                print(f"[delete_all_user_meal_plans] Skipping item due to missing id or partition key: {item}")
+                continue  # Skip items that don't have necessary info
 
             try:
-                print(f"[delete_all_user_meal_plans] Attempting to delete item id: {item_id} with partition key: {item_partition_key}")
+                print(
+                    f"[delete_all_user_meal_plans] Attempting to delete item id: {item_id} with partition key: {item_partition_key}")
                 interactions_container.delete_item(item=item_id, partition_key=item_partition_key)
                 print(f"[delete_all_user_meal_plans] Successfully deleted item id: {item_id}")
                 deleted_count += 1
             except CosmosResourceNotFoundError:
-                print(f"[delete_all_user_meal_plans] Item id {item_id} not found during deletion (might be already deleted).")
+                print(
+                    f"[delete_all_user_meal_plans] Item id {item_id} not found during deletion (might be already deleted).")
                 # Item already deleted, continue
                 pass
             except Exception as delete_error:
                 print(f"[delete_all_user_meal_plans] Error deleting item {item_id} for user {user_id}: {delete_error}")
                 failed_deletions.append(item_id)
                 # Decide if you want to stop on error or continue
-                pass # Continue deleting other items
-        
+                pass  # Continue deleting other items
+
         if failed_deletions:
-             print(f"[delete_all_user_meal_plans] Finished deletion with failed items: {failed_deletions}")
+            print(f"[delete_all_user_meal_plans] Finished deletion with failed items: {failed_deletions}")
 
         print(f"[delete_all_user_meal_plans] Total deleted count: {deleted_count}")
         return deleted_count
@@ -325,6 +340,7 @@ async def delete_all_user_meal_plans(user_id: str):
         # Log the full traceback for better debugging
         traceback.print_exc()
         raise Exception(f"Failed to delete all meal plans: {str(e)}")
+
 
 async def save_shopping_list(user_id: str, shopping_list: dict):
     """Save a shopping list for a user"""
@@ -338,6 +354,7 @@ async def save_shopping_list(user_id: str, shopping_list: dict):
     except Exception as e:
         raise Exception(f"Failed to save shopping list: {str(e)}")
 
+
 async def get_user_shopping_lists(user_id: str, limit: int = None):
     """Get shopping lists for a user with optional limit"""
     try:
@@ -346,17 +363,18 @@ async def get_user_shopping_lists(user_id: str, limit: int = None):
             query = f"SELECT TOP {limit} * FROM c WHERE c.type = 'shopping_list' AND c.user_id = '{user_id}' ORDER BY c.id DESC"
         else:
             query = f"SELECT * FROM c WHERE c.type = 'shopping_list' AND c.user_id = '{user_id}' ORDER BY c.id DESC"
-        
+
         return list(interactions_container.query_items(query=query, enable_cross_partition_query=True))
     except Exception as e:
         raise Exception(f"Failed to get shopping lists: {str(e)}")
+
 
 async def save_chat_message(user_id: str, message: str, is_user: bool, session_id: str = None, image_url: str = None):
     """Save a chat message to the database"""
     try:
         if not session_id:
             session_id = generate_session_id()
-        
+
         chat_data = {
             "type": "chat_message",
             "user_id": user_id,
@@ -370,6 +388,7 @@ async def save_chat_message(user_id: str, message: str, is_user: bool, session_i
         return interactions_container.create_item(body=chat_data)
     except Exception as e:
         raise Exception(f"Failed to save chat message: {str(e)}")
+
 
 async def get_recent_chat_history(user_id: str, session_id: str = None, limit: int = 10):
     """Get the most recent chat history for a user"""
@@ -391,7 +410,7 @@ async def get_recent_chat_history(user_id: str, session_id: str = None, limit: i
             AND c.user_id = '{user_id}'
             ORDER BY c.timestamp DESC
             """
-        
+
         messages = list(interactions_container.query_items(
             query=query,
             enable_cross_partition_query=True
@@ -401,21 +420,23 @@ async def get_recent_chat_history(user_id: str, session_id: str = None, limit: i
     except Exception as e:
         raise Exception(f"Failed to get chat history: {str(e)}")
 
+
 async def format_chat_history_for_prompt(user_id: str, session_id: str = None):
     """Format chat history for use in the prompt"""
     try:
         messages = await get_recent_chat_history(user_id, session_id)
         if not messages:
             return ""
-        
+
         formatted_history = "Previous conversation:\n"
         for msg in messages:
             role = "User" if msg["is_user"] else "Assistant"
             formatted_history += f"{role}: {msg['message_content']}\n"
-        
+
         return formatted_history
     except Exception as e:
         raise Exception(f"Failed to format chat history: {str(e)}")
+
 
 async def clear_chat_history(user_id: str, session_id: str = None):
     """Clear chat history for a user"""
@@ -435,21 +456,22 @@ async def clear_chat_history(user_id: str, session_id: str = None):
             WHERE c.type = 'chat_message'
             AND c.user_id = '{user_id}'
             """
-        
+
         messages = list(interactions_container.query_items(
             query=query,
             enable_cross_partition_query=True
         ))
-        
+
         for message in messages:
             interactions_container.delete_item(
                 item=message["id"],
                 partition_key=message["session_id"]
             )
-        
+
         return True
     except Exception as e:
         raise Exception(f"Failed to clear chat history: {str(e)}")
+
 
 async def get_user_sessions(user_id: str):
     """Get all sessions for a user"""
@@ -468,6 +490,7 @@ async def get_user_sessions(user_id: str):
     except Exception as e:
         raise Exception(f"Failed to get user sessions: {str(e)}")
 
+
 async def save_recipes(user_id: str, recipes: list):
     """Save a list of recipes for a user"""
     try:
@@ -483,6 +506,7 @@ async def save_recipes(user_id: str, recipes: list):
     except Exception as e:
         raise Exception(f"Failed to save recipes: {str(e)}")
 
+
 async def get_user_recipes(user_id: str, limit: int = None):
     """Get recipes for a user with optional limit"""
     try:
@@ -491,10 +515,11 @@ async def get_user_recipes(user_id: str, limit: int = None):
             query = f"SELECT TOP {limit} * FROM c WHERE c.type = 'recipes' AND c.user_id = '{user_id}' ORDER BY c.id DESC"
         else:
             query = f"SELECT * FROM c WHERE c.type = 'recipes' AND c.user_id = '{user_id}' ORDER BY c.id DESC"
-        
+
         return list(interactions_container.query_items(query=query, enable_cross_partition_query=True))
     except Exception as e:
         raise Exception(f"Failed to get recipes: {str(e)}")
+
 
 def count_tokens(text, model="gpt-3.5-turbo"):
     try:
@@ -504,10 +529,11 @@ def count_tokens(text, model="gpt-3.5-turbo"):
         # Fallback: rough word count
         return len(text.split())
 
+
 async def get_context_history(
     user_id: str,
     session_id: str,
-    max_pairs: int = 10, # Max historical pairs to consider from DB initially
+    max_pairs: int = 10,  # Max historical pairs to consider from DB initially
     max_tokens: int = 2048,
     model: str = "gpt-3.5-turbo"
 ):
@@ -541,12 +567,12 @@ async def get_context_history(
             content = doc.get("message_content")
             if content is not None:
                 current_messages_for_llm.append({"role": role, "content": content})
-        
+
         # Optional: Limit to the last N pairs (max_pairs * 2 messages) from history if too many raw messages fetched
         # This is a preliminary cut before token counting.
         if len(current_messages_for_llm) > max_pairs * 2 and max_pairs > 0:
             current_messages_for_llm = current_messages_for_llm[-(max_pairs * 2):]
-        
+
         if not current_messages_for_llm:
             return []
 
@@ -556,21 +582,23 @@ async def get_context_history(
         while total_tokens > max_tokens and len(current_messages_for_llm) > 0:
             if len(current_messages_for_llm) == 1:
                 if total_tokens > max_tokens:
-                     print(f"Warning: Single remaining message ({total_tokens} tokens) exceeds max_tokens ({max_tokens}). Sending as is.")
-                break 
-            
-            removed_message = current_messages_for_llm.pop(0) # Remove the oldest
+                    print(
+                        f"Warning: Single remaining message ({total_tokens} tokens) exceeds max_tokens ({max_tokens}). Sending as is.")
+                break
+
+            removed_message = current_messages_for_llm.pop(0)  # Remove the oldest
             total_tokens -= count_tokens(removed_message["content"], model)
 
         if not current_messages_for_llm:
             print("Warning: Message list became empty after trimming. This is unusual unless max_tokens is very restrictive.")
             return []
-            
+
         return current_messages_for_llm
 
     except Exception as e:
         print(f"ERROR in get_context_history for session {session_id}, user {user_id}: {e}")
-        return [] # Fallback to empty list on error 
+        return []  # Fallback to empty list on error
+
 
 async def view_meal_plans(user_id: str):
     """View all meal plans for a user - returns simple view without recipes/shopping"""
@@ -590,18 +618,20 @@ async def view_meal_plans(user_id: str):
     except Exception as e:
         raise Exception(f"Failed to view meal plans: {str(e)}")
 
+
 def log_debug(msg):
-    print(f"[DEBUG] {msg}") 
+    print(f"[DEBUG] {msg}")
+
 
 async def save_consumption_record(user_id: str, consumption_data: dict, meal_type: str | None = None):
     """Save a consumption history record to the database"""
     try:
         print(f"[save_consumption_record] Starting save for user {user_id}")
         print(f"[save_consumption_record] Consumption data: {consumption_data}")
-        
+
         # Generate a unique session ID for this consumption record
         session_id = f"consumption_{user_id}_{datetime.utcnow().timestamp()}"
-        
+
         consumption_record = {
             "type": "consumption_record",
             "user_id": user_id,
@@ -616,10 +646,10 @@ async def save_consumption_record(user_id: str, consumption_data: dict, meal_typ
             "image_url": consumption_data.get("image_url"),
             "meal_type": meal_type or consumption_data.get("meal_type", "")
         }
-        
+
         print(f"[save_consumption_record] Created record with ID: {consumption_record['id']}")
         print(f"[save_consumption_record] Full record: {consumption_record}")
-        
+
         result = interactions_container.upsert_item(body=consumption_record)
         print(f"[save_consumption_record] Successfully saved record with ID: {result['id']}")
         return result
@@ -627,6 +657,7 @@ async def save_consumption_record(user_id: str, consumption_data: dict, meal_typ
         print(f"[save_consumption_record] Error saving record: {str(e)}")
         print(f"[save_consumption_record] Full error details:", traceback.format_exc())
         raise Exception(f"Failed to save consumption record: {str(e)}")
+
 
 async def get_user_consumption_history(user_id: str, limit: int = 50):
     """Get consumption history for a user"""
@@ -653,7 +684,7 @@ async def get_user_consumption_history(user_id: str, limit: int = 50):
                 "ORDER BY c.timestamp DESC"
             )
         print(f"[get_user_consumption_history] Query: {query}")
-        
+
         try:
             # Use cross-partition query since records are partitioned by session_id
             consumption_records = list(interactions_container.query_items(
@@ -665,7 +696,7 @@ async def get_user_consumption_history(user_id: str, limit: int = 50):
             print(f"[get_user_consumption_history] Error executing query: {str(query_error)}")
             print(f"[get_user_consumption_history] Query error details:", traceback.format_exc())
             raise
-        
+
         print(f"[get_user_consumption_history] Retrieved {len(consumption_records)} records from database")
         if consumption_records:
             print(f"[get_user_consumption_history] First record: {consumption_records[0]}")
@@ -673,10 +704,10 @@ async def get_user_consumption_history(user_id: str, limit: int = 50):
             print(f"[get_user_consumption_history] First record keys: {list(consumption_records[0].keys())}")
         else:
             print("[get_user_consumption_history] No records found")
-        
+
         print(f"[get_user_consumption_history] Returning {len(consumption_records)} records")
         return consumption_records
-        
+
     except ValueError as e:
         print(f"[get_user_consumption_history] ValueError: {str(e)}")
         raise ValueError(f"Invalid request: {str(e)}")
@@ -685,26 +716,27 @@ async def get_user_consumption_history(user_id: str, limit: int = 50):
         print(f"[get_user_consumption_history] Full error details:", traceback.format_exc())
         raise Exception(f"Failed to get consumption history: {str(e)}")
 
+
 async def get_consumption_analytics(user_id: str, days: int = 7):
     """Get comprehensive consumption analytics for a user over specified days"""
     try:
         if not user_id:
             raise ValueError("User ID is required")
-            
+
         # Calculate date threshold
         from datetime import datetime, timedelta
         from collections import defaultdict
         import re
-        
+
         threshold_date = (datetime.utcnow() - timedelta(days=days)).isoformat()
-        
+
         query = f"SELECT * FROM c WHERE c.type = 'consumption_record' AND c.user_id = '{user_id}' AND c.timestamp >= '{threshold_date}' ORDER BY c.timestamp DESC"
-        
+
         consumption_records = list(interactions_container.query_items(
             query=query,
             enable_cross_partition_query=True
         ))
-        
+
         if not consumption_records:
             # Return empty analytics structure
             return {
@@ -743,16 +775,16 @@ async def get_consumption_analytics(user_id: str, days: int = 7):
                 },
                 "daily_nutrition_history": []
             }
-        
+
         # Initialize tracking variables
         daily_totals = defaultdict(lambda: {
-            "calories": 0, "protein": 0, "carbohydrates": 0, "fat": 0, 
+            "calories": 0, "protein": 0, "carbohydrates": 0, "fat": 0,
             "fiber": 0, "sugar": 0, "sodium": 0, "meals_count": 0
         })
         food_frequency = defaultdict(lambda: {"frequency": 0, "total_calories": 0})
         meal_type_counts = {"breakfast": 0, "lunch": 0, "dinner": 0, "snack": 0}
         diabetes_suitable_count = 0
-        
+
         # Default daily goals (these should ideally come from user profile)
         daily_goals = {
             "calories": 2000,
@@ -760,20 +792,20 @@ async def get_consumption_analytics(user_id: str, days: int = 7):
             "carbohydrates": 250,
             "fat": 70
         }
-        
+
         # Process each consumption record
         for record in consumption_records:
             nutritional_info = record.get("nutritional_info", {})
             medical_rating = record.get("medical_rating", {})
             food_name = record.get("food_name", "Unknown Food")
             timestamp = record.get("timestamp", "")
-            
+
             # Extract date for daily grouping
             try:
                 record_date = datetime.fromisoformat(timestamp.replace('Z', '+00:00')).date().isoformat()
-            except:
+            except BaseException:
                 record_date = datetime.utcnow().date().isoformat()
-            
+
             # Extract nutrition values
             calories = nutritional_info.get("calories", 0)
             protein = nutritional_info.get("protein", 0)
@@ -782,7 +814,7 @@ async def get_consumption_analytics(user_id: str, days: int = 7):
             fiber = nutritional_info.get("fiber", 0)
             sugar = nutritional_info.get("sugar", 0)
             sodium = nutritional_info.get("sodium", 0)
-            
+
             # Update daily totals
             daily_totals[record_date]["calories"] += calories
             daily_totals[record_date]["protein"] += protein
@@ -792,11 +824,11 @@ async def get_consumption_analytics(user_id: str, days: int = 7):
             daily_totals[record_date]["sugar"] += sugar
             daily_totals[record_date]["sodium"] += sodium
             daily_totals[record_date]["meals_count"] += 1
-            
+
             # Track food frequency
             food_frequency[food_name]["frequency"] += 1
             food_frequency[food_name]["total_calories"] += calories
-            
+
             # Determine meal type based on time or food name
             try:
                 record_time = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
@@ -809,7 +841,7 @@ async def get_consumption_analytics(user_id: str, days: int = 7):
                     meal_type = "dinner"
                 else:
                     meal_type = "snack"
-            except:
+            except BaseException:
                 # Fallback: try to guess from food name
                 food_lower = food_name.lower()
                 if any(word in food_lower for word in ["breakfast", "cereal", "oatmeal", "toast"]):
@@ -820,16 +852,16 @@ async def get_consumption_analytics(user_id: str, days: int = 7):
                     meal_type = "dinner"
                 else:
                     meal_type = "snack"
-            
+
             meal_type_counts[meal_type] += 1
-            
+
             # Check diabetes suitability
             diabetes_suitability = medical_rating.get("diabetes_suitability", "").lower()
             if diabetes_suitability in ["high", "good", "suitable", "excellent"]:
                 diabetes_suitable_count += 1
-        
+
         total_records = len(consumption_records)
-        
+
         # Calculate averages
         total_calories = sum(day["calories"] for day in daily_totals.values())
         total_protein = sum(day["protein"] for day in daily_totals.values())
@@ -838,16 +870,28 @@ async def get_consumption_analytics(user_id: str, days: int = 7):
         total_fiber = sum(day["fiber"] for day in daily_totals.values())
         total_sugar = sum(day["sugar"] for day in daily_totals.values())
         total_sodium = sum(day["sodium"] for day in daily_totals.values())
-        
+
         # Calculate adherence percentages
         avg_daily_calories = total_calories / days if days > 0 else 0
         avg_daily_protein = total_protein / days if days > 0 else 0
         avg_daily_carbohydrates = total_carbohydrates / days if days > 0 else 0
-        
-        calorie_adherence = min(100, (avg_daily_calories / daily_goals["calories"]) * 100) if daily_goals["calories"] > 0 else 0
-        protein_adherence = min(100, (avg_daily_protein / daily_goals["protein"]) * 100) if daily_goals["protein"] > 0 else 0
-        carb_adherence = min(100, (avg_daily_carbohydrates / daily_goals["carbohydrates"]) * 100) if daily_goals["carbohydrates"] > 0 else 0
-        
+
+        calorie_adherence = min(
+            100,
+            (avg_daily_calories /
+             daily_goals["calories"]) *
+            100) if daily_goals["calories"] > 0 else 0
+        protein_adherence = min(
+            100,
+            (avg_daily_protein /
+             daily_goals["protein"]) *
+            100) if daily_goals["protein"] > 0 else 0
+        carb_adherence = min(
+            100,
+            (avg_daily_carbohydrates /
+             daily_goals["carbohydrates"]) *
+            100) if daily_goals["carbohydrates"] > 0 else 0
+
         # Prepare top foods list
         top_foods = [
             {
@@ -857,7 +901,7 @@ async def get_consumption_analytics(user_id: str, days: int = 7):
             }
             for food, data in sorted(food_frequency.items(), key=lambda x: x[1]["frequency"], reverse=True)
         ][:10]
-        
+
         # Prepare daily nutrition history
         daily_nutrition_history = []
         for date_str, totals in sorted(daily_totals.items()):
@@ -869,7 +913,7 @@ async def get_consumption_analytics(user_id: str, days: int = 7):
                 "fat": totals["fat"],
                 "meals_count": totals["meals_count"]
             })
-        
+
         # Calculate weekly trends (last 7 days)
         recent_days = sorted(daily_totals.items())[-7:]
         weekly_trends = {
@@ -878,7 +922,7 @@ async def get_consumption_analytics(user_id: str, days: int = 7):
             "carbohydrates": [day[1]["carbohydrates"] for day in recent_days] + [0] * (7 - len(recent_days)),
             "fat": [day[1]["fat"] for day in recent_days] + [0] * (7 - len(recent_days))
         }
-        
+
         analytics = {
             "total_meals": total_records,
             "date_range": {
@@ -905,13 +949,14 @@ async def get_consumption_analytics(user_id: str, days: int = 7):
             },
             "daily_nutrition_history": daily_nutrition_history
         }
-        
+
         return analytics
-        
+
     except ValueError as e:
         raise ValueError(f"Invalid request: {str(e)}")
     except Exception as e:
-        raise Exception(f"Failed to get consumption analytics: {str(e)}") 
+        raise Exception(f"Failed to get consumption analytics: {str(e)}")
+
 
 async def get_user_meal_history(user_id: str, limit: int = 20):
     """
@@ -960,7 +1005,8 @@ async def get_user_meal_history(user_id: str, limit: int = 20):
     except ValueError as e:
         raise ValueError(f"Invalid request: {str(e)}")
     except Exception as e:
-        raise Exception(f"Failed to get meal history: {str(e)}") 
+        raise Exception(f"Failed to get meal history: {str(e)}")
+
 
 async def log_meal_suggestion(user_id: str, meal_type: str, suggestion: str, context: dict = None):
     """
@@ -990,7 +1036,8 @@ async def log_meal_suggestion(user_id: str, meal_type: str, suggestion: str, con
     except ValueError as e:
         raise ValueError(f"Invalid request: {str(e)}")
     except Exception as e:
-        raise Exception(f"Failed to log meal suggestion: {str(e)}") 
+        raise Exception(f"Failed to log meal suggestion: {str(e)}")
+
 
 async def get_ai_suggestion(prompt: str) -> str:
     """
@@ -1019,7 +1066,8 @@ async def get_ai_suggestion(prompt: str) -> str:
         return response.choices[0].message.content.strip()
     except Exception as e:
         logger.error(f"Error getting AI suggestion: {str(e)}")
-        raise Exception("Failed to get AI suggestion") 
+        raise Exception("Failed to get AI suggestion")
+
 
 async def update_consumption_meal_type(user_id: str, record_id: str, meal_type: str):
     """Update meal_type for a specific consumption record."""
@@ -1039,4 +1087,4 @@ async def update_consumption_meal_type(user_id: str, record_id: str, meal_type: 
         return True
     except Exception as e:
         print(f"[update_consumption_meal_type] Error: {e}")
-        raise 
+        raise

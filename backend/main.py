@@ -1,3 +1,19 @@
+from collections import defaultdict
+import logging
+from fastapi import APIRouter
+import base64
+from PIL import Image
+from fastapi import Request as FastAPIRequest
+import sys
+import traceback
+import re
+from reportlab.lib.units import inch
+from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib import colors
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image as RLImage, PageBreak
+from reportlab.lib.pagesizes import letter, landscape
+from io import BytesIO
+import uuid
 from fastapi import FastAPI, HTTPException, Depends, status, Request, Body, File, UploadFile, Form
 from fastapi.responses import StreamingResponse, JSONResponse, FileResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -43,22 +59,6 @@ from database import (
 
 # Use interactions_container as consumption_collection for consistency
 consumption_collection = interactions_container
-import uuid
-from io import BytesIO
-from reportlab.lib.pagesizes import letter, landscape
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image as RLImage, PageBreak
-from reportlab.lib import colors
-from reportlab.lib.styles import getSampleStyleSheet
-from reportlab.lib.units import inch
-import re
-import traceback
-import sys
-from fastapi import Request as FastAPIRequest
-from PIL import Image
-import base64
-from fastapi import APIRouter
-import logging
-from collections import defaultdict
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -102,12 +102,15 @@ pwd_context = CryptContext(
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
 
+
 class Token(BaseModel):
     access_token: str
     token_type: str
 
+
 class TokenData(BaseModel):
     username: Optional[str] = None
+
 
 class User(BaseModel):
     username: str
@@ -122,8 +125,10 @@ class User(BaseModel):
     analytics_consent: Optional[bool] = True
     last_consent_update: Optional[str] = None
 
+
 class UserInDB(User):
     hashed_password: str
+
 
 class Patient(BaseModel):
     name: str = Field(..., min_length=1, description="Patient's full name")
@@ -145,6 +150,7 @@ class Patient(BaseModel):
             }
         }
 
+
 class UserProfile(BaseModel):
     # Patient Demographics
     name: Optional[str] = None
@@ -152,17 +158,17 @@ class UserProfile(BaseModel):
     age: Optional[int] = None
     gender: Optional[str] = None
     ethnicity: Optional[List[str]] = []
-    
+
     # Medical History
     medical_conditions: Optional[List[str]] = []
     medicalConditions: Optional[List[str]] = []  # For backward compatibility
-    
+
     # Current Medications
     currentMedications: Optional[List[str]] = []
-    
+
     # Lab Values (Optional)
     labValues: Optional[Dict[str, Optional[str]]] = {}
-    
+
     # Vital Signs
     height: Optional[float] = None
     weight: Optional[float] = None
@@ -175,7 +181,7 @@ class UserProfile(BaseModel):
     diastolic_bp: Optional[int] = None  # For backward compatibility
     heartRate: Optional[int] = None
     heart_rate: Optional[int] = None  # For backward compatibility
-    
+
     # Dietary Information
     dietType: Optional[List[str]] = []
     diet_type: Optional[str] = None  # For backward compatibility
@@ -185,36 +191,39 @@ class UserProfile(BaseModel):
     foodPreferences: Optional[List[str]] = []
     allergies: Optional[List[str]] = []
     strongDislikes: Optional[List[str]] = []
-    
+
     # Physical Activity
     workActivityLevel: Optional[str] = None
     exerciseFrequency: Optional[str] = None
     exerciseTypes: Optional[List[str]] = []
     mobilityIssues: Optional[bool] = False
-    
+
     # Lifestyle & Preferences
     mealPrepCapability: Optional[str] = None
     availableAppliances: Optional[List[str]] = []
     eatingSchedule: Optional[str] = None
-    
+
     # Goals & Readiness
     primaryGoals: Optional[List[str]] = []
     readinessToChange: Optional[str] = None
-    
+
     # Meal Plan Targeting
     wantsWeightLoss: Optional[bool] = False
     weight_loss_goal: Optional[bool] = False  # For backward compatibility
     calorieTarget: Optional[str] = None
     calories_target: Optional[int] = None  # For backward compatibility
 
+
 class MealPlanRequest(BaseModel):
     user_profile: UserProfile
     family_members: Optional[List[UserProfile]] = None
     additional_requirements: Optional[str] = None
 
+
 class ChatMessage(BaseModel):
     message: str
     session_id: Optional[str] = None
+
 
 class RegistrationData(BaseModel):
     registration_code: str
@@ -227,16 +236,20 @@ class RegistrationData(BaseModel):
     marketing_consent: Optional[bool] = False
     analytics_consent: Optional[bool] = True
 
+
 class ImageAnalysisRequest(BaseModel):
     prompt: str
+
 
 def get_password_hash(password: str) -> str:
     """Hash a password using bcrypt"""
     return pwd_context.hash(password)
 
+
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verify a password against its hash"""
     return pwd_context.verify(plain_password, hashed_password)
+
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     to_encode = data.copy()
@@ -247,6 +260,7 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
+
 
 async def get_current_user(token: str = Depends(oauth2_scheme)):
     print("get_current_user called")
@@ -283,8 +297,10 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
         print(f"Error fetching user from database: {e}")
         raise credentials_exception
 
+
 def generate_registration_code():
     return ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
+
 
 def send_registration_code(phone: str, code: str):
     """Send registration code via SMS using Twilio"""
@@ -300,10 +316,11 @@ def send_registration_code(phone: str, code: str):
         print(f"Failed to send SMS: {str(e)}")
         return None
 
+
 @app.post("/login", response_model=Token)
 async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends()):
     print(f"Login attempt for user: {form_data.username}")
-    
+
     user = await get_user_by_email(form_data.username)
     if not user or not verify_password(form_data.password, user["hashed_password"]):
         print(f"Login failed for user: {form_data.username}")
@@ -312,21 +329,21 @@ async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends
             detail="Incorrect username or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    
+
     print(f"User found: {user}")
-    
+
     # Get form data directly from the request
     form = await request.form()
     consent_given = form.get('consent_given', 'false').lower() == 'true'
     consent_timestamp = form.get('consent_timestamp')
     policy_version = form.get('policy_version')
-    
+
     if not consent_given:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Consent is required to login"
         )
-    
+
     # Update user's consent information
     try:
         # Build a new dictionary with only the fields we want to update
@@ -347,13 +364,13 @@ async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends
             "updated_at": datetime.utcnow().isoformat(),
             "updated_by": "system"
         }
-        
+
         # Perform the upsert
         user_container.upsert_item(body=update_dict)
     except Exception as e:
         print(f"Error during user update: {e}")
         # If update fails, continue with login since consent info is not critical
-    
+
     # Get patient info if available
     patient_name = None
     if user.get("patient_id"):
@@ -369,7 +386,7 @@ async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends
             print(f"Error fetching patient info: {str(e)}")
     else:
         print("No patient_id found in user data")
-    
+
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     token_data = {
         "sub": user["email"],
@@ -380,12 +397,13 @@ async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends
         "policy_version": user.get("policy_version")
     }
     print(f"Creating token with data: {token_data}")
-    
+
     access_token = create_access_token(
         data=token_data,
         expires_delta=access_token_expires
     )
     return {"access_token": access_token, "token_type": "bearer"}
+
 
 @app.post("/register")
 async def register(data: RegistrationData):
@@ -393,13 +411,13 @@ async def register(data: RegistrationData):
     patient = await get_patient_by_registration_code(data.registration_code)
     if not patient:
         raise HTTPException(status_code=400, detail="Invalid registration code")
-    
+
     existing_user = await get_user_by_email(data.email)
     if existing_user:
         raise HTTPException(status_code=400, detail="Email already registered")
-    
+
     hashed_password = get_password_hash(data.password)
-    
+
     # Create comprehensive user profile from patient data
     initial_profile = {
         "name": patient.get("name", ""),
@@ -410,7 +428,7 @@ async def register(data: RegistrationData):
         "calorieTarget": "2000",  # Default, will be customized based on conditions
         "primaryGoals": ["Manage health conditions", "Maintain balanced nutrition"]
     }
-    
+
     user_data = {
         "username": data.email,
         "email": data.email,
@@ -426,13 +444,14 @@ async def register(data: RegistrationData):
         "analytics_consent": data.analytics_consent,
         "last_consent_update": data.consent_timestamp
     }
-    
+
     await create_user(user_data)
     return {
-        "message": "Registration successful", 
+        "message": "Registration successful",
         "profile_initialized": True,
         "health_conditions": initial_profile["medicalConditions"]
     }
+
 
 @app.post("/admin/create-patient")
 async def create_patient_endpoint(
@@ -441,7 +460,7 @@ async def create_patient_endpoint(
 ):
     if not current_user.get("is_admin"):
         raise HTTPException(status_code=403, detail="Not authorized")
-    
+
     try:
         registration_code = generate_registration_code()
         patient_data = {
@@ -455,12 +474,12 @@ async def create_patient_endpoint(
             "registration_code": registration_code,
             "created_at": datetime.utcnow().isoformat()
         }
-        
+
         await create_patient(patient_data)
-        
+
         # Try to send registration code via SMS
         sms_result = send_registration_code(patient.phone, registration_code)
-        
+
         if sms_result:
             return {
                 "message": "Patient created and registration code sent via SMS",
@@ -474,17 +493,19 @@ async def create_patient_endpoint(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @app.get("/admin/patients")
 async def get_patients(current_user: User = Depends(get_current_user)):
     # Check if user is admin using the token data
     if not current_user.get("is_admin"):
         raise HTTPException(status_code=403, detail="Not authorized")
-    
+
     try:
         patients = await get_all_patients()
         return patients
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.post("/admin/login", response_model=Token)
 async def admin_login(form_data: OAuth2PasswordRequestForm = Depends()):
@@ -495,7 +516,7 @@ async def admin_login(form_data: OAuth2PasswordRequestForm = Depends()):
             detail="Invalid admin credentials",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    
+
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
         data={"sub": user["email"], "is_admin": True},
@@ -503,10 +524,12 @@ async def admin_login(form_data: OAuth2PasswordRequestForm = Depends()):
     )
     return {"access_token": access_token, "token_type": "bearer"}
 
+
 def generate_meal_plan_prompt(user_profile: UserProfile) -> str:
     """Legacy function - now redirects to comprehensive profile handling"""
     # This function is deprecated - the main endpoint now uses comprehensive profiling
     return "This function has been replaced with comprehensive profile analysis"
+
 
 def generate_recipe_prompt(meal_name: str, user_profile: UserProfile) -> str:
     """Legacy function - now redirects to comprehensive profile handling"""
@@ -517,6 +540,7 @@ def generate_recipe_prompt(meal_name: str, user_profile: UserProfile) -> str:
 # COMPREHENSIVE AI HEALTH COACH SYSTEM
 # ============================================================================
 
+
 async def get_comprehensive_user_context(user_email: str):
     """
     Get complete user context including profile, consumption history, meal plans, and health conditions.
@@ -526,65 +550,65 @@ async def get_comprehensive_user_context(user_email: str):
         # Get user profile with all health conditions
         user_data = await get_user_by_email(user_email)
         user_profile = user_data.get("profile", {})
-        
+
         # Get consumption history (last 30 days)
         consumption_history = await get_user_consumption_history(user_email, limit=100)
-        
+
         # Get meal plan history
         meal_plans = await get_user_meal_plans(user_email)
         latest_meal_plan = meal_plans[0] if meal_plans else None
-        
+
         # Extract health conditions and medications
         medical_conditions = user_profile.get("medicalConditions", []) or user_profile.get("medical_conditions", [])
         current_medications = user_profile.get("currentMedications", [])
-        
+
         # Get dietary restrictions and preferences
         dietary_restrictions = user_profile.get("dietaryRestrictions", [])
         food_preferences = user_profile.get("foodPreferences", [])
         allergies = user_profile.get("allergies", [])
         strong_dislikes = user_profile.get("strongDislikes", [])
-        
+
         # Get physical metrics
         age = user_profile.get("age")
         weight = user_profile.get("weight")
         height = user_profile.get("height")
         bmi = user_profile.get("bmi")
-        
+
         # Get vital signs
         systolic_bp = user_profile.get("systolicBP") or user_profile.get("systolic_bp")
         diastolic_bp = user_profile.get("diastolicBP") or user_profile.get("diastolic_bp")
-        
+
         # Get goals and targets
         calorie_target = user_profile.get("calorieTarget", "2000")
         primary_goals = user_profile.get("primaryGoals", [])
         wants_weight_loss = user_profile.get("wantsWeightLoss", False) or user_profile.get("weight_loss_goal", False)
-        
+
         # Analyze recent consumption patterns
         recent_consumption = []
         thirty_days_ago = datetime.utcnow() - timedelta(days=30)
-        
+
         total_calories = 0
         condition_adherence = {"total_meals": 0, "condition_friendly": 0}
         favorite_foods = {}
-        
+
         for entry in consumption_history:
             try:
                 entry_date = datetime.fromisoformat(entry.get("timestamp", "").replace("Z", "+00:00"))
                 if entry_date >= thirty_days_ago:
                     recent_consumption.append(entry)
-                    
+
                     # Track nutrition
                     nutrition = entry.get("nutritional_info", {})
                     total_calories += nutrition.get("calories", 0)
-                    
+
                     # Track food frequency
                     food_name = entry.get("food_name", "").lower()
                     favorite_foods[food_name] = favorite_foods.get(food_name, 0) + 1
-                    
+
                     # Track condition-specific adherence
                     condition_adherence["total_meals"] += 1
                     medical_rating = entry.get("medical_rating", {})
-                    
+
                     # Check suitability for user's specific conditions
                     is_suitable = True
                     for condition in medical_conditions:
@@ -594,25 +618,25 @@ async def get_comprehensive_user_context(user_email: str):
                             if suitability not in ["high", "good", "suitable"]:
                                 is_suitable = False
                                 break
-                    
+
                     if is_suitable:
                         condition_adherence["condition_friendly"] += 1
-                        
-            except:
+
+            except BaseException:
                 continue
-        
+
         # Calculate adherence rate
         adherence_rate = 0
         if condition_adherence["total_meals"] > 0:
             adherence_rate = (condition_adherence["condition_friendly"] / condition_adherence["total_meals"]) * 100
-        
+
         # Get top favorite foods
         top_favorites = sorted(favorite_foods.items(), key=lambda x: x[1], reverse=True)[:10]
         favorite_foods_list = [food for food, count in top_favorites]
-        
+
         # Calculate average daily calories
         avg_daily_calories = (total_calories / 30) if total_calories > 0 else 2000
-        
+
         return {
             "user_profile": {
                 "medical_conditions": medical_conditions,
@@ -644,16 +668,17 @@ async def get_comprehensive_user_context(user_email: str):
                 "total_plans_created": len(meal_plans)
             }
         }
-        
+
     except Exception as e:
         print(f"Error getting comprehensive user context: {str(e)}")
         return None
+
 
 async def get_ai_health_coach_response(user_context: dict, query_type: str, specific_data: dict = None):
     """
     Unified AI Health Coach that provides personalized responses for ALL health conditions.
     Supports: Diabetes, Hypertension, Heart Disease, Kidney Disease, PCOS, Thyroid, etc.
-    
+
     Args:
         user_context: Complete user context from get_comprehensive_user_context()
         query_type: Type of query (meal_suggestion, food_analysis, adaptive_plan, general_coaching)
@@ -663,25 +688,27 @@ async def get_ai_health_coach_response(user_context: dict, query_type: str, spec
         profile = user_context["user_profile"]
         consumption = user_context["consumption_analysis"]
         meal_plan = user_context["meal_plan_context"]
-        
+
         # Build comprehensive health profile for AI
         health_conditions = profile["medical_conditions"]
         medications = profile["current_medications"]
-        
+
         # Create comprehensive condition-specific coaching context
         condition_context = ""
         if health_conditions:
             condition_context = f"PATIENT'S HEALTH CONDITIONS: {', '.join(health_conditions)}\n"
             condition_context += f"CURRENT MEDICATIONS: {', '.join(medications) if medications else 'None listed'}\n"
-            
+
             # Add condition-specific dietary guidelines
             condition_guidelines = []
             for condition in health_conditions:
                 condition_lower = condition.lower()
                 if "diabetes" in condition_lower:
-                    condition_guidelines.append("- Diabetes: Low glycemic index foods, controlled carbohydrates, high fiber")
+                    condition_guidelines.append(
+                        "- Diabetes: Low glycemic index foods, controlled carbohydrates, high fiber")
                 elif "hypertension" in condition_lower or "blood pressure" in condition_lower:
-                    condition_guidelines.append("- Hypertension: Low sodium (<2300mg/day), DASH diet, potassium-rich foods")
+                    condition_guidelines.append(
+                        "- Hypertension: Low sodium (<2300mg/day), DASH diet, potassium-rich foods")
                 elif "heart" in condition_lower or "cardiac" in condition_lower:
                     condition_guidelines.append("- Heart Disease: Low saturated fat, omega-3 fatty acids, whole grains")
                 elif "kidney" in condition_lower or "renal" in condition_lower:
@@ -694,17 +721,17 @@ async def get_ai_health_coach_response(user_context: dict, query_type: str, spec
                     condition_guidelines.append("- High Cholesterol: Low saturated fat, high fiber, plant sterols")
                 elif "obesity" in condition_lower or "weight" in condition_lower:
                     condition_guidelines.append("- Weight Management: Calorie control, portion sizes, nutrient density")
-            
+
             if condition_guidelines:
                 condition_context += f"CONDITION-SPECIFIC GUIDELINES:\n" + "\n".join(condition_guidelines) + "\n"
-        
+
         # Build dietary context
         dietary_context = f"""DIETARY PROFILE:
 - Restrictions: {', '.join(profile['dietary_restrictions']) if profile['dietary_restrictions'] else 'None'}
 - Preferences: {', '.join(profile['food_preferences']) if profile['food_preferences'] else 'None'}
 - Allergies: {', '.join(profile['allergies']) if profile['allergies'] else 'None'}
 - Dislikes: {', '.join(profile['strong_dislikes']) if profile['strong_dislikes'] else 'None'}"""
-        
+
         # Build health metrics context
         metrics_context = f"""HEALTH METRICS:
 - Age: {profile['age'] or 'Not provided'}
@@ -713,19 +740,19 @@ async def get_ai_health_coach_response(user_context: dict, query_type: str, spec
 - Blood Pressure: {profile['systolic_bp'] or 'N/A'}/{profile['diastolic_bp'] or 'N/A'} mmHg
 - Calorie Target: {profile['calorie_target']}
 - Goals: {', '.join(profile['primary_goals']) if profile['primary_goals'] else 'General health'}"""
-        
+
         # Build consumption context
         consumption_context = f"""EATING PATTERNS (Last 30 days):
 - Total meals logged: {consumption['total_recent_meals']}
 - Average daily calories: {consumption['avg_daily_calories']:.0f}
 - Health adherence rate: {consumption['adherence_rate']:.1f}%
 - Favorite foods: {', '.join(consumption['favorite_foods'][:5]) if consumption['favorite_foods'] else 'None identified'}"""
-        
+
         # Build meal plan context
         plan_context = f"""MEAL PLAN STATUS:
 - Has active meal plan: {'Yes' if meal_plan['has_active_plan'] else 'No'}
 - Total plans created: {meal_plan['total_plans_created']}"""
-        
+
         # Create query-specific prompts
         if query_type == "food_analysis":
             food_data = specific_data or {}
@@ -757,7 +784,7 @@ Be encouraging, specific, and focus on their particular health conditions."""
         elif query_type == "meal_suggestion":
             remaining_calories = specific_data.get("remaining_calories", 500)
             meal_type = specific_data.get("meal_type", "lunch")
-            
+
             prompt = f"""You are a comprehensive health coach AI providing meal suggestions for multiple health conditions.
 
 {condition_context}
@@ -840,9 +867,9 @@ Provide personalized health coaching that addresses their specific conditions an
             max_tokens=2000,
             temperature=0.7
         )
-        
+
         return response.choices[0].message.content
-        
+
     except Exception as e:
         print(f"Error getting AI health coach response: {str(e)}")
         return None
@@ -851,9 +878,11 @@ Provide personalized health coaching that addresses their specific conditions an
 # API ENDPOINTS
 # ============================================================================
 
+
 @app.get("/")
 async def root():
     return {"message": "Welcome to Diabetes Diet Manager API"}
+
 
 @app.post("/generate-meal-plan")
 async def generate_meal_plan(
@@ -868,7 +897,7 @@ async def generate_meal_plan(
 
         if not user_profile:
             raise HTTPException(status_code=400, detail="User profile is required")
-        
+
         # Validate days parameter
         if not isinstance(days, int) or days < 1 or days > 7:
             raise HTTPException(status_code=400, detail="Days must be an integer between 1 and 7")
@@ -881,7 +910,7 @@ async def generate_meal_plan(
         # Update the user's profile with the calorie and macro goals
         if "profile" not in user_doc:
             user_doc["profile"] = {}
-        
+
         # Update the profile with the goals from the meal plan
         user_doc["profile"]["calorieTarget"] = user_profile.get("calorieTarget", "2000")
         user_doc["profile"]["macroGoals"] = {
@@ -950,7 +979,8 @@ async def generate_meal_plan(
             if len(related_new) >= new_count:
                 new_sample = random.sample(related_new, new_count)
             else:
-                new_sample = related_new + random.sample(unrelated_new, min(new_count - len(related_new), len(unrelated_new)))
+                new_sample = related_new + \
+                    random.sample(unrelated_new, min(new_count - len(related_new), len(unrelated_new)))
 
             return prev_sample + new_sample
 
@@ -961,7 +991,7 @@ async def generate_meal_plan(
             "dinner": ["Baked salmon with vegetables", "Grilled chicken with rice", "Beef stir-fry", "Vegetable curry", "Baked cod with quinoa", "Turkey meatballs", "Roasted vegetables with protein"],
             "snacks": ["Apple with almonds", "Greek yogurt", "Carrot sticks with hummus", "Mixed nuts", "Cheese and crackers", "Berries with cottage cheese", "Protein smoothie"]
         }
-        
+
         # Create exactly the right number of meals for each type based on days
         json_structure_meals = {}
         for meal_type, examples in example_meals.items():
@@ -970,7 +1000,7 @@ async def generate_meal_plan(
             for i in range(days):
                 selected_meals.append(examples[i % len(examples)])
             json_structure_meals[meal_type] = selected_meals
-        
+
         json_structure = f"""
 {{
     "breakfast": {json.dumps(json_structure_meals["breakfast"])},
@@ -1048,7 +1078,8 @@ Calorie Target: {get_profile_value(user_profile, 'calorieTarget', 'calories_targ
         # Format the prompt with proper error handling for optional fields
         if previous_meal_plan:
             # Add previous meal plan to the prompt and instruct the model for 70/30 overlap
-            prev_meal_plan_str = json.dumps({k: previous_meal_plan.get(k, []) for k in ['breakfast', 'lunch', 'dinner', 'snacks']}, indent=2)
+            prev_meal_plan_str = json.dumps({k: previous_meal_plan.get(k, [])
+                                            for k in ['breakfast', 'lunch', 'dinner', 'snacks']}, indent=2)
             prompt = f"""Create a comprehensive, medically-appropriate meal plan based on this detailed patient profile:
 
 {profile_summary}
@@ -1062,7 +1093,7 @@ CRITICAL INSTRUCTIONS:
 3. DIET TYPE ADHERENCE: **CRITICALLY IMPORTANT** - Follow the specified Diet Type exactly:
    - If "Western" or "European": MUST include traditional European/Western dishes such as:
      * BREAKFAST: Scrambled eggs with toast, pancakes, French toast, English breakfast, cereal with milk, bagels with cream cheese
-     * LUNCH: Sandwiches (turkey, ham, BLT), burgers, pizza slices, pasta salads, chicken Caesar salad, club sandwiches  
+     * LUNCH: Sandwiches (turkey, ham, BLT), burgers, pizza slices, pasta salads, chicken Caesar salad, club sandwiches
      * DINNER: Spaghetti with meatballs, grilled chicken with mashed potatoes, beef steak with vegetables, baked fish with rice, pizza, lasagna, roast beef
      * SNACKS: Cheese and crackers, nuts, yogurt, fruit, granola bars
    - If "Mediterranean": Focus on Mediterranean cuisine with olive oil, fish, vegetables, legumes, etc.
@@ -1081,7 +1112,7 @@ Return a JSON object with exactly this structure:
 REQUIREMENTS:
 - Each meal array must have exactly {days} items (one for each day of the {days}-day meal plan)
 - breakfast array: exactly {days} different breakfast meals
-- lunch array: exactly {days} different lunch meals  
+- lunch array: exactly {days} different lunch meals
 - dinner array: exactly {days} different dinner meals
 - snacks array: exactly {days} different snack options
 - Consider medical conditions for ingredient selection
@@ -1100,7 +1131,7 @@ CRITICAL INSTRUCTIONS:
 3. DIET TYPE ADHERENCE: **CRITICALLY IMPORTANT** - Follow the specified Diet Type exactly:
    - If "Western" or "European": MUST include traditional European/Western dishes such as:
      * BREAKFAST: Scrambled eggs with toast, pancakes, French toast, English breakfast, cereal with milk, bagels with cream cheese
-     * LUNCH: Sandwiches (turkey, ham, BLT), burgers, pizza slices, pasta salads, chicken Caesar salad, club sandwiches  
+     * LUNCH: Sandwiches (turkey, ham, BLT), burgers, pizza slices, pasta salads, chicken Caesar salad, club sandwiches
      * DINNER: Spaghetti with meatballs, grilled chicken with mashed potatoes, beef steak with vegetables, baked fish with rice, pizza, lasagna, roast beef
      * SNACKS: Cheese and crackers, nuts, yogurt, fruit, granola bars
    - If "Mediterranean": Focus on Mediterranean cuisine with olive oil, fish, vegetables, legumes, etc.
@@ -1119,7 +1150,7 @@ Return a JSON object with exactly this structure:
 REQUIREMENTS:
 - Each meal array must have exactly {days} items (one for each day of the {days}-day meal plan)
 - breakfast array: exactly {days} different breakfast meals
-- lunch array: exactly {days} different lunch meals  
+- lunch array: exactly {days} different lunch meals
 - dinner array: exactly {days} different dinner meals
 - snacks array: exactly {days} different snack options
 - Consider medical conditions for ingredient selection
@@ -1137,7 +1168,16 @@ REQUIREMENTS:
                 messages=[
                     {
                         "role": "system",
-                        "content": "You are a meal planning assistant specializing in culturally authentic cuisine. When a user specifies 'Western' or 'European' diet type, you MUST provide traditional Western/European dishes like pizza (regular crust), pasta (wheat-based), sandwiches, burgers, steaks, etc. AVOID health substitutions like gluten-free, quinoa, cauliflower crust, zucchini noodles unless specifically requested. Include 5 healthy traditional meals and 2 indulgent traditional meals per week for balance. Always respond with valid JSON matching the exact structure requested. No explanations or markdown."
+                        "content": (
+                            "You are a meal planning assistant specializing in culturally authentic cuisine. "
+                            "When a user specifies 'Western' or 'European' diet type, you MUST provide "
+                            "traditional Western/European dishes like pizza (regular crust), pasta "
+                            "(wheat-based), sandwiches, burgers, steaks, etc. AVOID health substitutions "
+                            "like gluten-free, quinoa, cauliflower crust, zucchini noodles unless "
+                            "specifically requested. Include 5 healthy traditional meals and 2 indulgent "
+                            "traditional meals per week for balance. Always respond with valid JSON "
+                            "matching the exact structure requested. No explanations or markdown."
+                        )
                     },
                     {"role": "user", "content": prompt}
                 ],
@@ -1146,7 +1186,7 @@ REQUIREMENTS:
                 response_format={"type": "json_object"}
             )
             print("OpenAI response received")
-            
+
             if not response.choices or not response.choices[0].message:
                 raise HTTPException(
                     status_code=500,
@@ -1161,7 +1201,7 @@ REQUIREMENTS:
                 meal_plan = json.loads(raw_content)
                 print("Meal plan parsed successfully:")
                 print(json.dumps(meal_plan, indent=2))
-                
+
                 # Validate meal plan structure
                 required_keys = ['breakfast', 'lunch', 'dinner', 'snacks', 'dailyCalories', 'macronutrients']
                 missing_keys = [key for key in required_keys if key not in meal_plan]
@@ -1237,6 +1277,7 @@ REQUIREMENTS:
             detail=f"An unexpected error occurred: {str(e)}"
         )
 
+
 @app.post("/generate-recipes")
 async def generate_recipes(
     request: FastAPIRequest,
@@ -1248,7 +1289,29 @@ async def generate_recipes(
         print("/generate-recipes endpoint called")
         print("Received meal_plan:", meal_plan)
         # Format the prompt for recipe generation
-        prompt = f"""Generate detailed recipes for the following meal plan:\n{json.dumps(meal_plan, indent=2)}\n\nFor each meal, provide:\n1. A list of ingredients with quantities\n2. Step-by-step preparation instructions\n3. Nutritional information (calories, protein, carbs, fat)\n\nFormat the response as a JSON array of recipe objects with the following structure:\n[\n    {{\n        \"name\": \"Recipe Name\",\n        \"ingredients\": [\"ingredient1\", \"ingredient2\", ...],\n        \"instructions\": [\"step1\", \"step2\", ...],\n        \"nutritional_info\": {{\n            \"calories\": number,\n            \"protein\": number,\n            \"carbs\": number,\n            \"fat\": number\n        }}\n    }},\n    ...\n]"""
+        prompt = (
+            f"Generate detailed recipes for the following meal plan:\n"
+            f"{json.dumps(meal_plan, indent=2)}\n\n"
+            f"For each meal, provide:\n"
+            f"1. A list of ingredients with quantities\n"
+            f"2. Step-by-step preparation instructions\n"
+            f"3. Nutritional information (calories, protein, carbs, fat)\n\n"
+            f"Format the response as a JSON array of recipe objects with the following structure:\n"
+            f"[\n"
+            f"    {{\n"
+            f"        \"name\": \"Recipe Name\",\n"
+            f"        \"ingredients\": [\"ingredient1\", \"ingredient2\", ...],\n"
+            f"        \"instructions\": [\"step1\", \"step2\", ...],\n"
+            f"        \"nutritional_info\": {{\n"
+            f"            \"calories\": number,\n"
+            f"            \"protein\": number,\n"
+            f"            \"carbs\": number,\n"
+            f"            \"fat\": number\n"
+            f"        }}\n"
+            f"    }},\n"
+            f"    ...\n"
+            f"]"
+        )
         print("Prompt for OpenAI:")
         print(prompt)
         response = client.chat.completions.create(
@@ -1270,6 +1333,7 @@ async def generate_recipes(
         print(f"Error in /generate-recipes: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @app.post("/generate-shopping-list")
 async def generate_shopping_list(
     request: FastAPIRequest,
@@ -1287,9 +1351,9 @@ async def generate_shopping_list(
 
                     ––––– UNIT RULES –––––
                     • Express quantities in units a Canadian grocery shopper can actually buy ("purchasable quantity").
-                    – **Fresh herbs** (cilantro/coriander, parsley, mint, dill, etc.): use whole bunches.  
+                    – **Fresh herbs** (cilantro/coriander, parsley, mint, dill, etc.): use whole bunches.
                         *Assume 1 bunch ≈ 30 g; round ⭡ to the nearest whole bunch.*
-                    – **Loose fruit & veg** commonly weighed at checkout (apples, oranges, onions, potatoes, carrots, etc.): use pounds (lb).  
+                    – **Loose fruit & veg** commonly weighed at checkout (apples, oranges, onions, potatoes, carrots, etc.): use pounds (lb).
                         *Round ⭡ to the nearest 1 lb, minimum 1 lb.*
                     – **Packaged produce** (bags of spinach, baby carrots, etc.): round ⭡ to the nearest 250 g (≈ ½ lb) or to the nearest package size you specify in the item name (e.g., "1 × 250 g bag baby spinach").
                     – **Liquids**: keep ml/l, but round ⭡ to the nearest 100 ml (or common bottle size) if <1 l; use whole litres if ≥1 l.
@@ -1298,7 +1362,7 @@ async def generate_shopping_list(
                     – Avoid descriptors like "large" or "medium"; only use count-based units when weight/volume makes no sense.
 
                     ––––– SANITY CHECK –––––
-                    After calculating totals, scan the list for obviously implausible amounts (e.g., >2 bunches of coriander for ≤8 servings, >5 lb of garlic, etc.).  
+                    After calculating totals, scan the list for obviously implausible amounts (e.g., >2 bunches of coriander for ≤8 servings, >5 lb of garlic, etc.).
                     If an amount seems unrealistic, recompute or cap it to a reasonable upper bound and add a "note" field explaining the adjustment.
 
                     ––––– ROUNDING GRID (CANADIAN GROCERY) –––––
@@ -1317,12 +1381,12 @@ async def generate_shopping_list(
                         *Example 1.43 lb cauliflower ⇒ "1 head (≈1.5 lb)".*
 
                     • Herbs with stems (cilantro/coriander, parsley, dill, mint, etc.):
-                    – Use **bunches**. 1 bunch ≈ 30 g.  
+                    – Use **bunches**. 1 bunch ≈ 30 g.
                         Round up to the nearest whole bunch **but also sanity-cap at 3 bunches unless recipe count clearly justifies more**.
 
                     • Ginger, garlic bulbs, green chilli, curry leaves:
-                    – Sell by weight or count in small amounts.  
-                        ➜ Round ginger/garlic/chilli up to **0.25 lb** increments.  
+                    – Sell by weight or count in small amounts.
+                        ➜ Round ginger/garlic/chilli up to **0.25 lb** increments.
                         ➜ For garlic bulbs or curry leaves sold by unit, keep **pieces** but sanity-cap at 1 bulb per 2 cloves required (e.g., 38 cloves ⇒ 19 bulbs max, but prefer 4 bulbs and note the assumption).
 
                     • Liquids (milk, oil, stock, etc.):
@@ -1331,7 +1395,7 @@ async def generate_shopping_list(
                     • Dry pantry staples (flour, rice, sugar, lentils, pasta, etc.):
                     – Round up to the next **100 g** below 1 kg, else the next **0.5 kg**.
 
-                    After rounding, perform a **sanity sweep**.  
+                    After rounding, perform a **sanity sweep**.
                     Flag anything that still looks extreme (e.g., >3 lb chilli, >3 bunches cilantro for ≤8 servings) and reduce to a realistic maximum, adding `"note"` to explain.
 
                     ––––– OUTPUT FORMAT –––––
@@ -1376,7 +1440,8 @@ async def generate_shopping_list(
         except Exception as parse_err:
             print("Error parsing OpenAI response as JSON:")
             print(parse_err)
-            raise HTTPException(status_code=500, detail=f"OpenAI response not valid JSON: {parse_err}\nRaw response: {raw_content}")
+            raise HTTPException(status_code=500,
+                                detail=f"OpenAI response not valid JSON: {parse_err}\nRaw response: {raw_content}")
         await save_shopping_list(
             user_id=current_user["email"],
             shopping_list={"items": shopping_list}
@@ -1385,6 +1450,7 @@ async def generate_shopping_list(
     except Exception as e:
         print(f"Error in /generate-shopping-list: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.post("/export/consolidated-meal-plan")
 async def export_consolidated_meal_plan(current_user: User = Depends(get_current_user)):
@@ -1412,7 +1478,7 @@ async def export_consolidated_meal_plan(current_user: User = Depends(get_current
         # Add cover page
         try:
             cover_path = os.path.join("assets", "coverpage.png")
-            elements.append(RLImage(cover_path, width=10*inch, height=6*inch))
+            elements.append(RLImage(cover_path, width=10 * inch, height=6 * inch))
             elements.append(Spacer(1, 48))
         except Exception as cover_err:
             print(f"Could not add cover page: {cover_err}")
@@ -1432,7 +1498,7 @@ async def export_consolidated_meal_plan(current_user: User = Depends(get_current
                 latest_meal_plan["dinner"][i] if i < len(latest_meal_plan["dinner"]) else "",
                 latest_meal_plan["snacks"][i] if i < len(latest_meal_plan["snacks"]) else "",
             ])
-        col_widths = [0.8*inch, 2.5*inch, 2.5*inch, 2.5*inch, 2.5*inch]
+        col_widths = [0.8 * inch, 2.5 * inch, 2.5 * inch, 2.5 * inch, 2.5 * inch]
         table = Table(data, colWidths=col_widths)
         table.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
@@ -1504,6 +1570,7 @@ async def export_consolidated_meal_plan(current_user: User = Depends(get_current
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @app.post("/export/{type}")
 async def export_document(
     type: str,
@@ -1512,7 +1579,7 @@ async def export_document(
 ):
     try:
         data = await request.json()
-        
+
         if type == "meal-plan":
             content = data["meal_plan"]
             title = "Meal Plan"
@@ -1549,7 +1616,7 @@ async def export_document(
                     content["snacks"][i] if i < len(content["snacks"]) else "",
                 ])
             # Set column widths
-            col_widths = [0.8*inch, 2.5*inch, 2.5*inch, 2.5*inch, 2.5*inch]
+            col_widths = [0.8 * inch, 2.5 * inch, 2.5 * inch, 2.5 * inch, 2.5 * inch]
             table = Table(data, colWidths=col_widths)
             table.setStyle(TableStyle([
                 ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
@@ -1626,6 +1693,7 @@ async def export_document(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @app.post("/chat/message")
 async def send_chat_message(
     message: ChatMessage,
@@ -1638,16 +1706,16 @@ async def send_chat_message(
         is_user=True,
         session_id=message.session_id
     )
-    
+
     # Get chat history for context
     chat_history = await format_chat_history_for_prompt(
         current_user["id"],
         message.session_id or user_message["session_id"]
     )
-    
+
     # 🧠 ENHANCED AI COACH CONTEXT - Get comprehensive user data
     profile = current_user.get("profile", {})
-    
+
     # Get recent meal plans (last 3 for context)
     try:
         recent_meal_plans = await get_user_meal_plans(current_user["id"])
@@ -1655,7 +1723,7 @@ async def send_chat_message(
     except Exception as e:
         print(f"Error fetching meal plans for chat context: {e}")
         recent_meal_plans = []
-    
+
     # Get recent consumption history (last 7 days)
     try:
         recent_consumption = await get_user_consumption_history(current_user["id"], limit=20)
@@ -1663,13 +1731,13 @@ async def send_chat_message(
         from datetime import datetime, timedelta
         seven_days_ago = datetime.utcnow() - timedelta(days=7)
         recent_consumption = [
-            record for record in recent_consumption 
+            record for record in recent_consumption
             if datetime.fromisoformat(record.get("timestamp", "").replace("Z", "+00:00")) > seven_days_ago
         ]
     except Exception as e:
         print(f"Error fetching consumption history for chat context: {e}")
         recent_consumption = []
-    
+
     # Get today's consumption for daily tracking
     try:
         today = datetime.utcnow().date()
@@ -1681,7 +1749,7 @@ async def send_chat_message(
     except Exception as e:
         print(f"Error filtering today's consumption: {e}")
         today_consumption = []
-    
+
     # Calculate today's nutritional totals
     today_totals = {"calories": 0, "protein": 0, "carbs": 0, "fat": 0}
     for record in today_consumption:
@@ -1690,19 +1758,19 @@ async def send_chat_message(
         today_totals["protein"] += nutritional_info.get("protein", 0)
         today_totals["carbs"] += nutritional_info.get("carbohydrates", 0)
         today_totals["fat"] += nutritional_info.get("fat", 0)
-    
+
     # Get user's goals from profile or latest meal plan
     calorie_goal = 2000  # Default
     macro_goals = {"protein": 100, "carbs": 250, "fat": 70}  # Defaults
-    
+
     if profile.get("calorieTarget"):
         try:
             calorie_goal = int(profile["calorieTarget"])
-        except:
+        except BaseException:
             pass
     elif recent_meal_plans and recent_meal_plans[0].get("dailyCalories"):
         calorie_goal = recent_meal_plans[0]["dailyCalories"]
-    
+
     if profile.get("macroGoals"):
         macro_goals.update(profile["macroGoals"])
     elif recent_meal_plans and recent_meal_plans[0].get("macronutrients"):
@@ -1712,13 +1780,13 @@ async def send_chat_message(
             "carbs": macros.get("carbs", 250),
             "fat": macros.get("fats", 70)
         }
-    
+
     # Calculate adherence and progress
     calorie_adherence = (today_totals["calories"] / calorie_goal * 100) if calorie_goal > 0 else 0
     protein_adherence = (today_totals["protein"] / macro_goals["protein"] * 100) if macro_goals["protein"] > 0 else 0
     carb_adherence = (today_totals["carbs"] / macro_goals["carbs"] * 100) if macro_goals["carbs"] > 0 else 0
     fat_adherence = (today_totals["fat"] / macro_goals["fat"] * 100) if macro_goals["fat"] > 0 else 0
-    
+
     # Analyze recent consumption patterns
     diabetes_suitable_count = 0
     total_recent_records = len(recent_consumption)
@@ -1727,9 +1795,9 @@ async def send_chat_message(
         diabetes_suitability = medical_rating.get("diabetes_suitability", "").lower()
         if diabetes_suitability in ["high", "good", "suitable"]:
             diabetes_suitable_count += 1
-    
+
     diabetes_adherence = (diabetes_suitable_count / total_recent_records * 100) if total_recent_records > 0 else 0
-    
+
     # Create comprehensive AI Coach system prompt
     system_prompt = f"""You are an advanced AI Diet Coach and Diabetes Management Specialist. You are the central intelligence of a comprehensive diabetes meal planning and tracking system.
 
@@ -1751,7 +1819,7 @@ async def send_chat_message(
 🎯 **DAILY GOALS & PROGRESS**:
 - Calorie Goal: {calorie_goal} kcal
 - Protein Goal: {macro_goals['protein']}g
-- Carb Goal: {macro_goals['carbs']}g  
+- Carb Goal: {macro_goals['carbs']}g
 - Fat Goal: {macro_goals['fat']}g
 
 📊 **TODAY'S PROGRESS** ({datetime.utcnow().strftime('%B %d, %Y')}):
@@ -1796,7 +1864,7 @@ async def send_chat_message(
 - Use emojis appropriately to make interactions engaging
 
 Remember: You have access to their complete meal planning and consumption history. Use this data to provide highly personalized, contextual advice that feels like it comes from someone who truly knows their journey."""
-    
+
     # Ensure chat history is a list of message objects
     formatted_chat_history = []
     for msg in chat_history:
@@ -1805,7 +1873,7 @@ Remember: You have access to their complete meal planning and consumption histor
             formatted_chat_history.append(
                 {"role": "user", "content": content} if is_user else {"role": "assistant", "content": content}
             )
-    
+
     # Generate response using OpenAI
     response = client.chat.completions.create(
         model=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
@@ -1821,9 +1889,10 @@ Remember: You have access to their complete meal planning and consumption histor
         presence_penalty=0.0,
         stream=True
     )
-    
+
     # Stream the response and collect the full message
     full_message = ""
+
     async def generate():
         nonlocal full_message
         try:
@@ -1842,10 +1911,10 @@ Remember: You have access to their complete meal planning and consumption histor
             if full_message:
                 # Send whatever was accumulated as final SSE event
                 yield f"data: {json.dumps({'content': full_message})}\n\n"
-    
+
     # Create a streaming response
     streaming_response = StreamingResponse(generate(), media_type="text/event-stream")
-    
+
     # Save the complete assistant message after streaming is done
     async def save_message():
         if full_message:
@@ -1855,11 +1924,12 @@ Remember: You have access to their complete meal planning and consumption histor
                 is_user=False,
                 session_id=user_message["session_id"]
             )
-    
+
     # Add a callback to save the message after streaming
     streaming_response.background = save_message
-    
+
     return streaming_response
+
 
 @app.get("/chat/history")
 async def get_chat_history(
@@ -1869,10 +1939,12 @@ async def get_chat_history(
     messages = await get_recent_chat_history(current_user["id"], session_id)
     return messages
 
+
 @app.get("/chat/sessions")
 async def get_chat_sessions(current_user: User = Depends(get_current_user)):
     sessions = await get_user_sessions(current_user["id"])
     return sessions
+
 
 @app.delete("/chat/history")
 async def delete_chat_history(
@@ -1882,11 +1954,12 @@ async def delete_chat_history(
     await clear_chat_history(current_user["id"], session_id)
     return {"message": "Chat history cleared successfully"}
 
+
 @app.get("/users/me")
 async def get_current_user_info(current_user: User = Depends(get_current_user)):
     """Get current user information"""
     print("Current user data:", current_user)  # Add logging
-    
+
     # Get patient info if available
     patient_name = None
     if current_user.get("patient_id"):
@@ -1896,7 +1969,7 @@ async def get_current_user_info(current_user: User = Depends(get_current_user)):
                 patient_name = patient.get("name")
         except Exception as e:
             print(f"Error fetching patient info: {str(e)}")
-    
+
     return {
         "email": current_user["email"],
         "username": current_user["username"],
@@ -1906,6 +1979,7 @@ async def get_current_user_info(current_user: User = Depends(get_current_user)):
         "consent_timestamp": current_user.get("consent_timestamp", None),
         "policy_version": current_user.get("policy_version", None)
     }
+
 
 @app.post("/user/profile")
 async def save_user_profile(
@@ -1923,12 +1997,14 @@ async def save_user_profile(
     user_container.replace_item(item=user_doc["id"], body=user_doc)
     return {"message": "Profile saved"}
 
+
 @app.get("/user/profile")
 async def get_user_profile(current_user: User = Depends(get_current_user)):
     user_doc = await get_user_by_email(current_user["email"])
     if not user_doc or "profile" not in user_doc:
         return {}
     return user_doc["profile"]
+
 
 @app.post("/generate-recipe")
 async def generate_recipe(
@@ -1942,33 +2018,36 @@ async def generate_recipe(
         print("/generate-recipe endpoint called")
         print("Meal name:", meal_name)
         print("User profile:", user_profile)
-        
+
         if not meal_name:
             raise HTTPException(status_code=400, detail="No meal name provided")
-        
+
         # Check if OpenAI client is properly configured
         if not client:
             print("ERROR: OpenAI client is not initialized")
             raise HTTPException(status_code=500, detail="OpenAI client not configured")
-        
+
         # Check environment variables
         openai_key = os.getenv("AZURE_OPENAI_KEY")
         openai_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
         deployment_name = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME")
-        
+
         print(f"OpenAI Key exists: {bool(openai_key)}")
         print(f"OpenAI Endpoint: {openai_endpoint}")
         print(f"Deployment Name: {deployment_name}")
-        
+
         if not openai_key or not openai_endpoint or not deployment_name:
             missing = []
-            if not openai_key: missing.append("AZURE_OPENAI_KEY")
-            if not openai_endpoint: missing.append("AZURE_OPENAI_ENDPOINT")
-            if not deployment_name: missing.append("AZURE_OPENAI_DEPLOYMENT_NAME")
+            if not openai_key:
+                missing.append("AZURE_OPENAI_KEY")
+            if not openai_endpoint:
+                missing.append("AZURE_OPENAI_ENDPOINT")
+            if not deployment_name:
+                missing.append("AZURE_OPENAI_DEPLOYMENT_NAME")
             error_msg = f"Missing environment variables: {', '.join(missing)}"
             print(f"ERROR: {error_msg}")
             raise HTTPException(status_code=500, detail=error_msg)
-        
+
         # Create profile summary for recipe generation
         def get_profile_value(profile, new_key, old_key=None, default='Not specified'):
             value = profile.get(new_key)
@@ -2028,10 +2107,10 @@ Format the response as a JSON object with the following structure:
         "fat": "number with unit, e.g. '4g'"
     }}
 }}"""
-        
+
         print("Prompt for OpenAI:")
         print(prompt[:200] + "..." if len(prompt) > 200 else prompt)
-        
+
         try:
             print("Calling OpenAI API...")
             response = client.chat.completions.create(
@@ -2052,23 +2131,24 @@ Format the response as a JSON object with the following structure:
             elif "quota" in str(openai_error).lower():
                 raise HTTPException(status_code=503, detail="OpenAI quota exceeded. Please check your API limits.")
             elif "authentication" in str(openai_error).lower() or "401" in str(openai_error):
-                raise HTTPException(status_code=500, detail="OpenAI authentication failed. Please check API credentials.")
+                raise HTTPException(status_code=500,
+                                    detail="OpenAI authentication failed. Please check API credentials.")
             elif "network" in str(openai_error).lower() or "connection" in str(openai_error).lower():
                 raise HTTPException(status_code=502, detail="Network error connecting to OpenAI. Please try again.")
             else:
                 raise HTTPException(status_code=500, detail=f"OpenAI API error: {str(openai_error)}")
-        
+
         raw_content = response.choices[0].message.content
         print("Raw OpenAI response received")
         print(f"Response length: {len(raw_content) if raw_content else 0}")
-        
+
         if not raw_content:
             raise HTTPException(status_code=500, detail="Empty response from OpenAI")
-        
+
         # Remove Markdown code block if present
         if raw_content.strip().startswith('```'):
             raw_content = re.sub(r'^```[a-zA-Z]*\s*|```$', '', raw_content.strip(), flags=re.MULTILINE).strip()
-        
+
         try:
             recipe = json.loads(raw_content)
             print("Successfully parsed recipe JSON")
@@ -2080,9 +2160,9 @@ Format the response as a JSON object with the following structure:
         except Exception as parse_err:
             print(f"Unexpected parsing error: {str(parse_err)}")
             raise HTTPException(status_code=500, detail=f"Error parsing OpenAI response: {str(parse_err)}")
-        
+
         return recipe
-        
+
     except HTTPException:
         # Re-raise HTTP exceptions as-is
         raise
@@ -2091,6 +2171,7 @@ Format the response as a JSON object with the following structure:
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
 
 @app.get("/user/shopping-list")
 async def get_user_shopping_list(current_user: User = Depends(get_current_user)):
@@ -2106,6 +2187,7 @@ async def get_user_shopping_list(current_user: User = Depends(get_current_user))
         print(f"Error fetching shopping list: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @app.post("/user/shopping-list")
 async def save_user_shopping_list(request: FastAPIRequest, current_user: User = Depends(get_current_user)):
     data = await request.json()
@@ -2119,6 +2201,7 @@ async def save_user_shopping_list(request: FastAPIRequest, current_user: User = 
         print(f"Error saving shopping list: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @app.get("/user/recipes")
 async def get_user_recipes_endpoint(current_user: User = Depends(get_current_user)):
     """Get the most recent recipes for the current user"""
@@ -2130,6 +2213,7 @@ async def get_user_recipes_endpoint(current_user: User = Depends(get_current_use
     except Exception as e:
         print(f"Error fetching recipes: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.post("/user/recipes")
 async def save_user_recipes(request: FastAPIRequest, current_user: User = Depends(get_current_user)):
@@ -2144,6 +2228,7 @@ async def save_user_recipes(request: FastAPIRequest, current_user: User = Depend
         print(f"Error saving recipes: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request: FastAPIRequest, exc: Exception):
     print(f"Global exception handler: {exc}", file=sys.stderr)
@@ -2154,15 +2239,18 @@ async def global_exception_handler(request: FastAPIRequest, exc: Exception):
         content={"detail": str(exc)},
     )
 
+
 @app.post("/test-echo")
 async def test_echo(current_user: User = Depends(get_current_user)):
     print(">>>> Entered /test-echo endpoint")
     return {"ok": True}
 
+
 @app.post("/export/test-minimal")
 async def export_test_minimal():
     print(">>>> Entered /export/test-minimal endpoint")
     return {"ok": True}
+
 
 @app.post("/generate_plan")
 async def generate_plan(
@@ -2172,7 +2260,7 @@ async def generate_plan(
     """Save a generated meal plan to history"""
     try:
         data = await request.json()
-        
+
         # Validate required fields
         required_fields = ["user_profile", "recipes", "shopping_list"]
         for field in required_fields:
@@ -2181,10 +2269,10 @@ async def generate_plan(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=f"Missing required field: {field}"
                 )
-        
+
         # Save the meal plan using Cosmos DB
         meal_plan = await save_meal_plan(current_user["email"], data)
-        
+
         return {
             "status": "success",
             "message": "Meal plan saved successfully",
@@ -2195,6 +2283,7 @@ async def generate_plan(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e)
         )
+
 
 @app.get("/meal_plans")
 async def get_meal_plans(
@@ -2210,6 +2299,7 @@ async def get_meal_plans(
             detail=f"Failed to retrieve meal plans: {str(e)}"
         )
 
+
 @app.get("/meal_plans/{plan_id}")
 async def get_meal_plan(
     plan_id: str,
@@ -2220,13 +2310,13 @@ async def get_meal_plan(
         # Query Cosmos DB for the specific meal plan
         query = f"SELECT * FROM c WHERE c.type = 'meal_plan' AND c.id = '{plan_id}' AND c.user_id = '{current_user['id']}'"
         items = list(interactions_container.query_items(query=query, enable_cross_partition_query=True))
-        
+
         if not items:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Meal plan not found"
             )
-            
+
         return {"meal_plan": items[0]}
     except HTTPException:
         raise
@@ -2236,7 +2326,8 @@ async def get_meal_plan(
             detail=f"Failed to retrieve meal plan: {str(e)}"
         )
 
-@app.delete("/meal_plans/all") # Use DELETE with a specific path for clarity
+
+@app.delete("/meal_plans/all")  # Use DELETE with a specific path for clarity
 async def delete_all_meal_plans_endpoint(
     current_user: Dict[str, Any] = Depends(get_current_user)
 ):
@@ -2261,6 +2352,7 @@ async def delete_all_meal_plans_endpoint(
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Failed to delete all meal plans: {str(e)}")
 
+
 @app.delete("/meal_plans/{plan_id}")
 async def delete_meal_plan(
     plan_id: str,
@@ -2270,16 +2362,17 @@ async def delete_meal_plan(
     try:
         user_id = current_user.get("email")
         if not user_id:
-             raise HTTPException(status_code=400, detail="User ID not found in token.")
+            raise HTTPException(status_code=400, detail="User ID not found in token.")
         deleted = await delete_meal_plan_by_id(plan_id, user_id)
         if not deleted:
-             raise HTTPException(status_code=404, detail="Meal plan not found or does not belong to user.")
+            raise HTTPException(status_code=404, detail="Meal plan not found or does not belong to user.")
         return {"message": f"Meal plan '{plan_id}' deleted successfully"}
     except Exception as e:
         print(f"Error in DELETE /meal_plans/{{plan_id}}: {e}")
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Failed to delete meal plan: {str(e)}")
+
 
 @app.post("/meal_plans/bulk_delete")
 async def bulk_delete_meal_plans(
@@ -2289,7 +2382,7 @@ async def bulk_delete_meal_plans(
     """Deletes a list of specific meal plans by ID for the current user."""
     if not plan_ids:
         raise HTTPException(status_code=400, detail="No meal plan IDs provided for deletion.")
-        
+
     user_id = current_user.get("email")
     if not user_id:
         raise HTTPException(status_code=400, detail="User ID not found in token.")
@@ -2297,7 +2390,7 @@ async def bulk_delete_meal_plans(
     deleted_count = 0
     failed_deletions = []
     corrupted_plans = []
-    
+
     for plan_id in plan_ids:
         try:
             if not plan_id:
@@ -2309,7 +2402,7 @@ async def bulk_delete_meal_plans(
                 plan_id = f'meal_plan_{plan_id}'
 
             deleted = await delete_meal_plan_by_id(plan_id, user_id)
-            
+
             if deleted:
                 deleted_count += 1
             else:
@@ -2319,7 +2412,7 @@ async def bulk_delete_meal_plans(
                     query=query,
                     enable_cross_partition_query=True
                 ))
-                
+
                 if items:
                     # Plan exists but might be corrupted
                     plan = items[0]
@@ -2338,19 +2431,20 @@ async def bulk_delete_meal_plans(
 
     if deleted_count == 0 and not failed_deletions and not corrupted_plans:
         raise HTTPException(status_code=404, detail="No meal plans were found to delete.")
-    
+
     response = {
         "message": f"Successfully deleted {deleted_count} meal plan(s).",
         "deleted_count": deleted_count
     }
-    
+
     if failed_deletions:
         response["failed_deletions"] = failed_deletions
-    
+
     if corrupted_plans:
         response["corrupted_plans"] = corrupted_plans
-    
+
     return response
+
 
 @app.get("/view-meal-plans")
 async def view_meal_plans_endpoint(current_user: Dict[str, Any] = Depends(get_current_user)):
@@ -2364,6 +2458,7 @@ async def view_meal_plans_endpoint(current_user: Dict[str, Any] = Depends(get_cu
             detail=str(e)
         )
 
+
 @app.post("/save-consolidated-pdf")
 async def save_consolidated_pdf_endpoint(
     request: FastAPIRequest,
@@ -2375,27 +2470,27 @@ async def save_consolidated_pdf_endpoint(
         meal_plan = data.get('meal_plan', {})
         recipes = data.get('recipes', [])
         shopping_list = data.get('shopping_list', [])
-        
+
         print("Generating consolidated PDF for saving...")
-        
+
         # Generate PDF using the same logic as the download endpoint
         buffer = BytesIO()
         doc = SimpleDocTemplate(buffer, pagesize=landscape(letter))
         elements = []
         styles = getSampleStyleSheet()
-        
+
         # Add cover page
         try:
             cover_path = os.path.join("assets", "coverpage.png")
-            elements.append(RLImage(cover_path, width=10*inch, height=6*inch))
+            elements.append(RLImage(cover_path, width=10 * inch, height=6 * inch))
             elements.append(Spacer(1, 48))
         except Exception as cover_err:
             print(f"Could not add cover page: {cover_err}")
-        
+
         # Title
         elements.append(Paragraph("Consolidated Meal Plan", styles['Title']))
         elements.append(Spacer(1, 12))
-        
+
         # Meal Plan Section
         elements.append(Paragraph("Meal Plan", styles['Heading1']))
         elements.append(Spacer(1, 12))
@@ -2409,7 +2504,7 @@ async def save_consolidated_pdf_endpoint(
                 meal_plan["dinner"][i] if i < len(meal_plan["dinner"]) else "",
                 meal_plan["snacks"][i] if i < len(meal_plan["snacks"]) else "",
             ])
-        col_widths = [0.8*inch, 2.5*inch, 2.5*inch, 2.5*inch, 2.5*inch]
+        col_widths = [0.8 * inch, 2.5 * inch, 2.5 * inch, 2.5 * inch, 2.5 * inch]
         table = Table(data_table, colWidths=col_widths)
         table.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
@@ -2430,7 +2525,7 @@ async def save_consolidated_pdf_endpoint(
                 table._cellvalues[row][col] = Paragraph(str(table._cellvalues[row][col]), styles['BodyText'])
         elements.append(table)
         elements.append(Spacer(1, 24))
-        
+
         # Recipes Section (new page)
         elements.append(PageBreak())
         elements.append(Paragraph("Recipes", styles['Heading1']))
@@ -2452,7 +2547,7 @@ async def save_consolidated_pdf_endpoint(
             for i, instruction in enumerate(recipe["instructions"], 1):
                 elements.append(Paragraph(f"{i}. {instruction}", styles['Normal']))
             elements.append(Spacer(1, 24))
-        
+
         # Shopping List Section (new page)
         elements.append(PageBreak())
         elements.append(Paragraph("Shopping List", styles['Heading1']))
@@ -2468,23 +2563,23 @@ async def save_consolidated_pdf_endpoint(
             for item in items:
                 elements.append(Paragraph(f"• {item['name']} - {item['amount']}", styles['Normal']))
             elements.append(Spacer(1, 24))
-        
+
         doc.build(elements)
         buffer.seek(0)
-        
+
         # Create filename
         username = current_user["email"].split("@")[0]
         date_str = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"{username}_{date_str}_consolidated_meal_plan.pdf"
-        
+
         # Save PDF to a storage directory (create directory if it doesn't exist)
         storage_dir = os.path.join("storage", "pdfs")
         os.makedirs(storage_dir, exist_ok=True)
         file_path = os.path.join(storage_dir, filename)
-        
+
         with open(file_path, 'wb') as f:
             f.write(buffer.getvalue())
-        
+
         # Return PDF info for storage in meal plan
         pdf_info = {
             "filename": filename,
@@ -2492,14 +2587,15 @@ async def save_consolidated_pdf_endpoint(
             "generated_at": datetime.now().isoformat(),
             "file_size": len(buffer.getvalue())
         }
-        
+
         print(f"Consolidated PDF saved to: {file_path}")
         return {"pdf_info": pdf_info}
-        
+
     except Exception as e:
         print("Error in /save-consolidated-pdf:")
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.get("/download-saved-pdf/{filename}")
 async def download_saved_pdf(
@@ -2512,23 +2608,24 @@ async def download_saved_pdf(
         username = current_user["email"].split("@")[0]
         if not filename.startswith(username) or ".." in filename or "/" in filename:
             raise HTTPException(status_code=403, detail="Access denied")
-        
+
         file_path = os.path.join("storage", "pdfs", filename)
-        
+
         if not os.path.exists(file_path):
             raise HTTPException(status_code=404, detail="PDF file not found")
-        
+
         return FileResponse(
             file_path,
             media_type="application/pdf",
             filename=filename
         )
-        
+
     except HTTPException:
         raise
     except Exception as e:
         print(f"Error downloading saved PDF: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.post("/save-full-meal-plan")
 async def save_full_meal_plan_endpoint(
@@ -2537,23 +2634,23 @@ async def save_full_meal_plan_endpoint(
 ):
     """Saves the full meal plan data including recipes, shopping list, and PDF reference."""
     try:
-        user_id = current_user.get("email") # Or use "id" depending on how you identify users
+        user_id = current_user.get("email")  # Or use "id" depending on how you identify users
         if not user_id:
-             raise HTTPException(status_code=400, detail="User ID not found in token.")
-             
+            raise HTTPException(status_code=400, detail="User ID not found in token.")
+
         # The save_meal_plan function in database.py is designed to accept
         # the meal_plan dictionary and use **meal_plan, so we can pass the
         # full_meal_plan_data directly if it contains the required base fields
         # (breakfast, lunch, etc.) plus recipes, shopping_list, and consolidated_pdf.
-        
+
         # It might be a good idea to add validation here or in save_meal_plan
         # to ensure the basic meal plan fields are present.
 
         saved_plan = await save_meal_plan(user_id, full_meal_plan_data)
-        
+
         # You might want to return the saved_plan data or just a success message
         return {"message": "Meal plan saved successfully", "plan_id": saved_plan.get("id")}
-        
+
     except ValueError as e:
         # Handle validation errors from save_meal_plan
         raise HTTPException(status_code=400, detail=str(e))
@@ -2563,6 +2660,7 @@ async def save_full_meal_plan_endpoint(
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail="An error occurred while saving the meal plan.")
+
 
 @app.get("/debug/meal_plans")
 async def debug_meal_plans(current_user: User = Depends(get_current_user)):
@@ -2582,6 +2680,7 @@ async def debug_meal_plans(current_user: User = Depends(get_current_user)):
         traceback.print_exc()
         raise HTTPException(status_code=500, detail="Internal server error")
 
+
 @app.post("/consumption/analyze-and-record")
 async def analyze_and_record_food(
     image: UploadFile = File(...),
@@ -2592,27 +2691,28 @@ async def analyze_and_record_food(
     """Analyze food image and optionally record to consumption history"""
     try:
         print(f"[analyze_and_record_food] Starting analysis for user {current_user['id']}")
-        
+
         # Read and validate image
         contents = await image.read()
-        
+
         # Validate file type and size
         if len(contents) == 0:
             raise HTTPException(status_code=400, detail="Empty file uploaded")
-        
+
         if len(contents) > 10 * 1024 * 1024:  # 10MB limit
             raise HTTPException(status_code=400, detail="File too large. Maximum size is 10MB")
-        
+
         # Check file extension
         allowed_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp'}
         file_extension = image.filename.lower().split('.')[-1] if image.filename else ''
         if not file_extension or f'.{file_extension}' not in allowed_extensions:
-            raise HTTPException(status_code=400, detail=f"Unsupported file format. Allowed formats: {', '.join(allowed_extensions)}")
-        
+            raise HTTPException(status_code=400,
+                                detail=f"Unsupported file format. Allowed formats: {', '.join(allowed_extensions)}")
+
         try:
             # Try to open and validate the image
             img = Image.open(BytesIO(contents))
-            
+
             # Convert to RGB if necessary (handles RGBA, P modes, etc.)
             if img.mode in ('RGBA', 'LA', 'P'):
                 background = Image.new('RGB', img.size, (255, 255, 255))
@@ -2622,33 +2722,33 @@ async def analyze_and_record_food(
                 img = background
             elif img.mode != 'RGB':
                 img = img.convert('RGB')
-            
+
             # Resize if too large (max 1024x1024 for processing efficiency)
             max_size = 1024
             if img.width > max_size or img.height > max_size:
                 img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
-            
+
             # Convert image to base64
             buffered = BytesIO()
             img.save(buffered, format="JPEG", quality=85, optimize=True)
             img_str = base64.b64encode(buffered.getvalue()).decode()
-            
+
             print("[analyze_and_record_food] Image processed and converted to base64")
-            
+
         except Exception as img_error:
             print(f"[analyze_and_record_food] Image processing error: {str(img_error)}")
             raise HTTPException(
-                status_code=400, 
+                status_code=400,
                 detail=f"Invalid or corrupted image file. Please upload a valid image in one of these formats: {', '.join(allowed_extensions)}"
             )
-        
+
         # Generate structured analysis using OpenAI
         response = client.chat.completions.create(
             model=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
             messages=[
                 {
                     "role": "system",
-                    "content": """You are a nutrition analysis expert for diabetes patients. 
+                    "content": """You are a nutrition analysis expert for diabetes patients.
                     Analyze the food image and return a structured JSON response with the following format:
                     {
                         "food_name": "descriptive name of the food",
@@ -2691,12 +2791,12 @@ async def analyze_and_record_food(
             max_tokens=800,
             temperature=0.3
         )
-        
+
         print("[analyze_and_record_food] Received analysis from OpenAI")
-        
+
         # Get the response content
         analysis_text = response.choices[0].message.content
-        
+
         # Try to parse JSON from the response
         try:
             import json
@@ -2729,7 +2829,7 @@ async def analyze_and_record_food(
                 },
                 "analysis_notes": analysis_text
             }
-        
+
         # Prepare consumption data
         consumption_data = {
             "food_name": analysis_data.get("food_name"),
@@ -2740,14 +2840,14 @@ async def analyze_and_record_food(
             "image_url": img_str,
             "meal_type": (meal_type or "").lower()
         }
-        
+
         print(f"[analyze_and_record_food] Prepared consumption data: {consumption_data}")
-        
+
         # Save to consumption history
         print(f"[analyze_and_record_food] Attempting to save consumption record for user {current_user['id']}")
         consumption_record = await save_consumption_record(current_user["email"], consumption_data, meal_type=meal_type or "")
         print(f"[analyze_and_record_food] Successfully saved consumption record with ID: {consumption_record['id']}")
-        
+
         # Also save to chat if session_id is provided
         if session_id:
             print(f"[analyze_and_record_food] Saving to chat with session_id: {session_id}")
@@ -2759,7 +2859,7 @@ async def analyze_and_record_food(
                 session_id=session_id,
                 image_url=img_str
             )
-            
+
             # Save assistant response
             summary_message = f"**Food Recorded: {analysis_data.get('food_name')}**\n\n"
             summary_message += f"📊 **Nutritional Info (per {analysis_data.get('estimated_portion')}):**\n"
@@ -2770,7 +2870,7 @@ async def analyze_and_record_food(
             summary_message += f"🩺 **Diabetes Suitability:** {analysis_data.get('medical_rating', {}).get('diabetes_suitability', 'N/A').title()}\n"
             summary_message += f"📈 **Glycemic Impact:** {analysis_data.get('medical_rating', {}).get('glycemic_impact', 'N/A').title()}\n\n"
             summary_message += f"💡 **Notes:** {analysis_data.get('analysis_notes', '')}"
-            
+
             await save_chat_message(
                 current_user["email"],
                 summary_message,
@@ -2778,13 +2878,14 @@ async def analyze_and_record_food(
                 session_id=session_id
             )
             print("[analyze_and_record_food] Successfully saved chat messages")
-        
+
         return {"consumption_record_id": consumption_record["id"], "analysis": analysis_data}
-        
+
     except Exception as e:
         print(f"[analyze_and_record_food] Error: {str(e)}")
         print(f"[analyze_and_record_food] Full error details:", traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.get("/consumption/history")
 async def get_consumption_history(
@@ -2794,17 +2895,18 @@ async def get_consumption_history(
     """Get consumption history - USING ORIGINAL FUNCTION with better error handling"""
     try:
         print(f"[get_consumption_history] Getting history for user {current_user['id']}")
-        
+
         # Use the original database function
         history = await get_user_consumption_history(current_user["email"], limit)
         print(f"[get_consumption_history] Retrieved {len(history)} records")
-        
+
         return history
-        
+
     except Exception as e:
         print(f"[get_consumption_history] Error: {str(e)}")
         print(f"[get_consumption_history] Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Failed to get consumption history: {str(e)}")
+
 
 @app.get("/consumption/analytics")
 async def get_consumption_analytics_endpoint(
@@ -2814,17 +2916,18 @@ async def get_consumption_analytics_endpoint(
     """Get consumption analytics - USING ORIGINAL FUNCTION with better error handling"""
     try:
         print(f"[get_consumption_analytics] Getting analytics for user {current_user['id']} for {days} days")
-        
+
         # Use the original database function
         analytics = await get_consumption_analytics(current_user["email"], days)
         print(f"[get_consumption_analytics] Generated analytics successfully")
-        
+
         return analytics
-        
+
     except Exception as e:
         print(f"[get_consumption_analytics] Error: {str(e)}")
         print(f"[get_consumption_analytics] Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Failed to get consumption analytics: {str(e)}")
+
 
 @app.post("/chat/analyze-image")
 async def analyze_image(
@@ -2835,24 +2938,25 @@ async def analyze_image(
     try:
         # Read and validate image
         contents = await image.read()
-        
+
         # Validate file type and size
         if len(contents) == 0:
             raise HTTPException(status_code=400, detail="Empty file uploaded")
-        
+
         if len(contents) > 10 * 1024 * 1024:  # 10MB limit
             raise HTTPException(status_code=400, detail="File too large. Maximum size is 10MB")
-        
+
         # Check file extension
         allowed_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp'}
         file_extension = image.filename.lower().split('.')[-1] if image.filename else ''
         if not file_extension or f'.{file_extension}' not in allowed_extensions:
-            raise HTTPException(status_code=400, detail=f"Unsupported file format. Allowed formats: {', '.join(allowed_extensions)}")
-        
+            raise HTTPException(status_code=400,
+                                detail=f"Unsupported file format. Allowed formats: {', '.join(allowed_extensions)}")
+
         try:
             # Try to open and validate the image
             img = Image.open(BytesIO(contents))
-            
+
             # Convert to RGB if necessary (handles RGBA, P modes, etc.)
             if img.mode in ('RGBA', 'LA', 'P'):
                 background = Image.new('RGB', img.size, (255, 255, 255))
@@ -2862,24 +2966,24 @@ async def analyze_image(
                 img = background
             elif img.mode != 'RGB':
                 img = img.convert('RGB')
-            
+
             # Resize if too large (max 1024x1024 for processing efficiency)
             max_size = 1024
             if img.width > max_size or img.height > max_size:
                 img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
-            
+
             # Convert image to base64
             buffered = BytesIO()
             img.save(buffered, format="JPEG", quality=85, optimize=True)
             img_str = base64.b64encode(buffered.getvalue()).decode()
-            
+
         except Exception as img_error:
             print(f"[analyze_image] Image processing error: {str(img_error)}")
             raise HTTPException(
-                status_code=400, 
+                status_code=400,
                 detail=f"Invalid or corrupted image file. Please upload a valid image in one of these formats: {', '.join(allowed_extensions)}"
             )
-        
+
         # Save user message with image
         user_message = await save_chat_message(
             current_user["id"],
@@ -2888,7 +2992,7 @@ async def analyze_image(
             session_id=None,  # You might want to handle session_id differently
             image_url=img_str
         )
-        
+
         # Generate response using OpenAI with image
         response = client.chat.completions.create(
             model=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
@@ -2917,7 +3021,7 @@ async def analyze_image(
             temperature=0.7,
             stream=True
         )
-        
+
         # Stream the response
         async def generate():
             full_message = ""
@@ -2937,7 +3041,7 @@ async def analyze_image(
                 if full_message:
                     # Send whatever was accumulated as final SSE event
                     yield f"data: {json.dumps({'content': full_message})}\n\n"
-            
+
             # Save the complete assistant message after streaming
             if full_message:
                 await save_chat_message(
@@ -2947,14 +3051,16 @@ async def analyze_image(
                     session_id=user_message["session_id"],
                     image_url=img_str
                 )
-        
+
         return StreamingResponse(generate(), media_type="text/event-stream")
-        
+
     except Exception as e:
         print(f"Error in image analysis: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 # Helper for intent detection
+
+
 def has_logging_intent(message: str) -> bool:
     logging_intents = [
         "log this", "add this to my history", "record this", "save this",
@@ -2963,8 +3069,9 @@ def has_logging_intent(message: str) -> bool:
     ]
     return any(kw in message.lower() for kw in logging_intents)
 
+
 # Add this helper near the top of the file
-import re
+
 
 def extract_nutrition_question(message: str):
     """
@@ -2989,6 +3096,7 @@ def extract_nutrition_question(message: str):
                 break
     return found if found else None
 
+
 @app.post("/chat/message-with-image")
 async def chat_message_with_image(
     message: str = Form(...),
@@ -3012,7 +3120,8 @@ async def chat_message_with_image(
     # 🧠 GET COMPREHENSIVE USER CONTEXT - This is the key integration!
     try:
         user_context = await get_comprehensive_user_context(current_user["email"])
-        print(f"✅ Retrieved comprehensive context for user: {len(user_context.get('health_conditions', []))} conditions, {len(user_context.get('consumption_history', []))} recent meals")
+        print(
+            f"✅ Retrieved comprehensive context for user: {len(user_context.get('health_conditions', []))} conditions, {len(user_context.get('consumption_history', []))} recent meals")
     except Exception as e:
         print(f"❌ Error getting comprehensive context: {str(e)}")
         user_context = {"error": "Could not retrieve user context"}
@@ -3036,31 +3145,31 @@ async def chat_message_with_image(
                         carbs = None
                         protein = None
                         fat = None
-                        
+
                         for line in lines:
                             if "Food Analysis:" in line:
                                 food_name = line.split("Food Analysis:")[1].strip().replace("**", "")
                             elif "Calories:" in line:
                                 try:
                                     calories = int(line.split("Calories:")[1].strip().split()[0])
-                                except:
+                                except BaseException:
                                     pass
                             elif "Carbs:" in line:
                                 try:
                                     carbs = float(line.split("Carbs:")[1].strip().replace("g", ""))
-                                except:
+                                except BaseException:
                                     pass
                             elif "Protein:" in line:
                                 try:
                                     protein = float(line.split("Protein:")[1].strip().replace("g", ""))
-                                except:
+                                except BaseException:
                                     pass
                             elif "Fat:" in line:
                                 try:
                                     fat = float(line.split("Fat:")[1].strip().replace("g", ""))
-                                except:
+                                except BaseException:
                                     pass
-                        
+
                         if food_name:
                             recent_context = {
                                 "food_name": food_name,
@@ -3123,7 +3232,7 @@ async def chat_message_with_image(
         # Configure analysis based on mode
         if analysis_mode == "fridge":
             # Fridge analysis - different approach
-            system_prompt = """You are a culinary AI assistant specializing in fridge analysis for diabetes patients. 
+            system_prompt = """You are a culinary AI assistant specializing in fridge analysis for diabetes patients.
             Analyze the fridge/pantry image and provide helpful cooking suggestions.
             Return a JSON response with this format:
             {
@@ -3134,12 +3243,12 @@ async def chat_message_with_image(
                 "health_notes": "diabetes-specific guidance for using these ingredients"
             }
             Focus on diabetes-friendly combinations and portion control."""
-            
+
             user_prompt = "Analyze my fridge/pantry contents and suggest what I can cook that's suitable for diabetes management."
-            
+
         else:
             # Food analysis (logging, analysis, question modes)
-            system_prompt = """You are a nutrition analysis expert for diabetes patients. 
+            system_prompt = """You are a nutrition analysis expert for diabetes patients.
             Analyze the food image and return a structured JSON response with the following format:
             {
                 "food_name": "descriptive name of the food",
@@ -3162,7 +3271,7 @@ async def chat_message_with_image(
                 "analysis_notes": "detailed explanation of nutritional analysis and diabetes considerations"
             }
             Provide realistic estimates based on visual analysis. Be conservative with diabetes suitability ratings."""
-            
+
             if analysis_mode == "question":
                 user_prompt = f"Analyze this food image and then answer this specific question: {message}"
             else:
@@ -3213,7 +3322,7 @@ async def chat_message_with_image(
         tips = analysis_data.get('cooking_tips', '')
         missing = analysis_data.get('missing_ingredients', [])
         health_notes = analysis_data.get('health_notes', '')
-        
+
         assistant_message = f"""🧊 **Fridge Analysis Complete!**
 
 📋 **Items Detected:**
@@ -3246,7 +3355,7 @@ Would you like me to create a detailed recipe for any of these meal suggestions?
         await save_consumption_record(current_user["email"], consumption_data, meal_type=meal_type or "")
 
         meal_type_text = f" as your **{meal_type}**" if meal_type else ""
-        
+
         assistant_message = f"""🍽️ **Food Logged{meal_type_text}: {food_data.get('food_name')}**
 
 📊 **Nutritional Info** (per {food_data.get('estimated_portion')}):
@@ -3325,7 +3434,7 @@ Would you like me to log this to your consumption history? Just say "log this as
 
         context_note = " (from previous analysis)" if recent_context and not analysis_data else ""
         meal_type_text = f" as your **{meal_type}**" if meal_type else ""
-        
+
         assistant_message = f"""🍽️ **Food Logged{meal_type_text}: {food_data.get('food_name')}{context_note}**
 
 📊 **Nutritional Info** (per {food_data.get('estimated_portion')}):
@@ -3345,7 +3454,7 @@ Your meal plan will be updated to reflect this logged meal."""
         try:
             # Determine query type
             nutrition_fields = extract_nutrition_question(message)
-            
+
             if img_str and analysis_data and nutrition_fields:
                 query_type = "nutrition_question"
                 specific_data = {
@@ -3376,17 +3485,17 @@ Your meal plan will be updated to reflect this logged meal."""
                 query_type=query_type,
                 specific_data=specific_data
             )
-            
+
             print(f"✅ Generated comprehensive AI response for query type: {query_type}")
 
         except Exception as e:
             print(f"❌ Error in comprehensive AI system: {str(e)}")
             import traceback
             print(f"Traceback: {traceback.format_exc()}")
-            
+
             # Fallback responses
             nutrition_fields = extract_nutrition_question(message)
-            
+
             if img_str and analysis_data and nutrition_fields:
                 # Focused answer for specific nutrition questions
                 nutri = analysis_data.get('nutritional_info', {})
@@ -3397,15 +3506,16 @@ Your meal plan will be updated to reflect this logged meal."""
                     value = nutri.get(field, None)
                     if value is not None:
                         field_label = field.capitalize()
-                        unit = 'mg' if field == 'sodium' else 'g' if field in ['protein', 'carbohydrates', 'fat', 'fiber', 'sugar'] else 'kcal' if field == 'calories' else ''
+                        unit = 'mg' if field == 'sodium' else 'g' if field in [
+                            'protein', 'carbohydrates', 'fat', 'fiber', 'sugar'] else 'kcal' if field == 'calories' else ''
                         responses.append(f"{field_label} in {food_name} ({portion}): {value} {unit}".strip())
-                
+
                 if responses:
                     assistant_message = f"📊 **Nutrition Info:**\n\n" + '\n'.join(responses)
                     assistant_message += f"\n\n⚠️ **Note:** Using fallback response - comprehensive AI system temporarily unavailable."
                 else:
                     assistant_message = "Sorry, I couldn't find that specific nutrition information for this food."
-                    
+
             elif img_str and analysis_data:
                 # General food analysis without logging
                 assistant_message = f"""🔍 **Food Analysis: {analysis_data.get('food_name')}**
@@ -3437,7 +3547,7 @@ I'm here to help track your nutrition and provide personalized health guidance! 
                 assistant_message = """Hello! I'm your comprehensive health coach. I can help you with:
 
 🍽️ **Food Analysis & Logging** - Upload food images for nutritional analysis
-🏥 **Multi-Condition Health Management** - Personalized advice for all your health conditions  
+🏥 **Multi-Condition Health Management** - Personalized advice for all your health conditions
 📊 **Meal Planning & Tracking** - Smart recommendations based on your health profile
 💊 **Medication & Treatment Integration** - Holistic health management
 
@@ -3461,6 +3571,7 @@ How can I help you today?
         yield f"data: {chunk}\n\n"
 
     return StreamingResponse(_event_stream(), media_type="text/event-stream")
+
 
 @app.get("/consumption/progress")
 async def get_consumption_progress(current_user: User = Depends(get_current_user)):
@@ -3576,13 +3687,14 @@ async def get_consumption_progress(current_user: User = Depends(get_current_user
         "monthly_avg": macro_avg(monthly)
     }
 
+
 def calculate_consistency_streak(consumption_history: list) -> int:
     """Calculate consistency streak based on daily logging patterns"""
     if not consumption_history:
         return 0
-    
+
     from datetime import datetime, timedelta
-    
+
     # Group consumption by date
     daily_logs = {}
     for record in consumption_history:
@@ -3591,14 +3703,14 @@ def calculate_consistency_streak(consumption_history: list) -> int:
             if record_date not in daily_logs:
                 daily_logs[record_date] = 0
             daily_logs[record_date] += 1
-        except:
+        except BaseException:
             continue
-    
+
     # Calculate streak from today backwards
     today = datetime.utcnow().date()
     streak = 0
     current_date = today
-    
+
     # Check each day backwards
     for i in range(30):  # Check last 30 days max
         if current_date in daily_logs and daily_logs[current_date] >= 2:  # At least 2 meals logged
@@ -3606,18 +3718,19 @@ def calculate_consistency_streak(consumption_history: list) -> int:
         else:
             break  # Streak broken
         current_date -= timedelta(days=1)
-    
+
     return streak
+
 
 @app.get("/coach/daily-insights")
 async def get_daily_coaching_insights(current_user: User = Depends(get_current_user)):
     """Get daily insights - USING ORIGINAL LOGIC with better integration"""
     try:
         print(f"[get_daily_insights] Getting insights for user {current_user['email']}")
-        
+
         # Get user profile
         profile = current_user.get("profile", {})
-        
+
         # Get recent meal plans
         try:
             recent_meal_plans = await get_user_meal_plans(current_user["email"])
@@ -3625,20 +3738,20 @@ async def get_daily_coaching_insights(current_user: User = Depends(get_current_u
         except Exception as e:
             print(f"Error fetching meal plans for coaching insights: {e}")
             recent_meal_plans = []
-        
+
         # Get recent consumption history (last 7 days) - USING ORIGINAL FUNCTION
         try:
             recent_consumption = await get_user_consumption_history(current_user["email"], limit=30)
             from datetime import datetime, timedelta
             seven_days_ago = datetime.utcnow() - timedelta(days=7)
             recent_consumption = [
-                record for record in recent_consumption 
+                record for record in recent_consumption
                 if datetime.fromisoformat(record.get("timestamp", "").replace("Z", "+00:00")) > seven_days_ago
             ]
         except Exception as e:
             print(f"Error fetching consumption history for coaching insights: {e}")
             recent_consumption = []
-        
+
         # Get today's consumption
         today = datetime.utcnow().date()
         tomorrow = today + timedelta(days=1)
@@ -3646,31 +3759,32 @@ async def get_daily_coaching_insights(current_user: User = Depends(get_current_u
             record for record in recent_consumption
             if today <= datetime.fromisoformat(record.get("timestamp", "").replace("Z", "+00:00")).date() < tomorrow
         ]
-        
+
         # Calculate today's totals - USING CONSISTENT FIELD NAMES
         today_totals = {"calories": 0, "protein": 0, "carbohydrates": 0, "fat": 0, "fiber": 0, "sugar": 0, "sodium": 0}
         for record in today_consumption:
             nutritional_info = record.get("nutritional_info", {})
             today_totals["calories"] += nutritional_info.get("calories", 0)
             today_totals["protein"] += nutritional_info.get("protein", 0)
-            today_totals["carbohydrates"] += nutritional_info.get("carbohydrates", nutritional_info.get("carbs", 0))  # Handle both field names
+            # Handle both field names
+            today_totals["carbohydrates"] += nutritional_info.get("carbohydrates", nutritional_info.get("carbs", 0))
             today_totals["fat"] += nutritional_info.get("fat", 0)
             today_totals["fiber"] += nutritional_info.get("fiber", 0)
             today_totals["sugar"] += nutritional_info.get("sugar", 0)
             today_totals["sodium"] += nutritional_info.get("sodium", 0)
-        
+
         # Get goals
         calorie_goal = 2000
         macro_goals = {"protein": 100, "carbohydrates": 250, "fat": 70}
-        
+
         if profile.get("calorieTarget"):
             try:
                 calorie_goal = int(profile["calorieTarget"])
-            except:
+            except BaseException:
                 pass
         elif recent_meal_plans and recent_meal_plans[0].get("dailyCalories"):
             calorie_goal = recent_meal_plans[0]["dailyCalories"]
-        
+
         if profile.get("macroGoals"):
             macro_goals.update(profile["macroGoals"])
         elif recent_meal_plans and recent_meal_plans[0].get("macronutrients"):
@@ -3680,7 +3794,7 @@ async def get_daily_coaching_insights(current_user: User = Depends(get_current_u
                 "carbohydrates": macros.get("carbs", 250),
                 "fat": macros.get("fats", 70)
             }
-        
+
         # Calculate adherence percentages
         adherence = {
             "calories": min(100, (today_totals["calories"] / calorie_goal * 100)) if calorie_goal > 0 else 0,
@@ -3688,15 +3802,15 @@ async def get_daily_coaching_insights(current_user: User = Depends(get_current_u
             "carbohydrates": min(100, (today_totals["carbohydrates"] / macro_goals["carbohydrates"] * 100)) if macro_goals["carbohydrates"] > 0 else 0,
             "fat": min(100, (today_totals["fat"] / macro_goals["fat"] * 100)) if macro_goals["fat"] > 0 else 0
         }
-        
+
         # Enhanced diabetes score calculation based on multiple factors
         condition_suitable_count = 0
         total_recent_records = len(recent_consumption)
         weekly_calories = 0
-        
+
         # Get user's health conditions
         user_conditions = profile.get("medicalConditions", []) or profile.get("medical_conditions", [])
-        
+
         # Enhanced scoring factors
         diabetes_score_factors = {
             "high_suitability": 0,
@@ -3707,23 +3821,23 @@ async def get_daily_coaching_insights(current_user: User = Depends(get_current_u
             "processed_foods": 0,
             "healthy_choices": 0
         }
-        
+
         for record in recent_consumption:
             # Access nutritional info properly
             nutritional_info = record.get("nutritional_info", {})
             weekly_calories += nutritional_info.get("calories", 0)
-            
+
             # Get nutritional values
             carbs = nutritional_info.get("carbohydrates", 0)
             sugar = nutritional_info.get("sugar", 0)
             fiber = nutritional_info.get("fiber", 0)
             sodium = nutritional_info.get("sodium", 0)
-            
+
             # Check medical rating
             medical_rating = record.get("medical_rating", {})
             diabetes_suitability = medical_rating.get("diabetes_suitability", "medium").lower()
             glycemic_impact = medical_rating.get("glycemic_impact", "medium").lower()
-            
+
             # Score based on diabetes suitability
             if diabetes_suitability == "high":
                 diabetes_score_factors["high_suitability"] += 1
@@ -3733,41 +3847,42 @@ async def get_daily_coaching_insights(current_user: User = Depends(get_current_u
                 condition_suitable_count += 0.7  # Partial credit
             else:
                 diabetes_score_factors["low_suitability"] += 1
-            
+
             # Penalize high carb meals (>45g carbs per meal)
             if carbs > 45:
                 diabetes_score_factors["high_carb_meals"] += 1
-            
+
             # Penalize high sugar meals (>15g sugar per meal)
             if sugar > 15:
                 diabetes_score_factors["high_sugar_meals"] += 1
-            
+
             # Penalize high sodium (>800mg per meal)
             if sodium > 800:
                 diabetes_score_factors["processed_foods"] += 1
-            
+
             # Reward healthy choices (high fiber, low glycemic)
             if fiber >= 5 and glycemic_impact == "low":
                 diabetes_score_factors["healthy_choices"] += 1
-        
+
         # Calculate enhanced diabetes score
         if total_recent_records > 0:
             base_score = (condition_suitable_count / total_recent_records * 100)
-            
+
             # Apply penalties and bonuses
             carb_penalty = (diabetes_score_factors["high_carb_meals"] / total_recent_records) * 15
             sugar_penalty = (diabetes_score_factors["high_sugar_meals"] / total_recent_records) * 20
             processed_penalty = (diabetes_score_factors["processed_foods"] / total_recent_records) * 10
             healthy_bonus = (diabetes_score_factors["healthy_choices"] / total_recent_records) * 10
-            
-            health_adherence = max(0, min(100, base_score - carb_penalty - sugar_penalty - processed_penalty + healthy_bonus))
+
+            health_adherence = max(0, min(100, base_score - carb_penalty -
+                                   sugar_penalty - processed_penalty + healthy_bonus))
         else:
             # Default score for new users (encourage logging)
             health_adherence = 75
-        
+
         # Generate coaching recommendations
         recommendations = []
-        
+
         # Calorie recommendations
         if adherence["calories"] < 70:
             remaining_calories = calorie_goal - today_totals["calories"]
@@ -3792,7 +3907,7 @@ async def get_daily_coaching_insights(current_user: User = Depends(get_current_u
                 "message": "Great job staying within your calorie target! 🎯",
                 "action": "maintain"
             })
-        
+
         # Protein recommendations
         if adherence["protein"] < 80:
             protein_needed = macro_goals["protein"] - today_totals["protein"]
@@ -3802,7 +3917,7 @@ async def get_daily_coaching_insights(current_user: User = Depends(get_current_u
                 "message": f"You need {protein_needed:.0f}g more protein today. Try adding lean meats, eggs, or Greek yogurt.",
                 "action": "add_protein"
             })
-        
+
         # Carb recommendations
         if adherence["carbohydrates"] > 120:
             recommendations.append({
@@ -3811,7 +3926,7 @@ async def get_daily_coaching_insights(current_user: User = Depends(get_current_u
                 "message": "Your carb intake is high today. Focus on low-carb options for remaining meals to help manage blood sugar.",
                 "action": "reduce_carbs"
             })
-        
+
         # Weekly performance feedback
         if health_adherence >= 80:
             recommendations.append({
@@ -3834,17 +3949,18 @@ async def get_daily_coaching_insights(current_user: User = Depends(get_current_u
                 "message": f"Only {health_adherence:.0f}% of recent meals were health-suitable for your conditions. Let's focus on better choices.",
                 "action": "focus_improvement"
             })
-        
+
         # Meal timing recommendations
         current_hour = datetime.utcnow().hour
-        if current_hour < 10 and len([r for r in today_consumption if "breakfast" in r.get("food_name", "").lower()]) == 0:
+        if current_hour < 10 and len(
+                [r for r in today_consumption if "breakfast" in r.get("food_name", "").lower()]) == 0:
             recommendations.append({
                 "type": "breakfast_reminder",
                 "priority": "medium",
                 "message": "Don't forget breakfast! It's important for blood sugar stability throughout the day.",
                 "action": "eat_breakfast"
             })
-        
+
         insights = {
             "date": today.isoformat(),
             "goals": {
@@ -3877,7 +3993,7 @@ async def get_daily_coaching_insights(current_user: User = Depends(get_current_u
                     "action": "View Details"
                 },
                 {
-                    "category": "Weekly Trend", 
+                    "category": "Weekly Trend",
                     "message": f"This week you've maintained {total_recent_records} meal logs with consistent tracking for your health management.",
                     "action": "Keep Going"
                 },
@@ -3894,15 +4010,16 @@ async def get_daily_coaching_insights(current_user: User = Depends(get_current_u
                 }
             ]
         }
-        
+
         print(f"[get_daily_insights] Generated insights successfully")
-        
+
         return insights
-        
+
     except Exception as e:
         print(f"[get_daily_insights] Error: {str(e)}")
         print(f"[get_daily_insights] Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Failed to get daily insights: {str(e)}")
+
 
 @app.post("/coach/quick-log")
 async def quick_log_food(
@@ -3913,17 +4030,17 @@ async def quick_log_food(
     try:
         print(f"[quick_log_food] Starting quick log for user {current_user['id']}")
         print(f"[quick_log_food] Food data received: {food_data}")
-        
+
         food_name = food_data.get("food_name", "").strip()
         portion = food_data.get("portion", "medium portion").strip()
-        
+
         if not food_name:
             raise HTTPException(status_code=400, detail="Food name is required")
-        
+
         # Use AI to estimate nutritional values with comprehensive analysis
         prompt = f"""
         Analyze the food item: {food_name} ({portion})
-        
+
         Provide a comprehensive JSON response with this exact structure:
         {{
             "food_name": "{food_name}",
@@ -3945,11 +4062,11 @@ async def quick_log_food(
             }},
             "analysis_notes": "Brief explanation of nutritional value and diabetes considerations"
         }}
-        
+
         Base estimates on standard nutritional databases. Be accurate and conservative with diabetes ratings.
         Only return valid JSON, no other text.
         """
-        
+
         # Initialize fallback data
         fallback_data = {
             "food_name": food_name,
@@ -3971,7 +4088,7 @@ async def quick_log_food(
             },
             "analysis_notes": f"Nutritional estimate for {food_name}. Consult with healthcare provider for personalized advice."
         }
-        
+
         try:
             print("[quick_log_food] Calling OpenAI for nutritional analysis")
             response = client.chat.completions.create(
@@ -3982,18 +4099,18 @@ async def quick_log_food(
                         "content": "You are a nutrition analysis expert specializing in diabetes management. Provide accurate nutritional estimates and diabetes-appropriate recommendations."
                     },
                     {
-                        "role": "user", 
+                        "role": "user",
                         "content": prompt
                     }
                 ],
                 max_tokens=500,
                 temperature=0.3
             )
-            
+
             # Parse AI response
             analysis_text = response.choices[0].message.content
             print(f"[quick_log_food] OpenAI response: {analysis_text}")
-            
+
             try:
                 # Extract JSON from response
                 start_idx = analysis_text.find('{')
@@ -4004,11 +4121,11 @@ async def quick_log_food(
             except (json.JSONDecodeError, ValueError) as parse_error:
                 print(f"[quick_log_food] JSON parsing error: {str(parse_error)}")
                 analysis_data = fallback_data
-                
+
         except Exception as openai_error:
             print(f"[quick_log_food] OpenAI API error: {str(openai_error)}. Using fallback estimation.")
             analysis_data = fallback_data
-        
+
         # Prepare consumption data in the same format as the image analysis system
         consumption_data = {
             "food_name": analysis_data.get("food_name", food_name),
@@ -4019,20 +4136,20 @@ async def quick_log_food(
             "image_url": None,  # No image for quick log
             "meal_type": (food_data.get("meal_type") or "snack").lower()
         }
-        
+
         print(f"[quick_log_food] Prepared consumption data: {consumption_data}")
-        
+
         # Save to consumption history using the ORIGINAL save function
         print(f"[quick_log_food] Saving consumption record for user {current_user['email']}")
         consumption_record = await save_consumption_record(current_user["email"], consumption_data, meal_type=food_data.get("meal_type", "snack"))
         print(f"[quick_log_food] Successfully saved consumption record with ID: {consumption_record['id']}")
-        
+
         # ------------------------------
         # FORCE COMPLETE MEAL PLAN REGENERATION AFTER EVERY LOG
         # ------------------------------
         try:
             print("[quick_log_food] Triggering complete meal plan regeneration after food log...")
-            
+
             # Get today's consumption including the new log
             today = datetime.utcnow().date()
             consumption_data_full = await get_user_consumption_history(current_user["email"], limit=100)
@@ -4040,10 +4157,10 @@ async def quick_log_food(
                 r for r in consumption_data_full
                 if datetime.fromisoformat(r.get("timestamp", "").replace("Z", "+00:00")).date() == today
             ]
-            
+
             # Calculate calories consumed so far
             calories_consumed = sum(r.get("nutritional_info", {}).get("calories", 0) for r in today_consumption)
-            
+
             # Get user profile for dietary restrictions
             profile = current_user.get("profile", {})
             dietary_restrictions = profile.get('dietaryRestrictions', [])
@@ -4051,18 +4168,19 @@ async def quick_log_food(
             diet_type = profile.get('dietType', [])
             target_calories = int(profile.get('calorieTarget', '2000'))
             remaining_calories = max(0, target_calories - calories_consumed)
-            
+
             # Build explicit restriction warnings for AI
             restriction_warnings = []
-            if 'vegetarian' in [r.lower() for r in dietary_restrictions] or 'vegetarian' in [d.lower() for d in diet_type]:
+            if 'vegetarian' in [r.lower() for r in dietary_restrictions] or 'vegetarian' in [d.lower()
+                                                                                             for d in diet_type]:
                 restriction_warnings.append("STRICTLY VEGETARIAN - NO MEAT, POULTRY, FISH, OR SEAFOOD")
             if any('egg' in r.lower() for r in dietary_restrictions) or any('egg' in a.lower() for a in allergies):
                 restriction_warnings.append("NO EGGS - Avoid all egg-based dishes and ingredients")
             if any('nut' in a.lower() for a in allergies):
                 restriction_warnings.append("NUT ALLERGY - Avoid all nuts and nut-based products")
-            
+
             restriction_text = "\n".join([f"⚠️ {warning}" for warning in restriction_warnings])
-            
+
             # Generate completely new meal plan calibrated to consumption
             prompt = f"""You are a registered dietitian AI. The user just logged a meal. Generate a COMPLETE new meal plan for the REST OF TODAY based on their consumption and dietary profile.
 
@@ -4088,7 +4206,7 @@ Generate a complete meal plan for the rest of today:
 {{
   "meals": {{
     "breakfast": "<specific vegetarian dish without eggs>",
-    "lunch": "<specific vegetarian dish without eggs>", 
+    "lunch": "<specific vegetarian dish without eggs>",
     "dinner": "<specific vegetarian dish without eggs>",
     "snack": "<specific vegetarian snack without eggs>"
   }},
@@ -4117,7 +4235,7 @@ Ensure ALL dishes are completely vegetarian and egg-free."""
                 start_idx = ai_content.find('{')
                 end_idx = ai_content.rfind('}') + 1
                 ai_json = _json.loads(ai_content[start_idx:end_idx])
-                
+
                 # Create new calibrated meal plan
                 new_plan = {
                     "id": f"calibrated_{current_user['email']}_{today.isoformat()}_{int(datetime.utcnow().timestamp())}",
@@ -4130,41 +4248,53 @@ Ensure ALL dishes are completely vegetarian and egg-free."""
                     "created_at": datetime.utcnow().isoformat(),
                     "notes": f"Regenerated after food log. {ai_json.get('calibration_notes', '')}"
                 }
-                
+
                 # Post-process to ensure dietary compliance (safety filter)
                 def sanitize_meal(meal_text: str) -> str:
                     """Ensure meal is vegetarian and egg-free"""
                     meal_lower = meal_text.lower()
-                    
+
                     # Check for non-vegetarian ingredients
-                    non_veg_keywords = ['chicken', 'beef', 'pork', 'fish', 'salmon', 'tuna', 'turkey', 'lamb', 'meat', 'seafood', 'shrimp']
+                    non_veg_keywords = [
+                        'chicken',
+                        'beef',
+                        'pork',
+                        'fish',
+                        'salmon',
+                        'tuna',
+                        'turkey',
+                        'lamb',
+                        'meat',
+                        'seafood',
+                        'shrimp']
                     egg_keywords = ['egg', 'eggs', 'omelet', 'omelette', 'scrambled', 'poached', 'fried egg']
-                    
+
                     if any(keyword in meal_lower for keyword in non_veg_keywords):
                         return "Vegetarian lentil and vegetable curry with quinoa"
                     if any(keyword in meal_lower for keyword in egg_keywords):
                         return "Overnight oats with almond milk, chia seeds, and fresh berries"
-                    
+
                     return meal_text
-                
+
                 # Apply safety filter to all meals
                 for meal_type in new_plan["meals"]:
                     new_plan["meals"][meal_type] = sanitize_meal(new_plan["meals"][meal_type])
-                
+
                 # Save the new calibrated plan
                 await save_meal_plan(current_user["email"], new_plan)
-                print(f"[quick_log_food] Generated and saved new calibrated meal plan. Remaining calories: {remaining_calories}")
-                
+                print(
+                    f"[quick_log_food] Generated and saved new calibrated meal plan. Remaining calories: {remaining_calories}")
+
             except Exception as parse_err:
                 print(f"[quick_log_food] Failed to parse AI meal plan JSON: {parse_err}")
                 # Fallback: just trigger the normal get_todays_meal_plan
                 await get_todays_meal_plan(current_user)
-                
+
         except Exception as plan_err:
             print(f"[quick_log_food] Failed to regenerate meal plan: {plan_err}")
             import traceback
             print(traceback.format_exc())
-        
+
         # Return success response in the SAME FORMAT as before
         return {
             "success": True,
@@ -4180,7 +4310,7 @@ Ensure ALL dishes are completely vegetarian and egg-free."""
             },
             "diabetes_rating": analysis_data.get("medical_rating", {}).get("diabetes_suitability", "medium")
         }
-        
+
     except HTTPException:
         # Re-raise HTTP exceptions as-is
         raise
@@ -4188,6 +4318,7 @@ Ensure ALL dishes are completely vegetarian and egg-free."""
         print(f"[quick_log_food] Unexpected error: {str(e)}")
         print(f"[quick_log_food] Full error details:", traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Failed to log food item: {str(e)}")
+
 
 @app.get("/coach/todays-meal-plan")
 async def get_todays_meal_plan(current_user: User = Depends(get_current_user)):
@@ -4197,13 +4328,13 @@ async def get_todays_meal_plan(current_user: User = Depends(get_current_user)):
     """
     try:
         print(f"[get_todays_meal_plan] Getting today's meal plan for user {current_user['email']}")
-        
+
         # Fetch user's meal plan history
         meal_plans = await get_user_meal_plans(current_user["email"])
-        
+
         # Today's date helper
         today = datetime.utcnow().date()
-        
+
         # Start with no plan selected
         todays_plan = None
 
@@ -4217,7 +4348,7 @@ async def get_todays_meal_plan(current_user: User = Depends(get_current_user)):
                         break
                 except Exception:
                     continue
-        
+
         # If still none, derive today's meals from the most recent saved plan
         if not todays_plan and meal_plans:
             # Choose the most recent plan that actually contains array-style meals
@@ -4228,7 +4359,7 @@ async def get_todays_meal_plan(current_user: User = Depends(get_current_user)):
                     break
             if latest_plan is None:
                 latest_plan = meal_plans[0]
-            
+
             # Helper to safely pull meal array/string for index
             def _pick(meal_key: str):
                 val = latest_plan.get(meal_key)
@@ -4259,7 +4390,7 @@ async def get_todays_meal_plan(current_user: User = Depends(get_current_user)):
         if not todays_plan:
             todays_plan = {
                 "id": f"fallback_{current_user['email']}_{today.isoformat()}",
-            "date": today.isoformat(),
+                "date": today.isoformat(),
                 "type": "fallback_basic",
                 "meals": {
                     "breakfast": "Oatmeal with berries",
@@ -4274,9 +4405,9 @@ async def get_todays_meal_plan(current_user: User = Depends(get_current_user)):
         # --------------
         # NORMALIZE MEAL-PLAN SHAPE FOR FRONTEND
         # --------------
-        
+
         # Ensure function defined before use remains unchanged
-        
+
         def _ensure_meals_dict(plan: dict, today_idx: int):
             """Convert legacy meal-plan keys (breakfast, lunch, dinner, snacks arrays) into
             the new shape { 'meals': { breakfast: str, lunch: str, dinner: str, snack: str } } expected by the dashboard."""
@@ -4319,18 +4450,19 @@ async def get_todays_meal_plan(current_user: User = Depends(get_current_user)):
         # Check if any meals are placeholders and generate concrete ones if needed
         if todays_plan and todays_plan.get("meals"):
             def _looks_placeholder(text: str) -> bool:
-                return any(keyword in text.lower() for keyword in ["healthy", "balanced", "nutritious", "option", "_"]) # Added _ to catch empty strings
+                return any(keyword in text.lower() for keyword in [
+                           "healthy", "balanced", "nutritious", "option", "_"])  # Added _ to catch empty strings
 
             needs_generation = any(
                 _looks_placeholder(meal)
                 for meal in todays_plan["meals"].values()
             )
-            
+
             if needs_generation:
                 print(f"[get_todays_meal_plan] Placeholder meals detected in today's plan – generating concrete recipes via OpenAI…")
 
                 profile = current_user.get("profile", {})
-                
+
                 # Use existing meals as a base for generation, fill in missing with generic prompts
                 current_meals = todays_plan["meals"]
                 breakfast_prompt = current_meals.get("breakfast", "a healthy breakfast option")
@@ -4342,18 +4474,19 @@ async def get_todays_meal_plan(current_user: User = Depends(get_current_user)):
                 dietary_restrictions = profile.get('dietaryRestrictions', [])
                 allergies = profile.get('allergies', [])
                 diet_type = profile.get('dietType', [])
-                
+
                 # Build explicit restriction warnings
                 restriction_warnings = []
-                if 'vegetarian' in [r.lower() for r in dietary_restrictions] or 'vegetarian' in [d.lower() for d in diet_type]:
+                if 'vegetarian' in [r.lower() for r in dietary_restrictions] or 'vegetarian' in [
+                        d.lower() for d in diet_type]:
                     restriction_warnings.append("STRICTLY VEGETARIAN - NO MEAT, POULTRY, FISH, OR SEAFOOD")
                 if any('egg' in r.lower() for r in dietary_restrictions) or any('egg' in a.lower() for a in allergies):
                     restriction_warnings.append("NO EGGS - Avoid all egg-based dishes and ingredients")
                 if any('nut' in a.lower() for a in allergies):
                     restriction_warnings.append("NUT ALLERGY - Avoid all nuts and nut-based products")
-                
+
                 restriction_text = "\n".join([f"⚠️ {warning}" for warning in restriction_warnings])
-                
+
                 prompt = f"""You are a registered dietitian AI. Generate specific, concrete dish names for each meal (breakfast, lunch, dinner, snack) for TODAY, given the user's profile and dietary needs.
 
 USER PROFILE:
@@ -4398,39 +4531,42 @@ Ensure ALL dishes are completely vegetarian and egg-free. Do not include any mea
                     ai_resp = client.chat.completions.create(
                         model=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
                         messages=[{"role": "user", "content": prompt}],
-                        temperature=0.7, # Slightly higher temperature for more creativity
+                        temperature=0.7,  # Slightly higher temperature for more creativity
                         max_tokens=500
                     )
 
                     import json as _json
                     ai_json = _json.loads(ai_resp.choices[0].message.content)
-                    
+
                     # Update only the meals that were placeholders or needed refinement
                     updated_meals = ai_json.get("meals", {})
-                    
+
                     # Post-process to ensure dietary compliance (safety filter)
                     def sanitize_meal(meal_text: str) -> str:
                         """Ensure meal is vegetarian and egg-free"""
                         meal_lower = meal_text.lower()
-                        
+
                         # Check for non-vegetarian ingredients
-                        non_veg_keywords = ['chicken', 'beef', 'pork', 'fish', 'salmon', 'tuna', 'turkey', 'lamb', 'meat', 'seafood', 'shrimp']
+                        non_veg_keywords = ['chicken', 'beef', 'pork', 'fish', 'salmon',
+                                            'tuna', 'turkey', 'lamb', 'meat', 'seafood', 'shrimp']
                         egg_keywords = ['egg', 'eggs', 'omelet', 'omelette', 'scrambled', 'poached', 'fried egg']
-                        
+
                         if any(keyword in meal_lower for keyword in non_veg_keywords):
                             return "Vegetarian lentil and vegetable curry with quinoa"
                         if any(keyword in meal_lower for keyword in egg_keywords):
                             return "Overnight oats with almond milk, chia seeds, and fresh berries"
-                        
+
                         return meal_text
-                    
+
                     for meal_type, dish_name in updated_meals.items():
-                        if _looks_placeholder(current_meals.get(meal_type, "")) or dish_name != current_meals.get(meal_type, ""):
+                        if _looks_placeholder(current_meals.get(meal_type, "")
+                                              ) or dish_name != current_meals.get(meal_type, ""):
                             # Apply safety filter before saving
                             todays_plan["meals"][meal_type] = sanitize_meal(dish_name)
 
                     todays_plan["type"] = "ai_generated_concrete"
-                    todays_plan["notes"] = (todays_plan.get("notes", "") + " Meals made concrete by AI with dietary compliance.").strip()
+                    todays_plan["notes"] = (todays_plan.get("notes", "") +
+                                            " Meals made concrete by AI with dietary compliance.").strip()
 
                     # Save the updated plan to history
                     await save_meal_plan(current_user["email"], todays_plan)
@@ -4477,25 +4613,29 @@ Ensure ALL dishes are completely vegetarian and egg-free. Do not include any mea
                 # If user is significantly below target, suggest a slightly larger upcoming meal or an extra snack
                 elif remaining > calorie_goal_day * 0.2:
                     if "snack" in todays_plan.get("meals", {}):
-                        if "optional" in todays_plan["meals"]["snack"].lower(): # Remove optional note if previously added
-                             todays_plan["meals"]["snack"] = todays_plan["meals"]["snack"].replace(" (optional if still hungry)", "").strip()
+                        if "optional" in todays_plan["meals"]["snack"].lower(
+                        ):  # Remove optional note if previously added
+                            todays_plan["meals"]["snack"] = todays_plan["meals"]["snack"].replace(
+                                " (optional if still hungry)", "").strip()
 
                         todays_plan["meals"]["snack"] += " (recommended)"
                     elif "dinner" in todays_plan.get("meals", {}):
                         todays_plan["meals"]["dinner"] += " (slightly larger portion recommended)"
-                    
+
                     note = "Consider a slightly larger portion or an extra snack to meet your calorie goals."
                     todays_plan["notes"] = f"{todays_plan.get('notes', '')} {note}".strip()
 
             # If plan has a 'type' of 'ai_generated_today' or 'ai_generated_concrete', it means it was just generated or refined
             # In this case, we don't need to explicitly save it again here if it was already saved during generation.
             # But if it was a derived/fallback plan that just got calibrated, save it.
-            if todays_plan.get("type") not in ["ai_generated_today", "ai_generated_concrete"] and calories_so_far > 0: # Only save if consumption has happened and it's not a fresh AI gen
-                 # Generate a unique ID for this calibrated plan if it's not already saved
-                if "id" not in todays_plan or todays_plan["id"].startswith("derived_") or todays_plan["id"].startswith("fallback_"):
+            # Only save if consumption has happened and it's not a fresh AI gen
+            if todays_plan.get("type") not in ["ai_generated_today", "ai_generated_concrete"] and calories_so_far > 0:
+                # Generate a unique ID for this calibrated plan if it's not already saved
+                if "id" not in todays_plan or todays_plan["id"].startswith(
+                        "derived_") or todays_plan["id"].startswith("fallback_"):
                     todays_plan["id"] = f"calibrated_{current_user['email']}_{today.isoformat()}_{int(datetime.utcnow().timestamp())}"
                     todays_plan["created_at"] = datetime.utcnow().isoformat()
-                
+
                 todays_plan["type"] = "calibrated_daily"
                 await save_meal_plan(current_user["email"], todays_plan)
                 print("[get_todays_meal_plan] Saved calibrated meal plan for today.")
@@ -4508,15 +4648,17 @@ Ensure ALL dishes are completely vegetarian and egg-free. Do not include any mea
         dietary_restrictions = profile.get('dietaryRestrictions', [])
         allergies = profile.get('allergies', [])
         diet_type = profile.get('dietType', [])
-        
+
         # Check if user is vegetarian or has egg restrictions
-        is_vegetarian = 'vegetarian' in [r.lower() for r in dietary_restrictions] or 'vegetarian' in [d.lower() for d in diet_type]
+        is_vegetarian = 'vegetarian' in [
+            r.lower() for r in dietary_restrictions] or 'vegetarian' in [
+            d.lower() for d in diet_type]
         no_eggs = any('egg' in r.lower() for r in dietary_restrictions) or any('egg' in a.lower() for a in allergies)
-        
+
         # Always generate fresh vegetarian meals for users with dietary restrictions
         if is_vegetarian or no_eggs:
             print(f"[get_todays_meal_plan] User has dietary restrictions - generating fresh vegetarian meal plan")
-            
+
             # Generate completely fresh vegetarian meal plan
             restriction_warnings = []
             if is_vegetarian:
@@ -4525,9 +4667,9 @@ Ensure ALL dishes are completely vegetarian and egg-free. Do not include any mea
                 restriction_warnings.append("NO EGGS - Avoid all egg-based dishes and ingredients")
             if any('nut' in a.lower() for a in allergies):
                 restriction_warnings.append("NUT ALLERGY - Avoid all nuts and nut-based products")
-            
+
             restriction_text = "\n".join([f"⚠️ {warning}" for warning in restriction_warnings])
-            
+
             prompt = f"""You are a registered dietitian AI. Generate a complete daily meal plan for TODAY that is diabetes-friendly and strictly adheres to dietary restrictions.
 
 USER PROFILE:
@@ -4575,37 +4717,49 @@ Ensure ALL dishes are completely vegetarian and egg-free."""
                 start_idx = ai_content.find('{')
                 end_idx = ai_content.rfind('}') + 1
                 ai_json = _json.loads(ai_content[start_idx:end_idx])
-                
+
                 # Apply safety filter to ensure compliance
                 def sanitize_meal(meal_text: str) -> str:
                     """Ensure meal is vegetarian and egg-free"""
                     meal_lower = meal_text.lower()
-                    
+
                     # Check for non-vegetarian ingredients
-                    non_veg_keywords = ['chicken', 'beef', 'pork', 'fish', 'salmon', 'tuna', 'turkey', 'lamb', 'meat', 'seafood', 'shrimp']
+                    non_veg_keywords = [
+                        'chicken',
+                        'beef',
+                        'pork',
+                        'fish',
+                        'salmon',
+                        'tuna',
+                        'turkey',
+                        'lamb',
+                        'meat',
+                        'seafood',
+                        'shrimp']
                     egg_keywords = ['egg', 'eggs', 'omelet', 'omelette', 'scrambled', 'poached', 'fried egg']
-                    
+
                     if any(keyword in meal_lower for keyword in non_veg_keywords):
                         return "Vegetarian lentil and vegetable curry with quinoa"
                     if any(keyword in meal_lower for keyword in egg_keywords):
                         return "Overnight oats with almond milk, chia seeds, and fresh berries"
-                    
+
                     return meal_text
-                
+
                 # Apply safety filter to all meals
                 safe_meals = {}
                 for meal_type, dish in ai_json.get("meals", {}).items():
                     safe_meals[meal_type] = sanitize_meal(dish)
-                
+
                 # Clean up any repetitive notes in meal names
                 for meal_type in safe_meals:
                     meal_text = safe_meals[meal_type]
                     # Remove repetitive "(recommended)" text
                     meal_text = meal_text.replace(" (recommended) (recommended)", " (recommended)")
                     meal_text = meal_text.replace(" (recommended) (recommended) (recommended)", " (recommended)")
-                    meal_text = meal_text.replace(" (recommended) (recommended) (recommended) (recommended)", " (recommended)")
+                    meal_text = meal_text.replace(
+                        " (recommended) (recommended) (recommended) (recommended)", " (recommended)")
                     safe_meals[meal_type] = meal_text
-                
+
                 todays_plan = {
                     "id": f"fresh_vegetarian_{current_user['email']}_{today.isoformat()}",
                     "date": today.isoformat(),
@@ -4615,9 +4769,9 @@ Ensure ALL dishes are completely vegetarian and egg-free."""
                     "created_at": datetime.utcnow().isoformat(),
                     "notes": ""  # Clean notes - no repetitive text
                 }
-                
+
                 print(f"[get_todays_meal_plan] Generated fresh vegetarian meal plan: {safe_meals}")
-                
+
             except Exception as gen_err:
                 print(f"[get_todays_meal_plan] Error generating fresh vegetarian plan: {gen_err}")
                 # Fallback to safe vegetarian meals
@@ -4635,7 +4789,7 @@ Ensure ALL dishes are completely vegetarian and egg-free."""
                     "created_at": datetime.utcnow().isoformat(),
                     "notes": ""  # Clean notes
                 }
-        
+
         # If no plan generated yet, use fallback
         if not todays_plan:
             todays_plan = {
@@ -4684,13 +4838,13 @@ async def create_adaptive_meal_plan(
 
         # Get user's consumption history using existing function
         consumption_history = await get_user_consumption_history(current_user["email"], limit=100)
-        
+
         # Get user's meal plan history using existing function
         meal_plan_history = await get_user_meal_plans(current_user["email"])
-        
+
         # Get user profile for preferences
         user_profile = current_user.get("profile", {})
-        
+
         # Analyze consumption patterns
         favorite_foods = {}
         total_meals = len(consumption_history)
@@ -4698,65 +4852,65 @@ async def create_adaptive_meal_plan(
         total_calories = 0
         total_carbs = 0
         total_protein = 0
-        
+
         # Filter to last 30 days
         thirty_days_ago = datetime.utcnow() - timedelta(days=30)
         recent_consumption = []
-        
+
         for entry in consumption_history:
             try:
                 entry_date = datetime.fromisoformat(entry.get("timestamp", "").replace("Z", "+00:00"))
                 if entry_date >= thirty_days_ago:
                     recent_consumption.append(entry)
-            except:
+            except BaseException:
                 continue
-        
+
         for entry in recent_consumption:
             food_name = entry.get("food_name", "").lower()
             favorite_foods[food_name] = favorite_foods.get(food_name, 0) + 1
-            
+
             # Get nutritional info
             nutrition = entry.get("nutritional_info", {})
             total_calories += nutrition.get("calories", 0)
             total_carbs += nutrition.get("carbohydrates", 0)
             total_protein += nutrition.get("protein", 0)
-            
+
             # Check diabetes suitability
             medical_rating = entry.get("medical_rating", {})
             diabetes_suitability = medical_rating.get("diabetes_suitability", "").lower()
             if diabetes_suitability in ["high", "good", "suitable"]:
                 diabetes_friendly_count += 1
-        
+
         # Calculate metrics
         total_recent_meals = len(recent_consumption)
         adherence_rate = (diabetes_friendly_count / total_recent_meals * 100) if total_recent_meals > 0 else 0
         avg_daily_calories = (total_calories / 30) if total_calories > 0 else 2000
-        
+
         # Get top favorite foods
         top_favorites = sorted(favorite_foods.items(), key=lambda x: x[1], reverse=True)[:10]
         favorite_foods_list = [food for food, count in top_favorites]
-        
+
         # Get user preferences
         dietary_restrictions = user_profile.get("dietaryRestrictions", [])
         food_preferences = user_profile.get("foodPreferences", [])
         allergies = user_profile.get("allergies", [])
         calorie_target = user_profile.get("calorieTarget", "2000")
-        
+
         try:
             target_calories = int(calorie_target)
-        except:
+        except BaseException:
             target_calories = int(avg_daily_calories) if avg_daily_calories > 1200 else 2000
-        
+
         # Create adaptive meal plan prompt
         prompt = f"""Create a personalized {req_days}-day diabetes-friendly meal plan based on this user's analysis:
-        
+
 USER ANALYSIS:
 - Total recent meals logged: {total_recent_meals}
         - Diabetes adherence rate: {adherence_rate:.1f}%
 - Average daily calories: {avg_daily_calories:.0f}
 - Target daily calories: {target_calories}
         - Favorite foods: {', '.join(favorite_foods_list[:5]) if favorite_foods_list else 'None identified'}
-        
+
 USER PREFERENCES:
 - Dietary restrictions: {', '.join(dietary_restrictions) if dietary_restrictions else 'None'}
 - Food preferences: {', '.join(food_preferences) if food_preferences else 'None'}
@@ -4786,7 +4940,7 @@ Provide a JSON response with this exact structure:
 }}
 
 Make each meal specific with exact portions and cooking methods. Ensure all 7 days are included for each meal type."""
-        
+
         try:
             response = client.chat.completions.create(
                 model=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
@@ -4803,7 +4957,7 @@ Make each meal specific with exact portions and cooking methods. Ensure all 7 da
                 max_tokens=2000,
                 temperature=0.7
             )
-            
+
             # Parse AI response
             ai_content = response.choices[0].message.content
             # Extract JSON from response
@@ -4814,7 +4968,7 @@ Make each meal specific with exact portions and cooking methods. Ensure all 7 da
                 meal_plan_data = json.loads(json_str)
             else:
                 raise json.JSONDecodeError("No JSON found", ai_content, 0)
-                
+
         except Exception as ai_error:
             print(f"AI generation error: {str(ai_error)}. Using fallback meal plan.")
             # Comprehensive fallback meal plan
@@ -4866,7 +5020,7 @@ Make each meal specific with exact portions and cooking methods. Ensure all 7 da
                 ],
                 "coaching_notes": f"This adaptive plan is based on your consumption history. Your {adherence_rate:.0f}% diabetes adherence rate shows {'excellent' if adherence_rate >= 80 else 'good' if adherence_rate >= 60 else 'room for improvement'} progress. Focus on consistent meal timing and portion control."
             }
-        
+
         # Save to database using existing function
         meal_plan_data.update({
             "user_id": current_user["email"],  # Use email as user_id for consistency
@@ -4876,10 +5030,10 @@ Make each meal specific with exact portions and cooking methods. Ensure all 7 da
             "based_on_meals": total_recent_meals,
             "favorite_foods_incorporated": favorite_foods_list[:5]
         })
-        
+
         # Save using existing database function
         saved_plan = await save_meal_plan(current_user["email"], meal_plan_data)
-        
+
         return {
             "success": True,
             "meal_plan": meal_plan_data,
@@ -4893,7 +5047,7 @@ Make each meal specific with exact portions and cooking methods. Ensure all 7 da
             },
             "message": "Adaptive meal plan created successfully based on your consumption history!"
         }
-        
+
     except Exception as e:
         print(f"Error creating adaptive meal plan: {str(e)}")
         import traceback
@@ -4904,7 +5058,8 @@ Make each meal specific with exact portions and cooking methods. Ensure all 7 da
     banned_keywords = []
     restrictions_lower = [r.lower() for r in dietary_restrictions]
     if "vegetarian" in restrictions_lower or "ovo-vegetarian" not in restrictions_lower:
-        banned_keywords += ["chicken", "beef", "pork", "fish", "salmon", "tuna", "shrimp", "cod", "turkey", "lamb", "steak"]
+        banned_keywords += ["chicken", "beef", "pork", "fish", "salmon",
+                            "tuna", "shrimp", "cod", "turkey", "lamb", "steak"]
     if any(keyword in restrictions_lower for keyword in ["no eggs", "egg-free", "no egg", "vegetarian"]):
         banned_keywords += ["egg", "eggs", "omelet", "omelette", "scrambled eggs", "poached egg"]
 
@@ -4918,6 +5073,7 @@ Make each meal specific with exact portions and cooking methods. Ensure all 7 da
         if isinstance(meal_plan_data.get(mt), list):
             meal_plan_data[mt] = [sanitize(m) for m in meal_plan_data[mt]]
 
+
 @app.get("/coach/consumption-insights")
 async def get_consumption_insights(
     days: int = 30,
@@ -4926,7 +5082,7 @@ async def get_consumption_insights(
     try:
         # Get consumption data using existing function
         consumption_data = await get_user_consumption_history(current_user["email"], limit=200)
-        
+
         # Filter to specified period
         start_date = datetime.utcnow() - timedelta(days=days)
         filtered_data = []
@@ -4935,75 +5091,75 @@ async def get_consumption_insights(
                 entry_date = datetime.fromisoformat(entry.get("timestamp", "").replace("Z", "+00:00"))
                 if entry_date >= start_date:
                     filtered_data.append(entry)
-            except:
+            except BaseException:
                 continue
-        
+
         consumption_data = filtered_data
-        
+
         if not consumption_data:
             return {
                 "message": "No consumption data found for the specified period",
                 "insights": {}
             }
-        
+
         # Analyze patterns
         daily_calories = {}
         meal_times = {"breakfast": [], "lunch": [], "dinner": [], "snack": []}
         food_frequency = {}
         weekly_adherence = {}
-        
+
         for entry in consumption_data:
             try:
                 entry_date = datetime.fromisoformat(entry.get("timestamp", "").replace("Z", "+00:00"))
                 date_key = entry_date.strftime("%Y-%m-%d")
                 meal_type = entry.get("meal_type", "snack")
                 food_name = entry.get("food_name", "").lower()
-                
+
                 # Get nutritional info
                 nutrition = entry.get("nutritional_info", {})
                 calories = nutrition.get("calories", 0)
-                
+
                 # Daily calories
                 daily_calories[date_key] = daily_calories.get(date_key, 0) + calories
-                
+
                 # Meal timing
                 hour = entry_date.hour
                 meal_times[meal_type].append(hour)
-                
+
                 # Food frequency
                 food_frequency[food_name] = food_frequency.get(food_name, 0) + 1
-                
+
                 # Weekly adherence using medical rating
                 week_key = entry_date.strftime("%Y-W%U")
                 if week_key not in weekly_adherence:
                     weekly_adherence[week_key] = {"total": 0, "diabetes_friendly": 0}
-                
+
                 weekly_adherence[week_key]["total"] += 1
                 medical_rating = entry.get("medical_rating", {})
                 diabetes_suitability = medical_rating.get("diabetes_suitability", "").lower()
                 if diabetes_suitability in ["high", "good", "suitable"]:
                     weekly_adherence[week_key]["diabetes_friendly"] += 1
-            except:
+            except BaseException:
                 continue
-        
+
         # Calculate insights
         avg_daily_calories = sum(daily_calories.values()) / len(daily_calories) if daily_calories else 0
-        
+
         # Most common meal times
         common_meal_times = {}
         for meal_type, times in meal_times.items():
             if times:
                 common_meal_times[meal_type] = sum(times) / len(times)
-        
+
         # Top foods
         top_foods = sorted(food_frequency.items(), key=lambda x: x[1], reverse=True)[:10]
-        
+
         # Weekly adherence rates
         adherence_by_week = {}
         for week, data in weekly_adherence.items():
             rate = (data["diabetes_friendly"] / data["total"] * 100) if data["total"] > 0 else 0
             adherence_by_week[week] = round(rate, 1)
-        
+
         return {
             "period_days": days,
             "total_meals_logged": len(consumption_data),
@@ -5017,13 +5173,15 @@ async def get_consumption_insights(
             "recommendations": [
                 f"Your average daily intake is {avg_daily_calories:.0f} calories",
                 f"You've logged {len(consumption_data)} meals in the last {days} days",
-                "Consider maintaining consistent meal times for better blood sugar control" if len(set(common_meal_times.values())) > 2 else "Good job maintaining consistent meal times!"
+                "Consider maintaining consistent meal times for better blood sugar control" if len(
+                    set(common_meal_times.values())) > 2 else "Good job maintaining consistent meal times!"
             ]
         }
-        
+
     except Exception as e:
         logger.error(f"Error getting consumption insights: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to get consumption insights")
+
 
 @app.get("/coach/notifications")
 async def get_notifications(
@@ -5032,28 +5190,28 @@ async def get_notifications(
     """Get intelligent notifications based on actual user data - NO FAKE NOTIFICATIONS"""
     try:
         print(f"[get_notifications] Getting notifications for user {current_user['email']}")
-        
+
         # Get user's recent consumption data
         consumption_data = await get_user_consumption_history(current_user["email"], limit=20)
-        
+
         if not consumption_data:
             print("[get_notifications] No consumption data found")
             return []  # Return empty array if no data
-        
+
         # Filter today's consumption
         today = datetime.utcnow().date()
         today_consumption = []
-        
+
         for entry in consumption_data:
             try:
                 entry_date = datetime.fromisoformat(entry.get("timestamp", "").replace("Z", "+00:00")).date()
                 if entry_date == today:
                     today_consumption.append(entry)
-            except:
+            except BaseException:
                 continue
-        
+
         notifications = []
-        
+
         # Only show meaningful notifications based on actual data
         if len(today_consumption) == 0:
             # Only show this once per day and only if it's past breakfast time
@@ -5070,20 +5228,20 @@ async def get_notifications(
             # Calculate today's totals from actual nutritional_info
             today_totals = {"calories": 0, "protein": 0, "carbohydrates": 0, "fat": 0}
             diabetes_suitable_count = 0
-            
+
             for entry in today_consumption:
                 nutritional_info = entry.get("nutritional_info", {})
                 today_totals["calories"] += nutritional_info.get("calories", 0)
                 today_totals["protein"] += nutritional_info.get("protein", 0)
                 today_totals["carbohydrates"] += nutritional_info.get("carbohydrates", 0)
                 today_totals["fat"] += nutritional_info.get("fat", 0)
-                
+
                 # Check diabetes suitability from medical_rating
                 medical_rating = entry.get("medical_rating", {})
                 diabetes_suitability = medical_rating.get("diabetes_suitability", "").lower()
                 if diabetes_suitability in ["high", "good", "suitable"]:
                     diabetes_suitable_count += 1
-            
+
             # Only show achievement notifications for real accomplishments
             if len(today_consumption) >= 3:  # At least 3 meals logged
                 adherence_rate = (diabetes_suitable_count / len(today_consumption)) * 100
@@ -5095,13 +5253,14 @@ async def get_notifications(
                         "timestamp": datetime.utcnow().isoformat(),
                         "details": "Keep up the great work with your healthy choices!"
                     })
-        
+
         print(f"[get_notifications] Generated {len(notifications)} notifications")
         return notifications
-        
+
     except Exception as e:
         print(f"[get_notifications] Error: {str(e)}")
         return []  # Return empty array on error instead of raising exception
+
 
 @app.post("/test/create-sample-data")
 async def create_sample_data():
@@ -5205,17 +5364,17 @@ async def create_sample_data():
                 }
             }
         ]
-        
+
         # Create records for the last 7 days
         created_records = []
         for day_offset in range(7):
             record_date = datetime.utcnow() - timedelta(days=day_offset)
-            
+
             # Create 2-3 meals per day
             meals_per_day = 2 if day_offset > 3 else 3
             for meal_index in range(meals_per_day):
                 food = sample_foods[meal_index % len(sample_foods)]
-                
+
                 # Adjust timestamp for different meal times
                 if meal_index == 0:  # Breakfast
                     meal_time = record_date.replace(hour=8, minute=30)
@@ -5223,7 +5382,7 @@ async def create_sample_data():
                     meal_time = record_date.replace(hour=12, minute=45)
                 else:  # Dinner
                     meal_time = record_date.replace(hour=18, minute=30)
-                
+
                 consumption_record = {
                     "id": f"sample_{day_offset}_{meal_index}_{int(meal_time.timestamp())}",
                     "type": "consumption_record",
@@ -5235,20 +5394,21 @@ async def create_sample_data():
                     "session_id": f"sample_session_{day_offset}",
                     "created_at": meal_time.isoformat()
                 }
-                
+
                 # Save to database
                 interactions_container.create_item(body=consumption_record)
                 created_records.append(consumption_record)
-        
+
         return {
             "message": f"Created {len(created_records)} sample consumption records",
             "records_created": len(created_records),
             "date_range": f"{(datetime.utcnow() - timedelta(days=6)).date()} to {datetime.utcnow().date()}"
         }
-        
+
     except Exception as e:
         print(f"Error creating sample data: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to create sample data: {str(e)}")
+
 
 @app.post("/test/create-user")
 async def create_test_user():
@@ -5268,10 +5428,10 @@ async def create_test_user():
             "type": "patient",  # Add type field
             "created_at": datetime.utcnow().isoformat()
         }
-        
+
         # Save patient to database
         user_container.create_item(body=patient_data)
-        
+
         # Create test user
         hashed_password = get_password_hash("test123")
         print(f"[create_test_user] Hashed password: {hashed_password}")
@@ -5306,17 +5466,18 @@ async def create_test_user():
                 }
             }
         }
-        
+
         # Save user to database
         user_container.create_item(body=user_data)
-        
+
         return {"message": "Test user created successfully", "email": "test@example.com", "password": "test123"}
-        
+
     except Exception as e:
         # If user already exists, just return success
         if "Conflict" in str(e):
             return {"message": "Test user already exists", "email": "test@example.com", "password": "test123"}
         raise HTTPException(status_code=500, detail=f"Failed to create test user: {str(e)}")
+
 
 @app.post("/test/quick-log")
 async def test_quick_log_food(food_data: dict):
@@ -5324,17 +5485,17 @@ async def test_quick_log_food(food_data: dict):
     try:
         print(f"[test_quick_log_food] Starting test quick log")
         print(f"[test_quick_log_food] Food data received: {food_data}")
-        
+
         food_name = food_data.get("food_name", "").strip()
         portion = food_data.get("portion", "medium portion").strip()
-        
+
         if not food_name:
             raise HTTPException(status_code=400, detail="Food name is required")
-        
+
         # Use AI to estimate nutritional values with comprehensive analysis
         prompt = f"""
         Analyze the food item: {food_name} ({portion})
-        
+
         Provide a comprehensive JSON response with this exact structure:
         {{
             "food_name": "{food_name}",
@@ -5356,11 +5517,11 @@ async def test_quick_log_food(food_data: dict):
             }},
             "analysis_notes": "Brief explanation of nutritional value and diabetes considerations"
         }}
-        
+
         Base estimates on standard nutritional databases. Be accurate and conservative with diabetes ratings.
         Only return valid JSON, no other text.
         """
-        
+
         # Initialize fallback data
         fallback_data = {
             "food_name": food_name,
@@ -5382,7 +5543,7 @@ async def test_quick_log_food(food_data: dict):
             },
             "analysis_notes": f"Nutritional estimate for {food_name}. Consult with healthcare provider for personalized advice."
         }
-        
+
         try:
             print("[test_quick_log_food] Calling OpenAI for nutritional analysis")
             response = client.chat.completions.create(
@@ -5393,18 +5554,18 @@ async def test_quick_log_food(food_data: dict):
                         "content": "You are a nutrition analysis expert specializing in diabetes management. Provide accurate nutritional estimates and diabetes-appropriate recommendations."
                     },
                     {
-                        "role": "user", 
+                        "role": "user",
                         "content": prompt
                     }
                 ],
                 max_tokens=500,
                 temperature=0.3
             )
-            
+
             # Parse AI response
             analysis_text = response.choices[0].message.content
             print(f"[test_quick_log_food] OpenAI response: {analysis_text}")
-            
+
             try:
                 # Extract JSON from response
                 start_idx = analysis_text.find('{')
@@ -5415,11 +5576,11 @@ async def test_quick_log_food(food_data: dict):
             except (json.JSONDecodeError, ValueError) as parse_error:
                 print(f"[test_quick_log_food] JSON parsing error: {str(parse_error)}")
                 analysis_data = fallback_data
-                
+
         except Exception as openai_error:
             print(f"[test_quick_log_food] OpenAI API error: {str(openai_error)}. Using fallback estimation.")
             analysis_data = fallback_data
-        
+
         # Prepare consumption data in the same format as the image analysis system
         consumption_data = {
             "food_name": analysis_data.get("food_name", food_name),
@@ -5430,14 +5591,14 @@ async def test_quick_log_food(food_data: dict):
             "image_url": None,  # No image for quick log
             "meal_type": (food_data.get("meal_type") or "snack").lower()
         }
-        
+
         print(f"[test_quick_log_food] Prepared consumption data: {consumption_data}")
-        
+
         # Save to consumption history using the test user
         print(f"[test_quick_log_food] Saving consumption record for test user")
         consumption_record = await save_consumption_record("test@example.com", consumption_data)
         print(f"[test_quick_log_food] Successfully saved consumption record with ID: {consumption_record['id']}")
-        
+
         # Return success response in the SAME FORMAT as before
         return {
             "success": True,
@@ -5453,7 +5614,7 @@ async def test_quick_log_food(food_data: dict):
             },
             "diabetes_rating": analysis_data.get("medical_rating", {}).get("diabetes_suitability", "medium")
         }
-        
+
     except HTTPException:
         # Re-raise HTTP exceptions as-is
         raise
@@ -5462,55 +5623,58 @@ async def test_quick_log_food(food_data: dict):
         print(f"[test_quick_log_food] Full error details:", traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Failed to log food item: {str(e)}")
 
+
 @app.get("/test/consumption/history")
 async def test_get_consumption_history(limit: int = 50):
     """Test consumption history without authentication"""
     try:
         print(f"[test_get_consumption_history] Getting history for test user, limit: {limit}")
-        
+
         # Get consumption history for test user
         consumption_data = await get_user_consumption_history("test@example.com", limit)
         print(f"[test_get_consumption_history] Found {len(consumption_data)} records")
-        
+
         return consumption_data
-        
+
     except Exception as e:
         print(f"[test_get_consumption_history] Error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to get consumption history: {str(e)}")
+
 
 @app.get("/test/consumption/analytics")
 async def test_get_consumption_analytics(days: int = 7):
     """Test consumption analytics without authentication"""
     try:
         print(f"[test_get_consumption_analytics] Getting analytics for test user, days: {days}")
-        
+
         # Get analytics for test user
         analytics_data = await get_consumption_analytics("test@example.com", days)
         print(f"[test_get_consumption_analytics] Analytics data generated successfully")
-        
+
         return analytics_data
-        
+
     except Exception as e:
         print(f"[test_get_consumption_analytics] Error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to get consumption analytics: {str(e)}")
+
 
 @app.get("/test/coach/daily-insights")
 async def test_get_daily_insights():
     """Test daily insights without authentication"""
     try:
         print(f"[test_get_daily_insights] Getting daily insights for test user")
-        
+
         # Get consumption analytics for today
         today_analytics = await get_consumption_analytics("test@example.com", 1)
         weekly_analytics = await get_consumption_analytics("test@example.com", 7)
-        
+
         # Test user's comprehensive health conditions
         health_conditions = ["Type 2 Diabetes", "Hypertension", "High Cholesterol", "PCOS"]
-        
+
         # Calculate comprehensive health adherence
         health_adherence = weekly_analytics.get("adherence_stats", {}).get("diabetes_suitable_percentage", 85)
         total_meals = today_analytics.get("total_meals", 0)
-        
+
         insights_data = {
             "date": datetime.utcnow().date().isoformat(),
             "goals": {
@@ -5554,7 +5718,7 @@ async def test_get_daily_insights():
                 },
                 {
                     "type": "diabetes",
-                    "priority": "high", 
+                    "priority": "high",
                     "message": "Choose low glycemic index foods to maintain stable blood sugar",
                     "action": "view_low_gi_foods"
                 },
@@ -5581,7 +5745,7 @@ async def test_get_daily_insights():
                     "action": "View Details"
                 },
                 {
-                    "category": "Weekly Trend", 
+                    "category": "Weekly Trend",
                     "message": f"This week you've maintained {weekly_analytics.get('total_meals', 0)} meal logs with consistent tracking for your health management.",
                     "action": "Keep Going"
                 },
@@ -5603,21 +5767,22 @@ async def test_get_daily_insights():
                 }
             ]
         }
-        
+
         print(f"[test_get_daily_insights] Daily insights generated successfully")
-        
+
         return insights_data
-        
+
     except Exception as e:
         print(f"[test_get_daily_insights] Error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to get daily insights: {str(e)}")
+
 
 @app.get("/test/coach/notifications")
 async def test_get_notifications():
     """Test notifications without authentication"""
     try:
         print(f"[test_get_notifications] Getting notifications for test user")
-        
+
         # Create a mock user for testing
         mock_user = {
             "email": "test@example.com",
@@ -5627,30 +5792,32 @@ async def test_get_notifications():
                 "medicalConditions": ["Type 2 Diabetes"]
             }
         }
-        
+
         return await get_notifications(mock_user)
-        
+
     except Exception as e:
         print(f"[test_get_notifications] Error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to get notifications: {str(e)}")
+
 
 @app.get("/test/coach/todays-meal-plan")
 async def test_get_todays_meal_plan():
     """Test today's meal plan without authentication"""
     try:
         print(f"[test_get_todays_meal_plan] Getting today's meal plan for test user")
-        
+
         # Create a mock user for testing
         mock_user = {
             "email": "test@example.com",
             "id": "test@example.com"
         }
-        
+
         return await get_todays_meal_plan(mock_user)
-        
+
     except Exception as e:
         print(f"[test_get_todays_meal_plan] Error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to get today's meal plan: {str(e)}")
+
 
 async def adapt_meal_plan_based_on_consumption(user_email: str, today_consumption: list, latest_meal_plan: dict = None):
     """
@@ -5660,29 +5827,29 @@ async def adapt_meal_plan_based_on_consumption(user_email: str, today_consumptio
     try:
         if not latest_meal_plan:
             return None
-            
+
         # Calculate today's totals
         today_calories = sum(record.get("nutritional_info", {}).get("calories", 0) for record in today_consumption)
         today_carbs = sum(record.get("nutritional_info", {}).get("carbohydrates", 0) for record in today_consumption)
         today_protein = sum(record.get("nutritional_info", {}).get("protein", 0) for record in today_consumption)
         today_fat = sum(record.get("nutritional_info", {}).get("fat", 0) for record in today_consumption)
-        
+
         # Get user's goals
         calorie_goal = latest_meal_plan.get("dailyCalories", 2000)
         macros = latest_meal_plan.get("macronutrients", {})
         carb_goal = macros.get("carbs", 250)
         protein_goal = macros.get("protein", 100)
         fat_goal = macros.get("fats", 70)
-        
+
         # Calculate deviations
         calorie_deviation = today_calories - calorie_goal
         carb_deviation = today_carbs - carb_goal
         protein_deviation = today_protein - protein_goal
         fat_deviation = today_fat - fat_goal
-        
+
         # Generate adaptive suggestions
         adaptations = []
-        
+
         # Calorie adjustments
         if calorie_deviation > 300:  # Exceeded by more than 300 calories
             adaptations.append({
@@ -5696,7 +5863,7 @@ async def adapt_meal_plan_based_on_consumption(user_email: str, today_consumptio
                 "message": f"You were {abs(calorie_deviation):.0f} calories under your goal today. Tomorrow's plan includes slightly larger portions to ensure adequate nutrition.",
                 "adjustment": 200  # Increase tomorrow by 200 calories
             })
-        
+
         # Carb adjustments
         if carb_deviation > 50:  # Too many carbs
             adaptations.append({
@@ -5710,7 +5877,7 @@ async def adapt_meal_plan_based_on_consumption(user_email: str, today_consumptio
                 "message": "Tomorrow includes healthy complex carbs to ensure you have enough energy.",
                 "adjustment": "add_complex_carbs"
             })
-        
+
         # Protein adjustments
         if protein_deviation < -20:  # Too little protein
             adaptations.append({
@@ -5718,11 +5885,11 @@ async def adapt_meal_plan_based_on_consumption(user_email: str, today_consumptio
                 "message": "Tomorrow's meals will include extra lean protein to meet your daily needs.",
                 "adjustment": "add_lean_protein"
             })
-        
+
         # Create tomorrow's adapted meal plan
         tomorrow = datetime.utcnow().date() + timedelta(days=1)
         tomorrow_day_index = tomorrow.weekday()
-        
+
         # Get base meals for tomorrow from the current plan
         adapted_plan = {
             "id": f"adapted_{user_email}_{int(datetime.utcnow().timestamp())}",
@@ -5742,18 +5909,27 @@ async def adapt_meal_plan_based_on_consumption(user_email: str, today_consumptio
                 }
             }
         }
-        
+
         # Copy base meal structure and apply adaptations
         if tomorrow_day_index < 7:  # Valid day of week
-            base_breakfast = latest_meal_plan.get("breakfast", [])[tomorrow_day_index] if tomorrow_day_index < len(latest_meal_plan.get("breakfast", [])) else "Healthy breakfast option"
-            base_lunch = latest_meal_plan.get("lunch", [])[tomorrow_day_index] if tomorrow_day_index < len(latest_meal_plan.get("lunch", [])) else "Balanced lunch option"
-            base_dinner = latest_meal_plan.get("dinner", [])[tomorrow_day_index] if tomorrow_day_index < len(latest_meal_plan.get("dinner", [])) else "Nutritious dinner option"
-            
+            base_breakfast = latest_meal_plan.get(
+                "breakfast", [])[tomorrow_day_index] if tomorrow_day_index < len(
+                latest_meal_plan.get(
+                    "breakfast", [])) else "Healthy breakfast option"
+            base_lunch = latest_meal_plan.get(
+                "lunch", [])[tomorrow_day_index] if tomorrow_day_index < len(
+                latest_meal_plan.get(
+                    "lunch", [])) else "Balanced lunch option"
+            base_dinner = latest_meal_plan.get(
+                "dinner", [])[tomorrow_day_index] if tomorrow_day_index < len(
+                latest_meal_plan.get(
+                    "dinner", [])) else "Nutritious dinner option"
+
             # Apply adaptations to meals
             adapted_breakfast = base_breakfast
             adapted_lunch = base_lunch
             adapted_dinner = base_dinner
-            
+
             for adaptation in adaptations:
                 if adaptation["type"] == "carb_reduction":
                     adapted_lunch += " (with extra vegetables instead of rice/bread)"
@@ -5765,7 +5941,7 @@ async def adapt_meal_plan_based_on_consumption(user_email: str, today_consumptio
                     adapted_breakfast += " (smaller portion)"
                     adapted_lunch += " (lighter version)"
                     adapted_dinner += " (reduced portion)"
-            
+
             adapted_plan.update({
                 "breakfast": [adapted_breakfast],
                 "lunch": [adapted_lunch],
@@ -5773,15 +5949,16 @@ async def adapt_meal_plan_based_on_consumption(user_email: str, today_consumptio
                 "dailyCalories": max(1200, calorie_goal + sum(a.get("adjustment", 0) for a in adaptations if isinstance(a.get("adjustment"), int))),
                 "macronutrients": latest_meal_plan.get("macronutrients", {})
             })
-        
+
         # Save the adapted plan to database
         await save_meal_plan(user_email, adapted_plan)
-        
+
         return adapted_plan
-        
+
     except Exception as e:
         print(f"Error in adaptive meal planning: {str(e)}")
         return None
+
 
 @app.post("/coach/meal-suggestion")
 async def get_meal_suggestion(
@@ -5794,7 +5971,7 @@ async def get_meal_suggestion(
     """
     try:
         print(f"[AI_COACH] Processing query for user: {current_user['email']}")
-        
+
         # Handle both simple query format and detailed format
         query = request.get("query", "").strip()
         if not query:
@@ -5802,19 +5979,22 @@ async def get_meal_suggestion(
                 "success": False,
                 "error": "Please provide a question or query"
             }
-        
+
         # 🔍 COMPREHENSIVE DATA GATHERING - Get ALL user context
         print("[AI_COACH] Gathering comprehensive user data...")
-        
+
         # 1. Get user profile with all health information
         try:
             user_profile_query = f"SELECT * FROM c WHERE c.type = 'user' AND c.id = '{current_user['email']}'"
-            user_profiles = list(user_container.query_items(query=user_profile_query, enable_cross_partition_query=True))
+            user_profiles = list(
+                user_container.query_items(
+                    query=user_profile_query,
+                    enable_cross_partition_query=True))
             user_profile = user_profiles[0].get("profile", {}) if user_profiles else {}
         except Exception as e:
             print(f"[AI_COACH] Error fetching user profile: {e}")
             user_profile = {}
-        
+
         # 2. Get comprehensive consumption history (last 30 days)
         try:
             consumption_history = await get_user_consumption_history(current_user["email"], limit=100)
@@ -5822,13 +6002,13 @@ async def get_meal_suggestion(
             from datetime import datetime, timedelta
             thirty_days_ago = datetime.utcnow() - timedelta(days=30)
             recent_consumption = [
-                record for record in consumption_history 
+                record for record in consumption_history
                 if datetime.fromisoformat(record.get("timestamp", "").replace("Z", "+00:00")) > thirty_days_ago
             ]
         except Exception as e:
             print(f"[AI_COACH] Error fetching consumption history: {e}")
             recent_consumption = []
-        
+
         # 3. Get today's consumption for daily analysis
         try:
             today = datetime.utcnow().date()
@@ -5840,7 +6020,7 @@ async def get_meal_suggestion(
         except Exception as e:
             print(f"[AI_COACH] Error filtering today's consumption: {e}")
             today_consumption = []
-        
+
         # 4. Get meal plans history
         try:
             meal_plans = await get_user_meal_plans(current_user["email"])
@@ -5849,7 +6029,7 @@ async def get_meal_suggestion(
             print(f"[AI_COACH] Error fetching meal plans: {e}")
             meal_plans = []
             latest_meal_plan = None
-        
+
         # 5. Get consumption analytics for trends
         try:
             weekly_analytics = await get_consumption_analytics(current_user["email"], 7)
@@ -5858,17 +6038,17 @@ async def get_meal_suggestion(
             print(f"[AI_COACH] Error fetching analytics: {e}")
             weekly_analytics = {}
             monthly_analytics = {}
-        
+
         # 6. Get progress data
         try:
             progress_data = await get_consumption_progress(current_user)
         except Exception as e:
             print(f"[AI_COACH] Error fetching progress data: {e}")
             progress_data = {}
-        
+
         # 📊 COMPREHENSIVE DATA ANALYSIS
         print("[AI_COACH] Analyzing comprehensive user data...")
-        
+
         # Calculate today's nutritional totals
         today_totals = {"calories": 0, "protein": 0, "carbs": 0, "fat": 0, "fiber": 0, "sugar": 0, "sodium": 0}
         for record in today_consumption:
@@ -5880,7 +6060,7 @@ async def get_meal_suggestion(
             today_totals["fiber"] += nutritional_info.get("fiber", 0)
             today_totals["sugar"] += nutritional_info.get("sugar", 0)
             today_totals["sodium"] += nutritional_info.get("sodium", 0)
-        
+
         # Calculate weekly averages
         weekly_totals = {"calories": 0, "protein": 0, "carbs": 0, "fat": 0, "meals": 0}
         for record in recent_consumption[-21:]:  # Last 3 weeks for better average
@@ -5890,7 +6070,7 @@ async def get_meal_suggestion(
             weekly_totals["carbs"] += nutritional_info.get("carbohydrates", 0)
             weekly_totals["fat"] += nutritional_info.get("fat", 0)
             weekly_totals["meals"] += 1
-        
+
         weekly_averages = {}
         if weekly_totals["meals"] > 0:
             days_logged = max(1, weekly_totals["meals"] / 3)  # Estimate days
@@ -5900,40 +6080,42 @@ async def get_meal_suggestion(
                 "carbs": weekly_totals["carbs"] / days_logged,
                 "fat": weekly_totals["fat"] / days_logged
             }
-        
+
         # Get user's goals and health info
         calorie_goal = 2000  # Default
         macro_goals = {"protein": 100, "carbs": 250, "fat": 70}
-        
+
         if user_profile.get("calorieTarget"):
             try:
                 calorie_goal = int(user_profile["calorieTarget"])
-            except:
+            except BaseException:
                 pass
         elif latest_meal_plan and latest_meal_plan.get("dailyCalories"):
             calorie_goal = latest_meal_plan["dailyCalories"]
-        
+
         # Health conditions and dietary info
         health_conditions = user_profile.get("medicalConditions", []) or user_profile.get("medical_conditions", [])
-        dietary_restrictions = user_profile.get("dietaryRestrictions", []) or user_profile.get("dietary_restrictions", [])
+        dietary_restrictions = user_profile.get(
+            "dietaryRestrictions", []) or user_profile.get(
+            "dietary_restrictions", [])
         allergies = user_profile.get("allergies", [])
         medications = user_profile.get("currentMedications", [])
-        
+
         # Calculate diabetes adherence and health metrics
         diabetes_suitable_count = 0
         high_carb_meals = 0
         high_sugar_meals = 0
         high_sodium_meals = 0
-        
+
         for record in recent_consumption:
             medical_rating = record.get("medical_rating", {})
             nutritional_info = record.get("nutritional_info", {})
-            
+
             # Diabetes suitability
             diabetes_suitability = medical_rating.get("diabetes_suitability", "").lower()
             if diabetes_suitability in ["high", "good", "suitable"]:
                 diabetes_suitable_count += 1
-            
+
             # Track concerning patterns
             if nutritional_info.get("carbohydrates", 0) > 45:
                 high_carb_meals += 1
@@ -5941,13 +6123,13 @@ async def get_meal_suggestion(
                 high_sugar_meals += 1
             if nutritional_info.get("sodium", 0) > 800:
                 high_sodium_meals += 1
-        
+
         total_recent_meals = len(recent_consumption)
         diabetes_adherence = (diabetes_suitable_count / total_recent_meals * 100) if total_recent_meals > 0 else 0
-        
+
         # Calculate consistency streak
         consistency_streak = calculate_consistency_streak(recent_consumption)
-        
+
         # Analyze meal timing patterns
         meal_times = {}
         for record in recent_consumption:
@@ -5958,16 +6140,16 @@ async def get_meal_suggestion(
                 if meal_type not in meal_times:
                     meal_times[meal_type] = []
                 meal_times[meal_type].append(hour)
-            except:
+            except BaseException:
                 pass
-        
+
         # Get recent meal names for pattern analysis
         recent_meals = [record.get("food_name", "Unknown") for record in recent_consumption[:10]]
         today_meals = [record.get("food_name", "Unknown") for record in today_consumption]
-        
+
         # 🤖 BUILD COMPREHENSIVE AI COACH SYSTEM PROMPT
         print("[AI_COACH] Building comprehensive AI response...")
-        
+
         system_prompt = f"""You are an advanced AI Diet Coach and Diabetes Management Specialist with FULL ACCESS to the user's comprehensive health data. You are their personal nutrition expert, meal planner, and health companion.
 
 🎯 **YOUR ROLE**: You are the central intelligence of their diabetes management system with complete visibility into their eating patterns, progress, and health journey.
@@ -6057,9 +6239,9 @@ Be conversational but informative, like a knowledgeable nutrition coach who know
                 temperature=0.7,
                 max_tokens=1000
             )
-            
+
             ai_response = response.choices[0].message.content.strip()
-            
+
             # 🧹 CLEAN MARKDOWN FORMATTING for better frontend display
             import re
             # Remove markdown headers
@@ -6073,11 +6255,11 @@ Be conversational but informative, like a knowledgeable nutrition coach who know
             ai_response = re.sub(r'^---+$', '', ai_response, flags=re.MULTILINE)
             # Clean up multiple line breaks
             ai_response = re.sub(r'\n{3,}', '\n\n', ai_response)
-            
+
         except Exception as e:
             print(f"[AI_COACH] Error getting AI response: {e}")
             ai_response = f"I'm having trouble accessing my AI capabilities right now, but I can see you have {len(today_consumption)} meals logged today with {today_totals['calories']:.0f} calories. Your diabetes adherence is at {diabetes_adherence:.1f}%. Please try your question again in a moment."
-        
+
         # 📝 LOG THE INTERACTION
         try:
             await log_meal_suggestion(
@@ -6094,9 +6276,9 @@ Be conversational but informative, like a knowledgeable nutrition coach who know
             )
         except Exception as e:
             print(f"[AI_COACH] Error logging interaction: {e}")
-        
+
         print(f"[AI_COACH] Successfully generated comprehensive response for user")
-        
+
         return {
             "success": True,
             "suggestion": ai_response,
@@ -6104,7 +6286,7 @@ Be conversational but informative, like a knowledgeable nutrition coach who know
             "context": {
                 "comprehensive_analysis": True,
                 "data_sources": [
-                    "user_profile", "consumption_history", "meal_plans", 
+                    "user_profile", "consumption_history", "meal_plans",
                     "progress_tracking", "health_conditions", "dietary_patterns"
                 ],
                 "today_meals": len(today_consumption),
@@ -6117,18 +6299,19 @@ Be conversational but informative, like a knowledgeable nutrition coach who know
                 "health_focused": True
             }
         }
-        
+
     except Exception as e:
         print(f"[AI_COACH] Critical error: {str(e)}")
         import traceback
         traceback.print_exc()
-        
+
         return {
             "success": False,
             "error": "I'm experiencing technical difficulties. Please try again in a moment.",
             "suggestion": "I'm currently unable to access your comprehensive health data. Please try your question again.",
             "response": "I'm currently unable to access your comprehensive health data. Please try your question again."
         }
+
 
 async def get_ai_suggestion(prompt: str) -> str:
     """Get meal suggestion from Azure OpenAI"""
@@ -6143,11 +6326,12 @@ async def get_ai_suggestion(prompt: str) -> str:
             temperature=0.7,
             max_tokens=300
         )
-        
+
         return response.choices[0].message.content.strip()
     except Exception as e:
         logger.error(f"Error getting AI suggestion: {str(e)}")
         return None
+
 
 async def log_meal_suggestion(user_id: str, meal_type: str, suggestion: str, context: dict):
     """Log meal suggestion for future reference"""
@@ -6159,12 +6343,13 @@ async def log_meal_suggestion(user_id: str, meal_type: str, suggestion: str, con
             "context": context,
             "timestamp": datetime.utcnow().isoformat()
         }
-        
+
         # Save to database
         await db.meal_suggestions.insert_one(suggestion_log)
     except Exception as e:
         logger.error(f"Error logging meal suggestion: {str(e)}")
         # Non-critical error, don't raise
+
 
 def build_meal_suggestion_prompt(
     meal_type: str,
@@ -6182,7 +6367,7 @@ def build_meal_suggestion_prompt(
     current_hour = context.get("current_hour", 0)
     is_late_meal = context.get("is_late_meal", False)
     todays_meals = context.get("todays_meals", [])
-    
+
     prompt = f"""Based on the user's query "{query_context}", suggest a {meal_type} that:
     1. Fits within {remaining_calories} remaining calories
     2. Considers their dietary restrictions: {', '.join(dietary_restrictions)}
@@ -6191,7 +6376,7 @@ def build_meal_suggestion_prompt(
     5. {"Provides a lighter option since it's a late meal" if is_late_meal else "Provides a satisfying portion"}
     6. Matches their usual meal patterns for {meal_type}
     7. {preferences if preferences else ""}
-    
+
     Include:
     - Specific ingredients and portions
     - Brief preparation instructions
@@ -6199,8 +6384,9 @@ def build_meal_suggestion_prompt(
     - Health benefits
     - Any relevant tips or modifications
     """
-    
+
     return prompt
+
 
 def analyze_meal_patterns(meal_history: list) -> dict:
     """
@@ -6212,7 +6398,7 @@ def analyze_meal_patterns(meal_history: list) -> dict:
         "dinner": [],
         "snack": []
     }
-    
+
     for meal in meal_history:
         if meal["meal_type"] in patterns:
             patterns[meal["meal_type"]].append({
@@ -6220,15 +6406,18 @@ def analyze_meal_patterns(meal_history: list) -> dict:
                 "frequency": 1,  # Can be updated for repeated meals
                 "calories": meal["nutritional_info"]["calories"]
             })
-    
+
     return patterns
 
-@ app.get("/meal_plans/history")
+
+@app.get("/meal_plans/history")
 async def get_meal_plans_history_alias(current_user: User = Depends(get_current_user)):
     """Alias for /meal_plans to maintain frontend backward compatibility"""
     return await get_meal_plans(current_user)
 
 # --- Update meal type for existing record ---
+
+
 @app.patch("/consumption/{record_id}/meal-type")
 async def update_meal_type(record_id: str, payload: dict = Body(...), current_user: User = Depends(get_current_user)):
     meal_type = payload.get("meal_type", "").lower()
@@ -6247,13 +6436,17 @@ async def update_meal_type(record_id: str, payload: dict = Body(...), current_us
 # PRIVACY & GDPR COMPLIANCE ENDPOINTS
 # ============================================================================
 
+
 class DataExportRequest(BaseModel):
-    data_types: List[str]  # ["profile", "meal_plans", "consumption_history", "chat_history", "recipes", "shopping_lists"]
+    # ["profile", "meal_plans", "consumption_history", "chat_history", "recipes", "shopping_lists"]
+    data_types: List[str]
     format_type: str = "pdf"  # "pdf", "json", "docx"
+
 
 class AccountDeletionRequest(BaseModel):
     deletion_type: str = "complete"  # "complete" or "anonymize"
     confirmation: str  # User must type "DELETE" to confirm
+
 
 class ConsentUpdateRequest(BaseModel):
     consent_given: Optional[bool] = None
@@ -6261,6 +6454,7 @@ class ConsentUpdateRequest(BaseModel):
     analytics_consent: Optional[bool] = None
     data_retention_preference: Optional[str] = None
     policy_version: Optional[str] = None
+
 
 @app.post("/privacy/export-data")
 async def export_user_data(
@@ -6272,12 +6466,12 @@ async def export_user_data(
         user_email = current_user["email"]
         data_types = export_request.data_types
         format_type = export_request.format_type
-        
+
         print(f"[PRIVACY] Exporting data for user {user_email}, types: {data_types}, format: {format_type}")
-        
+
         # Collect requested data
         export_data = {}
-        
+
         if "profile" in data_types:
             export_data["profile"] = current_user.get("profile", {})
             export_data["user_info"] = {
@@ -6290,22 +6484,22 @@ async def export_user_data(
                 "marketing_consent": current_user.get("marketing_consent"),
                 "analytics_consent": current_user.get("analytics_consent")
             }
-        
+
         if "meal_plans" in data_types:
             export_data["meal_plans"] = await get_user_meal_plans(user_email, limit=10)
-        
+
         if "consumption_history" in data_types:
             export_data["consumption_history"] = await get_user_consumption_history(user_email, limit=10)
-        
+
         if "chat_history" in data_types:
             export_data["chat_history"] = await get_all_user_chat_history(user_email, limit=10)
-        
+
         if "recipes" in data_types:
             export_data["recipes"] = await get_user_recipes(user_email, limit=10)
-        
+
         if "shopping_lists" in data_types:
             export_data["shopping_lists"] = await get_user_shopping_lists(user_email, limit=10)
-        
+
         # Generate document based on format
         if format_type == "pdf":
             return await generate_data_export_pdf(export_data, current_user)
@@ -6317,7 +6511,7 @@ async def export_user_data(
                     limited_export_data[key] = value[-10:]  # Last 10 items
                 else:
                     limited_export_data[key] = value
-            
+
             # Add comprehensive metadata
             limited_export_data["metadata"] = {
                 "export_date": datetime.utcnow().isoformat(),
@@ -6334,7 +6528,7 @@ async def export_user_data(
                 "export_format": "json",
                 "gdpr_compliance": "Article 20 - Right to Data Portability"
             }
-            
+
             filename = f"health_data_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
             return JSONResponse(
                 content=limited_export_data,
@@ -6344,10 +6538,11 @@ async def export_user_data(
             return await generate_data_export_docx(export_data, current_user)
         else:
             raise HTTPException(status_code=400, detail="Unsupported format type")
-            
+
     except Exception as e:
         print(f"[PRIVACY] Error exporting data: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Data export failed: {str(e)}")
+
 
 @app.delete("/privacy/delete-account")
 async def delete_user_account(
@@ -6359,27 +6554,28 @@ async def delete_user_account(
         # Validate confirmation
         if deletion_request.confirmation.upper() != "DELETE":
             raise HTTPException(status_code=400, detail="Invalid confirmation. Please type 'DELETE' to confirm.")
-        
+
         user_email = current_user["email"]
         deletion_type = deletion_request.deletion_type
-        
+
         print(f"[PRIVACY] Account deletion requested for {user_email}, type: {deletion_type}")
-        
+
         if deletion_type == "complete":
             # Delete all user data
             await delete_all_user_data(user_email)
         else:
             # Anonymize user data
             await anonymize_user_data(user_email)
-        
+
         # Log deletion for compliance
         await log_data_deletion(user_email, deletion_type)
-        
+
         return {"message": "Account deletion completed successfully", "deletion_type": deletion_type}
-    
+
     except Exception as e:
         print(f"[PRIVACY] Error deleting account: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Account deletion failed: {str(e)}")
+
 
 @app.put("/privacy/update-consent")
 async def update_user_consent(
@@ -6389,12 +6585,12 @@ async def update_user_consent(
     """Update user consent preferences"""
     try:
         user_email = current_user["email"]
-        
+
         # Update consent in database
         await update_user_consent_preferences(user_email, consent_data.dict(exclude_unset=True))
-        
+
         return {"message": "Consent preferences updated successfully"}
-    
+
     except Exception as e:
         print(f"[PRIVACY] Error updating consent: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Consent update failed: {str(e)}")
@@ -6402,6 +6598,7 @@ async def update_user_consent(
 # ============================================================================
 # PRIVACY HELPER FUNCTIONS
 # ============================================================================
+
 
 async def get_all_user_chat_history(user_email: str, limit: int = None):
     """Get chat history for a user with optional limit"""
@@ -6423,67 +6620,69 @@ async def get_all_user_chat_history(user_email: str, limit: int = None):
             AND c.user_id = '{user_email}'
             ORDER BY c.timestamp ASC
             """
-        
+
         chat_messages = list(interactions_container.query_items(
             query=query,
             enable_cross_partition_query=True
         ))
-        
+
         return chat_messages
     except Exception as e:
         print(f"Error getting chat history: {str(e)}")
         return []
 
+
 async def delete_all_user_data(user_email: str):
     """Completely delete all user data"""
     try:
         print(f"[PRIVACY] Starting complete data deletion for {user_email}")
-        
+
         # Delete from interactions container (meal plans, consumption, chat, etc.)
         collections_to_clean = [
             "meal_plan",
-            "consumption_record", 
+            "consumption_record",
             "chat_message",
             "shopping_list",
             "recipe"
         ]
-        
+
         total_deleted = 0
         for doc_type in collections_to_clean:
             query = f"SELECT * FROM c WHERE c.type = '{doc_type}' AND c.user_id = '{user_email}'"
             items = list(interactions_container.query_items(query=query, enable_cross_partition_query=True))
-            
+
             for item in items:
                 try:
                     interactions_container.delete_item(
-                        item=item["id"], 
+                        item=item["id"],
                         partition_key=item.get("session_id", user_email)
                     )
                     total_deleted += 1
                 except Exception as e:
                     print(f"Error deleting item {item.get('id')}: {str(e)}")
-        
+
         # Delete user account from user container
         try:
             user_container.delete_item(item=user_email, partition_key=user_email)
             total_deleted += 1
         except Exception as e:
             print(f"Error deleting user account: {str(e)}")
-        
+
         print(f"[PRIVACY] Deleted {total_deleted} records for user {user_email}")
-        
+
     except Exception as e:
         print(f"[PRIVACY] Error in complete data deletion: {str(e)}")
         raise Exception(f"Failed to delete user data: {str(e)}")
+
 
 async def anonymize_user_data(user_email: str):
     """Anonymize user data while preserving analytics value"""
     try:
         print(f"[PRIVACY] Starting data anonymization for {user_email}")
-        
+
         # Generate anonymous ID
         anonymous_id = f"anon_{uuid.uuid4().hex[:8]}"
-        
+
         # Anonymize user profile
         anonymized_profile = {
             "name": "Anonymized User",
@@ -6493,7 +6692,7 @@ async def anonymize_user_data(user_email: str):
             "anonymized": True,
             "anonymization_date": datetime.utcnow().isoformat()
         }
-        
+
         # Update user record with anonymized data
         user_update = {
             "username": anonymous_id,
@@ -6503,20 +6702,21 @@ async def anonymize_user_data(user_email: str):
             "original_email_hash": hash(user_email),
             "anonymization_date": datetime.utcnow().isoformat()
         }
-        
+
         # Get current user data for anonymization
         current_user_data = await get_user_by_email(user_email)
         if not current_user_data:
             raise Exception("User not found for anonymization")
-        
+
         # Update user in database
         user_container.upsert_item(body={**current_user_data, **user_update})
-        
+
         print(f"[PRIVACY] User {user_email} anonymized as {anonymous_id}")
-        
+
     except Exception as e:
         print(f"[PRIVACY] Error in anonymization: {str(e)}")
         raise Exception(f"Failed to anonymize user data: {str(e)}")
+
 
 async def log_data_deletion(user_email: str, deletion_type: str):
     """Log data deletion for compliance"""
@@ -6529,33 +6729,35 @@ async def log_data_deletion(user_email: str, deletion_type: str):
             "id": f"deletion_{uuid.uuid4().hex}",
             "session_id": "privacy_logs"
         }
-        
+
         interactions_container.create_item(body=deletion_log)
         print(f"[PRIVACY] Logged {deletion_type} deletion for {user_email}")
-        
+
     except Exception as e:
         print(f"[PRIVACY] Error logging deletion: {str(e)}")
+
 
 async def update_user_consent_preferences(user_email: str, consent_updates: dict):
     """Update user consent preferences"""
     try:
         # Add timestamp for consent update
         consent_updates["last_consent_update"] = datetime.utcnow().isoformat()
-        
+
         # Get current user data
         current_user_data = await get_user_by_email(user_email)
         if not current_user_data:
             raise Exception("User not found")
-        
+
         # Update user with new consent preferences
         updated_user = {**current_user_data, **consent_updates}
         user_container.upsert_item(body=updated_user)
-        
+
         print(f"[PRIVACY] Updated consent preferences for {user_email}")
-        
+
     except Exception as e:
         print(f"[PRIVACY] Error updating consent: {str(e)}")
         raise Exception(f"Failed to update consent preferences: {str(e)}")
+
 
 async def generate_data_export_pdf(export_data: dict, user_info: dict):
     """Generate professional PDF export of user data with logo and improved layout"""
@@ -6567,19 +6769,19 @@ async def generate_data_export_pdf(export_data: dict, user_info: dict):
         from reportlab.lib.units import inch
         from reportlab.lib.enums import TA_JUSTIFY, TA_LEFT, TA_CENTER, TA_RIGHT
         import os
-        
+
         buffer = BytesIO()
         doc = SimpleDocTemplate(
-            buffer, 
+            buffer,
             pagesize=A4,
             rightMargin=72, leftMargin=72,
             topMargin=100, bottomMargin=72,
             title="Health Data Export"
         )
-        
+
         # Custom styles
         styles = getSampleStyleSheet()
-        
+
         # Define custom styles
         title_style = ParagraphStyle(
             'CustomTitle',
@@ -6589,7 +6791,7 @@ async def generate_data_export_pdf(export_data: dict, user_info: dict):
             alignment=TA_CENTER,
             textColor=colors.HexColor('#2E7D32')
         )
-        
+
         section_title_style = ParagraphStyle(
             'SectionTitle',
             parent=styles['Heading1'],
@@ -6602,7 +6804,7 @@ async def generate_data_export_pdf(export_data: dict, user_info: dict):
             borderPadding=10,
             backColor=colors.HexColor('#E3F2FD')
         )
-        
+
         subsection_style = ParagraphStyle(
             'SubSection',
             parent=styles['Heading2'],
@@ -6611,7 +6813,7 @@ async def generate_data_export_pdf(export_data: dict, user_info: dict):
             spaceBefore=15,
             textColor=colors.HexColor('#424242')
         )
-        
+
         normal_style = ParagraphStyle(
             'CustomNormal',
             parent=styles['Normal'],
@@ -6619,31 +6821,31 @@ async def generate_data_export_pdf(export_data: dict, user_info: dict):
             leading=12,
             alignment=TA_JUSTIFY
         )
-        
+
         story = []
-        
+
         # Header with logo
         def add_logo_header():
             header_content = []
             logo_path = os.path.join(os.path.dirname(__file__), "assets", "coverpage2.png")
-            
+
             if os.path.exists(logo_path):
                 try:
                     # Create header table with logo
-                    logo_img = RLImage(logo_path, width=2*inch, height=1*inch)
+                    logo_img = RLImage(logo_path, width=2 * inch, height=1 * inch)
                     header_data = [
                         ["Diabetes Meal Plan Generator", logo_img],
                         ["Personal Health Data Export", ""]
                     ]
-                    header_table = Table(header_data, colWidths=[5*inch, 2*inch])
+                    header_table = Table(header_data, colWidths=[5 * inch, 2 * inch])
                     header_table.setStyle(TableStyle([
-                        ('ALIGN', (0,0), (0,-1), 'LEFT'),
-                        ('ALIGN', (1,0), (1,-1), 'RIGHT'),
-                        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-                        ('FONTSIZE', (0,0), (0,0), 16),
-                        ('FONTSIZE', (0,1), (0,1), 12),
-                        ('TEXTCOLOR', (0,0), (0,-1), colors.HexColor('#2E7D32')),
-                        ('BOTTOMPADDING', (0,0), (-1,-1), 10),
+                        ('ALIGN', (0, 0), (0, -1), 'LEFT'),
+                        ('ALIGN', (1, 0), (1, -1), 'RIGHT'),
+                        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                        ('FONTSIZE', (0, 0), (0, 0), 16),
+                        ('FONTSIZE', (0, 1), (0, 1), 12),
+                        ('TEXTCOLOR', (0, 0), (0, -1), colors.HexColor('#2E7D32')),
+                        ('BOTTOMPADDING', (0, 0), (-1, -1), 10),
                     ]))
                     header_content.append(header_table)
                 except Exception as e:
@@ -6655,19 +6857,19 @@ async def generate_data_export_pdf(export_data: dict, user_info: dict):
                 # Fallback without logo
                 header_content.append(Paragraph("Diabetes Meal Plan Generator", title_style))
                 header_content.append(Paragraph("Personal Health Data Export", subsection_style))
-            
+
             return header_content
-        
+
         # Add header
         story.extend(add_logo_header())
         story.append(Spacer(1, 30))
-        
+
         # Export metadata
         story.append(Paragraph("Export Information", section_title_style))
-        
+
         export_date = datetime.now().strftime("%B %d, %Y at %I:%M %p")
         user_profile = export_data.get("profile", {})
-        
+
         metadata_data = [
             ["Export Date:", export_date],
             ["Account Email:", user_info.get("email", "Not specified")],
@@ -6678,88 +6880,89 @@ async def generate_data_export_pdf(export_data: dict, user_info: dict):
             ["Analytics Consent:", "✓ Yes" if user_info.get("analytics_consent") else "✗ No"],
             ["Data Retention:", user_info.get("data_retention_preference", "Standard").title()],
         ]
-        
-        metadata_table = Table(metadata_data, colWidths=[2.5*inch, 4*inch])
+
+        metadata_table = Table(metadata_data, colWidths=[2.5 * inch, 4 * inch])
         metadata_table.setStyle(TableStyle([
-            ('BACKGROUND', (0,0), (0,-1), colors.HexColor('#F5F5F5')),
-            ('TEXTCOLOR', (0,0), (-1,-1), colors.black),
-            ('ALIGN', (0,0), (0,-1), 'RIGHT'),
-            ('ALIGN', (1,0), (1,-1), 'LEFT'),
-            ('FONTNAME', (0,0), (0,-1), 'Helvetica-Bold'),
-            ('FONTNAME', (1,0), (1,-1), 'Helvetica'),
-            ('FONTSIZE', (0,0), (-1,-1), 10),
-            ('GRID', (0,0), (-1,-1), 1, colors.HexColor('#E0E0E0')),
-            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-            ('LEFTPADDING', (0,0), (-1,-1), 10),
-            ('RIGHTPADDING', (0,0), (-1,-1), 10),
-            ('TOPPADDING', (0,0), (-1,-1), 8),
-            ('BOTTOMPADDING', (0,0), (-1,-1), 8),
+            ('BACKGROUND', (0, 0), (0, -1), colors.HexColor('#F5F5F5')),
+            ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
+            ('ALIGN', (0, 0), (0, -1), 'RIGHT'),
+            ('ALIGN', (1, 0), (1, -1), 'LEFT'),
+            ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+            ('FONTNAME', (1, 0), (1, -1), 'Helvetica'),
+            ('FONTSIZE', (0, 0), (-1, -1), 10),
+            ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#E0E0E0')),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('LEFTPADDING', (0, 0), (-1, -1), 10),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 10),
+            ('TOPPADDING', (0, 0), (-1, -1), 8),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
         ]))
         story.append(metadata_table)
         story.append(PageBreak())
-        
+
         # Patient Profile Section
         if "profile" in export_data and export_data["profile"]:
             story.extend(generate_profile_pdf_section(export_data["profile"], styles))
-        
+
         # Meal Plans Section (last 10)
         if "meal_plans" in export_data and export_data["meal_plans"]:
             story.extend(generate_meal_plans_pdf_section(export_data["meal_plans"][-10:], styles))
-        
+
         # Consumption History Section (last 10)
         if "consumption_history" in export_data and export_data["consumption_history"]:
             story.extend(generate_consumption_pdf_section(export_data["consumption_history"][-10:], styles))
-        
+
         # AI Coach Conversations Section (last 10)
         if "chat_history" in export_data and export_data["chat_history"]:
             story.extend(generate_chat_pdf_section(export_data["chat_history"][-10:], styles))
-        
+
         # Recipes Section (last 10)
         if "recipes" in export_data and export_data["recipes"]:
             story.extend(generate_recipes_pdf_section(export_data["recipes"][-10:], styles))
-        
+
         # Shopping Lists Section (last 10)
         if "shopping_lists" in export_data and export_data["shopping_lists"]:
             story.extend(generate_shopping_lists_pdf_section(export_data["shopping_lists"][-10:], styles))
-        
+
         # Privacy Notice Section
         story.append(PageBreak())
         story.append(Paragraph("Privacy & Compliance Notice", section_title_style))
-        
+
         # Privacy Notice Section - split into multiple paragraphs to avoid ReportLab parsing issues
         export_timestamp = datetime.now().isoformat()
-        
+
         privacy_paragraphs = [
             "<b>Data Protection Compliance:</b> This document contains your personal health data exported from the Diabetes Meal Plan Generator system in compliance with the General Data Protection Regulation (GDPR) Article 20 - Right to Data Portability.",
-            
+
             "<b>Data Security:</b> Please store this document securely and do not share it with unauthorized parties. This data export includes sensitive health information that should be protected according to applicable privacy laws.",
-            
+
             "<b>Data Usage:</b> You have the right to use this data for your personal health management, share it with healthcare providers, or transfer it to other compatible health management systems.",
-            
+
             f"<b>Support:</b> For questions about your data, privacy rights, or technical support, please contact our support team at support@diabetesmealplangenerator.com",
-            
+
             f"<b>Export Timestamp:</b> {export_timestamp}"
         ]
-        
+
         for para_text in privacy_paragraphs:
             story.append(Paragraph(para_text, normal_style))
             story.append(Spacer(1, 12))
-        
+
         # Build PDF
         doc.build(story)
         buffer.seek(0)
-        
+
         filename = f"health_data_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
-        
+
         return StreamingResponse(
             BytesIO(buffer.read()),
             media_type="application/pdf",
             headers={"Content-Disposition": f"attachment; filename={filename}"}
         )
-        
+
     except Exception as e:
         print(f"[PRIVACY] Error generating PDF: {str(e)}")
         raise Exception(f"Failed to generate PDF export: {str(e)}")
+
 
 def generate_profile_pdf_section(profile: dict, styles):
     """Generate comprehensive profile section for PDF"""
@@ -6768,9 +6971,9 @@ def generate_profile_pdf_section(profile: dict, styles):
     from reportlab.platypus import Paragraph, Spacer, Table, TableStyle, PageBreak
     from reportlab.lib.units import inch
     from reportlab.lib.enums import TA_LEFT, TA_CENTER
-    
+
     story = []
-    
+
     section_title_style = ParagraphStyle(
         'SectionTitle',
         parent=styles['Heading1'],
@@ -6783,7 +6986,7 @@ def generate_profile_pdf_section(profile: dict, styles):
         borderPadding=10,
         backColor=colors.HexColor('#E3F2FD')
     )
-    
+
     subsection_style = ParagraphStyle(
         'SubSection',
         parent=styles['Heading2'],
@@ -6792,9 +6995,9 @@ def generate_profile_pdf_section(profile: dict, styles):
         spaceBefore=15,
         textColor=colors.HexColor('#424242')
     )
-    
+
     story.append(Paragraph("Patient Health Profile", section_title_style))
-    
+
     # Demographics
     story.append(Paragraph("Personal Information", subsection_style))
     demo_data = [
@@ -6803,51 +7006,51 @@ def generate_profile_pdf_section(profile: dict, styles):
         ["Gender:", profile.get("gender", "Not specified")],
         ["Date of Birth:", profile.get("dateOfBirth", "Not specified")],
     ]
-    
-    demo_table = Table(demo_data, colWidths=[2*inch, 4*inch])
+
+    demo_table = Table(demo_data, colWidths=[2 * inch, 4 * inch])
     demo_table.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (0,-1), colors.HexColor('#F8F9FA')),
-        ('FONTNAME', (0,0), (0,-1), 'Helvetica-Bold'),
-        ('FONTNAME', (1,0), (1,-1), 'Helvetica'),
-        ('FONTSIZE', (0,0), (-1,-1), 10),
-        ('GRID', (0,0), (-1,-1), 1, colors.HexColor('#DEE2E6')),
-        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-        ('LEFTPADDING', (0,0), (-1,-1), 8),
-        ('RIGHTPADDING', (0,0), (-1,-1), 8),
-        ('TOPPADDING', (0,0), (-1,-1), 6),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+        ('BACKGROUND', (0, 0), (0, -1), colors.HexColor('#F8F9FA')),
+        ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+        ('FONTNAME', (1, 0), (1, -1), 'Helvetica'),
+        ('FONTSIZE', (0, 0), (-1, -1), 10),
+        ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#DEE2E6')),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('LEFTPADDING', (0, 0), (-1, -1), 8),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 8),
+        ('TOPPADDING', (0, 0), (-1, -1), 6),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
     ]))
     story.append(demo_table)
     story.append(Spacer(1, 15))
-    
+
     # Medical Information
     story.append(Paragraph("Medical Information", subsection_style))
     medical_conditions = profile.get("medicalConditions", profile.get("medical_conditions", []))
     medications = profile.get("currentMedications", [])
     allergies = profile.get("allergies", [])
-    
+
     medical_data = [
         ["Medical Conditions:", ", ".join(medical_conditions) if medical_conditions else "None specified"],
         ["Current Medications:", ", ".join(medications) if medications else "None specified"],
         ["Allergies:", ", ".join(allergies) if allergies else "None specified"],
     ]
-    
-    medical_table = Table(medical_data, colWidths=[2*inch, 4*inch])
+
+    medical_table = Table(medical_data, colWidths=[2 * inch, 4 * inch])
     medical_table.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (0,-1), colors.HexColor('#FFF3E0')),
-        ('FONTNAME', (0,0), (0,-1), 'Helvetica-Bold'),
-        ('FONTNAME', (1,0), (1,-1), 'Helvetica'),
-        ('FONTSIZE', (0,0), (-1,-1), 10),
-        ('GRID', (0,0), (-1,-1), 1, colors.HexColor('#FFB74D')),
-        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-        ('LEFTPADDING', (0,0), (-1,-1), 8),
-        ('RIGHTPADDING', (0,0), (-1,-1), 8),
-        ('TOPPADDING', (0,0), (-1,-1), 6),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+        ('BACKGROUND', (0, 0), (0, -1), colors.HexColor('#FFF3E0')),
+        ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+        ('FONTNAME', (1, 0), (1, -1), 'Helvetica'),
+        ('FONTSIZE', (0, 0), (-1, -1), 10),
+        ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#FFB74D')),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('LEFTPADDING', (0, 0), (-1, -1), 8),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 8),
+        ('TOPPADDING', (0, 0), (-1, -1), 6),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
     ]))
     story.append(medical_table)
     story.append(Spacer(1, 15))
-    
+
     # Vital Signs
     if any([profile.get("height"), profile.get("weight"), profile.get("bmi")]):
         story.append(Paragraph("Vital Signs & Measurements", subsection_style))
@@ -6855,28 +7058,31 @@ def generate_profile_pdf_section(profile: dict, styles):
             ["Height:", f"{profile.get('height', 'Not recorded')} cm" if profile.get('height') else "Not recorded"],
             ["Weight:", f"{profile.get('weight', 'Not recorded')} kg" if profile.get('weight') else "Not recorded"],
             ["BMI:", f"{profile.get('bmi', 'Not calculated')}" if profile.get('bmi') else "Not calculated"],
-            ["Blood Pressure:", f"{profile.get('systolicBP', 'N/A')}/{profile.get('diastolicBP', 'N/A')} mmHg" if profile.get('systolicBP') else "Not recorded"],
-            ["Heart Rate:", f"{profile.get('heartRate', 'Not recorded')} bpm" if profile.get('heartRate') else "Not recorded"],
+            ["Blood Pressure:", f"{profile.get('systolicBP', 'N/A')}/{profile.get('diastolicBP', 'N/A')} mmHg" if profile.get(
+                'systolicBP') else "Not recorded"],
+            ["Heart Rate:", f"{profile.get('heartRate', 'Not recorded')} bpm" if profile.get(
+                'heartRate') else "Not recorded"],
         ]
-        
-        vital_table = Table(vital_data, colWidths=[2*inch, 4*inch])
+
+        vital_table = Table(vital_data, colWidths=[2 * inch, 4 * inch])
         vital_table.setStyle(TableStyle([
-            ('BACKGROUND', (0,0), (0,-1), colors.HexColor('#E8F5E8')),
-            ('FONTNAME', (0,0), (0,-1), 'Helvetica-Bold'),
-            ('FONTNAME', (1,0), (1,-1), 'Helvetica'),
-            ('FONTSIZE', (0,0), (-1,-1), 10),
-            ('GRID', (0,0), (-1,-1), 1, colors.HexColor('#4CAF50')),
-            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-            ('LEFTPADDING', (0,0), (-1,-1), 8),
-            ('RIGHTPADDING', (0,0), (-1,-1), 8),
-            ('TOPPADDING', (0,0), (-1,-1), 6),
-            ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+            ('BACKGROUND', (0, 0), (0, -1), colors.HexColor('#E8F5E8')),
+            ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+            ('FONTNAME', (1, 0), (1, -1), 'Helvetica'),
+            ('FONTSIZE', (0, 0), (-1, -1), 10),
+            ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#4CAF50')),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('LEFTPADDING', (0, 0), (-1, -1), 8),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 8),
+            ('TOPPADDING', (0, 0), (-1, -1), 6),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
         ]))
         story.append(vital_table)
         story.append(Spacer(1, 15))
-    
+
     story.append(PageBreak())
     return story
+
 
 def generate_meal_plans_pdf_section(meal_plans: List[dict], styles):
     """Generate enhanced meal plans section for PDF"""
@@ -6885,9 +7091,9 @@ def generate_meal_plans_pdf_section(meal_plans: List[dict], styles):
     from reportlab.platypus import Paragraph, Spacer, Table, TableStyle, PageBreak
     from reportlab.lib.units import inch
     from reportlab.lib.enums import TA_LEFT, TA_CENTER
-    
+
     story = []
-    
+
     section_title_style = ParagraphStyle(
         'SectionTitle',
         parent=styles['Heading1'],
@@ -6900,7 +7106,7 @@ def generate_meal_plans_pdf_section(meal_plans: List[dict], styles):
         borderPadding=10,
         backColor=colors.HexColor('#E3F2FD')
     )
-    
+
     subsection_style = ParagraphStyle(
         'SubSection',
         parent=styles['Heading2'],
@@ -6909,19 +7115,19 @@ def generate_meal_plans_pdf_section(meal_plans: List[dict], styles):
         spaceBefore=15,
         textColor=colors.HexColor('#424242')
     )
-    
+
     story.append(Paragraph("Meal Plans (Last 10)", section_title_style))
     story.append(Paragraph(f"Total meal plans in system: {len(meal_plans)}", styles['Normal']))
     story.append(Spacer(1, 15))
-    
+
     for i, plan in enumerate(meal_plans[:10], 1):  # Limit to 10
         story.append(Paragraph(f"Meal Plan #{i}", subsection_style))
-        
+
         # Plan Overview
         created_date = plan.get("created_at", "Unknown date")
         daily_calories = plan.get("dailyCalories", "Not specified")
         macros = plan.get("macronutrients", {})
-        
+
         overview_data = [
             ["Created:", created_date],
             ["Daily Calories:", str(daily_calories)],
@@ -6929,27 +7135,27 @@ def generate_meal_plans_pdf_section(meal_plans: List[dict], styles):
             ["Protein:", f"{macros.get('protein', 'N/A')}%"],
             ["Fat:", f"{macros.get('fat', 'N/A')}%"],
         ]
-        
-        overview_table = Table(overview_data, colWidths=[1.5*inch, 2*inch])
+
+        overview_table = Table(overview_data, colWidths=[1.5 * inch, 2 * inch])
         overview_table.setStyle(TableStyle([
-            ('BACKGROUND', (0,0), (0,-1), colors.HexColor('#FFF8E1')),
-            ('FONTNAME', (0,0), (0,-1), 'Helvetica-Bold'),
-            ('FONTSIZE', (0,0), (-1,-1), 9),
-            ('GRID', (0,0), (-1,-1), 1, colors.HexColor('#FFD54F')),
-            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-            ('LEFTPADDING', (0,0), (-1,-1), 6),
-            ('RIGHTPADDING', (0,0), (-1,-1), 6),
-            ('TOPPADDING', (0,0), (-1,-1), 4),
-            ('BOTTOMPADDING', (0,0), (-1,-1), 4),
+            ('BACKGROUND', (0, 0), (0, -1), colors.HexColor('#FFF8E1')),
+            ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, -1), 9),
+            ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#FFD54F')),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('LEFTPADDING', (0, 0), (-1, -1), 6),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 6),
+            ('TOPPADDING', (0, 0), (-1, -1), 4),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
         ]))
         story.append(overview_table)
-        
+
         # Meals breakdown
         meals = plan.get("meals", {})
         if meals:
             story.append(Spacer(1, 10))
             story.append(Paragraph("Daily Meals:", styles['Heading4']))
-            
+
             meal_data = [["Meal Type", "Description"]]
             for meal_type, meal_list in meals.items():
                 if isinstance(meal_list, list) and meal_list:
@@ -6960,27 +7166,28 @@ def generate_meal_plans_pdf_section(meal_plans: List[dict], styles):
                     meal_text = meal_list[:100] + "..." if len(meal_list) > 100 else meal_list
                 else:
                     meal_text = "Not specified"
-                
+
                 meal_data.append([meal_type.title(), meal_text])
-            
-            meal_table = Table(meal_data, colWidths=[1.5*inch, 4.5*inch])
+
+            meal_table = Table(meal_data, colWidths=[1.5 * inch, 4.5 * inch])
             meal_table.setStyle(TableStyle([
-                ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#E1F5FE')),
-                ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
-                ('FONTSIZE', (0,0), (-1,-1), 8),
-                ('GRID', (0,0), (-1,-1), 1, colors.HexColor('#81D4FA')),
-                ('VALIGN', (0,0), (-1,-1), 'TOP'),
-                ('LEFTPADDING', (0,0), (-1,-1), 6),
-                ('RIGHTPADDING', (0,0), (-1,-1), 6),
-                ('TOPPADDING', (0,0), (-1,-1), 4),
-                ('BOTTOMPADDING', (0,0), (-1,-1), 4),
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#E1F5FE')),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, -1), 8),
+                ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#81D4FA')),
+                ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                ('LEFTPADDING', (0, 0), (-1, -1), 6),
+                ('RIGHTPADDING', (0, 0), (-1, -1), 6),
+                ('TOPPADDING', (0, 0), (-1, -1), 4),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
             ]))
             story.append(meal_table)
-        
+
         story.append(Spacer(1, 20))
-    
+
     story.append(PageBreak())
     return story
+
 
 def generate_consumption_pdf_section(consumption_history: List[dict], styles):
     """Generate enhanced consumption history section for PDF"""
@@ -6989,9 +7196,9 @@ def generate_consumption_pdf_section(consumption_history: List[dict], styles):
     from reportlab.platypus import Paragraph, Spacer, Table, TableStyle, PageBreak
     from reportlab.lib.units import inch
     from reportlab.lib.enums import TA_LEFT, TA_CENTER
-    
+
     story = []
-    
+
     section_title_style = ParagraphStyle(
         'SectionTitle',
         parent=styles['Heading1'],
@@ -7004,7 +7211,7 @@ def generate_consumption_pdf_section(consumption_history: List[dict], styles):
         borderPadding=10,
         backColor=colors.HexColor('#E3F2FD')
     )
-    
+
     subsection_style = ParagraphStyle(
         'SubSection',
         parent=styles['Heading2'],
@@ -7013,49 +7220,49 @@ def generate_consumption_pdf_section(consumption_history: List[dict], styles):
         spaceBefore=15,
         textColor=colors.HexColor('#424242')
     )
-    
+
     story.append(Paragraph("Food Consumption History (Last 10)", section_title_style))
-    
+
     if not consumption_history:
         story.append(Paragraph("No consumption records found.", styles['Normal']))
         story.append(PageBreak())
         return story
-    
+
     # Analytics summary
     total_calories = sum(
-        record.get("nutritional_info", {}).get("calories", 0) 
-        for record in consumption_history 
+        record.get("nutritional_info", {}).get("calories", 0)
+        for record in consumption_history
         if record.get("nutritional_info", {}).get("calories")
     )
     avg_calories = total_calories / len(consumption_history) if consumption_history else 0
-    
+
     story.append(Paragraph("Summary Statistics", subsection_style))
     summary_data = [
         ["Total Records:", str(len(consumption_history))],
         ["Total Calories Logged:", f"{total_calories:.0f} kcal"],
         ["Average Calories per Entry:", f"{avg_calories:.1f} kcal"],
     ]
-    
-    summary_table = Table(summary_data, colWidths=[2.5*inch, 2*inch])
+
+    summary_table = Table(summary_data, colWidths=[2.5 * inch, 2 * inch])
     summary_table.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (0,-1), colors.HexColor('#E8F5E8')),
-        ('FONTNAME', (0,0), (0,-1), 'Helvetica-Bold'),
-        ('FONTSIZE', (0,0), (-1,-1), 10),
-        ('GRID', (0,0), (-1,-1), 1, colors.HexColor('#4CAF50')),
-        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-        ('LEFTPADDING', (0,0), (-1,-1), 8),
-        ('RIGHTPADDING', (0,0), (-1,-1), 8),
-        ('TOPPADDING', (0,0), (-1,-1), 6),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+        ('BACKGROUND', (0, 0), (0, -1), colors.HexColor('#E8F5E8')),
+        ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, -1), 10),
+        ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#4CAF50')),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('LEFTPADDING', (0, 0), (-1, -1), 8),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 8),
+        ('TOPPADDING', (0, 0), (-1, -1), 6),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
     ]))
     story.append(summary_table)
     story.append(Spacer(1, 20))
-    
+
     # Detailed consumption records
     story.append(Paragraph("Recent Food Entries", subsection_style))
-    
+
     consumption_data = [["Date", "Food", "Portion", "Calories", "Medical Rating"]]
-    
+
     for record in consumption_history[:10]:  # Last 10
         timestamp = record.get("timestamp", "Unknown")
         try:
@@ -7065,19 +7272,19 @@ def generate_consumption_pdf_section(consumption_history: List[dict], styles):
                 formatted_date = dt.strftime("%m/%d/%Y")
             else:
                 formatted_date = "Unknown"
-        except:
+        except BaseException:
             formatted_date = timestamp
-        
+
         food_name = record.get("food_name", "Unknown food")
         portion = record.get("estimated_portion", "Unknown")
-        
+
         nutrition = record.get("nutritional_info", {})
         calories = nutrition.get("calories", "N/A")
-        
+
         medical_rating = record.get("medical_rating", {})
         rating_score = medical_rating.get("overall_rating", "N/A")
         rating_text = f"{rating_score}/5" if rating_score != "N/A" else "N/A"
-        
+
         consumption_data.append([
             formatted_date,
             food_name[:30] + "..." if len(food_name) > 30 else food_name,
@@ -7085,23 +7292,24 @@ def generate_consumption_pdf_section(consumption_history: List[dict], styles):
             f"{calories} kcal" if calories != "N/A" else "N/A",
             rating_text
         ])
-    
-    consumption_table = Table(consumption_data, colWidths=[1*inch, 2*inch, 1.5*inch, 1*inch, 1*inch])
+
+    consumption_table = Table(consumption_data, colWidths=[1 * inch, 2 * inch, 1.5 * inch, 1 * inch, 1 * inch])
     consumption_table.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#FFE0B2')),
-        ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0,0), (-1,-1), 8),
-        ('GRID', (0,0), (-1,-1), 1, colors.HexColor('#FF9800')),
-        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-        ('LEFTPADDING', (0,0), (-1,-1), 4),
-        ('RIGHTPADDING', (0,0), (-1,-1), 4),
-        ('TOPPADDING', (0,0), (-1,-1), 4),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 4),
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#FFE0B2')),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, -1), 8),
+        ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#FF9800')),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('LEFTPADDING', (0, 0), (-1, -1), 4),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 4),
+        ('TOPPADDING', (0, 0), (-1, -1), 4),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
     ]))
     story.append(consumption_table)
-    
+
     story.append(PageBreak())
     return story
+
 
 def generate_chat_pdf_section(chat_history: List[dict], styles):
     """Generate enhanced AI coach conversations section for PDF"""
@@ -7110,9 +7318,9 @@ def generate_chat_pdf_section(chat_history: List[dict], styles):
     from reportlab.platypus import Paragraph, Spacer, Table, TableStyle, PageBreak
     from reportlab.lib.units import inch
     from reportlab.lib.enums import TA_LEFT, TA_CENTER
-    
+
     story = []
-    
+
     section_title_style = ParagraphStyle(
         'SectionTitle',
         parent=styles['Heading1'],
@@ -7125,7 +7333,7 @@ def generate_chat_pdf_section(chat_history: List[dict], styles):
         borderPadding=10,
         backColor=colors.HexColor('#E3F2FD')
     )
-    
+
     subsection_style = ParagraphStyle(
         'SubSection',
         parent=styles['Heading2'],
@@ -7134,25 +7342,25 @@ def generate_chat_pdf_section(chat_history: List[dict], styles):
         spaceBefore=15,
         textColor=colors.HexColor('#424242')
     )
-    
+
     story.append(Paragraph("AI Health Coach Conversations (Last 10)", section_title_style))
-    
+
     if not chat_history:
         story.append(Paragraph("No chat history found.", styles['Normal']))
         story.append(PageBreak())
         return story
-    
+
     story.append(Paragraph(f"Total chat messages: {len(chat_history)}", styles['Normal']))
     story.append(Spacer(1, 15))
-    
+
     # Show conversations in a more readable format
     story.append(Paragraph("Recent Conversations", subsection_style))
-    
+
     for i, message in enumerate(chat_history[-10:], 1):  # Last 10 messages
         role = "You" if message.get("is_user") else "AI Health Coach"
         content = message.get("message_content", "")
         timestamp = message.get("timestamp", "Unknown time")
-        
+
         try:
             from datetime import datetime
             if timestamp != "Unknown time":
@@ -7160,36 +7368,37 @@ def generate_chat_pdf_section(chat_history: List[dict], styles):
                 formatted_time = dt.strftime("%m/%d/%Y %I:%M %p")
             else:
                 formatted_time = "Unknown time"
-        except:
+        except BaseException:
             formatted_time = timestamp
-        
+
         # Create conversation entry
         role_color = colors.HexColor('#2196F3') if role == "You" else colors.HexColor('#4CAF50')
-        
+
         conversation_data = [
             [f"{role} - {formatted_time}", ""],
             [content[:500] + "..." if len(content) > 500 else content, ""]
         ]
-        
-        conversation_table = Table(conversation_data, colWidths=[6*inch, 0.5*inch])
+
+        conversation_table = Table(conversation_data, colWidths=[6 * inch, 0.5 * inch])
         conversation_table.setStyle(TableStyle([
-            ('BACKGROUND', (0,0), (-1,0), role_color),
-            ('TEXTCOLOR', (0,0), (-1,0), colors.white),
-            ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0,0), (-1,0), 10),
-            ('FONTSIZE', (0,1), (-1,1), 9),
-            ('VALIGN', (0,0), (-1,-1), 'TOP'),
-            ('LEFTPADDING', (0,0), (-1,-1), 8),
-            ('RIGHTPADDING', (0,0), (-1,-1), 8),
-            ('TOPPADDING', (0,0), (-1,-1), 6),
-            ('BOTTOMPADDING', (0,0), (-1,-1), 6),
-            ('GRID', (0,0), (-1,-1), 1, colors.HexColor('#E0E0E0')),
+            ('BACKGROUND', (0, 0), (-1, 0), role_color),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 10),
+            ('FONTSIZE', (0, 1), (-1, 1), 9),
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+            ('LEFTPADDING', (0, 0), (-1, -1), 8),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 8),
+            ('TOPPADDING', (0, 0), (-1, -1), 6),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+            ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#E0E0E0')),
         ]))
         story.append(conversation_table)
         story.append(Spacer(1, 10))
-    
+
     story.append(PageBreak())
     return story
+
 
 def generate_recipes_pdf_section(recipes: List[dict], styles):
     """Generate recipes section for PDF"""
@@ -7197,9 +7406,9 @@ def generate_recipes_pdf_section(recipes: List[dict], styles):
     from reportlab.lib import colors
     from reportlab.platypus import Paragraph, Spacer, Table, TableStyle, PageBreak
     from reportlab.lib.units import inch
-    
+
     story = []
-    
+
     section_title_style = ParagraphStyle(
         'SectionTitle',
         parent=styles['Heading1'],
@@ -7212,38 +7421,39 @@ def generate_recipes_pdf_section(recipes: List[dict], styles):
         borderPadding=10,
         backColor=colors.HexColor('#E3F2FD')
     )
-    
+
     story.append(Paragraph("Saved Recipes (Last 10)", section_title_style))
-    
+
     if not recipes:
         story.append(Paragraph("No saved recipes found.", styles['Normal']))
         story.append(PageBreak())
         return story
-    
+
     story.append(Paragraph(f"Total saved recipes: {len(recipes)}", styles['Normal']))
     story.append(Spacer(1, 15))
-    
+
     for i, recipe_collection in enumerate(recipes[:10], 1):  # Last 10
         recipe_list = recipe_collection.get("recipes", [])
         created_date = recipe_collection.get("created_at", "Unknown date")
-        
+
         story.append(Paragraph(f"Recipe Collection #{i} - {created_date}", styles['Heading3']))
-        
+
         if recipe_list:
             for recipe in recipe_list[:5]:  # Show first 5 recipes from each collection
                 recipe_name = recipe.get("name", "Unnamed Recipe")
                 ingredients = recipe.get("ingredients", [])
                 instructions = recipe.get("instructions", "No instructions provided")
-                
+
                 story.append(Paragraph(recipe_name, styles['Heading4']))
                 story.append(Paragraph(f"<b>Ingredients:</b> {', '.join(ingredients[:10])}", styles['Normal']))
                 story.append(Paragraph(f"<b>Instructions:</b> {instructions[:200]}...", styles['Normal']))
                 story.append(Spacer(1, 10))
-        
+
         story.append(Spacer(1, 15))
-    
+
     story.append(PageBreak())
     return story
+
 
 def generate_shopping_lists_pdf_section(shopping_lists: List[dict], styles):
     """Generate shopping lists section for PDF"""
@@ -7251,9 +7461,9 @@ def generate_shopping_lists_pdf_section(shopping_lists: List[dict], styles):
     from reportlab.lib import colors
     from reportlab.platypus import Paragraph, Spacer, Table, TableStyle, PageBreak
     from reportlab.lib.units import inch
-    
+
     story = []
-    
+
     section_title_style = ParagraphStyle(
         'SectionTitle',
         parent=styles['Heading1'],
@@ -7266,23 +7476,23 @@ def generate_shopping_lists_pdf_section(shopping_lists: List[dict], styles):
         borderPadding=10,
         backColor=colors.HexColor('#E3F2FD')
     )
-    
+
     story.append(Paragraph("Shopping Lists (Last 10)", section_title_style))
-    
+
     if not shopping_lists:
         story.append(Paragraph("No shopping lists found.", styles['Normal']))
         story.append(PageBreak())
         return story
-    
+
     story.append(Paragraph(f"Total shopping lists: {len(shopping_lists)}", styles['Normal']))
     story.append(Spacer(1, 15))
-    
+
     for i, shopping_list in enumerate(shopping_lists[:10], 1):  # Last 10
         created_date = shopping_list.get("created_at", "Unknown date")
         items = shopping_list.get("items", [])
-        
+
         story.append(Paragraph(f"Shopping List #{i} - {created_date}", styles['Heading3']))
-        
+
         if items:
             # Group items by category if available
             categorized = {}
@@ -7291,17 +7501,18 @@ def generate_shopping_lists_pdf_section(shopping_lists: List[dict], styles):
                 if category not in categorized:
                     categorized[category] = []
                 categorized[category].append(item.get("name", "Unknown item"))
-            
+
             for category, category_items in categorized.items():
                 story.append(Paragraph(f"<b>{category}:</b>", styles['Heading4']))
                 items_text = ", ".join(category_items)
                 story.append(Paragraph(items_text, styles['Normal']))
                 story.append(Spacer(1, 8))
-        
+
         story.append(Spacer(1, 15))
-    
+
     story.append(PageBreak())
     return story
+
 
 async def generate_data_export_docx(export_data: dict, user_info: dict):
     """Generate simplified DOCX export using HTML format"""
@@ -7313,19 +7524,19 @@ async def generate_data_export_docx(export_data: dict, user_info: dict):
                 limited_export_data[key] = value[-10:]  # Last 10 items
             else:
                 limited_export_data[key] = value
-        
+
         # Create a comprehensive text-based export that can be saved as DOCX
         export_date = datetime.now().strftime("%B %d, %Y at %I:%M %p")
         user_profile = limited_export_data.get("profile", {})
-        
+
         content = f"""
         DIABETES MEAL PLAN GENERATOR
         Personal Health Data Export
-        
+
         ========================================
         EXPORT INFORMATION
         ========================================
-        
+
         Export Date: {export_date}
         Account Email: {user_info.get("email", "Not specified")}
         Patient Name: {user_profile.get("name", "Not specified")}
@@ -7334,43 +7545,43 @@ async def generate_data_export_docx(export_data: dict, user_info: dict):
         Marketing Consent: {"✓ Yes" if user_info.get("marketing_consent") else "✗ No"}
         Analytics Consent: {"✓ Yes" if user_info.get("analytics_consent") else "✗ No"}
         Data Retention: {user_info.get("data_retention_preference", "Standard").title()}
-        
+
         ========================================
         PATIENT HEALTH PROFILE
         ========================================
-        
+
         Personal Information:
         - Name: {user_profile.get("name", "Not specified")}
         - Age: {user_profile.get("age", "Not specified")}
         - Gender: {user_profile.get("gender", "Not specified")}
         - Date of Birth: {user_profile.get("dateOfBirth", "Not specified")}
-        
+
         Medical Information:
         - Medical Conditions: {", ".join(user_profile.get("medicalConditions", user_profile.get("medical_conditions", []))) or "None specified"}
         - Current Medications: {", ".join(user_profile.get("currentMedications", [])) or "None specified"}
         - Allergies: {", ".join(user_profile.get("allergies", [])) or "None specified"}
-        
+
         """
-        
+
         # Add meal plans section
         if "meal_plans" in limited_export_data and limited_export_data["meal_plans"]:
             content += "\n========================================\n"
             content += "MEAL PLANS (LAST 10)\n"
             content += "========================================\n\n"
-            
+
             for i, plan in enumerate(limited_export_data["meal_plans"][:10], 1):
                 content += f"Meal Plan #{i}\n"
                 content += f"Created: {plan.get('created_at', 'Unknown date')}\n"
                 content += f"Daily Calories: {plan.get('dailyCalories', 'Not specified')}\n"
                 macros = plan.get("macronutrients", {})
                 content += f"Macros - Carbs: {macros.get('carbs', 'N/A')}%, Protein: {macros.get('protein', 'N/A')}%, Fat: {macros.get('fat', 'N/A')}%\n\n"
-        
+
         # Add consumption history section
         if "consumption_history" in limited_export_data and limited_export_data["consumption_history"]:
             content += "\n========================================\n"
             content += "FOOD CONSUMPTION HISTORY (LAST 10)\n"
             content += "========================================\n\n"
-            
+
             for record in limited_export_data["consumption_history"][:10]:
                 content += f"Date: {record.get('timestamp', 'Unknown')}\n"
                 content += f"Food: {record.get('food_name', 'Unknown food')}\n"
@@ -7380,18 +7591,18 @@ async def generate_data_export_docx(export_data: dict, user_info: dict):
                 medical_rating = record.get("medical_rating", {})
                 rating_score = medical_rating.get("overall_rating", "N/A")
                 content += f"Medical Rating: {rating_score}/5\n\n"
-        
+
         # Add chat history section
         if "chat_history" in limited_export_data and limited_export_data["chat_history"]:
             content += "\n========================================\n"
             content += "AI HEALTH COACH CONVERSATIONS (LAST 10)\n"
             content += "========================================\n\n"
-            
+
             for message in limited_export_data["chat_history"][-10:]:
                 role = "You" if message.get("is_user") else "AI Health Coach"
                 content += f"{role}: {message.get('message_content', '')}\n"
                 content += f"Time: {message.get('timestamp', 'Unknown time')}\n\n"
-        
+
         # Add privacy notice
         content += "\n========================================\n"
         content += "PRIVACY & COMPLIANCE NOTICE\n"
@@ -7405,16 +7616,16 @@ Data Usage: You have the right to use this data for your personal health managem
 Support: For questions about your data, privacy rights, or technical support, please contact our support team at support@diabetesmealplangenerator.com
 
 Export Timestamp: """ + datetime.now().isoformat()
-        
+
         # Return as downloadable text file that can be opened in Word
         filename = f"health_data_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.docx"
-        
+
         return Response(
             content=content,
             media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             headers={"Content-Disposition": f"attachment; filename={filename}"}
         )
-        
+
     except Exception as e:
         print(f"[PRIVACY] Error generating DOCX: {str(e)}")
         # Fallback to JSON if DOCX generation fails
@@ -7430,4 +7641,4 @@ Export Timestamp: """ + datetime.now().isoformat()
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000) 
+    uvicorn.run(app, host="0.0.0.0", port=8000)

@@ -1,0 +1,722 @@
+"""
+Unit tests for main FastAPI application endpoints.
+"""
+import pytest
+import unittest
+from unittest.mock import Mock, patch, AsyncMock
+from fastapi.testclient import TestClient
+from datetime import datetime, timedelta
+import json
+import io
+import os
+import sys
+import jwt
+
+# Add the backend directory to the Python path
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
+
+# Mock environment variables before importing
+os.environ.setdefault("AZURE_OPENAI_KEY", "test_key")
+os.environ.setdefault("AZURE_OPENAI_ENDPOINT", "https://test.openai.azure.com/")
+os.environ.setdefault("AZURE_OPENAI_API_VERSION", "2023-12-01-preview")
+os.environ.setdefault("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-4")
+os.environ.setdefault("COSMO_DB_CONNECTION_STRING", "test_connection")
+os.environ.setdefault("INTERACTIONS_CONTAINER", "test_interactions")
+os.environ.setdefault("USER_INFORMATION_CONTAINER", "test_users")
+os.environ.setdefault("SECRET_KEY", "test_secret_key")
+os.environ.setdefault("SMS_API_SID", "test_sms_sid")
+os.environ.setdefault("SMS_KEY", "test_sms_key")
+
+from main import app, get_current_user, get_password_hash, verify_password, create_access_token
+# Helper functions for response assertions
+def assert_response_success(response, expected_status=200):
+    """Assert that a response is successful."""
+    assert response.status_code == expected_status
+    assert response.json() is not None
+
+def assert_response_error(response, expected_status=400):
+    """Assert that a response contains an error."""
+    assert response.status_code == expected_status
+    response_data = response.json()
+    assert "detail" in response_data or "error" in response_data
+
+
+class TestAuthenticationEndpoints(unittest.TestCase):
+    """Test authentication-related endpoints."""
+    
+    def setUp(self):
+        """Set up test fixtures."""
+        self.client = TestClient(app)
+        self.mock_user_data = {
+            "email": "test@example.com",
+            "username": "testuser",
+            "password": "testpassword",
+            "consent_given": True,
+            "consent_timestamp": datetime.utcnow().isoformat(),
+            "policy_version": "1.0"
+        }
+    
+    @patch("main.get_user_by_email")
+    @patch("main.verify_password")
+    @patch("main.create_access_token")
+    def test_login_success(self, mock_create_token, mock_verify_password, mock_get_user):
+        """Test successful user login."""
+        # Mock user exists and password is correct
+        mock_get_user.return_value = {
+            "id": "test@example.com",
+            "email": "test@example.com",
+            "username": "testuser",
+            "hashed_password": "hashed_password",
+            "disabled": False,
+            "patient_id": "TEST123"
+        }
+        mock_verify_password.return_value = True
+        mock_create_token.return_value = "test_token"
+        
+        response = self.client.post(
+            "/login",
+            data={
+                "username": "test@example.com", 
+                "password": "testpassword",
+                "consent_given": "true",
+                "consent_timestamp": "2023-01-01T00:00:00Z",
+                "policy_version": "1.0"
+            }
+        )
+        
+        assert response.status_code == 200
+        assert response.json()["access_token"] == "test_token"
+        assert response.json()["token_type"] == "bearer"
+    
+    @patch("main.get_user_by_email")
+    def test_login_user_not_found(self, mock_get_user):
+        """Test login with non-existent user."""
+        mock_get_user.return_value = None
+        
+        response = self.client.post(
+            "/login",
+            data={"username": "nonexistent@example.com", "password": "testpassword"}
+        )
+        
+        assert response.status_code == 401
+        assert "Incorrect username or password" in response.json()["detail"]
+    
+    @patch("main.get_user_by_email")
+    @patch("main.verify_password")
+    def test_login_wrong_password(self, mock_verify_password, mock_get_user):
+        """Test login with wrong password."""
+        mock_get_user.return_value = {
+            "email": "test@example.com",
+            "hashed_password": "hashed_password",
+            "disabled": False
+        }
+        mock_verify_password.return_value = False
+        
+        response = self.client.post(
+            "/login",
+            data={"username": "test@example.com", "password": "wrongpassword"}
+        )
+        
+        assert response.status_code == 401
+        assert "Incorrect username or password" in response.json()["detail"]
+    
+    @patch("main.get_user_by_email")
+    @patch("main.verify_password")
+    def test_login_disabled_user(self, mock_verify_password, mock_get_user):
+        """Test login with disabled user."""
+        # Mock disabled user
+        mock_get_user.return_value = {
+            "id": "disabled@example.com",
+            "email": "disabled@example.com",
+            "username": "disableduser",
+            "hashed_password": "$2b$12$Pk.9ehLaB/CTuiyO0nWBjeuDcDecMRNdvMZx9KXxtPFGgaAs/2AeC",
+            "disabled": True,
+            "patient_id": "TEST123"
+        }
+        mock_verify_password.return_value = True
+
+        response = self.client.post(
+            "/login",
+            data={
+                "username": "disabled@example.com", 
+                "password": "testpassword",
+                "consent_given": "true",
+                "consent_timestamp": "2023-01-01T00:00:00Z",
+                "policy_version": "1.0"
+            }
+        )
+
+        # Should still succeed but with disabled user flag
+        assert response.status_code == 200
+    
+    @patch("main.get_patient_by_registration_code")
+    @patch("main.get_user_by_email")
+    @patch("main.create_user")
+    def test_register_success(self, mock_create_user, mock_get_user, mock_get_patient):
+        """Test successful user registration."""
+        # Mock patient exists with registration code
+        mock_get_patient.return_value = {
+            "id": "TEST123",
+            "name": "Test Patient",
+            "registration_code": "TEST123",
+            "condition": "Type 2 Diabetes",
+            "medical_conditions": ["Type 2 Diabetes"],
+            "medications": ["Metformin"],
+            "allergies": ["Nuts"],
+            "dietary_restrictions": ["Vegetarian"]
+        }
+        # Mock user does not exist
+        mock_get_user.return_value = None
+        mock_create_user.return_value = True
+
+        response = self.client.post(
+            "/register",
+            json={
+                "registration_code": "TEST123",
+                "email": "newuser@example.com",
+                "password": "newpassword",
+                "consent_given": True,
+                "consent_timestamp": "2023-01-01T00:00:00Z",
+                "policy_version": "1.0"
+            }
+        )
+
+        assert response.status_code == 200
+        assert response.json()["message"] == "Registration successful"
+        assert response.json()["profile_initialized"] == True
+    
+    @patch("main.get_patient_by_registration_code")
+    def test_register_invalid_code(self, mock_get_patient):
+        """Test registration with invalid registration code."""
+        mock_get_patient.return_value = None
+        
+        response = self.client.post(
+            "/register",
+            json={
+                "registration_code": "INVALID",
+                "email": "test@example.com",
+                "password": "testpassword",
+                "consent_given": True,
+                "consent_timestamp": datetime.utcnow().isoformat(),
+                "policy_version": "1.0"
+            }
+        )
+        
+        assert response.status_code == 400
+        assert "Invalid registration code" in response.json()["detail"]
+
+
+class TestMealPlanEndpoints(unittest.TestCase):
+    """Test meal plan endpoints."""
+
+    def setUp(self):
+        self.client = TestClient(app)
+
+    @patch("main.get_current_user")
+    @patch("main.get_user_meal_plans")
+    def test_get_meal_plans_success(self, mock_get_meal_plans, mock_get_user):
+        """Test getting user meal plans."""
+        # Mock the current user
+        mock_get_user.return_value = {
+            "username": "testuser",
+            "email": "test@example.com",
+            "disabled": False
+        }
+        
+        # Mock meal plans
+        mock_get_meal_plans.return_value = [
+            {
+                "id": "meal_plan_123",
+                "breakfast": ["Oatmeal"],
+                "lunch": ["Salad"],
+                "dinner": ["Salmon"],
+                "snacks": ["Apple"]
+            }
+        ]
+
+        # Use the fixture-based auth headers 
+        headers = {"Authorization": "Bearer valid_test_token"}
+        
+        response = self.client.get("/meal_plans", headers=headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["id"] == "meal_plan_123"
+
+    @patch("main.get_current_user")
+    @patch("main.get_meal_plan_by_id")
+    def test_get_meal_plan_by_id_success(self, mock_get_meal_plan, mock_get_user):
+        """Test getting a meal plan by ID."""
+        # Mock the current user
+        mock_get_user.return_value = {
+            "username": "testuser",
+            "email": "test@example.com",
+            "disabled": False
+        }
+        
+        # Mock meal plan
+        mock_get_meal_plan.return_value = {
+            "id": "meal_plan_123",
+            "breakfast": ["Oatmeal"],
+            "lunch": ["Salad"],
+            "dinner": ["Salmon"],
+            "snacks": ["Apple"]
+        }
+
+        headers = {"Authorization": "Bearer valid_test_token"}
+        response = self.client.get("/meal_plans/meal_plan_123", headers=headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["id"] == "meal_plan_123"
+
+    @patch("main.get_current_user")
+    @patch("main.get_meal_plan_by_id")
+    def test_get_meal_plan_by_id_not_found(self, mock_get_meal_plan, mock_get_user):
+        """Test getting a non-existent meal plan."""
+        # Mock the current user
+        mock_get_user.return_value = {
+            "username": "testuser",
+            "email": "test@example.com",
+            "disabled": False
+        }
+        
+        # Mock meal plan not found
+        mock_get_meal_plan.return_value = None
+
+        headers = {"Authorization": "Bearer valid_test_token"}
+        response = self.client.get("/meal_plans/nonexistent", headers=headers)
+
+        assert response.status_code == 404
+
+    @patch("main.get_current_user")
+    @patch("main.delete_meal_plan_by_id")
+    def test_delete_meal_plan_success(self, mock_delete_meal_plan, mock_get_user):
+        """Test deleting a meal plan."""
+        # Mock the current user
+        mock_get_user.return_value = {
+            "username": "testuser",
+            "email": "test@example.com",
+            "disabled": False
+        }
+        
+        # Mock successful deletion
+        mock_delete_meal_plan.return_value = True
+
+        headers = {"Authorization": "Bearer valid_test_token"}
+        response = self.client.delete("/meal_plans/meal_plan_123", headers=headers)
+
+        assert response.status_code == 200
+        assert response.json()["message"] == "Meal plan deleted successfully"
+
+    @patch("main.get_current_user")
+    @patch("main.delete_all_user_meal_plans")
+    def test_delete_all_meal_plans_success(self, mock_delete_all, mock_get_user):
+        """Test deleting all meal plans."""
+        # Mock the current user
+        mock_get_user.return_value = {
+            "username": "testuser",
+            "email": "test@example.com",
+            "disabled": False
+        }
+        
+        # Mock successful deletion
+        mock_delete_all.return_value = {"deleted": True}
+
+        headers = {"Authorization": "Bearer valid_test_token"}
+        response = self.client.delete("/meal_plans/all", headers=headers)
+
+        assert response.status_code == 200
+        assert response.json()["message"] == "All meal plans deleted successfully"
+
+    @patch("main.get_current_user")
+    @patch("main.client")
+    def test_generate_meal_plan_success(self, mock_openai_client, mock_get_user):
+        """Test generating a meal plan."""
+        # Mock the current user
+        mock_get_user.return_value = {
+            "username": "testuser",
+            "email": "test@example.com",
+            "disabled": False
+        }
+        
+        # Mock OpenAI response
+        mock_response = Mock()
+        mock_response.choices = [Mock()]
+        mock_response.choices[0].message = Mock()
+        mock_response.choices[0].message.content = '{"breakfast": ["Oatmeal"], "lunch": ["Salad"], "dinner": ["Salmon"], "snacks": ["Apple"]}'
+        mock_openai_client.chat.completions.create.return_value = mock_response
+
+        headers = {"Authorization": "Bearer valid_test_token"}
+        request_data = {
+            "user_profile": {
+                "name": "Test User",
+                "medical_conditions": ["Type 2 Diabetes"],
+                "calorieTarget": "1800"
+            }
+        }
+
+        response = self.client.post("/generate-meal-plan", json=request_data, headers=headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert "breakfast" in data
+        assert "lunch" in data
+
+
+class TestChatEndpoints(unittest.TestCase):
+    """Test chat-related endpoints."""
+    
+    def setUp(self):
+        """Set up test fixtures."""
+        self.client = TestClient(app)
+        self.mock_user = {
+            "username": "testuser",
+            "email": "test@example.com",
+            "disabled": False
+        }
+    
+    @patch("main.get_current_user")
+    @patch("main.save_chat_message")
+    @patch("main.client")
+    def test_send_chat_message_success(self, mock_openai_client, mock_save_message, mock_get_user):
+        """Test successful chat message sending."""
+        mock_get_user.return_value = self.mock_user
+        mock_save_message.return_value = {"id": "chat_123"}
+        
+        # Mock OpenAI response
+        mock_response = Mock()
+        mock_response.choices = [Mock()]
+        mock_response.choices[0].message = Mock()
+        mock_response.choices[0].message.content = "Hello! How can I help you today?"
+        mock_openai_client.chat.completions.create.return_value = mock_response
+        
+        response = self.client.post(
+            "/chat/message",
+            json={
+                "message": "Hello",
+                "session_id": "session_123"
+            },
+            headers={"Authorization": "Bearer test_token"}
+        )
+        
+        assert response.status_code == 200
+        # Note: This endpoint returns a streaming response, so we check if it starts correctly
+        assert response.headers["content-type"] == "text/plain; charset=utf-8"
+    
+    @patch("main.get_current_user")
+    @patch("main.get_recent_chat_history")
+    def test_get_chat_history_success(self, mock_get_history, mock_get_user):
+        """Test successful chat history retrieval."""
+        mock_get_user.return_value = self.mock_user
+        mock_get_history.return_value = [
+            {
+                "id": "chat_123",
+                "message": "Hello",
+                "is_user": True,
+                "timestamp": "2024-01-01T12:00:00"
+            },
+            {
+                "id": "chat_456",
+                "message": "Hi there!",
+                "is_user": False,
+                "timestamp": "2024-01-01T12:01:00"
+            }
+        ]
+        
+        response = self.client.get(
+            "/chat/history?session_id=session_123",
+            headers={"Authorization": "Bearer test_token"}
+        )
+        
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 2
+        assert data[0]["message"] == "Hello"
+        assert data[1]["message"] == "Hi there!"
+    
+    @patch("main.get_current_user")
+    @patch("main.get_user_sessions")
+    def test_get_chat_sessions_success(self, mock_get_sessions, mock_get_user):
+        """Test successful chat sessions retrieval."""
+        mock_get_user.return_value = self.mock_user
+        mock_get_sessions.return_value = [
+            {"session_id": "session_123", "last_message_time": "2024-01-01T12:00:00"},
+            {"session_id": "session_456", "last_message_time": "2024-01-01T13:00:00"}
+        ]
+        
+        response = self.client.get(
+            "/chat/sessions",
+            headers={"Authorization": "Bearer test_token"}
+        )
+        
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 2
+        assert data[0]["session_id"] == "session_123"
+    
+    @patch("main.get_current_user")
+    @patch("main.clear_chat_history")
+    def test_delete_chat_history_success(self, mock_clear_history, mock_get_user):
+        """Test successful chat history deletion."""
+        mock_get_user.return_value = self.mock_user
+        mock_clear_history.return_value = {"deleted_count": 10}
+        
+        response = self.client.delete(
+            "/chat/history?session_id=session_123",
+            headers={"Authorization": "Bearer test_token"}
+        )
+        
+        assert response.status_code == 200
+        data = response.json()
+        assert data["message"] == "Chat history cleared successfully"
+        assert data["deleted_count"] == 10
+
+
+class TestConsumptionEndpoints(unittest.TestCase):
+    """Test consumption tracking endpoints."""
+    
+    def setUp(self):
+        """Set up test fixtures."""
+        self.client = TestClient(app)
+        self.mock_user = {
+            "username": "testuser",
+            "email": "test@example.com",
+            "disabled": False
+        }
+    
+    @patch("main.get_current_user")
+    @patch("main.get_user_consumption_history")
+    def test_get_consumption_history_success(self, mock_get_history, mock_get_user):
+        """Test successful consumption history retrieval."""
+        mock_get_user.return_value = self.mock_user
+        mock_get_history.return_value = [
+            {
+                "id": "consumption_123",
+                "food_name": "Apple",
+                "calories": 95,
+                "timestamp": "2024-01-01T12:00:00"
+            }
+        ]
+        
+        response = self.client.get(
+            "/consumption/history",
+            headers={"Authorization": "Bearer test_token"}
+        )
+        
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["food_name"] == "Apple"
+    
+    @patch("main.get_current_user")
+    @patch("main.get_consumption_analytics")
+    def test_get_consumption_analytics_success(self, mock_get_analytics, mock_get_user):
+        """Test successful consumption analytics retrieval."""
+        mock_get_user.return_value = self.mock_user
+        mock_get_analytics.return_value = {
+            "total_calories": 1800,
+            "average_daily_calories": 600,
+            "macronutrient_breakdown": {
+                "total_carbs": 225,
+                "total_protein": 90,
+                "total_fat": 60
+            },
+            "daily_breakdown": []
+        }
+        
+        response = self.client.get(
+            "/consumption/analytics?days=30",
+            headers={"Authorization": "Bearer test_token"}
+        )
+        
+        assert response.status_code == 200
+        data = response.json()
+        assert data["total_calories"] == 1800
+        assert data["average_daily_calories"] == 600
+
+
+class TestUserProfileEndpoints(unittest.TestCase):
+    """Test user profile endpoints."""
+    
+    def setUp(self):
+        """Set up test fixtures."""
+        self.client = TestClient(app)
+        self.mock_user = {
+            "username": "testuser",
+            "email": "test@example.com",
+            "disabled": False
+        }
+    
+    @patch("main.get_current_user")
+    def test_get_current_user_info_success(self, mock_get_user):
+        """Test successful current user info retrieval."""
+        mock_get_user.return_value = self.mock_user
+        
+        response = self.client.get(
+            "/users/me",
+            headers={"Authorization": "Bearer test_token"}
+        )
+        
+        assert response.status_code == 200
+        data = response.json()
+        assert data["email"] == "test@example.com"
+        assert data["username"] == "testuser"
+    
+    @patch("main.get_current_user")
+    @patch("main.user_container")
+    def test_save_user_profile_success(self, mock_container, mock_get_user):
+        """Test successful user profile saving."""
+        mock_get_user.return_value = self.mock_user
+        mock_container.upsert_item.return_value = {"id": "profile_123"}
+        
+        profile_data = {
+            "name": "Test User",
+            "age": 30,
+            "medical_conditions": ["Type 2 Diabetes"],
+            "height": 180,
+            "weight": 75
+        }
+        
+        response = self.client.post(
+            "/user/profile",
+            json=profile_data,
+            headers={"Authorization": "Bearer test_token"}
+        )
+        
+        assert response.status_code == 200
+        data = response.json()
+        assert data["message"] == "Profile saved successfully"
+    
+    @patch("main.get_current_user")
+    @patch("main.user_container")
+    def test_get_user_profile_success(self, mock_container, mock_get_user):
+        """Test successful user profile retrieval."""
+        mock_get_user.return_value = self.mock_user
+        mock_container.query_items.return_value = [
+            {
+                "id": "profile_123",
+                "user_id": "test@example.com",
+                "name": "Test User",
+                "age": 30
+            }
+        ]
+        
+        response = self.client.get(
+            "/user/profile",
+            headers={"Authorization": "Bearer test_token"}
+        )
+        
+        assert response.status_code == 200
+        data = response.json()
+        assert data["name"] == "Test User"
+        assert data["age"] == 30
+
+
+class TestUtilityFunctions(unittest.TestCase):
+    """Test utility functions."""
+    
+    def test_get_password_hash(self):
+        """Test password hashing."""
+        password = "testpassword"
+        hashed = get_password_hash(password)
+        
+        assert isinstance(hashed, str)
+        assert len(hashed) > 0
+        assert hashed != password
+    
+    def test_verify_password_correct(self):
+        """Test password verification with correct password."""
+        password = "testpassword"
+        hashed = get_password_hash(password)
+        
+        assert verify_password(password, hashed) is True
+    
+    def test_verify_password_incorrect(self):
+        """Test password verification with incorrect password."""
+        password = "testpassword"
+        wrong_password = "wrongpassword"
+        hashed = get_password_hash(password)
+        
+        assert verify_password(wrong_password, hashed) is False
+    
+    def test_create_access_token(self):
+        """Test access token creation."""
+        data = {"sub": "test@example.com"}
+        token = create_access_token(data)
+        
+        assert isinstance(token, str)
+        assert len(token) > 0
+
+
+class TestAdminEndpoints(unittest.TestCase):
+    """Test admin-related endpoints."""
+    
+    def setUp(self):
+        """Set up test fixtures."""
+        self.client = TestClient(app)
+        self.mock_admin_user = {
+            "username": "admin",
+            "email": "admin@example.com",
+            "disabled": False
+        }
+    
+    @patch("main.get_current_user")
+    @patch("main.create_patient")
+    @patch("main.generate_registration_code")
+    @patch("main.send_registration_code")
+    def test_create_patient_success(self, mock_send_sms, mock_gen_code, mock_create_patient, mock_get_user):
+        """Test successful patient creation by admin."""
+        mock_get_user.return_value = self.mock_admin_user
+        mock_gen_code.return_value = "TEST123"
+        mock_create_patient.return_value = {"id": "TEST123"}
+        mock_send_sms.return_value = True
+        
+        patient_data = {
+            "name": "Test Patient",
+            "phone": "1234567890",
+            "condition": "Type 2 Diabetes",
+            "medical_conditions": ["Type 2 Diabetes"],
+            "medications": ["Metformin"],
+            "allergies": ["Nuts"],
+            "dietary_restrictions": ["Vegetarian"]
+        }
+        
+        response = self.client.post(
+            "/admin/create-patient",
+            json=patient_data,
+            headers={"Authorization": "Bearer admin_token"}
+        )
+        
+        assert response.status_code == 200
+        data = response.json()
+        assert data["message"] == "Patient created successfully"
+        assert data["registration_code"] == "TEST123"
+    
+    @patch("main.get_current_user")
+    @patch("main.get_all_patients")
+    def test_get_patients_success(self, mock_get_patients, mock_get_user):
+        """Test successful patients retrieval by admin."""
+        mock_get_user.return_value = self.mock_admin_user
+        mock_get_patients.return_value = [
+            {
+                "id": "TEST123",
+                "name": "Test Patient",
+                "condition": "Type 2 Diabetes"
+            }
+        ]
+        
+        response = self.client.get(
+            "/admin/patients",
+            headers={"Authorization": "Bearer admin_token"}
+        )
+        
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["name"] == "Test Patient"
+
+
+if __name__ == "__main__":
+    pytest.main([__file__])
