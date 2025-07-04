@@ -11,6 +11,28 @@ import traceback
 from consumption_system import consumption_tracker
 from main import get_current_user
 
+# Import functions that tests expect to be in this module
+from database import (
+    save_consumption_record,
+    get_user_consumption_history, 
+    get_consumption_analytics,
+    update_consumption_meal_type,
+    interactions_container
+)
+
+# Re-export functions for test compatibility
+__all__ = [
+    'save_consumption_record',
+    'get_user_consumption_history',
+    'get_consumption_analytics', 
+    'update_consumption_meal_type',
+    'interactions_container',
+    'quick_log_food_endpoint',
+    'get_consumption_history_endpoint',
+    'get_consumption_analytics_endpoint',
+    'get_daily_insights_endpoint'
+]
+
 async def quick_log_food_endpoint(food_data: dict, current_user: Dict = Depends(get_current_user)) -> Dict[str, Any]:
     """
     Quick log food endpoint - completely rebuilt

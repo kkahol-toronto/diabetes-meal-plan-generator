@@ -18,9 +18,9 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 
 # Cosmos DB configuration
-COSMOS_CONNECTION_STRING = os.getenv("COSMO_DB_CONNECTION_STRING")
-INTERACTIONS_CONTAINER = os.getenv("INTERACTIONS_CONTAINER")
-USER_INFORMATION_CONTAINER = os.getenv("USER_INFORMATION_CONTAINER")
+COSMOS_CONNECTION_STRING = os.getenv("COSMO_DB_CONNECTION_STRING") or ""
+INTERACTIONS_CONTAINER = os.getenv("INTERACTIONS_CONTAINER") or "interactions"
+USER_INFORMATION_CONTAINER = os.getenv("USER_INFORMATION_CONTAINER") or "user_information"
 
 # Initialize Cosmos DB client
 client = CosmosClient.from_connection_string(COSMOS_CONNECTION_STRING)

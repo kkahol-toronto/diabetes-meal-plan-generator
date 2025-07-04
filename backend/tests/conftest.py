@@ -52,8 +52,26 @@ mock_azure_cosmos.exceptions.CosmosResourceNotFoundError = Exception
 # Patch the module before import
 sys.modules['azure.cosmos'] = mock_azure_cosmos
 
-from main import app
+from main import app, get_current_user
 from database import interactions_container, user_container
+
+# Global auth override - this will be applied to all tests by default
+def mock_get_current_user():
+    """Mock current user for all tests"""
+    return {
+        "id": "test@example.com",
+        "email": "test@example.com",
+        "username": "testuser",
+        "disabled": False,
+        "patient_id": "TEST123",
+        "is_admin": False,
+        "consent_given": True,
+        "consent_timestamp": "2023-12-01T10:00:00Z",
+        "policy_version": "1.0"
+    }
+
+# Apply the auth override globally
+app.dependency_overrides[get_current_user] = mock_get_current_user
 
 # JWT Configuration matching main.py
 SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-here") 

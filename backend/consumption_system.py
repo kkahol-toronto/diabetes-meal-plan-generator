@@ -19,9 +19,9 @@ from openai import AzureOpenAI
 
 # Initialize OpenAI client
 client = AzureOpenAI(
-    api_key=os.getenv("AZURE_OPENAI_API_KEY"),
-    api_version=os.getenv("AZURE_OPENAI_API_VERSION"),
-    azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT")
+    api_key=os.getenv("AZURE_OPENAI_API_KEY") or os.getenv("AZURE_OPENAI_KEY") or "",
+    api_version=os.getenv("AZURE_OPENAI_API_VERSION") or "2023-05-15",
+    azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT") or ""
 )
 
 
@@ -124,7 +124,7 @@ class ConsumptionTracker:
             print(f"[ConsumptionTracker] Getting AI analysis for {food_name}")
 
             response = client.chat.completions.create(
-                model=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
+                model=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME") or "gpt-4",
                 messages=[
                     {
                         "role": "system",
@@ -144,9 +144,13 @@ class ConsumptionTracker:
 
             # Parse JSON response
             try:
-                start_idx = analysis_text.find('{')
-                end_idx = analysis_text.rfind('}') + 1
-                json_str = analysis_text[start_idx:end_idx]
+                if analysis_text:
+                    start_idx = analysis_text.find('{')
+                    end_idx = analysis_text.rfind('}') + 1
+                    json_str = analysis_text[start_idx:end_idx]
+                else:
+                    print(f"[ConsumptionTracker] Empty AI response, using fallback")
+                    return fallback_data
                 analysis_data = json.loads(json_str)
 
                 # Validate required fields
