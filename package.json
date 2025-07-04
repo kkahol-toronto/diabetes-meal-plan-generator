@@ -1,18 +1,39 @@
 {
   "name": "diabetes-meal-plan-generator",
   "version": "1.0.0",
-  "description": "A comprehensive web application for diabetes patients to manage their diet, track meals, and get personalized recommendations.",
+  "description": "A comprehensive web application for diabetes patients to manage their diet, track meals, and get personalized recommendations with comprehensive test coverage.",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "test:backend": "cd backend && python -m pytest tests/ -v --cov=. --cov-report=term-missing",
+    "test:backend:watch": "cd backend && python -m pytest tests/ -v --cov=. --cov-report=term-missing -f",
+    "test:backend:coverage": "cd backend && python -m pytest tests/ --cov=. --cov-report=html --cov-report=term-missing",
+    "test:backend:main": "cd backend && python -m pytest tests/ --cov=main --cov-report=term-missing",
+    "lint:backend": "cd backend && pylint main.py database.py consumption_system.py",
+    "format:backend": "cd backend && black . && isort .",
+    "start:backend": "cd backend && python -m uvicorn main:app --reload --host 0.0.0.0 --port 8000",
+    "start:frontend": "cd frontend && npm start",
+    "install:all": "npm install && cd frontend && npm install && cd ../backend && pip install -r requirements.txt",
+    "dev": "concurrently \"npm run start:backend\" \"npm run start:frontend\"",
+    "build:frontend": "cd frontend && npm run build"
   },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/kkahol-toronto/diabetes-meal-plan-generator.git"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "keywords": [
+    "diabetes",
+    "health",
+    "meal-planning",
+    "ai",
+    "nutrition",
+    "healthcare",
+    "fastapi",
+    "react",
+    "typescript"
+  ],
+  "author": "Diabetes Meal Plan Generator Team",
+  "license": "MIT",
   "bugs": {
     "url": "https://github.com/kkahol-toronto/diabetes-meal-plan-generator/issues"
   },
@@ -20,5 +41,12 @@
   "dependencies": {
     "express": "^5.1.0",
     "openai": "^5.0.1"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.0"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "python": ">=3.11.0"
   }
 }
