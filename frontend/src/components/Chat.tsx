@@ -54,6 +54,10 @@ import FavoriteIcon from '@mui/icons-material/Favorite';
 import LocalFireDepartmentIcon from '@mui/icons-material/LocalFireDepartment';
 import FitnessCenterIcon from '@mui/icons-material/FitnessCenter';
 import GrainIcon from '@mui/icons-material/Grain';
+import SearchIcon from '@mui/icons-material/Search';
+import QuestionAnswerIcon from '@mui/icons-material/QuestionAnswer';
+import KitchenIcon from '@mui/icons-material/Kitchen';
+import PhotoCameraIcon from '@mui/icons-material/PhotoCamera';
 import { useNavigate } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import { v4 as uuidv4 } from 'uuid';
@@ -86,16 +90,6 @@ const typewriter = keyframes`
   from { width: 0; }
   to { width: 100%; }
 `;
-
-// Import new icons for enhanced features
-import {
-  CameraAlt as FoodLogIcon,
-  Search as AnalyzeIcon,
-  QuestionAnswer as QuestionIcon,
-  Kitchen as FridgeIcon,
-  PhotoCamera as PhotoIcon,
-  Close as CancelIcon
-} from '@mui/icons-material';
 
 interface Message {
   id: string;
@@ -196,7 +190,7 @@ const Chat = () => {
       id: 'food_logging',
       title: 'Log Food',
       description: 'Analyze and automatically log this food to your consumption history',
-      icon: <FoodLogIcon sx={{ fontSize: 40 }} />,
+      icon: <CameraAltIcon sx={{ fontSize: 40 }} />,
       color: '#667eea',
       action: (file: File) => handleImageAnalysisSelection('logging', file)
     },
@@ -204,7 +198,7 @@ const Chat = () => {
       id: 'food_analysis',
       title: 'Analyze Food',
       description: 'Get detailed nutritional analysis without logging to history',
-      icon: <AnalyzeIcon sx={{ fontSize: 40 }} />,
+      icon: <SearchIcon sx={{ fontSize: 40 }} />,
       color: '#11998e',
       action: (file: File) => handleImageAnalysisSelection('analysis', file)
     },
@@ -212,7 +206,7 @@ const Chat = () => {
       id: 'food_question',
       title: 'Ask About Food',
       description: 'Upload food image and ask specific questions about it',
-      icon: <QuestionIcon sx={{ fontSize: 40 }} />,
+      icon: <QuestionAnswerIcon sx={{ fontSize: 40 }} />,
       color: '#f093fb',
       action: (file: File) => handleImageAnalysisSelection('question', file)
     },
@@ -220,7 +214,7 @@ const Chat = () => {
       id: 'fridge_analysis',
       title: 'Fridge Analysis',
       description: 'Analyze your fridge contents and get cooking suggestions',
-      icon: <FridgeIcon sx={{ fontSize: 40 }} />,
+      icon: <KitchenIcon sx={{ fontSize: 40 }} />,
       color: '#ff9a9e',
       action: (file: File) => handleImageAnalysisSelection('fridge', file)
     }
@@ -739,7 +733,7 @@ const Chat = () => {
             <Tooltip title="Enhanced Image Analysis">
               <IconButton onClick={handleRecordFoodButtonClick} color="primary">
                 <Badge badgeContent="NEW" color="secondary">
-                  <PhotoIcon />
+                  <PhotoCameraIcon />
                 </Badge>
               </IconButton>
             </Tooltip>
@@ -949,7 +943,7 @@ const Chat = () => {
         {selectedImage && (
           <Box sx={{ mb: 2, p: 1, bgcolor: 'grey.50', borderRadius: 1 }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-              {selectedAnalysisMode === 'fridge' ? <FridgeIcon color="primary" /> : <CameraAltIcon color="primary" />}
+              {selectedAnalysisMode === 'fridge' ? <KitchenIcon color="primary" /> : <CameraAltIcon color="primary" />}
               <Typography variant="body2">
                 {selectedAnalysisMode === 'fridge' ? 'Fridge image attached' : 'Food image attached'} 
                 {selectedAnalysisMode && ` (${selectedAnalysisMode} mode)`}
@@ -1038,7 +1032,7 @@ const Chat = () => {
         }}
       >
         <DialogTitle sx={{ textAlign: 'center', pb: 1 }}>
-          <PhotoIcon sx={{ fontSize: 40, color: 'primary.main', mb: 1 }} />
+                        <PhotoCameraIcon sx={{ fontSize: 40, color: 'primary.main', mb: 1 }} />
           <Typography variant="h5" component="div" sx={{ fontWeight: 'bold' }}>
             Choose Analysis Type
           </Typography>
@@ -1087,7 +1081,7 @@ const Chat = () => {
               setImageOptionsDialog(false);
               setPendingImageFile(null);
             }}
-            startIcon={<CancelIcon />}
+                          startIcon={<CloseIcon />}
           >
             Cancel
           </Button>

@@ -1,5 +1,5 @@
 {
-  "name": "diabetes-diet-manager-frontend",
+  "name": "dietra-frontend",
   "version": "0.1.0",
   "private": true,
   "proxy": "http://localhost:8000",

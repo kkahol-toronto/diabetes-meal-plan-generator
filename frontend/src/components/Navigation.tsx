@@ -203,9 +203,20 @@ const Navigation = () => {
             <MenuIcon />
           </IconButton>
         )}
-        <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
-          Diabetes Diet Manager
-        </Typography>
+        <Box sx={{ display: 'flex', alignItems: 'center', flexGrow: 1 }}>
+          <img 
+            src="/dietra_logo.png" 
+            alt="Dietra Logo" 
+            style={{ 
+              height: '48px', 
+              width: 'auto', 
+              marginRight: '16px' 
+            }} 
+          />
+          <Typography variant="h6" component="div">
+            Dietra
+          </Typography>
+        </Box>
         {!isMobile && (
           <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
             {menuItems.map((item) => (

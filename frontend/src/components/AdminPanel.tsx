@@ -42,6 +42,20 @@ const AdminPanel = () => {
     condition: '',
   });
 
+  // Function to format phone number
+  const formatPhoneNumber = (phone: string) => {
+    // Remove all non-digit characters
+    const cleaned = phone.replace(/\D/g, '');
+    
+    // Check if it's a 10-digit number
+    if (cleaned.length === 10) {
+      return `(${cleaned.slice(0, 3)}) ${cleaned.slice(3, 6)}-${cleaned.slice(6)}`;
+    }
+    
+    // If not 10 digits, return original
+    return phone;
+  };
+
   useEffect(() => {
     fetchPatients();
   }, []);
@@ -56,7 +70,11 @@ const AdminPanel = () => {
 
       if (response.ok) {
         const data = await response.json();
-        setPatients(data);
+        // Sort patients by created_at in descending order (newest first)
+        const sortedPatients = data.sort((a: Patient, b: Patient) => 
+          new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        );
+        setPatients(sortedPatients);
       } else {
         navigate('/admin/login');
       }
@@ -164,20 +182,31 @@ const AdminPanel = () => {
               {patients.map((patient) => (
                 <TableRow key={patient.id}>
                   <TableCell>{patient.name}</TableCell>
-                  <TableCell>{patient.phone}</TableCell>
+                  <TableCell>{formatPhoneNumber(patient.phone)}</TableCell>
                   <TableCell>{patient.condition}</TableCell>
                   <TableCell>{patient.registration_code}</TableCell>
                   <TableCell>
                     {new Date(patient.created_at).toLocaleString()}
                   </TableCell>
                   <TableCell>
-                    <Button
-                      variant="outlined"
-                      color="primary"
-                      onClick={() => handleResendCode(patient.id)}
-                    >
-                      Resend Code
-                    </Button>
+                    <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                      <Button
+                        variant="outlined"
+                        color="primary"
+                        size="small"
+                        onClick={() => handleResendCode(patient.id)}
+                      >
+                        Resend Code
+                      </Button>
+                      <Button
+                        variant="contained"
+                        color="secondary"
+                        size="small"
+                        onClick={() => navigate(`/admin/patient/${patient.registration_code}`)}
+                      >
+                        View Profile
+                      </Button>
+                    </Box>
                   </TableCell>
                 </TableRow>
               ))}

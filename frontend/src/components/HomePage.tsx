@@ -217,6 +217,15 @@ const HomePage: React.FC = () => {
   const [analyticsTabValue, setAnalyticsTabValue] = useState(0); // For Daily, Weekly, etc. tabs
   const [selectedTimeRange, setSelectedTimeRange] = useState<'daily' | 'weekly' | 'bi-weekly' | 'monthly'>('daily');
   const [consumptionAnalytics, setConsumptionAnalytics] = useState<any>(null);
+  
+  // Carousel state
+  const [currentImageIndex, setCurrentImageIndex] = useState(0);
+  const carouselImages = [
+    '/photos/middle-eastern-cooking-meze-2025-02-12-05-24-20-utc.jpg',
+    '/photos/top-view-tasty-salad-with-greens-on-dark-backgroun-2025-02-10-08-46-48-utc.jpg',
+    '/photos/vegetarian-buddha-s-bowl-a-mix-of-vegetables-2024-10-18-02-08-30-utc.jpg',
+    '/photos/portion-cups-of-healthy-ingredients-on-wooden-tabl-2025-04-03-08-07-00-utc.jpg'
+  ];
 
   const token = localStorage.getItem('token');
   const isLoggedIn = !!token;
@@ -370,6 +379,17 @@ const HomePage: React.FC = () => {
     const interval = setInterval(fetchAllData, 5 * 60 * 1000);
     return () => clearInterval(interval);
   }, [fetchAllData, fetchConsumptionAnalytics, selectedTimeRange, fetchMacroConsumptionAnalytics, macroTimeRange]);
+
+  // Carousel auto-cycling effect
+  useEffect(() => {
+    const carouselInterval = setInterval(() => {
+      setCurrentImageIndex((prevIndex) => 
+        (prevIndex + 1) % carouselImages.length
+      );
+    }, 3000); // Change image every 3 seconds
+
+    return () => clearInterval(carouselInterval);
+  }, [carouselImages.length]);
 
   const handleQuickLogFood = async () => {
     if (!quickLogFood.trim()) return;
@@ -741,21 +761,82 @@ const HomePage: React.FC = () => {
     return (
       <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
         <Paper elevation={3} sx={{ p: 4, textAlign: 'center', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }}>
-          <Typography variant="h3" component="h1" gutterBottom sx={{ color: 'white', fontWeight: 'bold' }}>
-            🩺 AI Diabetes Coach
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', mb: 2 }}>
+            <img 
+              src="/dietra_logo.png" 
+              alt="Dietra Logo" 
+              style={{ 
+                height: '80px', 
+                width: 'auto', 
+                marginRight: '20px' 
+              }} 
+            />
+            <Typography variant="h3" component="h1" sx={{ color: 'white', fontWeight: 'bold' }}>
+              AI Nutrition Coach
+            </Typography>
+          </Box>
+          
+          {/* Image Carousel */}
+          <Box sx={{ mb: 4, display: 'flex', justifyContent: 'center' }}>
+            <Box sx={{ 
+              width: '600px', 
+              height: '300px', 
+              borderRadius: 3, 
+              overflow: 'hidden',
+              boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)',
+              position: 'relative'
+            }}>
+              <img
+                src={carouselImages[currentImageIndex]}
+                alt={`Healthy meal ${currentImageIndex + 1}`}
+                style={{
+                  width: '100%',
+                  height: '100%',
+                  objectFit: 'cover',
+                  transition: 'opacity 0.5s ease-in-out'
+                }}
+              />
+              {/* Carousel indicators */}
+              <Box sx={{ 
+                position: 'absolute', 
+                bottom: 16, 
+                left: '50%', 
+                transform: 'translateX(-50%)',
+                display: 'flex',
+                gap: 1
+              }}>
+                {carouselImages.map((_, index) => (
+                  <Box
+                    key={index}
+                    sx={{
+                      width: 12,
+                      height: 12,
+                      borderRadius: '50%',
+                      backgroundColor: currentImageIndex === index ? 'white' : alpha('#fff', 0.5),
+                      cursor: 'pointer',
+                      transition: 'background-color 0.3s ease'
+                    }}
+                    onClick={() => setCurrentImageIndex(index)}
+                  />
+                ))}
+              </Box>
+            </Box>
+          </Box>
+          
+          <Typography variant="h6" sx={{ color: 'white', mb: 3, opacity: 0.9, maxWidth: '800px', mx: 'auto', lineHeight: 1.6 }}>
+            Welcome to Dietra. Dietra provides personalized meal plans and shopping lists tailored to your medical and behavioral profile. Simply snap photos of your meals, and our AI automatically analyzes nutritional intake to adapt your plan in real time. With continuous tracking and intelligent adjustments, plus an AI-powered Nutrition Coach to answer your dietary questions, Dietra makes achieving health goals effortless and smart.
           </Typography>
-          <Typography variant="h6" sx={{ color: 'white', mb: 3, opacity: 0.9 }}>
-            Your intelligent companion for diabetes management
-          </Typography>
+          
           <Box sx={{ display: 'flex', gap: 2, justifyContent: 'center', flexWrap: 'wrap' }}>
             <Button
               variant="contained"
               size="large"
               onClick={() => navigate('/login')}
               sx={{ 
-                bgcolor: 'white', 
-                color: 'primary.main',
-                '&:hover': { bgcolor: alpha('#fff', 0.9) }
+                bgcolor: alpha('#fff', 0.2), 
+                color: 'white',
+                border: '1px solid white',
+                '&:hover': { bgcolor: alpha('#fff', 0.3) }
               }}
             >
               Sign In
@@ -817,7 +898,7 @@ const HomePage: React.FC = () => {
           WebkitBackgroundClip: 'text',
           WebkitTextFillColor: 'transparent',
         }}>
-          🤖 AI Diabetes Coach Dashboard
+          🤖 AI Nutrition Coach Dashboard
         </Typography>
         <Typography variant="subtitle1" color="text.secondary">
           Your intelligent health companion • Last updated: {new Date().toLocaleTimeString()}

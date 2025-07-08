@@ -9,6 +9,7 @@ import Register from './components/Register';
 import Chat from './components/Chat';
 import AdminLogin from './components/AdminLogin';
 import AdminPanel from './components/AdminPanel';
+import AdminPatientProfile from './components/AdminPatientProfile';
 import Navigation from './components/Navigation';
 import ThankYou from './components/ThankYou';
 import AllRecipesPage from './pages/AllRecipesPage';
@@ -139,12 +140,20 @@ function App() {
           <Route path="/admin/login" element={<AdminLogin />} />
           <Route path="/thank-you" element={<ThankYou />} />
 
-          {/* Admin Protected Route */}
+          {/* Admin Protected Routes */}
           <Route
             path="/admin"
             element={
               <AdminRoute>
                 <AdminPanel />
+              </AdminRoute>
+            }
+          />
+          <Route
+            path="/admin/patient/:registrationCode"
+            element={
+              <AdminRoute>
+                <AdminPatientProfile />
               </AdminRoute>
             }
           />

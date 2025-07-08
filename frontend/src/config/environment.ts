@@ -13,7 +13,7 @@ interface Environment {
 
 const development: Environment = {
   API_URL: 'http://localhost:8000',
-  APP_NAME: 'Diabetes Diet Manager (Dev)',
+  APP_NAME: 'Dietra (Dev)',
   VERSION: '1.0.0-dev',
   NODE_ENV: 'development',
   ENABLE_ANALYTICS: false,
@@ -25,8 +25,8 @@ const development: Environment = {
 };
 
 const production: Environment = {
-  API_URL: process.env.REACT_APP_API_URL || 'https://api.diabetesdietmanager.com',
-  APP_NAME: 'Diabetes Diet Manager',
+  API_URL: process.env.REACT_APP_API_URL || 'https://api.dietra.com',
+  APP_NAME: 'Dietra',
   VERSION: process.env.REACT_APP_VERSION || '1.0.0',
   NODE_ENV: 'production',
   ENABLE_ANALYTICS: true,
@@ -39,7 +39,7 @@ const production: Environment = {
 
 const test: Environment = {
   API_URL: 'http://localhost:8000',
-  APP_NAME: 'Diabetes Diet Manager (Test)',
+  APP_NAME: 'Dietra (Test)',
   VERSION: '1.0.0-test',
   NODE_ENV: 'test',
   ENABLE_ANALYTICS: false,

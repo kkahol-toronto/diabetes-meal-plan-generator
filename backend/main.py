@@ -400,6 +400,16 @@ async def register(data: RegistrationData):
     
     hashed_password = get_password_hash(data.password)
     
+    # Check if admin has already created a profile for this patient
+    admin_profile = None
+    try:
+        profile_query = f"SELECT * FROM c WHERE c.type = 'user_profile' AND c.registration_code = '{data.registration_code}'"
+        profiles = list(user_container.query_items(query=profile_query, enable_cross_partition_query=True))
+        if profiles:
+            admin_profile = profiles[0].get('profile', {})
+    except Exception as e:
+        print(f"Error checking for admin profile: {e}")
+    
     # Create comprehensive user profile from patient data
     initial_profile = {
         "name": patient.get("name", ""),
@@ -411,13 +421,21 @@ async def register(data: RegistrationData):
         "primaryGoals": ["Manage health conditions", "Maintain balanced nutrition"]
     }
     
+    # If admin has created a profile, merge it with patient data (admin profile takes precedence)
+    if admin_profile:
+        # Merge profiles, giving priority to admin-entered data
+        for key, value in admin_profile.items():
+            if value and value != []:  # Only override if admin actually entered data
+                initial_profile[key] = value
+    
     user_data = {
         "username": data.email,
         "email": data.email,
         "hashed_password": hashed_password,
         "disabled": False,
         "patient_id": patient["id"],
-        "profile": initial_profile,  # Include initial profile from patient data
+        "registration_code": data.registration_code,  # Store registration code
+        "profile": initial_profile,  # Include merged profile
         "consent_given": data.consent_given,
         "consent_timestamp": data.consent_timestamp,
         "policy_version": data.policy_version,
@@ -428,9 +446,30 @@ async def register(data: RegistrationData):
     }
     
     await create_user(user_data)
+    
+    # Create a proper user profile record in the database
+    profile_record = {
+        "id": f"profile_{data.email}",
+        "type": "user_profile",
+        "user_id": data.email,
+        "registration_code": data.registration_code,
+        "profile": initial_profile,
+        "created_by": "patient_registration",
+        "admin_prefilled": bool(admin_profile),
+        "created_at": datetime.utcnow().isoformat(),
+        "updated_at": datetime.utcnow().isoformat()
+    }
+    
+    # Save the profile
+    try:
+        user_container.upsert_item(body=profile_record)
+    except Exception as e:
+        print(f"Error saving user profile record: {e}")
+    
     return {
         "message": "Registration successful", 
         "profile_initialized": True,
+        "admin_prefilled": bool(admin_profile),
         "health_conditions": initial_profile["medicalConditions"]
     }
 
@@ -502,6 +541,159 @@ async def admin_login(form_data: OAuth2PasswordRequestForm = Depends()):
         expires_delta=access_token_expires
     )
     return {"access_token": access_token, "token_type": "bearer"}
+
+@app.get("/admin/patient/{registration_code}")
+async def get_patient_by_code(
+    registration_code: str,
+    current_user: User = Depends(get_current_user)
+):
+    # Check if user is admin
+    if not current_user.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    try:
+        patient = await get_patient_by_registration_code(registration_code)
+        if not patient:
+            raise HTTPException(status_code=404, detail="Patient not found")
+        return patient
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/admin/patient-profile/{registration_code}")
+async def get_patient_profile(
+    registration_code: str,
+    current_user: User = Depends(get_current_user)
+):
+    # Check if user is admin
+    if not current_user.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    try:
+        # First verify the patient exists
+        patient = await get_patient_by_registration_code(registration_code)
+        if not patient:
+            raise HTTPException(status_code=404, detail="Patient not found")
+        
+        # Try to find if the patient has registered and has a profile
+        # Look for user with registration code
+        query = f"SELECT * FROM c WHERE c.type = 'user' AND c.registration_code = '{registration_code}'"
+        users = list(user_container.query_items(query=query, enable_cross_partition_query=True))
+        
+        if not users:
+            # Check if admin has created a profile
+            profile_query = f"SELECT * FROM c WHERE c.type = 'user_profile' AND c.registration_code = '{registration_code}'"
+            profiles = list(user_container.query_items(query=profile_query, enable_cross_partition_query=True))
+            
+            if not profiles:
+                raise HTTPException(status_code=404, detail="Patient profile not found")
+            
+            return {"profile": profiles[0].get('profile', {})}
+        
+        user = users[0]
+        
+        # Get the user's profile
+        profile_query = f"SELECT * FROM c WHERE c.type = 'user_profile' AND c.user_id = '{user['email']}'"
+        profiles = list(user_container.query_items(query=profile_query, enable_cross_partition_query=True))
+        
+        if not profiles:
+            raise HTTPException(status_code=404, detail="Patient profile not found")
+        
+        return {"profile": profiles[0].get('profile', {})}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching patient profile: {str(e)}")
+
+@app.post("/admin/patient-profile/{registration_code}")
+async def save_patient_profile(
+    registration_code: str,
+    request: dict,
+    current_user: User = Depends(get_current_user)
+):
+    # Check if user is admin
+    if not current_user.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    try:
+        # First verify the patient exists
+        patient = await get_patient_by_registration_code(registration_code)
+        if not patient:
+            raise HTTPException(status_code=404, detail="Patient not found")
+        
+        profile_data = request.get('profile', {})
+        
+        # Try to find if patient has registered
+        query = f"SELECT * FROM c WHERE c.type = 'user' AND c.registration_code = '{registration_code}'"
+        users = list(user_container.query_items(query=query, enable_cross_partition_query=True))
+        
+        if users:
+            # Patient has registered - update their existing profile
+            user = users[0]
+            user_email = user['email']
+        else:
+            # Patient hasn't registered yet - create a placeholder profile linked to registration code
+            user_email = f"pending_{registration_code}@placeholder.com"
+        
+        # Create or update profile record
+        profile_record = {
+            "id": f"profile_{user_email}",
+            "type": "user_profile",
+            "user_id": user_email,
+            "registration_code": registration_code,
+            "profile": profile_data,
+            "created_by": "admin",
+            "created_at": datetime.utcnow().isoformat(),
+            "updated_at": datetime.utcnow().isoformat()
+        }
+        
+        # Save to database
+        user_container.upsert_item(body=profile_record)
+        
+        return {
+            "message": "Patient profile saved successfully",
+            "status": "saved_by_admin",
+            "patient_registered": bool(users)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error saving patient profile: {str(e)}")
+
+@app.post("/admin/resend-code/{patient_id}")
+async def resend_registration_code(
+    patient_id: str,
+    current_user: User = Depends(get_current_user)
+):
+    # Check if user is admin
+    if not current_user.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    try:
+        # Get patient by ID
+        patient = await get_patient_by_id(patient_id)
+        if not patient:
+            raise HTTPException(status_code=404, detail="Patient not found")
+        
+        # Send registration code via SMS
+        registration_code = patient.get("registration_code")
+        phone = patient.get("phone")
+        
+        if not registration_code or not phone:
+            raise HTTPException(status_code=400, detail="Patient missing registration code or phone number")
+        
+        sms_result = send_registration_code(phone, registration_code)
+        
+        if sms_result:
+            return {"message": "Registration code resent successfully via SMS"}
+        else:
+            return {"message": "Failed to send SMS. Please check the phone number."}
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error resending registration code: {str(e)}")
 
 def generate_meal_plan_prompt(user_profile: UserProfile) -> str:
     """Legacy function - now redirects to comprehensive profile handling"""
