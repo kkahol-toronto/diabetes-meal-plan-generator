@@ -704,7 +704,7 @@ const HomePage: React.FC = () => {
           fill: true,
         },
         {
-          label: 'Diabetes Score',
+          label: 'Nutrition Score',
           data: last7Days.map((day: any) => (day.diabetes_score || 0) * 10), // Scale for visibility
           borderColor: theme.palette.success.main,
           backgroundColor: alpha(theme.palette.success.main, 0.1),
@@ -719,7 +719,7 @@ const HomePage: React.FC = () => {
     if (!progressData) return null;
 
     return {
-      labels: ['Calories', 'Protein', 'Carbs', 'Fiber', 'Diabetes Score', 'Consistency'],
+              labels: ['Calories', 'Protein', 'Carbs', 'Fiber', 'Nutrition Score', 'Consistency'],
       datasets: [
         {
           label: 'Your Health Metrics',
@@ -980,13 +980,14 @@ const HomePage: React.FC = () => {
               <CardContent>
                 <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
                   <HeartIcon sx={{ mr: 1 }} />
-                  <Typography variant="h6">Diabetes Score</Typography>
+                  <Typography variant="h6">Nutrition Score</Typography>
                 </Box>
                 <Typography variant="h3" sx={{ fontWeight: 'bold' }}>
                   {getScoreEmoji(dashboardData?.diabetes_adherence || 0)} {Math.round(dashboardData?.diabetes_adherence || 0)}%
                 </Typography>
                 <Typography variant="body2" sx={{ opacity: 0.8 }}>
-                  {dashboardData?.diabetes_adherence >= 80 ? 'Excellent!' : 
+                  {dashboardData?.diabetes_adherence === 0 ? 'Start logging meals' :
+                   dashboardData?.diabetes_adherence >= 80 ? 'Excellent!' : 
                    dashboardData?.diabetes_adherence >= 60 ? 'Good progress' : 'Keep improving'}
                 </Typography>
                 <LinearProgress 

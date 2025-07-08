@@ -3960,8 +3960,8 @@ async def get_daily_coaching_insights(current_user: User = Depends(get_current_u
             
             health_adherence = max(0, min(100, base_score - carb_penalty - sugar_penalty - processed_penalty + healthy_bonus))
         else:
-            # Default score for new users (encourage logging)
-            health_adherence = 75
+            # Default score for new users - show 0 until they have data
+            health_adherence = 0
         
         # Generate coaching recommendations
         recommendations = []

@@ -434,7 +434,7 @@ const AICoach: React.FC = () => {
     if (!progressData) return null;
 
     return {
-      labels: ['Calories', 'Protein', 'Carbs', 'Fiber', 'Diabetes Score', 'Consistency'],
+              labels: ['Calories', 'Protein', 'Carbs', 'Fiber', 'Nutrition Score', 'Consistency'],
       datasets: [
         {
           label: 'Your Health Metrics',
@@ -467,7 +467,7 @@ const AICoach: React.FC = () => {
       labels: last7Days.map((day: any) => new Date(day.date).toLocaleDateString('en-US', { weekday: 'short' })),
       datasets: [
         {
-          label: 'Diabetes Score',
+                      label: 'Nutrition Score',
           data: last7Days.map((day: any) => day.diabetes_score || 0),
           borderColor: theme.palette.success.main,
           backgroundColor: alpha(theme.palette.success.main, 0.1),
@@ -691,13 +691,14 @@ const AICoach: React.FC = () => {
               <CardContent>
                 <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
                   <HeartIcon sx={{ mr: 1 }} />
-                  <Typography variant="h6">Diabetes Score</Typography>
+                  <Typography variant="h6">Nutrition Score</Typography>
                 </Box>
                 <Typography variant="h3" sx={{ fontWeight: 'bold' }}>
                   {getScoreEmoji(coachData?.diabetes_adherence || 0)} {Math.round(coachData?.diabetes_adherence || 0)}%
                 </Typography>
-                <Typography variant="body2" sx={{ opacity: 0.8 }}>
-                  {coachData?.diabetes_adherence >= 80 ? 'Excellent management!' : 
+                                <Typography variant="body2" sx={{ opacity: 0.8 }}>
+                  {coachData?.diabetes_adherence === 0 ? 'Start logging meals' :
+                   coachData?.diabetes_adherence >= 80 ? 'Excellent management!' :
                    coachData?.diabetes_adherence >= 60 ? 'Good progress' : 'Room for improvement'}
                 </Typography>
                 <LinearProgress 
@@ -1017,7 +1018,7 @@ const AICoach: React.FC = () => {
                         {Math.round(analyticsData?.avg_diabetes_score || 0)}%
                       </Typography>
                       <Typography variant="body2" color="text.secondary">
-                        Avg Diabetes Score
+                        Avg Nutrition Score
                       </Typography>
                     </Box>
                   </Grid>
