@@ -109,9 +109,9 @@ const AdminPatientProfile = () => {
       });
 
       if (response.ok) {
-        setSuccess('Patient profile saved successfully!');
+        setSuccess('✅ Patient profile saved successfully! The patient can continue filling out any missing information.');
         setUserProfile(profile);
-        setTimeout(() => setSuccess(null), 3000);
+        setTimeout(() => setSuccess(null), 6000);
       } else {
         const errorData = await response.json();
         throw new Error(errorData.detail || 'Failed to save patient profile');
@@ -126,19 +126,83 @@ const AdminPatientProfile = () => {
   const getProfileCompletionStatus = () => {
     if (!userProfile) return { percentage: 0, status: 'Not Started', color: 'default' as const };
     
-    const requiredFields = ['name', 'age', 'gender', 'height', 'weight'];
-    const completedFields = requiredFields.filter(field => userProfile[field as keyof UserProfile]);
-    const percentage = Math.round((completedFields.length / requiredFields.length) * 100);
+    // Comprehensive profile completion checking
+    const profileSections = {
+      demographics: {
+        fields: ['name', 'age', 'gender'],
+        weight: 0.2
+      },
+      vitals: {
+        fields: ['height', 'weight'],
+        weight: 0.15
+      },
+      medical: {
+        fields: ['medicalConditions', 'currentMedications'],
+        arrayFields: true,
+        weight: 0.25
+      },
+      dietary: {
+        fields: ['dietType', 'dietaryRestrictions', 'allergies', 'foodPreferences'],
+        arrayFields: true,
+        weight: 0.2
+      },
+      lifestyle: {
+        fields: ['exerciseFrequency', 'mealPrepCapability'],
+        weight: 0.1
+      },
+      goals: {
+        fields: ['primaryGoals', 'calorieTarget'],
+        arrayFields: true,
+        weight: 0.1
+      }
+    };
+
+    let totalScore = 0;
+    let maxScore = 0;
+
+    Object.entries(profileSections).forEach(([sectionName, section]) => {
+      const sectionWeight = section.weight;
+      maxScore += sectionWeight;
+      
+      let sectionCompletedFields = 0;
+      const totalFields = section.fields.length;
+      
+      section.fields.forEach(field => {
+        const value = userProfile[field as keyof UserProfile];
+        if ('arrayFields' in section && section.arrayFields) {
+          // For array fields, check if array exists and has items
+          if (Array.isArray(value) && value.length > 0) {
+            sectionCompletedFields++;
+          }
+        } else {
+          // For regular fields, check if value exists and is not empty
+          if (value && value !== '' && value !== 0) {
+            sectionCompletedFields++;
+          }
+        }
+      });
+      
+      const sectionCompletion = totalFields > 0 ? sectionCompletedFields / totalFields : 0;
+      totalScore += sectionCompletion * sectionWeight;
+    });
+
+    const percentage = Math.round((totalScore / maxScore) * 100);
     
     let status = 'Incomplete';
-    let color: 'default' | 'primary' | 'secondary' | 'error' | 'info' | 'success' | 'warning' = 'warning';
+    let color: 'default' | 'primary' | 'secondary' | 'error' | 'info' | 'success' | 'warning' = 'error';
     
     if (percentage === 100) {
       status = 'Complete';
       color = 'success';
+    } else if (percentage >= 80) {
+      status = 'Nearly Complete';
+      color = 'info';
     } else if (percentage >= 50) {
       status = 'In Progress';
-      color = 'info';
+      color = 'warning';
+    } else if (percentage > 0) {
+      status = 'Started';
+      color = 'warning';
     }
     
     return { percentage, status, color };
@@ -227,7 +291,16 @@ const AdminPatientProfile = () => {
         </Paper>
 
         {success && (
-          <Alert severity="success" sx={{ mb: 2 }}>
+          <Alert 
+            severity="success" 
+            sx={{ 
+              mb: 2,
+              '& .MuiAlert-icon': {
+                fontSize: '1.5rem',
+              },
+              fontWeight: 'bold',
+            }}
+          >
             {success}
           </Alert>
         )}
@@ -256,13 +329,25 @@ const AdminPatientProfile = () => {
         <UserProfileForm
           onSubmit={handleProfileSubmit}
           initialProfile={userProfile || undefined}
+          submitButtonText="💾 Save Patient Profile"
+          isAdminMode={true}
         />
 
         {saving && (
-          <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2 }}>
-            <CircularProgress size={24} />
-            <Typography variant="body2" sx={{ ml: 1 }}>
-              Saving profile...
+          <Box sx={{ 
+            display: 'flex', 
+            justifyContent: 'center', 
+            alignItems: 'center',
+            mt: 2,
+            p: 2,
+            bgcolor: 'primary.main',
+            color: 'white',
+            borderRadius: 2,
+            boxShadow: 3
+          }}>
+            <CircularProgress size={24} sx={{ color: 'white' }} />
+            <Typography variant="body1" sx={{ ml: 2, fontWeight: 'bold' }}>
+              💾 Saving patient profile...
             </Typography>
           </Box>
         )}

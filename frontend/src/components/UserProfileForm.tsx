@@ -43,9 +43,16 @@ import { UserProfile } from '../types';
 interface UserProfileFormProps {
   onSubmit: (profile: UserProfile) => void;
   initialProfile?: UserProfile;
+  submitButtonText?: string;
+  isAdminMode?: boolean;
 }
 
-const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProfile }) => {
+const UserProfileForm: React.FC<UserProfileFormProps> = ({ 
+  onSubmit, 
+  initialProfile, 
+  submitButtonText = "🚀 Generate My Personalized Meal Plan",
+  isAdminMode = false 
+}) => {
   const theme = useTheme();
   
   // Normalize profile data to handle old format
@@ -258,41 +265,49 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
   const validateForm = () => {
     const newErrors: Record<string, string> = {};
     
-    if (!profile.name?.trim()) {
-      newErrors.name = 'Full name is required';
-    }
-    
-    if (!profile.height || profile.height <= 0) {
-      newErrors.height = 'Please enter a valid height (e.g., 170 cm)';
-    } else if (profile.height < 100 || profile.height > 250) {
-      newErrors.height = 'Height should be between 100-250 cm';
-    }
-    
-    if (!profile.weight || profile.weight <= 0) {
-      newErrors.weight = 'Please enter a valid weight (e.g., 70 kg)';
-    } else if (profile.weight < 30 || profile.weight > 300) {
-      newErrors.weight = 'Weight should be between 30-300 kg';
-    }
-    
-    if (!profile.gender) {
-      newErrors.gender = 'Please select your sex';
-    }
-    
-    // Warn if important fields are missing but don't block submission
-    const warnings: string[] = [];
-    if (!profile.age && !profile.dateOfBirth) {
-      warnings.push('Age or date of birth');
-    }
-    if (!profile.medicalConditions?.length) {
-      warnings.push('Medical conditions');
-    }
-    if (!profile.dietType?.length) {
-      warnings.push('Diet type');
-    }
-    
-    if (warnings.length > 0 && Object.keys(newErrors).length === 0) {
-      // Show a gentle reminder but allow submission
-      console.log('Optional fields that could improve meal planning:', warnings.join(', '));
+    // For admin mode, validation is more relaxed - only name is required
+    if (isAdminMode) {
+      if (!profile.name?.trim()) {
+        newErrors.name = 'Patient name is required';
+      }
+    } else {
+      // For patient mode, more strict validation
+      if (!profile.name?.trim()) {
+        newErrors.name = 'Full name is required';
+      }
+      
+      if (!profile.height || profile.height <= 0) {
+        newErrors.height = 'Please enter a valid height (e.g., 170 cm)';
+      } else if (profile.height < 100 || profile.height > 250) {
+        newErrors.height = 'Height should be between 100-250 cm';
+      }
+      
+      if (!profile.weight || profile.weight <= 0) {
+        newErrors.weight = 'Please enter a valid weight (e.g., 70 kg)';
+      } else if (profile.weight < 30 || profile.weight > 300) {
+        newErrors.weight = 'Weight should be between 30-300 kg';
+      }
+      
+      if (!profile.gender) {
+        newErrors.gender = 'Please select your sex';
+      }
+      
+      // Warn if important fields are missing but don't block submission
+      const warnings: string[] = [];
+      if (!profile.age && !profile.dateOfBirth) {
+        warnings.push('Age or date of birth');
+      }
+      if (!profile.medicalConditions?.length) {
+        warnings.push('Medical conditions');
+      }
+      if (!profile.dietType?.length) {
+        warnings.push('Diet type');
+      }
+      
+      if (warnings.length > 0 && Object.keys(newErrors).length === 0) {
+        // Show a gentle reminder but allow submission
+        console.log('Optional fields that could improve meal planning:', warnings.join(', '));
+      }
     }
     
     setErrors(newErrors);
@@ -447,7 +462,11 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
         </Typography>
         
         <Alert severity="info" sx={{ mb: 3 }}>
-          🔒 Your information is automatically saved as you type and stays private. The more details you provide, the more personalized your meal plan will be. All fields marked with * are required.
+          {isAdminMode ? (
+            <>🏥 You are filling out this profile on behalf of the patient. The patient can complete any missing information later. Only the patient name is required.</>
+          ) : (
+            <>🔒 Your information is automatically saved as you type and stays private. The more details you provide, the more personalized your meal plan will be. All fields marked with * are required.</>
+          )}
         </Alert>
 
         {/* Patient Demographics */}
@@ -463,7 +482,7 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
               <Grid item xs={12} md={6}>
                 <TextField
                   fullWidth
-                  label="Full Name *"
+                  label={isAdminMode ? "Patient Name *" : "Full Name *"}
                   value={profile.name}
                   onChange={(e) => handleInputChange('name', e.target.value)}
                   error={!!errors.name}
@@ -496,7 +515,7 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
               </Grid>
               <Grid item xs={12} md={4}>
                 <FormControl fullWidth error={!!errors.gender}>
-                  <FormLabel>Sex *</FormLabel>
+                  <FormLabel>{isAdminMode ? "Sex" : "Sex *"}</FormLabel>
                   <RadioGroup
                     row
                     value={profile.gender}
@@ -585,7 +604,7 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
               <Grid item xs={12} md={3}>
                 <TextField
                   fullWidth
-                  label="Height (cm) *"
+                  label={isAdminMode ? "Height (cm)" : "Height (cm) *"}
                   type="number"
                   value={profile.height || ''}
                   onChange={(e) => handleInputChange('height', parseFloat(e.target.value) || 0)}
@@ -597,7 +616,7 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
               <Grid item xs={12} md={3}>
                 <TextField
                   fullWidth
-                  label="Weight (kg) *"
+                  label={isAdminMode ? "Weight (kg)" : "Weight (kg) *"}
                   type="number"
                   value={profile.weight || ''}
                   onChange={(e) => handleInputChange('weight', parseFloat(e.target.value) || 0)}
@@ -1521,7 +1540,7 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProf
               transition: 'all 0.3s ease',
             }}
           >
-            🚀 Generate My Personalized Meal Plan
+            {submitButtonText}
           </Button>
         </Box>
       </Paper>
