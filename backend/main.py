@@ -341,8 +341,14 @@ async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends
             "username": user["username"],
             "hashed_password": user["hashed_password"],
             "disabled": user.get("disabled", False),
+            "is_admin": user.get("is_admin", False),  # CRITICAL: Preserve admin status
             "patient_id": user.get("patient_id"),
+            "registration_code": user.get("registration_code"),  # Preserve registration code
             "profile": user.get("profile", {}),
+            "data_retention_preference": user.get("data_retention_preference", "standard"),
+            "marketing_consent": user.get("marketing_consent", False),
+            "analytics_consent": user.get("analytics_consent", True),
+            "last_consent_update": user.get("last_consent_update"),
             "created_at": user.get("created_at"),
             "updated_at": datetime.utcnow().isoformat(),
             "updated_by": "system"
