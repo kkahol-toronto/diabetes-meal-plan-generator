@@ -15,6 +15,7 @@ import {
   LinearProgress,
   Switch,
   FormControlLabel,
+  Checkbox,
   Fade,
   Slide,
   Zoom,
@@ -681,47 +682,140 @@ const MealPlanRequest: React.FC = () => {
   const renderEditableMealPlan = () => {
     if (!editableMealPlan) return null;
     
-    // Generate day labels based on selected number of days
-    const dayLabels = Array.from({ length: selectedDays }, (_, i) => `Day ${i + 1}`);
+    // Generate day labels with real dates starting from today
+    const generateDayLabels = (numDays: number) => {
+      const labels = [];
+      const today = new Date();
+      const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+      
+      for (let i = 0; i < numDays; i++) {
+        const date = new Date(today);
+        date.setDate(today.getDate() + i);
+        const dayName = dayNames[date.getDay()];
+        const monthDay = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        
+        labels.push({
+          dayNumber: `Day ${i + 1}`,
+          dayName: dayName,
+          date: monthDay,
+          fullLabel: i === 0 ? `Day 1 - Today (${dayName})` : `Day ${i + 1} - ${dayName}`,
+          shortLabel: i === 0 ? `Day 1\nToday (${dayName})` : `Day ${i + 1}\n${dayName}`
+        });
+      }
+      return labels;
+    };
+    
+    const dayLabels = generateDayLabels(selectedDays);
     
     return (
-      <Box sx={{ mt: 2 }}>
-        {editableMealTypes.map((mealType) => (
-          <Box key={mealType} sx={{ mb: 4 }}>
-            <Typography
-              variant="h5"
-              sx={{
-                fontWeight: 'bold',
-                textTransform: 'capitalize',
-                mb: 2,
-                color: 'primary.main',
-                letterSpacing: 1,
-                borderBottom: '2px solid',
-                borderColor: 'primary.light',
-                pb: 1,
-                pl: 1,
-                background: 'linear-gradient(90deg, #e3f2fd 0%, #fff 100%)',
-                borderRadius: '8px 8px 0 0',
-                boxShadow: 1,
-                width: 'fit-content',
-                display: 'inline-block',
-              }}
-            >
-              {mealType.charAt(0).toUpperCase() + mealType.slice(1)}
-            </Typography>
-            {dayLabels.map((day, idx) => (
-              <Box key={day} sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-                <Typography sx={{ width: 100, fontWeight: 500 }}>{day}:</Typography>
-                <input
-                  type="text"
-                  value={stripDayPrefix(editableMealPlan[mealType][idx] || '')}
-                  onChange={e => handleMealPlanFieldChange(mealType, idx, e.target.value)}
-                  style={{ flex: 1, padding: 6, borderRadius: 4, border: '1px solid #ccc' }}
-                />
-              </Box>
-            ))}
+      <Box sx={{ mt: 2, overflow: 'auto' }}>
+        <Typography variant="h5" sx={{ mb: 3, textAlign: 'center', fontWeight: 'bold', color: 'primary.main' }}>
+          📅 {selectedDays}-Day Meal Plan
+        </Typography>
+        
+        <Card sx={{ 
+          borderRadius: 3, 
+          overflow: 'hidden',
+          boxShadow: 3,
+          background: 'linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)',
+        }}>
+          <Box sx={{ overflow: 'auto' }}>
+            <table style={{ 
+              width: '100%', 
+              borderCollapse: 'collapse',
+              minWidth: `${Math.max(600, selectedDays * 150)}px`
+            }}>
+              {/* Header Row */}
+              <thead>
+                <tr>
+                  <th style={{
+                    padding: '16px 12px',
+                    backgroundColor: theme.palette.primary.main,
+                    color: 'white',
+                    fontWeight: 'bold',
+                    textAlign: 'center',
+                    border: '1px solid rgba(0,0,0,0.1)',
+                    position: 'sticky',
+                    left: 0,
+                    zIndex: 10,
+                    minWidth: '120px'
+                  }}>
+                    Meal
+                  </th>
+                                     {dayLabels.map((dayLabel) => (
+                     <th key={dayLabel.dayNumber} style={{
+                       padding: '16px 12px',
+                       backgroundColor: theme.palette.primary.main,
+                       color: 'white',
+                       fontWeight: 'bold',
+                       textAlign: 'center',
+                       border: '1px solid rgba(0,0,0,0.1)',
+                       minWidth: '200px',
+                       whiteSpace: 'pre-line'
+                     }}>
+                       {dayLabel.shortLabel}
+                     </th>
+                   ))}
+                </tr>
+              </thead>
+              
+              {/* Body Rows */}
+              <tbody>
+                {editableMealTypes.map((mealType, mealIndex) => (
+                  <tr key={mealType}>
+                    <td style={{
+                      padding: '12px',
+                      backgroundColor: theme.palette.grey[100],
+                      fontWeight: 'bold',
+                      textTransform: 'capitalize',
+                      border: '1px solid rgba(0,0,0,0.1)',
+                      position: 'sticky',
+                      left: 0,
+                      zIndex: 5,
+                      fontSize: '14px',
+                      color: theme.palette.primary.main,
+                      textAlign: 'center'
+                    }}>
+                      {mealType === 'breakfast' && '🍳'} 
+                      {mealType === 'lunch' && '🥗'} 
+                      {mealType === 'dinner' && '🍽️'} 
+                      {mealType === 'snacks' && '🍎'} {' '}
+                      {mealType.charAt(0).toUpperCase() + mealType.slice(1)}
+                    </td>
+                                         {dayLabels.map((dayLabel, dayIndex) => (
+                       <td key={dayLabel.dayNumber} style={{
+                         padding: '8px',
+                         border: '1px solid rgba(0,0,0,0.1)',
+                         backgroundColor: mealIndex % 2 === 0 ? '#ffffff' : '#fafafa'
+                       }}>
+                         <input
+                           type="text"
+                           value={stripDayPrefix(editableMealPlan[mealType][dayIndex] || '')}
+                           onChange={e => handleMealPlanFieldChange(mealType, dayIndex, e.target.value)}
+                           style={{ 
+                             width: '100%', 
+                             padding: '8px', 
+                             borderRadius: '6px', 
+                             border: '1px solid #ddd',
+                             fontSize: '14px',
+                             lineHeight: '1.4',
+                             minHeight: '36px',
+                             resize: 'vertical'
+                           }}
+                           placeholder={`Enter ${mealType} for ${dayLabel.dayName}`}
+                         />
+                       </td>
+                     ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </Box>
-        ))}
+        </Card>
+        
+        <Typography variant="caption" sx={{ mt: 2, display: 'block', textAlign: 'center', color: 'text.secondary' }}>
+          💡 Click on any cell to edit your meal plan. The table scrolls horizontally for plans with many days.
+        </Typography>
       </Box>
     );
   };
@@ -765,7 +859,7 @@ const MealPlanRequest: React.FC = () => {
         return null;
       case 1:
         return (
-          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, justifyContent: 'center' }}>
+          <Box sx={{ display: 'flex', flexWrap: 'nowrap', gap: 1, justifyContent: 'center' }}>
             {!hasGeneratedMealPlan && (
               <Button
                 variant="contained"
@@ -808,46 +902,51 @@ const MealPlanRequest: React.FC = () => {
                 {loading && activeStep === 1 ? '⏳ Generating...' : '🔄 Re-generate Meal Plan'}
               </Button>
             )}
-            <Button
-              variant="contained"
-              onClick={handleConfirmMealPlan}
-              disabled={!editableMealPlan || loading}
-              endIcon={<PlaylistAddCheckIcon />}
-              sx={{ 
-                borderRadius: 3, 
-                px: 3,
-                background: `linear-gradient(45deg, ${theme.palette.success.main}, ${theme.palette.success.dark})`,
-                transition: 'all 0.3s ease',
-                '&:hover': {
-                  transform: 'translateY(-2px)',
-                  boxShadow: '0 8px 20px rgba(0,0,0,0.15)',
-                },
-              }}
-            >
-              ✅ Proceed to Recipe Generation
-            </Button>
-            <Button
-              variant="text"
-              onClick={() => handleExport('meal-plan')}
-              disabled={!mealPlan || loading}
-              startIcon={<DownloadIcon />}
-              sx={{ 
-                borderRadius: 3, 
-                px: 3,
-                transition: 'all 0.3s ease',
-                '&:hover': {
-                  transform: 'translateY(-2px)',
-                  backgroundColor: theme.palette.action.hover,
-                },
-              }}
-            >
-              📄 Export Meal Plan
-            </Button>
+            {editableMealPlan && !loading && (
+              <>
+                <Button
+                  variant="contained"
+                  onClick={handleConfirmMealPlan}
+                  disabled={!editableMealPlan || loading}
+                  endIcon={<PlaylistAddCheckIcon />}
+                  sx={{ 
+                    borderRadius: 3, 
+                    px: 3,
+                    color: 'white',
+                    background: `linear-gradient(45deg, ${theme.palette.success.main}, ${theme.palette.success.dark})`,
+                    transition: 'all 0.3s ease',
+                    '&:hover': {
+                      transform: 'translateY(-2px)',
+                      boxShadow: '0 8px 20px rgba(0,0,0,0.15)',
+                    },
+                  }}
+                >
+                  ✅ Proceed to Recipe Generation
+                </Button>
+                <Button
+                  variant="text"
+                  onClick={() => handleExport('meal-plan')}
+                  disabled={!mealPlan || loading}
+                  startIcon={<DownloadIcon />}
+                  sx={{ 
+                    borderRadius: 3, 
+                    px: 3,
+                    transition: 'all 0.3s ease',
+                    '&:hover': {
+                      transform: 'translateY(-2px)',
+                      backgroundColor: theme.palette.action.hover,
+                    },
+                  }}
+                >
+                  📄 Export Meal Plan
+                </Button>
+              </>
+            )}
           </Box>
         );
       case 2: // Recipes Step
         return (
-          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, justifyContent: 'center' }}>
+          <Box sx={{ display: 'flex', flexWrap: 'nowrap', gap: 1, justifyContent: 'center' }}>
             <Button
               variant="contained"
               color="primary"
@@ -857,6 +956,7 @@ const MealPlanRequest: React.FC = () => {
               sx={{ 
                 borderRadius: 3, 
                 px: 3,
+                color: 'white',
                 background: `linear-gradient(45deg, ${theme.palette.primary.main}, ${theme.palette.primary.dark})`,
                 transition: 'all 0.3s ease',
                 '&:hover': {
@@ -869,7 +969,7 @@ const MealPlanRequest: React.FC = () => {
                 ? '⏳ Generating Recipes...'
                 : recipes && recipes.length > 0
                   ? '🔄 Re-generate Recipes'
-                  : '🍳 Try Generating Recipes'}
+                  : '🍳 Start Recipe Generation'}
             </Button>
             {recipes && recipes.length > 0 && (
               <>
@@ -899,6 +999,7 @@ const MealPlanRequest: React.FC = () => {
                   sx={{ 
                     borderRadius: 3, 
                     px: 3,
+                    color: 'white',
                     background: `linear-gradient(45deg, ${theme.palette.secondary.main}, ${theme.palette.secondary.dark})`,
                     transition: 'all 0.3s ease',
                     '&:hover': {
@@ -915,7 +1016,7 @@ const MealPlanRequest: React.FC = () => {
         );
       case 3: // Shopping List Step
         return (
-          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, justifyContent: 'center' }}>
+          <Box sx={{ display: 'flex', flexWrap: 'nowrap', gap: 1, justifyContent: 'center' }}>
             <Button
               variant="contained"
               onClick={handleShoppingListGenerate}
@@ -924,6 +1025,7 @@ const MealPlanRequest: React.FC = () => {
               sx={{ 
                 borderRadius: 3, 
                 px: 3,
+                color: 'white',
                 background: `linear-gradient(45deg, ${theme.palette.primary.main}, ${theme.palette.primary.dark})`,
                 transition: 'all 0.3s ease',
                 '&:hover': {
@@ -932,7 +1034,7 @@ const MealPlanRequest: React.FC = () => {
                 },
               }}
             >
-              {loading ? '⏳ Generating...' : '🛒 Generate Shopping List'}
+              {loading ? '⏳ Generating...' : '🛒 Start Shopping List Generation'}
             </Button>
             {shoppingList && shoppingList.length > 0 && (
               <>
@@ -981,6 +1083,7 @@ const MealPlanRequest: React.FC = () => {
                   sx={{ 
                     borderRadius: 3, 
                     px: 3,
+                    color: 'white',
                     background: `linear-gradient(45deg, ${theme.palette.success.main}, ${theme.palette.success.dark})`,
                     transition: 'all 0.3s ease',
                     '&:hover': {
@@ -1101,69 +1204,143 @@ const MealPlanRequest: React.FC = () => {
               </Card>
             </Zoom>
 
-            {/* Toggle for 70/30 similarity - only show on meal plan step */}
+            {/* Meal Plan Type Selection - only show on meal plan step */}
             {activeStep === 1 && (
               <Fade in={loaded} timeout={2000}>
                 <Card
                   sx={{
                     mb: 3,
                     borderRadius: 4,
-                    background: usePreviousPlan 
-                      ? `linear-gradient(135deg, ${theme.palette.success.main}20, ${theme.palette.success.main}10)`
-                      : `linear-gradient(135deg, ${theme.palette.info.main}15, ${theme.palette.info.main}08)`,
-                    border: usePreviousPlan
-                      ? `2px solid ${theme.palette.success.main}40`
-                      : `2px solid ${theme.palette.info.main}30`,
+                    background: `linear-gradient(135deg, ${theme.palette.primary.main}15, ${theme.palette.primary.main}08)`,
+                    border: `2px solid ${theme.palette.primary.main}30`,
                     transition: 'all 0.3s ease',
                     animation: `${float} 4s ease-in-out infinite`,
                     '&:hover': {
                       transform: 'translateY(-3px)',
-                      boxShadow: usePreviousPlan
-                        ? `0 8px 20px ${theme.palette.success.main}30`
-                        : `0 8px 20px ${theme.palette.info.main}30`,
+                      boxShadow: `0 8px 20px ${theme.palette.primary.main}30`,
                     },
                   }}
                 >
                   <CardContent sx={{ py: 3, px: 4 }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <Box sx={{ flex: 1 }}>
-                        <Typography 
-                          variant="h6" 
-                          fontWeight="bold"
-                          sx={{ 
-                            color: usePreviousPlan ? theme.palette.success.main : theme.palette.info.main,
-                            mb: 1,
+                    <Typography 
+                      variant="h6" 
+                      fontWeight="bold"
+                      sx={{ 
+                        color: theme.palette.primary.main,
+                        mb: 3,
+                        textAlign: 'center',
+                      }}
+                    >
+                      🍽️ Choose Your Meal Plan Type
+                    </Typography>
+                    <Grid container spacing={3}>
+                      <Grid item xs={12} md={6}>
+                        <Card
+                          sx={{
+                            p: 2,
+                            cursor: 'pointer',
+                            transition: 'all 0.3s ease',
+                            border: !usePreviousPlan 
+                              ? `2px solid ${theme.palette.info.main}` 
+                              : `1px solid ${theme.palette.divider}`,
+                            background: !usePreviousPlan 
+                              ? `linear-gradient(135deg, ${theme.palette.info.main}15, ${theme.palette.info.main}08)` 
+                              : theme.palette.background.paper,
+                            '&:hover': {
+                              transform: 'translateY(-2px)',
+                              boxShadow: '0 6px 16px rgba(0,0,0,0.1)',
+                            },
                           }}
+                          onClick={() => setUsePreviousPlan(false)}
                         >
-                          {usePreviousPlan ? '🔄 Similar to Previous Plan' : '🆕 Fresh Start'}
-                        </Typography>
-                        <Typography 
-                          variant="body2" 
-                          color="text.secondary"
-                          sx={{ lineHeight: 1.5 }}
+                          <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 2 }}>
+                            <FormControlLabel
+                              control={
+                                <Checkbox
+                                  checked={!usePreviousPlan}
+                                  onChange={() => setUsePreviousPlan(false)}
+                                  color="info"
+                                />
+                              }
+                              label=""
+                              sx={{ m: 0 }}
+                            />
+                            <Box sx={{ flex: 1 }}>
+                              <Typography 
+                                variant="subtitle1" 
+                                fontWeight="bold"
+                                sx={{ 
+                                  color: !usePreviousPlan ? theme.palette.info.main : theme.palette.text.primary,
+                                  mb: 1,
+                                }}
+                              >
+                                🆕 Fresh Start
+                              </Typography>
+                              <Typography 
+                                variant="body2" 
+                                color="text.secondary"
+                                sx={{ lineHeight: 1.5 }}
+                              >
+                                Create a completely new meal plan from scratch based on your preferences
+                              </Typography>
+                            </Box>
+                          </Box>
+                        </Card>
+                      </Grid>
+                      <Grid item xs={12} md={6}>
+                        <Card
+                          sx={{
+                            p: 2,
+                            cursor: 'pointer',
+                            transition: 'all 0.3s ease',
+                            border: usePreviousPlan 
+                              ? `2px solid ${theme.palette.success.main}` 
+                              : `1px solid ${theme.palette.divider}`,
+                            background: usePreviousPlan 
+                              ? `linear-gradient(135deg, ${theme.palette.success.main}15, ${theme.palette.success.main}08)` 
+                              : theme.palette.background.paper,
+                            '&:hover': {
+                              transform: 'translateY(-2px)',
+                              boxShadow: '0 6px 16px rgba(0,0,0,0.1)',
+                            },
+                          }}
+                          onClick={() => setUsePreviousPlan(true)}
                         >
-                          {usePreviousPlan 
-                            ? 'Generate a new meal plan similar to your most recent plan, with some variety for new experiences'
-                            : 'Create a completely new meal plan from scratch based on your preferences'
-                          }
-                        </Typography>
-                      </Box>
-                      <Switch 
-                        checked={usePreviousPlan}
-                        onChange={(e) => setUsePreviousPlan(e.target.checked)}
-                        color="primary"
-                        sx={{
-                          ml: 3,
-                          transform: 'scale(1.2)',
-                          '& .MuiSwitch-thumb': {
-                            backgroundColor: usePreviousPlan ? theme.palette.success.main : theme.palette.info.main,
-                          },
-                          '& .MuiSwitch-track': {
-                            backgroundColor: usePreviousPlan ? theme.palette.success.light : theme.palette.info.light,
-                          },
-                        }}
-                      />
-                    </Box>
+                          <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 2 }}>
+                            <FormControlLabel
+                              control={
+                                <Checkbox
+                                  checked={usePreviousPlan}
+                                  onChange={() => setUsePreviousPlan(true)}
+                                  color="success"
+                                />
+                              }
+                              label=""
+                              sx={{ m: 0 }}
+                            />
+                            <Box sx={{ flex: 1 }}>
+                              <Typography 
+                                variant="subtitle1" 
+                                fontWeight="bold"
+                                sx={{ 
+                                  color: usePreviousPlan ? theme.palette.success.main : theme.palette.text.primary,
+                                  mb: 1,
+                                }}
+                              >
+                                🔄 Similar to Previous Plan
+                              </Typography>
+                              <Typography 
+                                variant="body2" 
+                                color="text.secondary"
+                                sx={{ lineHeight: 1.5 }}
+                              >
+                                Generate a new meal plan similar to your most recent plan, with some variety for new experiences
+                              </Typography>
+                            </Box>
+                          </Box>
+                        </Card>
+                      </Grid>
+                    </Grid>
                   </CardContent>
                 </Card>
               </Fade>
@@ -1388,7 +1565,7 @@ const MealPlanRequest: React.FC = () => {
                 }}
               >
                 <CardContent>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 2 }}>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 2, minHeight: '56px' }}>
                     <Button
                       color="inherit"
                       disabled={activeStep === 0 || loading || generatingRecipes}
@@ -1398,6 +1575,7 @@ const MealPlanRequest: React.FC = () => {
                       sx={{ 
                         borderRadius: 3, 
                         px: 3,
+                        flexShrink: 0,
                         transition: 'all 0.3s ease',
                         '&:hover': {
                           transform: 'translateY(-2px)',
@@ -1408,7 +1586,7 @@ const MealPlanRequest: React.FC = () => {
                       Back
                     </Button>
                     
-                    <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', justifyContent: 'center' }}>
+                    <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center', flexWrap: 'nowrap', overflow: 'hidden' }}>
                       {renderActionButtons()}
                     </Box>
                     
@@ -1425,6 +1603,7 @@ const MealPlanRequest: React.FC = () => {
                         sx={{ 
                           borderRadius: 3, 
                           px: 3,
+                          flexShrink: 0,
                           background: `linear-gradient(45deg, ${theme.palette.primary.main}, ${theme.palette.primary.dark})`,
                           transition: 'all 0.3s ease',
                           '&:hover': {

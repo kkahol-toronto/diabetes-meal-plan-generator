@@ -46,10 +46,25 @@ const AdminPatientProfile = () => {
     }
   }, [registrationCode]);
 
+  // Cleanup effect to reset state when component unmounts or registration code changes
+  useEffect(() => {
+    return () => {
+      // Clear state when component unmounts or registration code changes
+      setPatient(null);
+      setUserProfile(null);
+      setError(null);
+      setSuccess(null);
+    };
+  }, [registrationCode]);
+
   const fetchPatientData = async () => {
     try {
       setLoading(true);
       setError(null);
+      setSuccess(null);
+      // Clear previous data immediately when switching patients
+      setPatient(null);
+      setUserProfile(null);
 
       // Fetch patient info
       const patientResponse = await fetch(`http://localhost:8000/admin/patient/${registrationCode}`, {
@@ -81,10 +96,12 @@ const AdminPatientProfile = () => {
           setUserProfile(null);
         } else {
           console.warn('Failed to fetch patient profile');
+          setUserProfile(null);
         }
       } catch (profileError) {
         console.warn('Error fetching patient profile:', profileError);
         // Continue without profile - admin can create one
+        setUserProfile(null);
       }
 
     } catch (err) {
@@ -327,6 +344,7 @@ const AdminPatientProfile = () => {
         </Box>
 
         <UserProfileForm
+          key={`patient-profile-${registrationCode}`}
           onSubmit={handleProfileSubmit}
           initialProfile={userProfile || undefined}
           submitButtonText="💾 Save Patient Profile"

@@ -59,8 +59,31 @@ const MealPlan = ({ mealPlan, selectedDays = 7 }: MealPlanProps) => {
     setLoaded(true);
   }, []);
 
-  // Generate day labels based on selected number of days
-  const days = Array.from({ length: selectedDays }, (_, i) => `Day ${i + 1}`);
+  // Generate day labels with real dates starting from today
+  const generateDayLabels = (numDays: number) => {
+    const labels = [];
+    const today = new Date();
+    const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    
+    for (let i = 0; i < numDays; i++) {
+      const date = new Date(today);
+      date.setDate(today.getDate() + i);
+      const dayName = dayNames[date.getDay()];
+      const monthDay = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      
+      labels.push({
+        dayNumber: `Day ${i + 1}`,
+        dayName: dayName,
+        date: monthDay,
+        fullLabel: i === 0 ? `Day 1 - Today (${dayName})` : `Day ${i + 1} - ${dayName}`,
+        shortLabel: i === 0 ? `Day 1\nToday (${dayName})` : `Day ${i + 1}\n${dayName}`,
+        headerLabel: i === 0 ? `📅 Day 1\n${dayName} (Today)\n${monthDay}` : `📅 Day ${i + 1}\n${dayName}\n${monthDay}`
+      });
+    }
+    return labels;
+  };
+  
+  const days = generateDayLabels(selectedDays);
   const mealTypes: Array<{ 
     name: keyof Pick<MealPlanData, 'breakfast' | 'lunch' | 'dinner' | 'snacks'>; 
     icon: JSX.Element; 
@@ -208,116 +231,146 @@ const MealPlan = ({ mealPlan, selectedDays = 7 }: MealPlanProps) => {
         </Card>
       </Slide>
 
-      {/* Daily Meal Plans */}
-      <Grid container spacing={3}>
-        {days.map((day, dayIndex) => (
-          <Grid item xs={12} md={6} lg={4} key={day}>
-            <Slide 
-              direction={dayIndex % 2 === 0 ? 'right' : 'left'} 
-              in={loaded} 
-              timeout={1000 + dayIndex * 150}
-            >
-              <Card 
-                sx={{ 
-                  borderRadius: 4, 
-                  height: '100%',
-                  background: 'rgba(255,255,255,0.95)',
-                  backdropFilter: 'blur(15px)',
-                  border: '1px solid rgba(255,255,255,0.3)',
-                  transition: 'all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275)',
-                  animation: `${float} ${4 + dayIndex * 0.3}s ease-in-out infinite`,
-                  '&:hover': {
-                    transform: 'translateY(-10px)',
-                    boxShadow: '0 20px 40px rgba(0,0,0,0.15)',
-                    '& .day-header': {
-                      background: `linear-gradient(135deg, ${theme.palette.secondary.main}, ${theme.palette.secondary.dark})`,
-                    },
-                  },
-                }}
-              >
-                <CardContent 
-                  className="day-header"
-                  sx={{ 
-                    background: `linear-gradient(135deg, ${theme.palette.secondary.main}dd, ${theme.palette.secondary.dark}dd)`,
+      {/* Meal Plan Table */}
+      <Slide direction="up" in={loaded} timeout={1200}>
+        <Card 
+          sx={{ 
+            borderRadius: 4, 
+            background: 'rgba(255,255,255,0.95)',
+            backdropFilter: 'blur(20px)',
+            border: '1px solid rgba(255,255,255,0.3)',
+            boxShadow: '0 8px 32px rgba(0,0,0,0.1)',
+            overflow: 'hidden',
+            position: 'relative',
+            '&::before': {
+              content: '""',
+              position: 'absolute',
+              top: 0,
+              left: '-200px',
+              width: '200px',
+              height: '100%',
+              background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent)',
+              animation: `${shimmer} 3s infinite`,
+            },
+          }}
+        >
+          <Box sx={{ overflow: 'auto' }}>
+            <table style={{ 
+              width: '100%', 
+              borderCollapse: 'collapse',
+              minWidth: `${Math.max(700, selectedDays * 150)}px`
+            }}>
+              {/* Header Row */}
+              <thead>
+                <tr>
+                  <th style={{
+                    padding: '20px 16px',
+                    background: `linear-gradient(135deg, ${theme.palette.primary.main}, ${theme.palette.primary.dark})`,
                     color: 'white',
+                    fontWeight: 'bold',
+                    fontSize: '16px',
                     textAlign: 'center',
-                    py: 2,
-                    transition: 'all 0.3s ease',
-                  }}
-                >
-                  <Typography variant="h6" component="div" fontWeight="bold">
-                    {day}
-                  </Typography>
-                </CardContent>
-                <CardContent sx={{ p: 3 }}>
-                  {mealTypes.map((mealTypeDetail, mealIndex) => (
-                    <Fade in={loaded} timeout={1500 + dayIndex * 100 + mealIndex * 50} key={mealTypeDetail.name}>
-                      <Paper 
-                        elevation={0}
-                        sx={{
-                          mb: 2, 
-                          p: 3, 
-                          borderRadius: 3, 
-                          background: `linear-gradient(135deg, ${mealTypeDetail.color}15, ${mealTypeDetail.color}08)`,
-                          border: `2px solid ${mealTypeDetail.color}30`,
-                          transition: 'all 0.3s ease',
-                          cursor: 'pointer',
-                          '&:hover': {
-                            transform: 'translateX(10px)',
-                            boxShadow: `0 8px 20px ${mealTypeDetail.color}30`,
-                            background: `linear-gradient(135deg, ${mealTypeDetail.color}25, ${mealTypeDetail.color}15)`,
-                            '& .meal-icon': {
-                              transform: 'rotate(10deg) scale(1.2)',
-                              animation: `${pulse} 0.6s ease`,
-                            },
-                          },
-                        }}
-                      >
-                        <Box sx={{ display: 'flex', alignItems: 'center', mb: 2}}>
-                          <Box 
-                            className="meal-icon"
-                            sx={{ 
-                              minWidth: 'auto', 
-                              mr: 2, 
-                              color: mealTypeDetail.color,
-                              fontSize: 28,
-                              transition: 'all 0.3s ease',
-                            }}
-                          >
-                            {mealTypeDetail.icon}
-                          </Box>
-                          <Typography 
-                            variant="subtitle1" 
-                            sx={{ 
-                              fontWeight: 700, 
-                              color: mealTypeDetail.color,
-                              textTransform: 'uppercase',
-                              letterSpacing: 1,
-                            }}
-                          >
-                            {mealTypeDetail.label}
-                          </Typography>
+                    border: '1px solid rgba(0,0,0,0.1)',
+                    position: 'sticky',
+                    left: 0,
+                    zIndex: 10,
+                    minWidth: '140px'
+                  }}>
+                    🍽️ Meals
+                  </th>
+                                     {days.map((dayLabel) => (
+                     <th key={dayLabel.dayNumber} style={{
+                       padding: '20px 16px',
+                       background: `linear-gradient(135deg, ${theme.palette.primary.main}, ${theme.palette.primary.dark})`,
+                       color: 'white',
+                       fontWeight: 'bold',
+                       fontSize: '16px',
+                       textAlign: 'center',
+                       border: '1px solid rgba(0,0,0,0.1)',
+                       minWidth: '250px',
+                       whiteSpace: 'pre-line'
+                     }}>
+                       {dayLabel.headerLabel}
+                     </th>
+                   ))}
+                </tr>
+              </thead>
+              
+              {/* Body Rows */}
+              <tbody>
+                {mealTypes.map((mealTypeDetail, mealIndex) => (
+                  <Fade in={loaded} timeout={1500 + mealIndex * 200} key={mealTypeDetail.name}>
+                    <tr style={{
+                      transition: 'all 0.3s ease',
+                    }}>
+                      <td style={{
+                        padding: '16px',
+                        background: `linear-gradient(135deg, ${mealTypeDetail.color}20, ${mealTypeDetail.color}10)`,
+                        fontWeight: 'bold',
+                        fontSize: '16px',
+                        border: '1px solid rgba(0,0,0,0.1)',
+                        position: 'sticky',
+                        left: 0,
+                        zIndex: 5,
+                        color: mealTypeDetail.color,
+                        textAlign: 'center'
+                      }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1 }}>
+                          <Box sx={{ fontSize: 20 }}>{mealTypeDetail.icon}</Box>
+                          <span>{mealTypeDetail.label}</span>
                         </Box>
-                        <Typography 
-                          variant="body1" 
-                          sx={{
-                            color: 'text.primary',
-                            lineHeight: 1.6,
-                            fontWeight: 500,
-                            pl: 1,
-                          }}
-                        >
-                          {mealPlan[mealTypeDetail.name][dayIndex] || 'Not specified'}
-                        </Typography>
-                      </Paper>
-                    </Fade>
-                  ))}
-                </CardContent>
-              </Card>
-            </Slide>
-          </Grid>
-        ))}
-      </Grid>
+                      </td>
+                                             {days.map((dayLabel, dayIndex) => (
+                         <td key={dayLabel.dayNumber} style={{
+                           padding: '16px',
+                           border: '1px solid rgba(0,0,0,0.1)',
+                           backgroundColor: mealIndex % 2 === 0 ? '#ffffff' : '#fafafa',
+                           verticalAlign: 'top'
+                         }}>
+                           <Box
+                             sx={{
+                               p: 2,
+                               borderRadius: 2,
+                               background: `linear-gradient(135deg, ${mealTypeDetail.color}08, ${mealTypeDetail.color}05)`,
+                               border: `1px solid ${mealTypeDetail.color}20`,
+                               transition: 'all 0.3s ease',
+                               cursor: 'pointer',
+                               '&:hover': {
+                                 transform: 'translateY(-2px)',
+                                 boxShadow: `0 4px 12px ${mealTypeDetail.color}30`,
+                                 background: `linear-gradient(135deg, ${mealTypeDetail.color}15, ${mealTypeDetail.color}08)`,
+                               },
+                             }}
+                           >
+                             <Typography 
+                               variant="body1" 
+                               sx={{
+                                 color: 'text.primary',
+                                 lineHeight: 1.5,
+                                 fontWeight: 500,
+                                 fontSize: '14px'
+                               }}
+                             >
+                               {mealPlan[mealTypeDetail.name][dayIndex] || (
+                                 <span style={{ 
+                                   color: theme.palette.text.secondary, 
+                                   fontStyle: 'italic' 
+                                 }}>
+                                   Not specified
+                                 </span>
+                               )}
+                             </Typography>
+                           </Box>
+                         </td>
+                       ))}
+                    </tr>
+                  </Fade>
+                ))}
+              </tbody>
+            </table>
+          </Box>
+        </Card>
+      </Slide>
     </Box>
   );
 };

@@ -31,6 +31,13 @@ const Register = () => {
   const [error, setError] = useState<string | null>(null);
   const [consentChecked, setConsentChecked] = useState(false);
   const [showConsentForm, setShowConsentForm] = useState(false);
+  const [signatureData, setSignatureData] = useState<{
+    requiredConsent: boolean;
+    researchConsent: boolean;
+    signature: string;
+    timestamp: string;
+    ipAddress?: string;
+  } | null>(null);
 
   const handleChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = event.target;
@@ -38,10 +45,6 @@ const Register = () => {
       ...prev,
       [name]: value
     }));
-  };
-
-  const handleConsentCheck = (event: React.ChangeEvent<HTMLInputElement>) => {
-    setConsentChecked(event.target.checked);
   };
 
   const handleOpenConsentForm = () => {
@@ -52,7 +55,8 @@ const Register = () => {
     setShowConsentForm(false);
   };
 
-  const handleAcceptConsent = () => {
+  const handleAcceptConsent = (signature: any) => {
+    setSignatureData(signature);
     setConsentChecked(true);
     setShowConsentForm(false);
   };
@@ -65,8 +69,9 @@ const Register = () => {
       return;
     }
 
-    if (!consentChecked) {
-      setError('You must agree to the Privacy Policy to register');
+    if (!signatureData) {
+      setError('You must sign the consent form to register');
+      setShowConsentForm(true);
       return;
     }
 
@@ -80,9 +85,13 @@ const Register = () => {
           registration_code: formData.registrationCode,
           email: formData.email,
           password: formData.password,
-          consent_given: consentChecked,
-          consent_timestamp: new Date().toISOString(),
+          consent_given: signatureData.requiredConsent,
+          consent_timestamp: signatureData.timestamp,
           policy_version: CURRENT_POLICY_VERSION,
+          electronic_signature: signatureData.signature,
+          signature_timestamp: signatureData.timestamp,
+          signature_ip_address: signatureData.ipAddress,
+          research_consent: signatureData.researchConsent,
         }),
       });
 
@@ -360,44 +369,64 @@ const Register = () => {
               />
             </Box>
 
-            {/* Consent Checkbox */}
+            {/* Consent Agreement */}
             <Box sx={{ mt: 2 }}>
-              <FormControlLabel
-                control={
-                  <Checkbox
-                    checked={consentChecked}
-                    onChange={handleConsentCheck}
-                    sx={{ 
-                      color: 'rgba(255,255,255,0.8)',
-                      '&.Mui-checked': { color: 'white' }
-                    }}
-                  />
-                }
-                label={
-                  <Box component="span" sx={{ color: 'rgba(255,255,255,0.9)', fontSize: '0.95rem', lineHeight: 1.4 }}>
-                    I agree to the collection and use of my health information as described in the{' '}
-                    <MuiButton
-                      onClick={handleOpenConsentForm}
-                      sx={{
-                        color: 'white',
-                        textDecoration: 'underline',
-                        p: 0,
-                        minWidth: 'auto',
-                        textTransform: 'none',
-                        verticalAlign: 'baseline',
-                        fontSize: 'inherit',
-                        fontWeight: 500,
-                        '&:hover': {
-                          backgroundColor: 'transparent',
-                          textDecoration: 'underline'
-                        }
-                      }}
-                    >
-                      Privacy Policy
-                    </MuiButton>
+              {signatureData ? (
+                <Box sx={{ 
+                  p: 2, 
+                  bgcolor: 'rgba(76, 175, 80, 0.1)', 
+                  border: '1px solid rgba(76, 175, 80, 0.3)',
+                  borderRadius: 2,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 2
+                }}>
+                  <Typography sx={{ color: '#4caf50', fontSize: '1.2rem' }}>✓</Typography>
+                  <Box>
+                    <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.9)', fontWeight: 500 }}>
+                      Consent Agreement Signed
+                    </Typography>
+                    <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.7)' }}>
+                      Signed by: {signatureData.signature} on {new Date(signatureData.timestamp).toLocaleDateString()}
+                    </Typography>
                   </Box>
-                }
-              />
+                  <MuiButton
+                    onClick={handleOpenConsentForm}
+                    size="small"
+                    sx={{
+                      color: 'rgba(255,255,255,0.8)',
+                      textDecoration: 'underline',
+                      textTransform: 'none',
+                      fontSize: '0.75rem',
+                      '&:hover': {
+                        backgroundColor: 'transparent',
+                        textDecoration: 'underline'
+                      }
+                    }}
+                  >
+                    Review
+                  </MuiButton>
+                </Box>
+              ) : (
+                <Button
+                  onClick={handleOpenConsentForm}
+                  variant="outlined"
+                  fullWidth
+                  sx={{
+                    borderColor: 'rgba(255,255,255,0.3)',
+                    color: 'white',
+                    py: 1.5,
+                    fontSize: '1rem',
+                    textTransform: 'none',
+                    '&:hover': {
+                      borderColor: 'rgba(255,255,255,0.6)',
+                      backgroundColor: 'rgba(255,255,255,0.1)'
+                    }
+                  }}
+                >
+                  📋 Sign Consent Agreement (Required)
+                </Button>
+              )}
             </Box>
 
             {/* Action Button */}
@@ -459,6 +488,7 @@ const Register = () => {
         open={showConsentForm}
         onClose={handleCloseConsentForm}
         onAccept={handleAcceptConsent}
+        mode="registration"
       />
     </Container>
   );

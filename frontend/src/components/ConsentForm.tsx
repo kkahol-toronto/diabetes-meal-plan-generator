@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Dialog,
   DialogTitle,
@@ -7,131 +7,285 @@ import {
   Button,
   Typography,
   Box,
+  Checkbox,
+  FormControlLabel,
+  TextField,
+  Divider,
+  Alert,
+  Paper,
+  Stack,
+  IconButton,
 } from '@mui/material';
+import { Close as CloseIcon, Gavel as GavelIcon } from '@mui/icons-material';
 
 interface ConsentFormProps {
   open: boolean;
   onClose: () => void;
-  onAccept: () => void;
+  onAccept: (signatureData: {
+    requiredConsent: boolean;
+    researchConsent: boolean;
+    signature: string;
+    timestamp: string;
+    ipAddress?: string;
+  }) => void;
+  mode?: 'registration' | 'login'; // Different modes for different contexts
 }
 
-const ConsentForm: React.FC<ConsentFormProps> = ({ open, onClose, onAccept }) => {
+const ConsentForm: React.FC<ConsentFormProps> = ({ 
+  open, 
+  onClose, 
+  onAccept, 
+  mode = 'registration' 
+}) => {
+  const [requiredConsent, setRequiredConsent] = useState(false);
+  const [researchConsent, setResearchConsent] = useState(false);
+  const [signature, setSignature] = useState('');
+  const [consentText, setConsentText] = useState('');
+  const [error, setError] = useState('');
+
+  // Load consent text from public file
+  useEffect(() => {
+    if (open) {
+      fetch('/consent.txt')
+        .then(response => response.text())
+        .then(text => setConsentText(text))
+        .catch(error => {
+          console.error('Error loading consent text:', error);
+          setConsentText('Error loading consent form. Please contact support.');
+        });
+    }
+  }, [open]);
+
+  const handleSubmit = () => {
+    if (!requiredConsent) {
+      setError('You must agree to the required consent to continue.');
+      return;
+    }
+
+    if (!signature.trim()) {
+      setError('Electronic signature is required.');
+      return;
+    }
+
+    const signatureData = {
+      requiredConsent,
+      researchConsent,
+      signature: signature.trim(),
+      timestamp: new Date().toISOString(),
+      ipAddress: 'user-ip' // In production, get real IP
+    };
+
+    onAccept(signatureData);
+    handleClose();
+  };
+
+  const handleClose = () => {
+    setRequiredConsent(false);
+    setResearchConsent(false);
+    setSignature('');
+    setError('');
+    onClose();
+  };
+
+  const formatConsentText = (text: string) => {
+    const sections = text.split(/(?=✅|🔒)/);
+    return sections.map((section, index) => {
+      if (section.trim() === '') return null;
+      
+      // Check if it's a section header
+      if (section.startsWith('✅') || section.startsWith('🔒')) {
+        const lines = section.split('\n');
+        const title = lines[0];
+        const content = lines.slice(1).join('\n');
+        
+        return (
+          <Box key={index} sx={{ mb: 3 }}>
+            <Typography 
+              variant="h6" 
+              sx={{ 
+                color: '#1976d2', 
+                fontWeight: 'bold', 
+                mb: 2,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 1
+              }}
+            >
+              {title}
+            </Typography>
+            <Typography 
+              variant="body2" 
+              sx={{ 
+                lineHeight: 1.6, 
+                whiteSpace: 'pre-line',
+                color: 'text.primary'
+              }}
+            >
+              {content}
+            </Typography>
+          </Box>
+        );
+      }
+      
+      return (
+        <Typography 
+          key={index}
+          variant="body2" 
+          sx={{ 
+            mb: 2, 
+            lineHeight: 1.6, 
+            whiteSpace: 'pre-line',
+            color: 'text.primary'
+          }}
+        >
+          {section}
+        </Typography>
+      );
+    }).filter(Boolean);
+  };
+
   return (
     <Dialog 
       open={open} 
-      onClose={onClose}
-      maxWidth="md"
+      onClose={mode === 'registration' ? undefined : handleClose}
+      maxWidth="md" 
       fullWidth
-      scroll="paper"
+      sx={{
+        '& .MuiDialog-paper': {
+          maxHeight: '90vh',
+          borderRadius: 2
+        }
+      }}
     >
-      <DialogTitle sx={{ color: '#0072C6' }}>
-        Consent to Collect, Use, and Disclose Personal Health Information
-      </DialogTitle>
-      <DialogContent dividers>
-        <Box sx={{ fontFamily: 'Arial, sans-serif', lineHeight: 1.6 }}>
-          <Typography variant="body1" gutterBottom>
-            <strong>Effective Date:</strong> {new Date().toLocaleDateString()}
+      <DialogTitle sx={{ 
+        display: 'flex', 
+        justifyContent: 'space-between', 
+        alignItems: 'center',
+        background: 'linear-gradient(135deg, #1976d2 0%, #1565c0 100%)',
+        color: 'white',
+        pb: 2
+      }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          <GavelIcon />
+          <Typography variant="h5" component="div" sx={{ fontWeight: 'bold' }}>
+            {mode === 'registration' ? 'Consent Agreement' : 'Updated Consent Required'}
           </Typography>
-
-          <Box sx={{ mb: 3 }}>
-            <Typography variant="body1" paragraph>
-              Thank you for using our Diabetes Meal Planning Assistant. This tool uses artificial intelligence to help you generate personalized meal plans. As part of this service, we collect certain personal health information (PHI).
-            </Typography>
-            <Typography variant="body1" paragraph>
-              Under Ontario's <em>Personal Health Information Protection Act, 2004</em> (PHIPA), we are required to obtain your informed consent before collecting, using, or disclosing your PHI. Please review the following carefully.
-            </Typography>
-          </Box>
-
-          <Box sx={{ mb: 3 }}>
-            <Typography variant="h6" gutterBottom>1. What Information We Collect</Typography>
-            <ul>
-              <li>Name and contact details (email, phone)</li>
-              <li>Health information (e.g., age, weight, diabetes type/status, dietary preferences)</li>
-              <li>Responses you provide in the app (e.g., symptoms, goals)</li>
-              <li>Chat interactions and meal plan history</li>
-            </ul>
-          </Box>
-
-          <Box sx={{ mb: 3 }}>
-            <Typography variant="h6" gutterBottom>2. Purpose of Collection</Typography>
-            <Typography variant="body1">Your personal health information will be used to:</Typography>
-            <ul>
-              <li>Generate personalized meal and lifestyle recommendations</li>
-              <li>Improve the accuracy and relevance of AI-generated content</li>
-              <li>Send notifications or alerts about your plan (if opted-in)</li>
-              <li>Provide usage analytics (de-identified) to improve the service</li>
-            </ul>
-            <Typography variant="body1">
-              We do <strong>not</strong> use your information for marketing or sell it to third parties.
-            </Typography>
-          </Box>
-
-          <Box sx={{ mb: 3 }}>
-            <Typography variant="h6" gutterBottom>3. How We Use AI</Typography>
-            <Typography variant="body1" paragraph>
-              This app uses AI models hosted in <strong>Microsoft Azure's Canadian data centers</strong> to generate your meal plans. Your data is <strong>not</strong> used to train external models. All processing is done securely and is strictly for generating recommendations—not for diagnosis or medical treatment.
-            </Typography>
-          </Box>
-
-          <Box sx={{ mb: 3 }}>
-            <Typography variant="h6" gutterBottom>4. Who Has Access</Typography>
-            <Typography variant="body1">Your data is accessed only by:</Typography>
-            <ul>
-              <li>You (through your account)</li>
-              <li>Authorized members of our development or clinical team, for support or review</li>
-            </ul>
-            <Typography variant="body1">
-              No one else will have access without your explicit permission or unless required by law.
-            </Typography>
-          </Box>
-
-          <Box sx={{ mb: 3 }}>
-            <Typography variant="h6" gutterBottom>5. Data Protection and Storage</Typography>
-            <ul>
-              <li>Encryption in transit and at rest (TLS, AES-256)</li>
-              <li>Secure storage in Azure Canada East region</li>
-              <li>Role-based access control and monitoring</li>
-            </ul>
-          </Box>
-
-          <Box sx={{ mb: 3 }}>
-            <Typography variant="h6" gutterBottom>6. Data Retention</Typography>
-            <Typography variant="body1">
-              We retain your information only as long as necessary to provide the service or as required by law. You may request deletion of your data at any time.
-            </Typography>
-          </Box>
-
-          <Box sx={{ mb: 3 }}>
-            <Typography variant="h6" gutterBottom>7. Your Rights</Typography>
-            <Typography variant="body1">Under PHIPA, you have the right to:</Typography>
-            <ul>
-              <li>Access or correct your information</li>
-              <li>Withdraw your consent at any time</li>
-              <li>Request deletion or a copy of your data</li>
-              <li>File a complaint with the Information and Privacy Commissioner of Ontario</li>
-            </ul>
-            <Typography variant="body1">
-              To exercise your rights, contact us at:<br />
-              📧 <strong>support@mirakalous.com</strong><br />
-              📞 <strong>647-292-3991</strong>
-            </Typography>
-          </Box>
-
-          <Box sx={{ mb: 3 }}>
-            <Typography variant="h6" gutterBottom>8. Important Disclaimers</Typography>
-            <ul>
-              <li>This tool <strong>does not replace medical advice</strong>. Always consult a healthcare provider before making health decisions.</li>
-              <li>AI-generated content may not be appropriate for all health conditions.</li>
-            </ul>
-          </Box>
         </Box>
+        {mode !== 'registration' && (
+          <IconButton onClick={handleClose} sx={{ color: 'white' }}>
+            <CloseIcon />
+          </IconButton>
+        )}
+      </DialogTitle>
+
+      <DialogContent sx={{ p: 3 }}>
+        <Paper 
+          variant="outlined" 
+          sx={{ 
+            p: 3, 
+            maxHeight: '400px', 
+            overflow: 'auto',
+            mb: 3,
+            backgroundColor: '#fafafa'
+          }}
+        >
+          {consentText ? formatConsentText(consentText) : (
+            <Typography>Loading consent form...</Typography>
+          )}
+        </Paper>
+
+        <Stack spacing={3}>
+          {/* Required Consent */}
+          <Paper variant="outlined" sx={{ p: 2, backgroundColor: '#fff3e0' }}>
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={requiredConsent}
+                  onChange={(e) => setRequiredConsent(e.target.checked)}
+                  color="primary"
+                />
+              }
+              label={
+                <Typography variant="body1" sx={{ fontWeight: 500 }}>
+                  <strong>Required:</strong> I agree to the collection and use of my personal health information as described above.
+                </Typography>
+              }
+            />
+          </Paper>
+
+          {/* Optional Research Consent */}
+          <Paper variant="outlined" sx={{ p: 2, backgroundColor: '#f3e5f5' }}>
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={researchConsent}
+                  onChange={(e) => setResearchConsent(e.target.checked)}
+                  color="secondary"
+                />
+              }
+              label={
+                <Typography variant="body1">
+                  <strong>Optional:</strong> I consent to the use of my de-identified data for research purposes.
+                </Typography>
+              }
+            />
+          </Paper>
+
+          {/* Electronic Signature */}
+          <Box>
+            <Typography variant="h6" sx={{ mb: 2, color: '#1976d2' }}>
+              Electronic Signature
+            </Typography>
+            <TextField
+              fullWidth
+              label="Type your full legal name as your electronic signature"
+              value={signature}
+              onChange={(e) => setSignature(e.target.value)}
+              placeholder="e.g., John Smith"
+              required
+              variant="outlined"
+              sx={{ mb: 1 }}
+            />
+            <Typography variant="caption" color="text.secondary">
+              By typing your name above, you are providing a legally binding electronic signature.
+            </Typography>
+          </Box>
+
+          {error && (
+            <Alert severity="error" sx={{ mt: 2 }}>
+              {error}
+            </Alert>
+          )}
+
+          <Divider />
+
+          <Alert severity="info" icon={<GavelIcon />}>
+            <Typography variant="body2">
+              <strong>Legal Notice:</strong> This electronic signature has the same legal effect as a handwritten signature. 
+              You may withdraw your consent at any time by contacting our support team.
+            </Typography>
+          </Alert>
+        </Stack>
       </DialogContent>
-      <DialogActions>
-        <Button onClick={onClose} color="primary">
-          Close
-        </Button>
-        <Button onClick={onAccept} color="primary" variant="contained">
-          I Accept
+
+      <DialogActions sx={{ p: 3, gap: 2 }}>
+        {mode !== 'registration' && (
+          <Button onClick={handleClose} variant="outlined" size="large">
+            Cancel
+          </Button>
+        )}
+        <Button 
+          onClick={handleSubmit} 
+          variant="contained" 
+          size="large"
+          disabled={!requiredConsent || !signature.trim()}
+          sx={{
+            background: 'linear-gradient(135deg, #4caf50 0%, #45a049 100%)',
+            minWidth: 200,
+            py: 1.5
+          }}
+        >
+          {mode === 'registration' ? 'Sign & Continue Registration' : 'Sign & Continue Login'}
         </Button>
       </DialogActions>
     </Dialog>

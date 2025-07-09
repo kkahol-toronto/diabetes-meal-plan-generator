@@ -400,8 +400,7 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({
     'Vegetarian (no eggs)',
     'Soft Texture Required',
     'Gluten-Free',
-    'Lactose-Free',
-    'Avoids: tofu, coconut, turmeric, etc.'
+    'Lactose-Free'
   ];
 
   const exerciseTypesOptions = [
@@ -998,20 +997,26 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({
           <AccordionDetails sx={{ p: 3 }}>
             <Grid container spacing={3}>
               <Grid item xs={12}>
-                <Autocomplete
-                  multiple
-                  options={dietTypeOptions}
-                  value={profile.dietType || []}
-                  onChange={(_, newValue) => handleInputChange('dietType', newValue)}
-                  renderTags={(value, getTagProps) =>
-                    value.map((option, index) => (
-                      <Chip variant="outlined" label={option} {...getTagProps({ index })} key={option} />
-                    ))
-                  }
-                  renderInput={(params) => (
-                    <TextField {...params} label="Type of Diet" variant="outlined" />
-                  )}
-                />
+                <FormControl component="fieldset" fullWidth>
+                  <FormLabel component="legend">Type of Diet (select all that apply)</FormLabel>
+                  <FormGroup>
+                    <Grid container>
+                      {dietTypeOptions.map((diet) => (
+                        <Grid item xs={12} md={6} key={diet}>
+                          <FormControlLabel
+                            control={
+                              <Checkbox
+                                checked={(profile.dietType || []).includes(diet)}
+                                onChange={(e) => handleArrayChange('dietType', diet, e.target.checked)}
+                              />
+                            }
+                            label={diet}
+                          />
+                        </Grid>
+                      ))}
+                    </Grid>
+                  </FormGroup>
+                </FormControl>
                 {(profile.dietType || []).includes('Other') && (
                   <Box sx={{ mt: 2, display: 'flex', gap: 1, alignItems: 'center' }}>
                     <TextField
@@ -1079,7 +1084,7 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({
                   </FormGroup>
                 </FormControl>
               </Grid>
-              <Grid item xs={12} md={6}>
+              <Grid item xs={12} md={4}>
                 <TextField
                   fullWidth
                   label="Food Allergies"
@@ -1091,7 +1096,19 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({
                   helperText="Separate multiple allergies with commas"
                 />
               </Grid>
-              <Grid item xs={12} md={6}>
+              <Grid item xs={12} md={4}>
+                <TextField
+                  fullWidth
+                  label="Food Items You Avoid"
+                  value={profile.avoids?.join(', ') || ''}
+                  onChange={(e) => handleInputChange('avoids', e.target.value.split(',').map(s => s.trim()).filter(Boolean))}
+                  variant="outlined"
+                  multiline
+                  rows={2}
+                  helperText="Separate multiple items with commas"
+                />
+              </Grid>
+              <Grid item xs={12} md={4}>
                 <TextField
                   fullWidth
                   label="Strong Dislikes"

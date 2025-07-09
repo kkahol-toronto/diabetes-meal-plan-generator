@@ -570,6 +570,13 @@ const MealPlanHistory = () => {
                         color="primary"
                         sx={{ mb: 1 }}
                       />
+                      <Typography 
+                        variant="caption" 
+                        color="text.secondary" 
+                        sx={{ display: 'block', mb: 1, fontWeight: 500 }}
+                      >
+                        Daily Macro Targets
+                      </Typography>
                       <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
                         <Chip
                           label={`Protein: ${plan.macronutrients?.protein ?? 'N/A'}g`}

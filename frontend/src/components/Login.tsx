@@ -29,6 +29,7 @@ const Login = () => {
   const [error, setError] = useState<string | null>(null);
   const [consentChecked, setConsentChecked] = useState(false);
   const [showConsentForm, setShowConsentForm] = useState(false);
+  const [needsConsent, setNeedsConsent] = useState(false);
 
   const handleChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = event.target;
@@ -36,6 +37,13 @@ const Login = () => {
       ...prev,
       [name]: value
     }));
+    
+    // Reset consent requirement when username changes
+    if (name === 'username') {
+      setNeedsConsent(false);
+      setConsentChecked(false);
+      setError(null);
+    }
   };
 
   const handleConsentCheck = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -50,15 +58,64 @@ const Login = () => {
     setShowConsentForm(false);
   };
 
-  const handleAcceptConsent = () => {
+  const handleAcceptConsent = (signature: any) => {
     setConsentChecked(true);
     setShowConsentForm(false);
+    
+    // Store signature data for login request
+    const signatureData = {
+      electronic_signature: signature.signature,
+      signature_timestamp: signature.timestamp,
+      research_consent: signature.researchConsent
+    };
+    
+    // Automatically retry login with signature data
+    retryLoginWithSignature(signatureData);
+  };
+
+  const retryLoginWithSignature = async (signatureData: any) => {
+    try {
+      const formDataToSend = new FormData();
+      formDataToSend.append('username', formData.username);
+      formDataToSend.append('password', formData.password);
+      formDataToSend.append('consent_given', 'true');
+      formDataToSend.append('consent_timestamp', signatureData.signature_timestamp);
+      formDataToSend.append('policy_version', CURRENT_POLICY_VERSION);
+      formDataToSend.append('electronic_signature', signatureData.electronic_signature);
+      formDataToSend.append('signature_timestamp', signatureData.signature_timestamp);
+      formDataToSend.append('research_consent', signatureData.research_consent.toString());
+
+      const response = await fetch('http://localhost:8000/login', {
+        method: 'POST',
+        headers: {
+          'Accept': 'application/json',
+        },
+        body: formDataToSend,
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        localStorage.setItem('token', data.access_token);
+        const tokenPayload = JSON.parse(atob(data.access_token.split('.')[1]));
+        if (tokenPayload.is_admin) {
+          localStorage.setItem('isAdmin', 'true');
+        }
+        navigate('/');
+        window.location.reload();
+      } else {
+        const errorData = await response.json();
+        setError(errorData.detail || 'Login failed after consent signing');
+      }
+    } catch (err) {
+      setError('An error occurred during login');
+    }
   };
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     
-    if (!consentChecked) {
+    // If consent is needed but not checked, show error
+    if (needsConsent && !consentChecked) {
       setError('You must agree to the Privacy Policy to login');
       return;
     }
@@ -67,9 +124,13 @@ const Login = () => {
       const formDataToSend = new FormData();
       formDataToSend.append('username', formData.username);
       formDataToSend.append('password', formData.password);
-      formDataToSend.append('consent_given', consentChecked.toString());
-      formDataToSend.append('consent_timestamp', new Date().toISOString());
-      formDataToSend.append('policy_version', CURRENT_POLICY_VERSION);
+      
+      // Only add consent data if needed and provided
+      if (needsConsent && consentChecked) {
+        formDataToSend.append('consent_given', 'true');
+        formDataToSend.append('consent_timestamp', new Date().toISOString());
+        formDataToSend.append('policy_version', CURRENT_POLICY_VERSION);
+      }
 
       const response = await fetch('http://localhost:8000/login', {
         method: 'POST',
@@ -91,7 +152,16 @@ const Login = () => {
         window.location.reload();
       } else {
         const errorData = await response.json();
-        // Handle FastAPI validation errors
+        
+        // If error is about missing consent/signature, show consent form
+        if (errorData.detail === 'Electronic signature and consent are required to access services') {
+          setNeedsConsent(true);
+          setShowConsentForm(true);
+          setError('Please sign the consent agreement to continue');
+          return;
+        }
+        
+        // Handle other errors
         if (errorData.detail && Array.isArray(errorData.detail)) {
           const errorMessages = errorData.detail.map((err: any) => `${err.loc[1]}: ${err.msg}`).join(', ');
           setError(errorMessages);
@@ -261,45 +331,47 @@ const Login = () => {
               />
             </Box>
 
-            {/* Consent Checkbox */}
-            <Box sx={{ mt: 2 }}>
-              <FormControlLabel
-                control={
-                  <Checkbox
-                    checked={consentChecked}
-                    onChange={handleConsentCheck}
-                    sx={{ 
-                      color: 'rgba(255,255,255,0.8)',
-                      '&.Mui-checked': { color: 'white' }
-                    }}
-                  />
-                }
-                label={
-                  <Box component="span" sx={{ color: 'rgba(255,255,255,0.9)', fontSize: '0.95rem', lineHeight: 1.4 }}>
-                    I agree to the collection and use of my health information as described in the{' '}
-                    <MuiButton
-                      onClick={handleOpenConsentForm}
-                      sx={{
-                        color: 'white',
-                        textDecoration: 'underline',
-                        p: 0,
-                        minWidth: 'auto',
-                        textTransform: 'none',
-                        verticalAlign: 'baseline',
-                        fontSize: 'inherit',
-                        fontWeight: 500,
-                        '&:hover': {
-                          backgroundColor: 'transparent',
-                          textDecoration: 'underline'
-                        }
+            {/* Consent Checkbox - Only show when needed */}
+            {needsConsent && (
+              <Box sx={{ mt: 2 }}>
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      checked={consentChecked}
+                      onChange={handleConsentCheck}
+                      sx={{ 
+                        color: 'rgba(255,255,255,0.8)',
+                        '&.Mui-checked': { color: 'white' }
                       }}
-                    >
-                      Privacy Policy
-                    </MuiButton>
-                  </Box>
-                }
-              />
-            </Box>
+                    />
+                  }
+                  label={
+                    <Box component="span" sx={{ color: 'rgba(255,255,255,0.9)', fontSize: '0.95rem', lineHeight: 1.4 }}>
+                      I agree to the collection and use of my health information as described in the{' '}
+                      <MuiButton
+                        onClick={handleOpenConsentForm}
+                        sx={{
+                          color: 'white',
+                          textDecoration: 'underline',
+                          p: 0,
+                          minWidth: 'auto',
+                          textTransform: 'none',
+                          verticalAlign: 'baseline',
+                          fontSize: 'inherit',
+                          fontWeight: 500,
+                          '&:hover': {
+                            backgroundColor: 'transparent',
+                            textDecoration: 'underline'
+                          }
+                        }}
+                      >
+                        Privacy Policy
+                      </MuiButton>
+                    </Box>
+                  }
+                />
+              </Box>
+            )}
 
             {/* Action Buttons */}
             <Box sx={{ mt: 4 }}>
@@ -360,6 +432,7 @@ const Login = () => {
         open={showConsentForm}
         onClose={handleCloseConsentForm}
         onAccept={handleAcceptConsent}
+        mode="login"
       />
     </Container>
   );

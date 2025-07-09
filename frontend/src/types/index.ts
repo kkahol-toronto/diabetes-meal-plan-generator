@@ -45,6 +45,7 @@ export interface UserProfile {
   dietaryRestrictions?: string[];
   foodPreferences?: string[];
   allergies?: string[];
+  avoids?: string[];
   strongDislikes?: string[];
   
   // Physical Activity

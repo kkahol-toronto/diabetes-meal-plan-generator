@@ -1,6 +1,6 @@
 import React from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
-import { ThemeProvider, createTheme, CssBaseline } from '@mui/material';
+import { ThemeProvider, createTheme, CssBaseline, Box } from '@mui/material';
 import { AppProvider } from './contexts/AppContext';
 import HomePage from './components/HomePage';
 import MealPlanRequest from './components/MealPlanRequest';
@@ -20,6 +20,7 @@ import Settings from './components/Settings';
 
 import ConsumptionHistory from './components/ConsumptionHistory';
 import NotificationSystem from './components/NotificationSystem';
+import ComplianceFooter from './components/ComplianceFooter';
 
 // Create a theme instance with purple gradient theme
 const theme = createTheme({
@@ -122,9 +123,17 @@ function App() {
     <AppProvider>
       <ThemeProvider theme={theme}>
         <CssBaseline />
-        <Navigation />
-        {token && userId && <NotificationSystem userId={userId} />}
-        <Routes>
+        <Box
+          sx={{
+            display: 'flex',
+            flexDirection: 'column',
+            minHeight: '100vh',
+          }}
+        >
+          <Navigation />
+          {token && userId && <NotificationSystem userId={userId} />}
+          <Box component="main" sx={{ flex: 1 }}>
+            <Routes>
           {/* Moved Consumption History Route Up & Restored ProtectedRoute */}
           <Route
             path="/consumption-history"
@@ -219,6 +228,9 @@ function App() {
           
           <Route path="*" element={<div>404 - Page Not Found or Route Not Matched</div>} />
         </Routes>
+          </Box>
+          <ComplianceFooter />
+        </Box>
       </ThemeProvider>
     </AppProvider>
   );

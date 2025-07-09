@@ -121,6 +121,11 @@ class User(BaseModel):
     marketing_consent: Optional[bool] = False
     analytics_consent: Optional[bool] = True
     last_consent_update: Optional[str] = None
+    # Electronic Signature Fields
+    electronic_signature: Optional[str] = None
+    signature_timestamp: Optional[str] = None
+    signature_ip_address: Optional[str] = None
+    research_consent: Optional[bool] = False
 
 class UserInDB(User):
     hashed_password: str
@@ -226,6 +231,11 @@ class RegistrationData(BaseModel):
     data_retention_preference: Optional[str] = "standard"
     marketing_consent: Optional[bool] = False
     analytics_consent: Optional[bool] = True
+    # Electronic Signature Fields
+    electronic_signature: str
+    signature_timestamp: str
+    signature_ip_address: Optional[str] = None
+    research_consent: Optional[bool] = False
 
 class ImageAnalysisRequest(BaseModel):
     prompt: str
@@ -315,27 +325,55 @@ async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends
     
     print(f"User found: {user}")
     
+    # Check if user has electronic signature and valid consent
+    user_has_consent = user.get("consent_given", False)
+    user_has_signature = user.get("electronic_signature", "") != ""
+    user_policy_version = user.get("policy_version", "")
+    CURRENT_POLICY_VERSION = "1.0.0"
+    
     # Get form data directly from the request
     form = await request.form()
     consent_given = form.get('consent_given', 'false').lower() == 'true'
     consent_timestamp = form.get('consent_timestamp')
-    policy_version = form.get('policy_version')
+    policy_version = form.get('policy_version', CURRENT_POLICY_VERSION)
+    electronic_signature = form.get('electronic_signature', '')
+    signature_timestamp = form.get('signature_timestamp', '')
+    research_consent = form.get('research_consent', 'false').lower() == 'true'
     
-    if not consent_given:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Consent is required to login"
-        )
+    # Check if user needs to sign consent
+    needs_consent_signature = (
+        not user_has_consent or 
+        not user_has_signature or 
+        user_policy_version != CURRENT_POLICY_VERSION
+    )
+    
+    if needs_consent_signature:
+        if not consent_given or not electronic_signature:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Electronic signature and consent are required to access services"
+            )
     
     # Update user's consent information
     try:
+        # Use existing consent data if user already has consent and no new consent provided
+        final_consent_given = consent_given if (needs_consent_signature and consent_given) else user.get("consent_given", False)
+        final_consent_timestamp = consent_timestamp if consent_timestamp else user.get("consent_timestamp")
+        final_policy_version = policy_version if policy_version else user.get("policy_version", CURRENT_POLICY_VERSION)
+        final_electronic_signature = electronic_signature if electronic_signature else user.get("electronic_signature", "")
+        final_signature_timestamp = signature_timestamp if signature_timestamp else user.get("signature_timestamp", "")
+        final_research_consent = research_consent if needs_consent_signature else user.get("research_consent", False)
+        
         # Build a new dictionary with only the fields we want to update
         update_dict = {
             "id": user["id"],  # Required for upsert
             "type": "user",    # Required for querying
-            "consent_given": consent_given,
-            "consent_timestamp": consent_timestamp,
-            "policy_version": policy_version,
+            "consent_given": final_consent_given,
+            "consent_timestamp": final_consent_timestamp,
+            "policy_version": final_policy_version,
+            "electronic_signature": final_electronic_signature,
+            "signature_timestamp": final_signature_timestamp,
+            "research_consent": final_research_consent,
             # Preserve other critical fields
             "email": user["email"],
             "username": user["username"],
@@ -349,6 +387,7 @@ async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends
             "marketing_consent": user.get("marketing_consent", False),
             "analytics_consent": user.get("analytics_consent", True),
             "last_consent_update": user.get("last_consent_update"),
+            "signature_ip_address": user.get("signature_ip_address"),
             "created_at": user.get("created_at"),
             "updated_at": datetime.utcnow().isoformat(),
             "updated_by": "system"
@@ -381,9 +420,9 @@ async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends
         "sub": user["email"],
         "is_admin": user.get("is_admin", False),
         "name": patient_name,
-        "consent_given": user.get("consent_given", False),
-        "consent_timestamp": user.get("consent_timestamp"),
-        "policy_version": user.get("policy_version")
+        "consent_given": final_consent_given,
+        "consent_timestamp": final_consent_timestamp,
+        "policy_version": final_policy_version
     }
     print(f"Creating token with data: {token_data}")
     
@@ -448,7 +487,12 @@ async def register(data: RegistrationData):
         "data_retention_preference": data.data_retention_preference,
         "marketing_consent": data.marketing_consent,
         "analytics_consent": data.analytics_consent,
-        "last_consent_update": data.consent_timestamp
+        "last_consent_update": data.consent_timestamp,
+        # Electronic Signature Fields
+        "electronic_signature": data.electronic_signature,
+        "signature_timestamp": data.signature_timestamp,
+        "signature_ip_address": data.signature_ip_address,
+        "research_consent": data.research_consent
     }
     
     await create_user(user_data)
@@ -1468,6 +1512,174 @@ async def generate_recipes(
         print(f"Error in /generate-recipes: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+def consolidate_ingredients(recipes: List[dict]) -> List[dict]:
+    """
+    Consolidate ingredients from multiple recipes, combining quantities for duplicate items.
+    """
+    import re
+    ingredient_map = {}
+    
+    for recipe in recipes:
+        recipe_name = recipe.get("name", "Unknown Recipe")
+        print(f"Processing ingredients for recipe: {recipe_name}")
+        
+        for ingredient in recipe.get("ingredients", []):
+            if not ingredient or not ingredient.strip():
+                continue
+                
+            # Clean and normalize ingredient name
+            cleaned = ingredient.strip().lower()
+            
+            # Remove common cooking instructions and unnecessary descriptors
+            cooking_instructions = [
+                'chopped', 'diced', 'sliced', 'minced', 'grated', 'shredded',
+                'cut into wedges', 'cut into pieces', 'cut into chunks',
+                'finely chopped', 'roughly chopped', 'thinly sliced',
+                'peeled and chopped', 'peeled and diced', 'peeled',
+                'fresh', 'dried', 'ground', 'whole', 'crushed',
+                'ripe', 'large', 'medium', 'small', 'baby',
+                'boneless', 'skinless', 'lean', 'extra virgin',
+                'organic', 'free-range', 'low-fat', 'reduced-fat',
+                'unsalted', 'salted', 'roasted', 'raw',
+                'canned', 'frozen', 'jarred', 'bottled',
+                'see above', '[see above]', '(see above)',
+                'optional', 'for serving', 'for garnish', 'for topping',
+                'to taste', 'as needed'
+            ]
+            
+            # Remove cooking instructions from the ingredient name
+            for instruction in cooking_instructions:
+                # Remove at the end of the string
+                if cleaned.endswith(f', {instruction}'):
+                    cleaned = cleaned.replace(f', {instruction}', '')
+                elif cleaned.endswith(f' {instruction}'):
+                    cleaned = cleaned.replace(f' {instruction}', '')
+                # Remove at the beginning
+                elif cleaned.startswith(f'{instruction} '):
+                    cleaned = cleaned.replace(f'{instruction} ', '')
+                # Remove in parentheses or brackets
+                cleaned = cleaned.replace(f'({instruction})', '').replace(f'[{instruction}]', '')
+                cleaned = cleaned.replace(f', {instruction}', '').replace(f' {instruction}', '')
+            
+            # Clean up extra spaces and commas
+            cleaned = re.sub(r'\s*,\s*$', '', cleaned)  # Remove trailing comma
+            cleaned = re.sub(r'\s+', ' ', cleaned).strip()  # Normalize spaces
+            cleaned = re.sub(r'\s*\([^)]*\)\s*', ' ', cleaned).strip()  # Remove anything in parentheses
+            cleaned = re.sub(r'\s*\[[^\]]*\]\s*', ' ', cleaned).strip()  # Remove anything in brackets
+            
+            # Extract quantity and unit if possible (basic parsing)
+            # Try to extract quantity patterns like "2 cups", "1 lb", "3 cloves", etc.
+            quantity_pattern = r'^(\d+(?:\.\d+)?(?:/\d+)?)\s*([a-zA-Z]+)?\s+(.+)'
+            match = re.match(quantity_pattern, cleaned)
+            
+            if match:
+                quantity_str = match.group(1)
+                unit = match.group(2) or ""
+                item_name = match.group(3).strip()
+                
+                # Convert fractions to decimals
+                if '/' in quantity_str:
+                    parts = quantity_str.split('/')
+                    quantity = float(parts[0]) / float(parts[1])
+                else:
+                    quantity = float(quantity_str)
+            else:
+                # If no quantity pattern found, treat as 1 unit of the whole ingredient
+                quantity = 1.0
+                unit = "unit"
+                item_name = cleaned
+            
+            # Normalize common ingredient names to help with consolidation
+            normalized_items = {
+                "onions": ["onion", "onions", "yellow onion", "white onion", "cooking onion", "red onion", "sweet onion"],
+                "garlic": ["garlic cloves", "garlic clove", "cloves garlic", "garlic bulbs", "garlic bulb"],
+                "tomatoes": ["tomato", "tomatoes", "roma tomatoes", "cherry tomatoes", "grape tomatoes"],
+                "carrots": ["carrot", "carrots", "baby carrots"],
+                "potatoes": ["potato", "potatoes", "russet potatoes", "yukon potatoes", "red potatoes"],
+                "bell peppers": ["bell pepper", "bell peppers", "red bell pepper", "green bell pepper", "yellow bell pepper", "orange bell pepper"],
+                "coriander": ["cilantro", "coriander", "coriander leaves", "cilantro leaves"],
+                "parsley": ["parsley", "flat-leaf parsley", "italian parsley", "curly parsley"],
+                "basil": ["basil", "basil leaves", "sweet basil", "thai basil"],
+                "mint": ["mint", "mint leaves", "spearmint", "peppermint"],
+                "dill": ["dill", "dill weed"],
+                "ginger": ["ginger", "ginger root"],
+                "lemons": ["lemon", "lemons"],
+                "limes": ["lime", "limes"],
+                "green onions": ["green onion", "green onions", "scallions", "spring onions", "scallion"],
+                "olive oil": ["olive oil", "extra virgin olive oil", "evoo"],
+                "vegetable oil": ["vegetable oil", "cooking oil", "canola oil"],
+                "chicken breast": ["chicken breast", "chicken breasts", "boneless chicken breast", "boneless chicken breasts"],
+                "ground beef": ["ground beef", "lean ground beef", "ground chuck", "minced beef"],
+                "rice": ["rice", "white rice", "long grain rice", "basmati rice", "jasmine rice"],
+                "flour": ["flour", "all-purpose flour", "plain flour", "wheat flour"],
+                "sugar": ["sugar", "white sugar", "granulated sugar", "caster sugar"],
+                "salt": ["salt", "table salt", "sea salt", "kosher salt"],
+                "black pepper": ["black pepper", "ground black pepper", "pepper"],
+                "butter": ["butter", "unsalted butter", "salted butter"],
+                "eggs": ["egg", "eggs", "chicken eggs"],
+                "milk": ["milk", "whole milk", "2% milk", "skim milk"],
+                "cheese": ["cheese", "cheddar cheese", "mozzarella cheese"],
+                "yogurt": ["yogurt", "greek yogurt", "plain yogurt"],
+                "mushrooms": ["mushroom", "mushrooms", "button mushrooms", "cremini mushrooms", "shiitake mushrooms"],
+                "spinach": ["spinach", "baby spinach", "spinach leaves"],
+                "cucumber": ["cucumber", "cucumbers", "english cucumber"],
+                "celery": ["celery", "celery stalks", "celery stalk"],
+                "broccoli": ["broccoli", "broccoli florets"],
+                "cauliflower": ["cauliflower", "cauliflower florets"],
+            }
+            
+            # Find normalized name
+            normalized_name = item_name
+            for base_name, variations in normalized_items.items():
+                if item_name in variations or any(var in item_name for var in variations):
+                    normalized_name = base_name
+                    break
+            
+            # Create a key for consolidation
+            consolidation_key = f"{normalized_name}_{unit.lower()}"
+            
+            if consolidation_key in ingredient_map:
+                # Add to existing quantity
+                ingredient_map[consolidation_key]["total_quantity"] += quantity
+                ingredient_map[consolidation_key]["recipes"].append(recipe_name)
+            else:
+                # Create new entry
+                ingredient_map[consolidation_key] = {
+                    "name": normalized_name,
+                    "unit": unit,
+                    "total_quantity": quantity,
+                    "original_ingredient": ingredient,
+                    "recipes": [recipe_name]
+                }
+    
+    # Convert back to list format
+    consolidated_ingredients = []
+    for key, item in ingredient_map.items():
+        # Format quantity nicely
+        quantity = item["total_quantity"]
+        if quantity == int(quantity):
+            quantity_str = str(int(quantity))
+        else:
+            quantity_str = f"{quantity:.1f}"
+        
+        # Create consolidated ingredient string
+        if item["unit"] and item["unit"] != "unit":
+            consolidated_ingredient = f"{quantity_str} {item['unit']} {item['name']}"
+        else:
+            consolidated_ingredient = f"{quantity_str} {item['name']}"
+        
+        consolidated_ingredients.append({
+            "ingredient": consolidated_ingredient,
+            "name": item["name"],
+            "quantity": quantity_str,
+            "unit": item["unit"],
+            "from_recipes": item["recipes"]
+        })
+    
+    print(f"Consolidated {len(ingredient_map)} unique ingredients from {len(recipes)} recipes")
+    return consolidated_ingredients
+
+
 @app.post("/generate-shopping-list")
 async def generate_shopping_list(
     request: FastAPIRequest,
@@ -1478,10 +1690,24 @@ async def generate_shopping_list(
         print("/generate-shopping-list endpoint called")
         print("Received recipes:")
         print(recipes)
-        prompt = f"""Generate a shopping list based on the following recipes:
-                    {json.dumps(recipes, indent=2)}
+        
+        # First, consolidate ingredients programmatically
+        consolidated_ingredients = consolidate_ingredients(recipes)
+        print("Consolidated ingredients:")
+        for item in consolidated_ingredients:
+            print(f"  - {item['ingredient']} (from: {', '.join(item['from_recipes'])})")
+        
+        # Create a simplified ingredient list for the AI
+        ingredient_list = [item["ingredient"] for item in consolidated_ingredients]
+        prompt = f"""Generate a shopping list based on the following PRE-CONSOLIDATED ingredients:
+                    {json.dumps(ingredient_list, indent=2)}
 
-                    Group items by category (e.g., Produce, Dairy, Meat, etc.) and combine quantities for the same items.
+                    NOTE: These ingredients have ALREADY been consolidated and quantities combined. Your task is to:
+                    1. Categorize each item into appropriate grocery store sections (Produce, Dairy, Meat, Pantry, etc.)
+                    2. Apply Canadian grocery store quantity formatting rules
+                    3. DO NOT further consolidate - the consolidation is already done
+                    4. Use SIMPLE ingredient names only (e.g., "Onions" not "Onions, chopped")
+                    5. DO NOT include cooking instructions, preparation methods, or references like "[See above]"
 
                     ––––– UNIT RULES –––––
                     • Express quantities in units a Canadian grocery shopper can actually buy ("purchasable quantity").
@@ -1496,11 +1722,11 @@ async def generate_shopping_list(
                     – Avoid descriptors like "large" or "medium"; only use count-based units when weight/volume makes no sense.
 
                     ––––– SANITY CHECK –––––
-                    After calculating totals, scan the list for obviously implausible amounts (e.g., >2 bunches of coriander for ≤8 servings, >5 lb of garlic, etc.).  
-                    If an amount seems unrealistic, recompute or cap it to a reasonable upper bound and add a "note" field explaining the adjustment.
+                    Review the provided quantities for obviously implausible amounts (e.g., >2 bunches of coriander for ≤8 servings, >5 lb of garlic, etc.).  
+                    If an amount seems unrealistic, adjust to a reasonable upper bound and add a "note" field explaining the adjustment.
 
                     ––––– ROUNDING GRID (CANADIAN GROCERY) –––––
-                    When you finish aggregating all recipes, convert each total to the **next-larger** purchasable size:
+                    Convert each quantity to the **next-larger** purchasable size:
 
                     • Loose produce sold by weight (onions, apples, tomatoes, carrots, potatoes, peppers, etc.):
                     – Express in **pounds (lb)** and round **up** to the nearest 1 lb.
@@ -1535,12 +1761,18 @@ async def generate_shopping_list(
                     ––––– OUTPUT FORMAT –––––
                     Return **only** a JSON array with each element:
                     {{
-                    "name": "Item Name",
+                    "name": "Clean Item Name (no cooking instructions)",
                     "amount": "Quantity with Purchasable Unit",
                     "category": "Category Name",
                     "note": "Optional brief note about rounding or sanity adjustment"
                     }}
                     Omit the "note" key if no comment is needed.
+                    
+                    IMPORTANT: 
+                    - Process each ingredient from the provided list exactly once
+                    - Use clean, simple names (e.g., "Onions" not "Onions, chopped" or "Yellow onions, diced")
+                    - Never include "[See above]", cooking instructions, or preparation methods
+                    - Focus on what you actually buy at the store, not how you prepare it
                     """
         print("Prompt for OpenAI:")
         print(prompt)

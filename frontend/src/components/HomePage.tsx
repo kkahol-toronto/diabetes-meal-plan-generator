@@ -193,6 +193,92 @@ function CustomTabPanel(props: TabPanelProps) {
   );
 }
 
+// Profile completion calculation function
+const getProfileCompletionStatus = (userProfile: any) => {
+  if (!userProfile) return { percentage: 0, status: 'Not Started', color: 'default' as const };
+  
+  // Comprehensive profile completion checking
+  const profileSections = {
+    demographics: {
+      fields: ['name', 'age', 'gender'],
+      weight: 0.2
+    },
+    vitals: {
+      fields: ['height', 'weight'],
+      weight: 0.15
+    },
+    medical: {
+      fields: ['medicalConditions', 'currentMedications'],
+      arrayFields: true,
+      weight: 0.25
+    },
+    dietary: {
+      fields: ['dietType', 'dietaryRestrictions', 'allergies', 'foodPreferences'],
+      arrayFields: true,
+      weight: 0.2
+    },
+    lifestyle: {
+      fields: ['exerciseFrequency', 'mealPrepCapability'],
+      weight: 0.1
+    },
+    goals: {
+      fields: ['primaryGoals', 'calorieTarget'],
+      arrayFields: true,
+      weight: 0.1
+    }
+  };
+
+  let totalScore = 0;
+  let maxScore = 0;
+
+  Object.entries(profileSections).forEach(([sectionName, section]) => {
+    const sectionWeight = section.weight;
+    maxScore += sectionWeight;
+    
+    let sectionCompletedFields = 0;
+    const totalFields = section.fields.length;
+    
+    section.fields.forEach(field => {
+      const value = userProfile[field];
+      if ('arrayFields' in section && section.arrayFields) {
+        // For array fields, check if array exists and has items
+        if (Array.isArray(value) && value.length > 0) {
+          sectionCompletedFields++;
+        }
+      } else {
+        // For regular fields, check if value exists and is not empty
+        if (value && value !== '' && value !== 0) {
+          sectionCompletedFields++;
+        }
+      }
+    });
+    
+    const sectionCompletion = totalFields > 0 ? sectionCompletedFields / totalFields : 0;
+    totalScore += sectionCompletion * sectionWeight;
+  });
+
+  const percentage = Math.round((totalScore / maxScore) * 100);
+  
+  let status = 'Incomplete';
+  let color: 'default' | 'primary' | 'secondary' | 'error' | 'info' | 'success' | 'warning' = 'error';
+  
+  if (percentage === 100) {
+    status = 'Complete';
+    color = 'success';
+  } else if (percentage >= 80) {
+    status = 'Nearly Complete';
+    color = 'info';
+  } else if (percentage >= 50) {
+    status = 'In Progress';
+    color = 'warning';
+  } else if (percentage > 0) {
+    status = 'Started';
+    color = 'warning';
+  }
+  
+  return { percentage, status, color };
+};
+
 const HomePage: React.FC = () => {
   const navigate = useNavigate();
   const theme = useTheme();
@@ -204,6 +290,9 @@ const HomePage: React.FC = () => {
   const [progressData, setProgressData] = useState<any>(null);
   const [notifications, setNotifications] = useState<any[]>([]);
   const [todaysMealPlan, setTodaysMealPlan] = useState<any>(null);
+  const [hasGeneratedMealPlans, setHasGeneratedMealPlans] = useState<boolean>(false);
+  const [userProfile, setUserProfile] = useState<any>(null);
+  const [showProfileAlert, setShowProfileAlert] = useState(false);
   const [showQuickLogDialog, setShowQuickLogDialog] = useState(false);
   const [quickLogFood, setQuickLogFood] = useState('');
   const [tabValue, setTabValue] = useState(0);
@@ -252,30 +341,38 @@ const HomePage: React.FC = () => {
         progressResponse,
         notificationsResponse,
         mealPlanResponse,
+        userProfileResponse,
+        mealPlanHistoryResponse,
       ] = await Promise.all([
         fetch('/coach/daily-insights', { headers }),
         fetch('/consumption/analytics?days=30', { headers }), // Fetching 30 days for initial analytics
         fetch('/consumption/progress', { headers }),
         fetch('/coach/notifications', { headers }),
-        fetch('/coach/todays-meal-plan', { headers })
+        fetch('/coach/todays-meal-plan', { headers }),
+        fetch('/user/profile', { headers }),
+        fetch('/meal_plans', { headers })
       ]);
 
       if (dailyInsightsResponse.status === 401 ||
           analyticsResponse.status === 401 ||
           progressResponse.status === 401 ||
           notificationsResponse.status === 401 ||
-          mealPlanResponse.status === 401) {
+          mealPlanResponse.status === 401 ||
+          userProfileResponse.status === 401 ||
+          mealPlanHistoryResponse.status === 401) {
         localStorage.removeItem('token');
         navigate('/login');
         return;
       }
 
-      const [dailyData, analytics, progress, notifs, mealPlan] = await Promise.all([
+      const [dailyData, analytics, progress, notifs, mealPlan, profile, mealPlanHistory] = await Promise.all([
         dailyInsightsResponse.ok ? dailyInsightsResponse.json() : null,
         analyticsResponse.ok ? analyticsResponse.json() : null,
         progressResponse.ok ? progressResponse.json() : [],
         notificationsResponse.ok ? notificationsResponse.json() : null,
-        mealPlanResponse.ok ? mealPlanResponse.json() : null
+        mealPlanResponse.ok ? mealPlanResponse.json() : null,
+        userProfileResponse.ok ? userProfileResponse.json() : {},
+        mealPlanHistoryResponse.ok ? mealPlanHistoryResponse.json() : null
       ]);
 
       setDashboardData(dailyData);
@@ -283,6 +380,26 @@ const HomePage: React.FC = () => {
       setProgressData(progress);
       setNotifications(notifs);
       setTodaysMealPlan(mealPlan);
+      setUserProfile(profile);
+      
+      // Check if user has generated any meal plans
+      const hasMealPlans = mealPlanHistory?.meal_plans?.length > 0;
+      setHasGeneratedMealPlans(hasMealPlans);
+      
+      // Check if profile needs completion
+      const completionStatus = getProfileCompletionStatus(profile);
+      // Show alert if profile is incomplete (less than 80% complete)
+      // This ensures users with partial profiles get prompted to complete them
+      const profileAlertDismissed = localStorage.getItem('profileAlertDismissed');
+      
+      // Clear dismissal flag if profile is now complete (80%+)
+      if (completionStatus.percentage >= 80) {
+        localStorage.removeItem('profileAlertDismissed');
+      }
+      
+      // Only show alert if user hasn't generated any meal plans yet
+      const shouldShowAlert = completionStatus.percentage < 80 && !profileAlertDismissed && !hasMealPlans;
+      setShowProfileAlert(shouldShowAlert);
 
     } catch (err) {
       console.error('Error fetching dashboard data:', err);
@@ -904,6 +1021,82 @@ const HomePage: React.FC = () => {
           Your intelligent health companion • Last updated: {new Date().toLocaleTimeString()}
         </Typography>
       </Box>
+
+      {/* Profile Completion Alert */}
+      {showProfileAlert && (
+        <Alert 
+          severity="info" 
+          sx={{ 
+            mb: 3,
+            background: 'linear-gradient(135deg, #e3f2fd 0%, #f3e5f5 100%)',
+            border: '2px solid #2196f3',
+            borderRadius: 3,
+            '& .MuiAlert-icon': {
+              fontSize: '1.5rem',
+            },
+          }}
+          action={
+            <Box sx={{ display: 'flex', gap: 1 }}>
+              <Button 
+                variant="contained" 
+                size="small"
+                onClick={() => navigate('/meal-plan')}
+                sx={{
+                  background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                  color: 'white',
+                  textTransform: 'none',
+                  fontWeight: 'bold',
+                  '&:hover': {
+                    background: 'linear-gradient(135deg, #5a6fd8 0%, #6a4190 100%)',
+                  }
+                }}
+              >
+                Complete Profile 📝
+              </Button>
+              <Button 
+                size="small" 
+                onClick={() => {
+                  setShowProfileAlert(false);
+                  localStorage.setItem('profileAlertDismissed', 'true');
+                }}
+                sx={{ color: '#666' }}
+              >
+                Dismiss
+              </Button>
+            </Box>
+          }
+        >
+          <Box>
+            {userProfile && getProfileCompletionStatus(userProfile).percentage > 0 ? (
+              <>
+                <Typography variant="h6" sx={{ fontWeight: 'bold', color: '#1976d2', mb: 1 }}>
+                  🏥 Welcome! Your doctor's office has partially completed your profile
+                </Typography>
+                <Typography variant="body1" sx={{ lineHeight: 1.6 }}>
+                  To generate your personalized starter meal plan, please complete your full health profile by clicking the button above. 
+                  Your doctor has already filled out some information to get you started.
+                </Typography>
+              </>
+            ) : (
+              <>
+                <Typography variant="h6" sx={{ fontWeight: 'bold', color: '#1976d2', mb: 1 }}>
+                  👋 Welcome! Let's complete your health profile
+                </Typography>
+                <Typography variant="body1" sx={{ lineHeight: 1.6 }}>
+                  To generate your personalized starter meal plan, please complete your health profile by clicking the button above. 
+                  This will help us create nutrition recommendations tailored specifically to your needs and medical conditions.
+                </Typography>
+              </>
+            )}
+            {userProfile && (
+              <Typography variant="body2" sx={{ mt: 1, color: '#666', fontStyle: 'italic' }}>
+                Current profile completion: {getProfileCompletionStatus(userProfile).percentage}% • 
+                Status: {getProfileCompletionStatus(userProfile).status}
+              </Typography>
+            )}
+          </Box>
+        </Alert>
+      )}
 
       {/* Tabs Navigation */}
       <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
