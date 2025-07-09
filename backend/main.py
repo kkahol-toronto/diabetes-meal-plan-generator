@@ -88,6 +88,17 @@ client = AzureOpenAI(
 # Configure Twilio
 twilio_client = Client(os.getenv("SMS_API_SID"), os.getenv("SMS_KEY"))
 
+# Health Check Endpoint for Azure App Service
+@app.get("/health")
+async def health_check():
+    """Health check endpoint for monitoring and load balancers"""
+    return {
+        "status": "healthy",
+        "timestamp": datetime.utcnow().isoformat(),
+        "service": "Diabetes Diet Manager API",
+        "version": "1.0.0"
+    }
+
 # Security
 SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-here")
 ALGORITHM = "HS256"

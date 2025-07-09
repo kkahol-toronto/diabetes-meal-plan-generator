@@ -20,6 +20,7 @@ ddp_env/
 dp_env/
 denv/
 meal_env/
+backend/env.json
 
 # FastAPI/Starlette
 instance/

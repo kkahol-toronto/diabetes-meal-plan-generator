@@ -1,4 +1,4 @@
-import React from 'react';
+in the import React from 'react';
 import { Box, Typography, Container, Divider } from '@mui/material';
 import SecurityIcon from '@mui/icons-material/Security';
 import VerifiedUserIcon from '@mui/icons-material/VerifiedUser';
