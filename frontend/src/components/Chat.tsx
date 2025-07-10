@@ -239,10 +239,11 @@ const Chat = () => {
 
   useEffect(() => {
     const loadSessionsAndInitialize = async () => {
-      await fetchSessions();
-      await fetchUserStats();
-      if (!currentSession) {
-        handleNewChat();
+      try {
+        await fetchSessions();
+        await fetchUserStats();
+      } catch (error) {
+        console.error('Error initializing chat:', error);
       }
     };
     loadSessionsAndInitialize();
@@ -295,19 +296,16 @@ const Chat = () => {
     const newMessagesAdded = messages.length > prevMessagesLengthRef.current;
 
     if (newMessagesAdded) {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
-    } else {
+      // Small delay to ensure DOM is updated
+      setTimeout(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      }, 100);
+    } else if (!isLoading && messages.length > 0) {
       scrollToBottom('smooth');
     }
 
     prevMessagesLengthRef.current = messages.length;
-  }, [messages]);
-
-  useEffect(() => {
-    if (!isLoading && messages.length > 0 && !userScrolledRef.current) {
-      scrollToBottom('smooth');
-    }
-  }, [isLoading, messages.length]);
+  }, [messages, isLoading]);
 
   const handleManualScroll = () => {
     userScrolledRef.current = true;
@@ -325,9 +323,22 @@ const Chat = () => {
       container.addEventListener('scroll', handleManualScroll);
       return () => {
         container.removeEventListener('scroll', handleManualScroll);
+        // Clear timeout on cleanup
+        if (scrollTimeoutRef.current) {
+          clearTimeout(scrollTimeoutRef.current);
+        }
       };
     }
   }, []);
+
+  // Cleanup image preview URLs on component unmount
+  useEffect(() => {
+    return () => {
+      if (imagePreviewUrl) {
+        URL.revokeObjectURL(imagePreviewUrl);
+      }
+    };
+  }, [imagePreviewUrl]);
 
   const fetchSessions = async () => {
     try {
@@ -348,8 +359,13 @@ const Chat = () => {
       if (response.ok) {
         const data = await response.json();
         setSessions(data.sessions || []);
-        if (data.sessions && data.sessions.length > 0 && !currentSession) {
+        
+        // Only set current session if none exists and sessions are available
+        if (!currentSession && data.sessions && data.sessions.length > 0) {
           setCurrentSession(data.sessions[0].session_id);
+        } else if (!currentSession && (!data.sessions || data.sessions.length === 0)) {
+          // If no sessions exist, create a new one
+          handleNewChat();
         }
       } else if (response.status === 401) {
         localStorage.removeItem('token');
@@ -357,13 +373,20 @@ const Chat = () => {
       }
     } catch (error) {
       console.error('Error fetching sessions:', error);
+      // If there's an error and no current session, create a new one
+      if (!currentSession) {
+        handleNewChat();
+      }
     }
   };
 
   const fetchChatHistory = async () => {
     try {
       const token = localStorage.getItem('token');
-      if (!token || !currentSession) return;
+      if (!token || !currentSession) {
+        setIsLoading(false);
+        return;
+      }
 
       setIsLoading(true);
       
@@ -376,11 +399,22 @@ const Chat = () => {
 
       if (response.ok) {
         const data = await response.json();
-        setMessages(data.messages || []);
-        setShowQuickActions(!data.messages || data.messages.length === 0);
+        // Only update messages if the session hasn't changed while loading
+        if (currentSession === data.session_id || !data.session_id) {
+          setMessages(data.messages || []);
+          setShowQuickActions(!data.messages || data.messages.length === 0);
+        }
+      } else if (response.status === 401) {
+        localStorage.removeItem('token');
+        navigate('/login');
+      } else {
+        console.error('Failed to fetch chat history:', response.status);
+        setMessages([]);
+        setShowQuickActions(true);
       }
     } catch (error) {
       console.error('Error fetching chat history:', error);
+      setMessages([]);
       setShowQuickActions(true);
     } finally {
       setIsLoading(false);
@@ -413,6 +447,11 @@ const Chat = () => {
 
     setMessages(prev => [...prev, userMessage]);
     setInput('');
+    
+    // Clean up image-related state and URLs
+    if (imagePreviewUrl) {
+      URL.revokeObjectURL(imagePreviewUrl);
+    }
     setSelectedImage(null);
     setImagePreviewUrl(null);
     setSelectedAnalysisMode(null);
@@ -538,7 +577,13 @@ const Chat = () => {
   };
 
   const handleSessionChange = (event: SelectChangeEvent<string>) => {
-    setCurrentSession(event.target.value);
+    const newSessionId = event.target.value;
+    if (newSessionId !== currentSession) {
+      // Clear messages immediately to prevent showing old messages
+      setMessages([]);
+      setIsLoading(true);
+      setCurrentSession(newSessionId);
+    }
   };
 
   const handleClearHistory = async () => {
@@ -587,6 +632,11 @@ const Chat = () => {
   const handleImageAnalysisSelection = (mode: 'logging' | 'analysis' | 'question' | 'fridge', file: File) => {
     setSelectedAnalysisMode(mode);
     setSelectedImage(file);
+    
+    // Clean up previous preview URL to prevent memory leaks
+    if (imagePreviewUrl) {
+      URL.revokeObjectURL(imagePreviewUrl);
+    }
     
     // Create preview URL
     const previewUrl = URL.createObjectURL(file);
@@ -713,11 +763,14 @@ const Chat = () => {
               onChange={handleSessionChange}
               label="Chat Session"
             >
-              {sessions.map((session) => (
-                <MenuItem key={session.session_id} value={session.session_id}>
-                  {new Date(session.timestamp).toLocaleDateString()} - {session.messages?.length || 0} messages
-                </MenuItem>
-              ))}
+              {sessions.map((session) => {
+                const messageCount = session.session_id === currentSession ? messages.length : (session.messages?.length || 0);
+                return (
+                  <MenuItem key={session.session_id} value={session.session_id}>
+                    {new Date(session.timestamp).toLocaleDateString()} - {messageCount} messages
+                  </MenuItem>
+                );
+              })}
             </Select>
           </FormControl>
           
@@ -731,13 +784,6 @@ const Chat = () => {
           </ButtonGroup>
 
           <Box sx={{ ml: 'auto', display: 'flex', gap: 1 }}>
-            <Tooltip title="Enhanced Image Analysis">
-              <IconButton onClick={handleRecordFoodButtonClick} color="primary">
-                <Badge badgeContent="NEW" color="secondary">
-                  <PhotoCameraIcon />
-                </Badge>
-              </IconButton>
-            </Tooltip>
           </Box>
         </Box>
       </Paper>
@@ -988,6 +1034,21 @@ const Chat = () => {
               },
             }}
           />
+          <Tooltip title="Enhanced Image Analysis">
+            <IconButton onClick={handleRecordFoodButtonClick} color="primary"
+              sx={{
+                bgcolor: 'secondary.main',
+                color: 'white',
+                '&:hover': { bgcolor: 'secondary.dark' },
+                width: 48,
+                height: 48,
+              }}
+            >
+              <Badge badgeContent="NEW" color="error">
+                <PhotoCameraIcon />
+              </Badge>
+            </IconButton>
+          </Tooltip>
           <Tooltip title="Send Message">
             <span>
               <IconButton

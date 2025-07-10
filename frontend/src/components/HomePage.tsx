@@ -387,7 +387,7 @@ const HomePage: React.FC = () => {
         return;
       }
 
-      const [dailyData, analytics, progress, notifs, mealPlan, profile, mealPlanHistory] = await Promise.all([
+      const [dailyData, analytics, progress, notifs, mealPlan, profileData, mealPlanHistory] = await Promise.all([
         dailyInsightsResponse.ok ? dailyInsightsResponse.json() : null,
         analyticsResponse.ok ? analyticsResponse.json() : null,
         progressResponse.ok ? progressResponse.json() : [],
@@ -402,14 +402,15 @@ const HomePage: React.FC = () => {
       setProgressData(progress);
       setNotifications(notifs);
       setTodaysMealPlan(mealPlan);
-      setUserProfile(profile);
+      const userProfileData = (profileData as any)?.profile || {};
+      setUserProfile(userProfileData);
       
       // Check if user has generated any meal plans
       const hasMealPlans = mealPlanHistory?.meal_plans?.length > 0;
       setHasGeneratedMealPlans(hasMealPlans);
       
       // Check if profile needs completion
-      const completionStatus = getProfileCompletionStatus(profile);
+      const completionStatus = getProfileCompletionStatus(userProfileData);
       // Show alert if profile is incomplete (less than 80% complete)
       // This ensures users with partial profiles get prompted to complete them
       const profileAlertDismissed = localStorage.getItem('profileAlertDismissed');

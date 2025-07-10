@@ -91,18 +91,21 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({
     normalized.avoids = normalized.avoids || [];
     normalized.strongDislikes = normalized.strongDislikes || [];
     normalized.exerciseTypes = normalized.exerciseTypes || [];
-    // Set default appliances for new users, but preserve existing user choices (even if empty)
-    normalized.availableAppliances = normalized.availableAppliances !== undefined ? normalized.availableAppliances : [
-      'Fridge & Freezer',
-      'Microwave',
-      'Stove/Oven',
-      'Instant Pot',
-      'Air Fryer',
-      'Slow Cooker',
-      'Blender',
-      'Food Processor',
-      'Toaster'
-    ];
+    // Set default appliances for new users and users with empty appliances array
+    // All appliances are pre-selected by default, users can deselect what they don't have
+    if (!normalized.availableAppliances || normalized.availableAppliances.length === 0) {
+      normalized.availableAppliances = [
+        'Fridge & Freezer',
+        'Microwave',
+        'Stove/Oven',
+        'Instant Pot',
+        'Air Fryer',
+        'Slow Cooker',
+        'Blender',
+        'Food Processor',
+        'Toaster'
+      ];
+    }
     normalized.primaryGoals = normalized.primaryGoals || [];
     
     return normalized;
@@ -136,7 +139,17 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({
     exerciseTypes: [],
     mobilityIssues: false,
     mealPrepCapability: '',
-    availableAppliances: [],
+    availableAppliances: [
+      'Fridge & Freezer',
+      'Microwave',
+      'Stove/Oven',
+      'Instant Pot',
+      'Air Fryer',
+      'Slow Cooker',
+      'Blender',
+      'Food Processor',
+      'Toaster'
+    ],
     eatingSchedule: '',
     primaryGoals: [],
     readinessToChange: '',
@@ -362,10 +375,10 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({
             });
 
             if (response.ok) {
-              const profileData = await response.json();
-              if (profileData && Object.keys(profileData).length > 0) {
+              const data = await response.json();
+              if (data && data.profile && Object.keys(data.profile).length > 0) {
                 console.log('Profile loaded from database successfully');
-                setProfile(prev => ({ ...prev, ...normalizeProfile(profileData) }));
+                setProfile(prev => ({ ...prev, ...normalizeProfile(data.profile) }));
                 return; // Exit early if database load was successful
               }
             }
@@ -1709,7 +1722,7 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({
               </Grid>
               <Grid item xs={12}>
                 <FormControl component="fieldset" fullWidth>
-                  <FormLabel component="legend">Appliances Available (select all that apply)</FormLabel>
+                  <FormLabel component="legend">Appliances Available (uncheck those you don't have)</FormLabel>
                   <FormGroup>
                     <Grid container>
                       {appliancesOptions.map((appliance) => (

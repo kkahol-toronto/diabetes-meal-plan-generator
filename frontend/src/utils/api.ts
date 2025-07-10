@@ -195,7 +195,7 @@ export const mealPlanApi = {
 };
 
 export const recipeApi = {
-  generate: (data: any) => api.post('/generate-recipe', data, { timeout: 45000 }),
+  generate: (data: any) => api.post('/generate-recipes', data, { timeout: 45000 }),
   generateShoppingList: (recipes: any[]) => api.post('/generate-shopping-list', recipes, { timeout: 30000 }),
 };
 
