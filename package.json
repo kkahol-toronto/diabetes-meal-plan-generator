@@ -1,18 +1,37 @@
 {
   "name": "diabetes-meal-plan-generator",
-  "version": "1.0.0",
-  "description": "A comprehensive web application for diabetes patients to manage their diet, track meals, and get personalized recommendations.",
+  "version": "2.0.0",
+  "description": "A comprehensive AI-powered web application for diabetes patients to manage their diet, track meals, get personalized recommendations, and interact with an intelligent health coach.",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "cd backend && python -m uvicorn main:app --reload --host 0.0.0.0 --port 8000",
+    "frontend": "cd frontend && npm start",
+    "backend": "cd backend && python -m uvicorn main:app --reload --host 0.0.0.0 --port 8000",
+    "dev": "concurrently \"npm run backend\" \"npm run frontend\"",
+    "build": "cd frontend && npm run build",
+    "install-all": "cd backend && pip install -r requirements.txt && cd ../frontend && npm install"
   },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/kkahol-toronto/diabetes-meal-plan-generator.git"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "keywords": [
+    "diabetes",
+    "health",
+    "meal-planning",
+    "ai",
+    "nutrition",
+    "healthcare",
+    "fastapi",
+    "react",
+    "typescript",
+    "azure",
+    "openai",
+    "machine-learning"
+  ],
+  "author": "Kapil Patel",
+  "license": "MIT",
   "bugs": {
     "url": "https://github.com/kkahol-toronto/diabetes-meal-plan-generator/issues"
   },
@@ -20,5 +39,13 @@
   "dependencies": {
     "express": "^5.1.0",
     "openai": "^5.0.1"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0",
+    "python": ">=3.11.0"
   }
 }

@@ -1,10 +1,14 @@
 # 🤖 AI Diabetes Coach - Comprehensive Health Management System
+**Version 2.0.0** | *Latest Update: January 2025*
 
-A **fully integrated, intelligent diabetes management platform** powered by AI that provides personalized coaching, adaptive meal planning, real-time analytics, and comprehensive health insights with enhanced meal logging capabilities.
+A **fully integrated, intelligent diabetes management platform** powered by AI that provides personalized coaching, adaptive meal planning, real-time analytics, and comprehensive health insights with enhanced meal logging capabilities and robust chat system.
 
 ## 🌟 Key Features
 
 ### 🧠 **Enhanced AI Health Coach** *(Recently Improved)*
+- **Fixed Chat History System**: Resolved all glitchy behavior in chat history and session management
+- **Smooth Session Switching**: Messages clear immediately when changing sessions, preventing old message flashes
+- **Optimized Auto-scroll**: Improved scroll behavior with proper timing and conflict resolution
 - **Fixed AI Coach Functionality**: Robust meal-suggestion endpoint with proper error handling
 - **Comprehensive User Context**: AI has access to complete user history, preferences, and health data
 - **Personalized Recommendations**: Real-time, context-aware suggestions based on eating patterns and health conditions
@@ -35,6 +39,10 @@ A **fully integrated, intelligent diabetes management platform** powered by AI t
 - **Consumption-Based Calibration**: Today's meal plan updates dynamically when users log food
 
 ### 🎨 **Improved User Interface** *(Recently Enhanced)*
+- **Repositioned Camera Button**: Moved camera icon with "NEW" badge to input area next to send button
+- **Improved Input Layout**: Better visual hierarchy and accessibility in chat interface
+- **Enhanced Visual Design**: Consistent styling and improved user experience
+- **Resource Cleanup**: Proper cleanup of image preview URLs and event listeners
 - **Cleaned Homepage**: Removed floating action buttons that were causing errors
 - **Fixed UI Issues**: Resolved repeated "(recommended)" text in meal plan snacks
 - **Cleaner Design**: Removed automatic notes display for a more streamlined experience
@@ -170,9 +178,12 @@ The application will be available at `http://localhost:3000`
 - **Real-time Updates**: Live data refresh every 5 minutes
 
 ### **Improved AI Coach Interface**
+- **Fixed Chat History**: Resolved all glitchy behavior in chat history and session management
+- **Smooth Session Management**: Seamless switching between chat sessions without message conflicts
+- **Enhanced Memory Management**: Proper cleanup of resources and prevention of memory leaks
 - **Fixed Functionality**: Robust AI coach with proper error handling
 - **Conversational UI**: Natural chat interface with enhanced meal type detection
-- **Image Upload**: Improved drag-and-drop food image workflow
+- **Image Upload**: Improved drag-and-drop food image workflow with repositioned camera button
 - **Response Formatting**: Rich text formatting with markdown support
 - **Context-Aware Responses**: AI considers user's health profile and dietary restrictions
 
@@ -220,31 +231,40 @@ ENVIRONMENT=production
 REACT_APP_API_URL=https://your-api-domain.com
 ```
 
-## 🆕 **Recent Improvements (June 2025)**
+## 🆕 **Recent Improvements (January 2025)**
 
-### **AI Coach Enhancements**
+### **Chat System Enhancements** *(Latest)*
+- ✅ **Fixed Chat History Glitches**: Resolved all glitchy behavior in chat history and session management
+- ✅ **Session Management**: Fixed race conditions in session initialization and switching
+- ✅ **Smooth Session Switching**: Messages now clear immediately when changing sessions, preventing old message flashes
+- ✅ **Optimized Auto-scroll**: Improved scroll behavior with proper timing and conflict resolution
+- ✅ **Memory Management**: Added proper cleanup for image URLs and timeouts to prevent memory leaks
+- ✅ **Enhanced Error Handling**: Comprehensive error handling throughout chat operations
+
+### **UI/UX Improvements** *(Latest)*
+- ✅ **Repositioned Camera Button**: Moved camera icon with "NEW" badge to input area next to send button
+- ✅ **Improved Input Layout**: Better visual hierarchy and accessibility in chat interface
+- ✅ **Enhanced Visual Design**: Consistent styling and improved user experience
+- ✅ **Resource Cleanup**: Proper cleanup of image preview URLs and event listeners
+
+### **AI Coach Enhancements** *(Previous)*
 - ✅ **Fixed AI Coach Functionality**: Resolved meal-suggestion endpoint with robust error handling
 - ✅ **Enhanced Error Handling**: Added proper fallback mechanisms for missing user data
 - ✅ **Dual Response Format**: Support for both simple queries and detailed meal suggestions
 - ✅ **Context-Aware Responses**: AI now considers user's health conditions and dietary restrictions
 
-### **Meal Logging Improvements**
+### **Meal Logging Improvements** *(Previous)*
 - ✅ **Streamlined Image Upload**: Enhanced camera interface with attach-first workflow
 - ✅ **Meal Type Detection**: Smart detection of meal types from chat messages using regex
 - ✅ **Enhanced Database Integration**: Added meal_type parameter to consumption records
 - ✅ **New PATCH Endpoint**: Added endpoint for updating meal types after logging
 
-### **UI/UX Enhancements**
-- ✅ **Cleaned Homepage**: Removed floating action buttons causing errors
-- ✅ **Fixed UI Issues**: Resolved repeated text in meal plan sections
-- ✅ **Improved Chat Interface**: Better integration between chat and meal logging
-- ✅ **Enhanced Dashboard**: Tabbed interface with better organization
-
-### **Technical Improvements**
-- ✅ **Robust Database Queries**: Added try-catch blocks for all database operations
-- ✅ **Enhanced API Endpoints**: Improved error handling across all endpoints
+### **Technical Improvements** *(Ongoing)*
+- ✅ **Updated Dependencies**: Latest compatible versions for all packages (Jan 2025)
+- ✅ **Enhanced Security**: Updated to latest security patches and best practices
+- ✅ **Performance Optimization**: Improved response times and error recovery
 - ✅ **Better Integration**: Improved connection between consumption logging and meal planning
-- ✅ **Performance Optimization**: Enhanced response times and error recovery
+- ✅ **Robust Database Queries**: Added try-catch blocks for all database operations
 
 ## 🤝 **Contributing**
 
