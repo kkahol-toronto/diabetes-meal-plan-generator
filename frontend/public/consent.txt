@@ -1,7 +1,6 @@
-Consent Section – Revised Wording
 Consent to Collect, Use, and Disclose Personal Health Information
 
-By checking the boxes below and using this app/tool, I confirm that:
+By using this app/tool, I confirm that:
 
 ✅ Service Use
 
@@ -11,11 +10,11 @@ I understand that my information will be handled in accordance with Ontario’s 
 
 I am aware that the app uses artificial intelligence (AI) to support nutrition and lifestyle planning, and that this tool does not replace medical advice.
 
-I have read and understood the [Privacy Policy – hyperlink] and agree to its terms.
+I have read and understood the Privacy Policy and agree to its terms.
 
-I may withdraw my consent at any time by contacting [insert support contact].
+I may withdraw my consent at any time by contacting our support team.
 
-☐ I agree to the collection and use of my personal health information as described above. (Required)
+I agree to the collection and use of my personal health information as described above.
 
 ✅ Optional Research Use
 
@@ -25,7 +24,7 @@ I understand that all identifying details will be removed, and that my data will
 
 I may withdraw this consent at any time without affecting my use of the app.
 
-☐ I consent to the use of my de-identified data for research purposes. (Optional)
+I consent to the use of my de-identified data for research purposes. (Optional)
 
 🔒 Privacy Policy – Adjusted Sections
 1. Our Commitment
