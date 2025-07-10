@@ -295,6 +295,7 @@ const HomePage: React.FC = () => {
   const [showProfileAlert, setShowProfileAlert] = useState(false);
   const [showQuickLogDialog, setShowQuickLogDialog] = useState(false);
   const [quickLogFood, setQuickLogFood] = useState('');
+  const [quickLogMealType, setQuickLogMealType] = useState('');
   const [tabValue, setTabValue] = useState(0);
   const [macroTimeRange, setMacroTimeRange] = useState<'daily' | 'weekly' | 'bi-weekly' | 'monthly'>('daily');
   const [macroConsumptionAnalytics, setMacroConsumptionAnalytics] = useState<any>(null);
@@ -508,11 +509,33 @@ const HomePage: React.FC = () => {
     return () => clearInterval(carouselInterval);
   }, [carouselImages.length]);
 
+  // Helper function to determine default meal type based on current time
+  const getDefaultMealType = () => {
+    const currentHour = new Date().getHours();
+    if (currentHour >= 4 && currentHour < 11) {
+      return 'breakfast';
+    } else if (currentHour >= 11 && currentHour < 16) {
+      return 'lunch';
+    } else if (currentHour >= 16 && currentHour < 22) {
+      return 'dinner';
+    } else {
+      return 'snack';
+    }
+  };
+
   const handleQuickLogFood = async () => {
     if (!quickLogFood.trim()) return;
     
     try {
       setLoading(true, 'Analyzing and logging food...');
+      
+      const mealType = quickLogMealType || getDefaultMealType();
+      
+      const requestBody = { 
+        food_name: quickLogFood, 
+        portion: 'medium portion',
+        meal_type: mealType
+      };
       
       const response = await fetch('/coach/quick-log', {
         method: 'POST',
@@ -520,13 +543,14 @@ const HomePage: React.FC = () => {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ food_name: quickLogFood, portion: 'medium portion' }),
+        body: JSON.stringify(requestBody),
       });
 
       if (response.ok) {
         await response.json();
-        showNotification(`✅ Successfully logged: ${quickLogFood}`, 'success');
+        showNotification(`✅ Successfully logged: ${quickLogFood} as ${mealType}`, 'success');
         setQuickLogFood('');
+        setQuickLogMealType('');
         setShowQuickLogDialog(false);
         fetchAllData(); // Refresh all data
       } else {
@@ -1879,12 +1903,32 @@ const HomePage: React.FC = () => {
             onChange={(e) => setQuickLogFood(e.target.value)}
             onKeyPress={(e) => e.key === 'Enter' && handleQuickLogFood()}
           />
+          <FormControl fullWidth margin="normal" variant="outlined">
+            <InputLabel>Meal Type</InputLabel>
+            <Select
+              value={quickLogMealType}
+              onChange={(e) => setQuickLogMealType(e.target.value)}
+              label="Meal Type"
+            >
+              <MenuItem value="">
+                <em>Auto-detect based on time ({getDefaultMealType()})</em>
+              </MenuItem>
+              <MenuItem value="breakfast">🍳 Breakfast</MenuItem>
+              <MenuItem value="lunch">🥪 Lunch</MenuItem>
+              <MenuItem value="dinner">🍽️ Dinner</MenuItem>
+              <MenuItem value="snack">🍎 Snack</MenuItem>
+            </Select>
+          </FormControl>
           <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
             Our AI will analyze the nutrition and diabetes suitability automatically.
           </Typography>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setShowQuickLogDialog(false)}>Cancel</Button>
+          <Button onClick={() => {
+            setShowQuickLogDialog(false);
+            setQuickLogFood('');
+            setQuickLogMealType('');
+          }}>Cancel</Button>
           <Button 
             onClick={handleQuickLogFood} 
             variant="contained"

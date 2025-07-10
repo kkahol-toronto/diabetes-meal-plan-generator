@@ -138,7 +138,7 @@ async def save_meal_plan(user_id: str, meal_plan_data: dict):
         print(f"[save_meal_plan] Error saving item {item.get('id')}: {e}")
         raise
 
-async def get_user_meal_plans(user_id: str, limit: int = None):
+async def get_user_meal_plans(user_id: str, limit: int | None = None):
     """Get meal plans for a user with optional limit"""
     try:
         if not user_id:
@@ -338,7 +338,7 @@ async def save_shopping_list(user_id: str, shopping_list: dict):
     except Exception as e:
         raise Exception(f"Failed to save shopping list: {str(e)}")
 
-async def get_user_shopping_lists(user_id: str, limit: int = None):
+async def get_user_shopping_lists(user_id: str, limit: int | None = None):
     """Get shopping lists for a user with optional limit"""
     try:
         # Build query with optional TOP clause for database-level limiting
@@ -351,7 +351,7 @@ async def get_user_shopping_lists(user_id: str, limit: int = None):
     except Exception as e:
         raise Exception(f"Failed to get shopping lists: {str(e)}")
 
-async def save_chat_message(user_id: str, message: str, is_user: bool, session_id: str = None, image_url: str = None):
+async def save_chat_message(user_id: str, message: str, is_user: bool, session_id: str | None = None, image_url: str | None = None):
     """Save a chat message to the database"""
     try:
         if not session_id:
@@ -602,6 +602,20 @@ async def save_consumption_record(user_id: str, consumption_data: dict, meal_typ
         # Generate a unique session ID for this consumption record
         session_id = f"consumption_{user_id}_{datetime.utcnow().timestamp()}"
         
+        # Auto-detect meal type if not provided
+        final_meal_type = meal_type or consumption_data.get("meal_type", "")
+        if not final_meal_type:
+            # Auto-detect based on current time
+            current_hour = datetime.utcnow().hour
+            if 5 <= current_hour < 11:
+                final_meal_type = "breakfast"
+            elif 11 <= current_hour < 16:
+                final_meal_type = "lunch"
+            elif 16 <= current_hour < 22:
+                final_meal_type = "dinner"
+            else:
+                final_meal_type = "snack"
+        
         consumption_record = {
             "type": "consumption_record",
             "user_id": user_id,
@@ -614,7 +628,7 @@ async def save_consumption_record(user_id: str, consumption_data: dict, meal_typ
             "medical_rating": consumption_data.get("medical_rating", {}),
             "image_analysis": consumption_data.get("image_analysis"),
             "image_url": consumption_data.get("image_url"),
-            "meal_type": meal_type or consumption_data.get("meal_type", "")
+            "meal_type": final_meal_type
         }
         
         print(f"[save_consumption_record] Created record with ID: {consumption_record['id']}")
@@ -639,7 +653,7 @@ async def get_user_consumption_history(user_id: str, limit: int = 50):
         if limit:
             query = (
                 f"SELECT TOP {limit} c.id, c.timestamp, c.food_name, c.estimated_portion, "
-                "c.nutritional_info, c.medical_rating, c.image_analysis, c.image_url "
+                "c.nutritional_info, c.medical_rating, c.image_analysis, c.image_url, c.meal_type "
                 "FROM c WHERE c.type = 'consumption_record' "
                 f"AND c.user_id = '{user_id}' "
                 "ORDER BY c.timestamp DESC"
@@ -647,7 +661,7 @@ async def get_user_consumption_history(user_id: str, limit: int = 50):
         else:
             query = (
                 "SELECT c.id, c.timestamp, c.food_name, c.estimated_portion, "
-                "c.nutritional_info, c.medical_rating, c.image_analysis, c.image_url "
+                "c.nutritional_info, c.medical_rating, c.image_analysis, c.image_url, c.meal_type "
                 "FROM c WHERE c.type = 'consumption_record' "
                 f"AND c.user_id = '{user_id}' "
                 "ORDER BY c.timestamp DESC"
@@ -797,29 +811,32 @@ async def get_consumption_analytics(user_id: str, days: int = 7):
             food_frequency[food_name]["frequency"] += 1
             food_frequency[food_name]["total_calories"] += calories
             
-            # Determine meal type based on time or food name
-            try:
-                record_time = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
-                hour = record_time.hour
-                if 5 <= hour < 11:
-                    meal_type = "breakfast"
-                elif 11 <= hour < 16:
-                    meal_type = "lunch"
-                elif 16 <= hour < 22:
-                    meal_type = "dinner"
-                else:
-                    meal_type = "snack"
-            except:
-                # Fallback: try to guess from food name
-                food_lower = food_name.lower()
-                if any(word in food_lower for word in ["breakfast", "cereal", "oatmeal", "toast"]):
-                    meal_type = "breakfast"
-                elif any(word in food_lower for word in ["lunch", "sandwich", "salad"]):
-                    meal_type = "lunch"
-                elif any(word in food_lower for word in ["dinner", "pasta", "rice", "chicken"]):
-                    meal_type = "dinner"
-                else:
-                    meal_type = "snack"
+            # Use the stored meal type from the database record, with time-based fallback if missing
+            meal_type = record.get("meal_type", "")
+            if not meal_type:
+                # Only calculate meal type if it's missing from the record
+                try:
+                    record_time = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+                    hour = record_time.hour
+                    if 5 <= hour < 11:
+                        meal_type = "breakfast"
+                    elif 11 <= hour < 16:
+                        meal_type = "lunch"
+                    elif 16 <= hour < 22:
+                        meal_type = "dinner"
+                    else:
+                        meal_type = "snack"
+                except:
+                    # Fallback: try to guess from food name
+                    food_lower = food_name.lower()
+                    if any(word in food_lower for word in ["breakfast", "cereal", "oatmeal", "toast"]):
+                        meal_type = "breakfast"
+                    elif any(word in food_lower for word in ["lunch", "sandwich", "salad"]):
+                        meal_type = "lunch"
+                    elif any(word in food_lower for word in ["dinner", "pasta", "rice", "chicken"]):
+                        meal_type = "dinner"
+                    else:
+                        meal_type = "snack"
             
             meal_type_counts[meal_type] += 1
             

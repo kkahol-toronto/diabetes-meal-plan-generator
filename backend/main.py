@@ -41,6 +41,16 @@ from database import (
     update_consumption_meal_type,
 )
 
+# Import the consumption tracker for proper meal type handling
+try:
+    from consumption_system import consumption_tracker
+    CONSUMPTION_TRACKER_AVAILABLE = True
+except Exception as e:
+    print(f"Warning: Could not import consumption_tracker: {e}")
+    print("Falling back to direct database functions.")
+    consumption_tracker = None
+    CONSUMPTION_TRACKER_AVAILABLE = False
+
 # Use interactions_container as consumption_collection for consistency
 consumption_collection = interactions_container
 import uuid
@@ -3436,6 +3446,7 @@ async def chat_message_with_image(
     image: UploadFile = File(None),
     session_id: str = Form(None),
     analysis_mode: str = Form("analysis"),  # New parameter for analysis mode
+    meal_type: str = Form(None),  # Add meal_type parameter
     current_user: User = Depends(get_current_user)
 ):
     """
@@ -3446,9 +3457,10 @@ async def chat_message_with_image(
     img_str = None
     analysis_data = None
 
-    # --- Determine meal type from the user's message, if mentioned ---
-    meal_type_match = re.search(r"\b(breakfast|lunch|dinner|snack)s?\b", message.lower())
-    meal_type = meal_type_match.group(1) if meal_type_match else None
+    # --- Use meal_type parameter if provided, otherwise try to extract from message ---
+    if not meal_type:
+        meal_type_match = re.search(r"\b(breakfast|lunch|dinner|snack)s?\b", message.lower())
+        meal_type = meal_type_match.group(1) if meal_type_match else None
 
     # 🧠 GET COMPREHENSIVE USER CONTEXT - This is the key integration!
     try:
@@ -3684,7 +3696,7 @@ Would you like me to create a detailed recipe for any of these meal suggestions?
             "image_analysis": food_data.get("analysis_notes"),
             "image_url": img_str
         }
-        await save_consumption_record(current_user["email"], consumption_data, meal_type=meal_type or "")
+        await save_consumption_record(current_user["email"], consumption_data, meal_type=meal_type)
 
         meal_type_text = f" as your **{meal_type}**" if meal_type else ""
         
@@ -3762,7 +3774,7 @@ Would you like me to log this to your consumption history? Just say "log this as
             "image_analysis": food_data.get("analysis_notes"),
             "image_url": img_str if analysis_data else None
         }
-        await save_consumption_record(current_user["email"], consumption_data, meal_type=meal_type or "")
+        await save_consumption_record(current_user["email"], consumption_data, meal_type=meal_type)
 
         context_note = " (from previous analysis)" if recent_context and not analysis_data else ""
         meal_type_text = f" as your **{meal_type}**" if meal_type else ""
@@ -4350,277 +4362,85 @@ async def quick_log_food(
     food_data: dict,
     current_user: User = Depends(get_current_user)
 ):
-    """Quick log food - USING ORIGINAL SAVE FUNCTION with better AI analysis"""
+    """Quick log food using the updated ConsumptionTracker with proper meal type handling"""
     try:
         print(f"[quick_log_food] Starting quick log for user {current_user['id']}")
         print(f"[quick_log_food] Food data received: {food_data}")
         
         food_name = food_data.get("food_name", "").strip()
         portion = food_data.get("portion", "medium portion").strip()
+        meal_type = food_data.get("meal_type")  # Get meal type from frontend
         
         if not food_name:
             raise HTTPException(status_code=400, detail="Food name is required")
         
-        # Use AI to estimate nutritional values with comprehensive analysis
-        prompt = f"""
-        Analyze the food item: {food_name} ({portion})
-        
-        Provide a comprehensive JSON response with this exact structure:
-        {{
-            "food_name": "{food_name}",
-            "estimated_portion": "{portion}",
-            "nutritional_info": {{
-                "calories": <number>,
-                "carbohydrates": <number>,
-                "protein": <number>,
-                "fat": <number>,
-                "fiber": <number>,
-                "sugar": <number>,
-                "sodium": <number>
-            }},
-            "medical_rating": {{
-                "diabetes_suitability": "high/medium/low",
-                "glycemic_impact": "low/medium/high",
-                "recommended_frequency": "daily/weekly/occasional/avoid",
-                "portion_recommendation": "appropriate/reduce/increase"
-            }},
-            "analysis_notes": "Brief explanation of nutritional value and diabetes considerations"
-        }}
-        
-        Base estimates on standard nutritional databases. Be accurate and conservative with diabetes ratings.
-        Only return valid JSON, no other text.
-        """
-        
-        # Initialize fallback data
-        fallback_data = {
-            "food_name": food_name,
-            "estimated_portion": portion,
-            "nutritional_info": {
-                "calories": 200,
-                "carbohydrates": 25,
-                "protein": 10,
-                "fat": 8,
-                "fiber": 3,
-                "sugar": 5,
-                "sodium": 300
-            },
-            "medical_rating": {
-                "diabetes_suitability": "medium",
-                "glycemic_impact": "medium",
-                "recommended_frequency": "weekly",
-                "portion_recommendation": "appropriate"
-            },
-            "analysis_notes": f"Nutritional estimate for {food_name}. Consult with healthcare provider for personalized advice."
-        }
-        
-        try:
-            print("[quick_log_food] Calling OpenAI for nutritional analysis")
-            response = client.chat.completions.create(
-                model=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "You are a nutrition analysis expert specializing in diabetes management. Provide accurate nutritional estimates and diabetes-appropriate recommendations."
-                    },
-                    {
-                        "role": "user", 
-                        "content": prompt
-                    }
-                ],
-                max_tokens=500,
-                temperature=0.3
+        # Use the ConsumptionTracker if available, otherwise fall back to direct database approach
+        if CONSUMPTION_TRACKER_AVAILABLE and consumption_tracker:
+            print(f"[quick_log_food] Using ConsumptionTracker to log food: {food_name} ({portion}) as {meal_type or 'auto-detected'}")
+            
+            result = await consumption_tracker.quick_log_food(
+                user_id=current_user["id"],
+                food_name=food_name,
+                portion=portion,
+                meal_type=meal_type  # Pass meal type to the tracker
             )
             
-            # Parse AI response
-            analysis_text = response.choices[0].message.content
-            print(f"[quick_log_food] OpenAI response: {analysis_text}")
+            print(f"[quick_log_food] Successfully logged food: {result}")
             
-            try:
-                # Extract JSON from response
-                start_idx = analysis_text.find('{')
-                end_idx = analysis_text.rfind('}') + 1
-                json_str = analysis_text[start_idx:end_idx]
-                analysis_data = json.loads(json_str)
-                print(f"[quick_log_food] Successfully parsed AI analysis: {analysis_data}")
-            except (json.JSONDecodeError, ValueError) as parse_error:
-                print(f"[quick_log_food] JSON parsing error: {str(parse_error)}")
-                analysis_data = fallback_data
-                
-        except Exception as openai_error:
-            print(f"[quick_log_food] OpenAI API error: {str(openai_error)}. Using fallback estimation.")
-            analysis_data = fallback_data
-        
-        # Prepare consumption data in the same format as the image analysis system
-        consumption_data = {
-            "food_name": analysis_data.get("food_name", food_name),
-            "estimated_portion": analysis_data.get("estimated_portion", portion),
-            "nutritional_info": analysis_data.get("nutritional_info", fallback_data["nutritional_info"]),
-            "medical_rating": analysis_data.get("medical_rating", fallback_data["medical_rating"]),
-            "image_analysis": analysis_data.get("analysis_notes", f"Quick log entry for {food_name}"),
-            "image_url": None,  # No image for quick log
-            "meal_type": (food_data.get("meal_type") or "snack").lower()
-        }
-        
-        print(f"[quick_log_food] Prepared consumption data: {consumption_data}")
-        
-        # Save to consumption history using the ORIGINAL save function
-        print(f"[quick_log_food] Saving consumption record for user {current_user['email']}")
-        consumption_record = await save_consumption_record(current_user["email"], consumption_data, meal_type=food_data.get("meal_type", "snack"))
-        print(f"[quick_log_food] Successfully saved consumption record with ID: {consumption_record['id']}")
-        
-        # ------------------------------
-        # FORCE COMPLETE MEAL PLAN REGENERATION AFTER EVERY LOG
-        # ------------------------------
-        try:
-            print("[quick_log_food] Triggering complete meal plan regeneration after food log...")
+            # Return success response using the ConsumptionTracker result
+            return {
+                "success": result.get("success", True),
+                "message": result.get("message", f"Successfully logged {food_name}"),
+                "consumption_record_id": result.get("record_id"),
+                "food_name": result.get("food_name", food_name),
+                "meal_type": result.get("meal_type"),
+                "nutritional_summary": result.get("nutritional_summary", {}),
+                "diabetes_rating": result.get("diabetes_rating", "medium")
+            }
+        else:
+            # Fallback to direct database approach
+            print(f"[quick_log_food] Using direct database approach (ConsumptionTracker not available)")
             
-            # Get today's consumption including the new log
-            today = datetime.utcnow().date()
-            consumption_data_full = await get_user_consumption_history(current_user["email"], limit=100)
-            today_consumption = [
-                r for r in consumption_data_full
-                if datetime.fromisoformat(r.get("timestamp", "").replace("Z", "+00:00")).date() == today
-            ]
+            # Simple fallback approach - just save with basic data
+            consumption_data = {
+                "food_name": food_name,
+                "estimated_portion": portion,
+                "nutritional_info": {
+                    "calories": 200,  # Default values
+                    "carbohydrates": 25,
+                    "protein": 10,
+                    "fat": 8,
+                    "fiber": 3,
+                    "sugar": 5,
+                    "sodium": 300
+                },
+                "medical_rating": {
+                    "diabetes_suitability": "medium",
+                    "glycemic_impact": "medium",
+                    "recommended_frequency": "weekly",
+                    "portion_recommendation": "appropriate"
+                },
+                "image_analysis": f"Quick log entry for {food_name}",
+                "image_url": None
+            }
             
-            # Calculate calories consumed so far
-            calories_consumed = sum(r.get("nutritional_info", {}).get("calories", 0) for r in today_consumption)
+            # Save to consumption history - let the database function handle meal_type logic
+            consumption_record = await save_consumption_record(current_user["email"], consumption_data, meal_type=meal_type)
             
-            # Get user profile for dietary restrictions
-            profile = current_user.get("profile", {})
-            dietary_restrictions = profile.get('dietaryRestrictions', [])
-            allergies = profile.get('allergies', [])
-            diet_type = profile.get('dietType', [])
-            target_calories = int(profile.get('calorieTarget', '2000'))
-            remaining_calories = max(0, target_calories - calories_consumed)
-            
-            # Build explicit restriction warnings for AI
-            restriction_warnings = []
-            if 'vegetarian' in [r.lower() for r in dietary_restrictions] or 'vegetarian' in [d.lower() for d in diet_type]:
-                restriction_warnings.append("STRICTLY VEGETARIAN - NO MEAT, POULTRY, FISH, OR SEAFOOD")
-            if any('egg' in r.lower() for r in dietary_restrictions) or any('egg' in a.lower() for a in allergies):
-                restriction_warnings.append("NO EGGS - Avoid all egg-based dishes and ingredients")
-            if any('nut' in a.lower() for a in allergies):
-                restriction_warnings.append("NUT ALLERGY - Avoid all nuts and nut-based products")
-            
-            restriction_text = "\n".join([f"⚠️ {warning}" for warning in restriction_warnings])
-            
-            # Generate completely new meal plan calibrated to consumption
-            prompt = f"""You are a registered dietitian AI. The user just logged a meal. Generate a COMPLETE new meal plan for the REST OF TODAY based on their consumption and dietary profile.
-
-USER PROFILE:
-Diet Type: {', '.join(diet_type) or 'Standard'}
-Dietary Restrictions: {', '.join(dietary_restrictions) or 'None'}
-Allergies: {', '.join(allergies) or 'None'}
-Target Daily Calories: {target_calories}
-Calories Already Consumed Today: {calories_consumed}
-Remaining Calories for Today: {remaining_calories}
-
-{restriction_text if restriction_warnings else ""}
-
-CRITICAL REQUIREMENTS:
-- ALL dishes must be diabetes-friendly (low glycemic index)
-- ALL dishes must be completely vegetarian and egg-free
-- Adjust portion sizes based on remaining calories
-- Provide SPECIFIC dish names, not generic descriptions
-- Consider the time of day and what's realistic to eat
-
-Generate a complete meal plan for the rest of today:
-
-{{
-  "meals": {{
-    "breakfast": "<specific vegetarian dish without eggs>",
-    "lunch": "<specific vegetarian dish without eggs>", 
-    "dinner": "<specific vegetarian dish without eggs>",
-    "snack": "<specific vegetarian snack without eggs>"
-  }},
-  "calibration_notes": "Adjusted based on {calories_consumed} calories already consumed today"
-}}
-
-Examples of appropriate dishes:
-- Breakfast: "Steel-cut oats with almond milk, cinnamon, and fresh blueberries"
-- Lunch: "Mediterranean quinoa salad with chickpeas, cucumber, and olive oil"
-- Dinner: "Black bean and sweet potato curry with brown rice"
-- Snack: "Apple slices with almond butter and a sprinkle of cinnamon"
-
-Ensure ALL dishes are completely vegetarian and egg-free."""
-
-            ai_resp = client.chat.completions.create(
-                model=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.7,
-                max_tokens=600
-            )
-
-            import json as _json
-            try:
-                # Parse AI response
-                ai_content = ai_resp.choices[0].message.content
-                start_idx = ai_content.find('{')
-                end_idx = ai_content.rfind('}') + 1
-                ai_json = _json.loads(ai_content[start_idx:end_idx])
-                
-                # Create new calibrated meal plan
-                new_plan = {
-                    "id": f"calibrated_{current_user['email']}_{today.isoformat()}_{int(datetime.utcnow().timestamp())}",
-                    "date": today.isoformat(),
-                    "type": "ai_calibrated_post_log",
-                    "meals": ai_json.get("meals", {}),
-                    "dailyCalories": target_calories,
-                    "calories_consumed": calories_consumed,
-                    "calories_remaining": remaining_calories,
-                    "created_at": datetime.utcnow().isoformat(),
-                    "notes": f"Regenerated after food log. {ai_json.get('calibration_notes', '')}"
-                }
-                
-                # Post-process to ensure dietary compliance (safety filter)
-                def sanitize_meal(meal_text: str) -> str:
-                    """Ensure meal is vegetarian and egg-free"""
-                    meal_lower = meal_text.lower()
-                    
-                    # Check for non-vegetarian ingredients
-                    non_veg_keywords = ['chicken', 'beef', 'pork', 'fish', 'salmon', 'tuna', 'turkey', 'lamb', 'meat', 'seafood', 'shrimp']
-                    egg_keywords = ['egg', 'eggs', 'omelet', 'omelette', 'scrambled', 'poached', 'fried egg']
-                    
-                    if any(keyword in meal_lower for keyword in non_veg_keywords):
-                        return "Vegetarian lentil and vegetable curry with quinoa"
-                    if any(keyword in meal_lower for keyword in egg_keywords):
-                        return "Overnight oats with almond milk, chia seeds, and fresh berries"
-                    
-                    return meal_text
-                
-                # Apply safety filter to all meals
-                for meal_type in new_plan["meals"]:
-                    new_plan["meals"][meal_type] = sanitize_meal(new_plan["meals"][meal_type])
-                
-                # Save the new calibrated plan
-                await save_meal_plan(current_user["email"], new_plan)
-                print(f"[quick_log_food] Generated and saved new calibrated meal plan. Remaining calories: {remaining_calories}")
-                
-            except Exception as parse_err:
-                print(f"[quick_log_food] Failed to parse AI meal plan JSON: {parse_err}")
-                # Fallback: just trigger the normal get_todays_meal_plan
-                await get_todays_meal_plan(current_user)
-                
-        except Exception as plan_err:
-            print(f"[quick_log_food] Failed to regenerate meal plan: {plan_err}")
-            import traceback
-            print(traceback.format_exc())
-        
-        # Return success response in the SAME FORMAT as before
-        return {
-            "success": True,
-            "message": f"Successfully logged {analysis_data.get('food_name', food_name)}",
-            "consumption_record_id": consumption_record["id"],
-            "analysis": analysis_data,
-            "food_name": analysis_data.get("food_name", food_name),
-            "nutritional_summary": {
-                "calories": analysis_data.get("nutritional_info", {}).get("calories", 0),
-                "carbohydrates": analysis_data.get("nutritional_info", {}).get("carbohydrates", 0),
-                "protein": analysis_data.get("nutritional_info", {}).get("protein", 0),
-                "fat": analysis_data.get("nutritional_info", {}).get("fat", 0)
-            },
-            "diabetes_rating": analysis_data.get("medical_rating", {}).get("diabetes_suitability", "medium")
-        }
+            return {
+                "success": True,
+                "message": f"Successfully logged {food_name}",
+                "consumption_record_id": consumption_record["id"],
+                "food_name": food_name,
+                "meal_type": consumption_record.get("meal_type", meal_type),
+                "nutritional_summary": {
+                    "calories": 200,
+                    "carbohydrates": 25,
+                    "protein": 10,
+                    "fat": 8
+                },
+                "diabetes_rating": "medium"
+            }
         
     except HTTPException:
         # Re-raise HTTP exceptions as-is
@@ -5861,6 +5681,9 @@ async def test_quick_log_food(food_data: dict):
             print(f"[test_quick_log_food] OpenAI API error: {str(openai_error)}. Using fallback estimation.")
             analysis_data = fallback_data
         
+        # Get meal_type from request (don't default to snack - let auto-detection work)
+        meal_type = food_data.get("meal_type")  # Can be None for auto-detection
+        
         # Prepare consumption data in the same format as the image analysis system
         consumption_data = {
             "food_name": analysis_data.get("food_name", food_name),
@@ -5868,16 +5691,17 @@ async def test_quick_log_food(food_data: dict):
             "nutritional_info": analysis_data.get("nutritional_info", fallback_data["nutritional_info"]),
             "medical_rating": analysis_data.get("medical_rating", fallback_data["medical_rating"]),
             "image_analysis": analysis_data.get("analysis_notes", f"Quick log entry for {food_name}"),
-            "image_url": None,  # No image for quick log
-            "meal_type": (food_data.get("meal_type") or "snack").lower()
+            "image_url": None  # No image for quick log
         }
         
         print(f"[test_quick_log_food] Prepared consumption data: {consumption_data}")
+        print(f"[test_quick_log_food] Meal type from request: {meal_type}")
         
-        # Save to consumption history using the test user
+        # Save to consumption history using the test user with proper meal_type parameter
         print(f"[test_quick_log_food] Saving consumption record for test user")
-        consumption_record = await save_consumption_record("test@example.com", consumption_data)
+        consumption_record = await save_consumption_record("test@example.com", consumption_data, meal_type=meal_type)
         print(f"[test_quick_log_food] Successfully saved consumption record with ID: {consumption_record['id']}")
+        print(f"[test_quick_log_food] Final meal_type: {consumption_record.get('meal_type')}")
         
         # Return success response in the SAME FORMAT as before
         return {
@@ -5886,6 +5710,7 @@ async def test_quick_log_food(food_data: dict):
             "consumption_record_id": consumption_record["id"],
             "analysis": analysis_data,
             "food_name": analysis_data.get("food_name", food_name),
+            "meal_type": consumption_record.get("meal_type"),  # Return the actual saved meal_type
             "nutritional_summary": {
                 "calories": analysis_data.get("nutritional_info", {}).get("calories", 0),
                 "carbohydrates": analysis_data.get("nutritional_info", {}).get("carbohydrates", 0),

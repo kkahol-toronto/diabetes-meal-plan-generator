@@ -156,6 +156,7 @@ const Chat = () => {
   const [imageOptionsDialog, setImageOptionsDialog] = useState(false);
   const [selectedAnalysisMode, setSelectedAnalysisMode] = useState<'logging' | 'analysis' | 'question' | 'fridge' | null>(null);
   const [pendingImageFile, setPendingImageFile] = useState<File | null>(null);
+  const [selectedMealType, setSelectedMealType] = useState<string>('');
 
   const quickActions: QuickAction[] = [
     {
@@ -415,6 +416,7 @@ const Chat = () => {
     setSelectedImage(null);
     setImagePreviewUrl(null);
     setSelectedAnalysisMode(null);
+    setSelectedMealType('');
     setIsLoading(true);
     setShowQuickActions(false);
 
@@ -428,6 +430,11 @@ const Chat = () => {
         formData.append('image', selectedImage);
         formData.append('session_id', currentSession);
         formData.append('analysis_mode', selectedAnalysisMode || 'analysis');
+        
+        // Include meal type if in logging mode
+        if (selectedAnalysisMode === 'logging' && selectedMealType) {
+          formData.append('meal_type', selectedMealType);
+        }
 
         response = await fetch('/chat/message-with-image', {
           method: 'POST',
@@ -583,6 +590,20 @@ const Chat = () => {
     setImageOptionsDialog(true);
   };
 
+  // Helper function to determine default meal type based on current time
+  const getDefaultMealType = () => {
+    const currentHour = new Date().getHours();
+    if (currentHour >= 4 && currentHour < 11) {
+      return 'breakfast';
+    } else if (currentHour >= 11 && currentHour < 16) {
+      return 'lunch';
+    } else if (currentHour >= 16 && currentHour < 22) {
+      return 'dinner';
+    } else {
+      return 'snack';
+    }
+  };
+
   const handleImageAnalysisSelection = (mode: 'logging' | 'analysis' | 'question' | 'fridge', file: File) => {
     setSelectedAnalysisMode(mode);
     setSelectedImage(file);
@@ -599,15 +620,20 @@ const Chat = () => {
     switch (mode) {
       case 'logging':
         setInput('Please analyze this food and log it to my consumption history.');
+        // Set default meal type when logging mode is selected
+        setSelectedMealType(getDefaultMealType());
         break;
       case 'analysis':
         setInput('Please provide a detailed nutritional analysis of this food.');
+        setSelectedMealType(''); // Clear meal type for analysis mode
         break;
       case 'question':
         setInput('I have a question about this food: ');
+        setSelectedMealType(''); // Clear meal type for question mode
         break;
       case 'fridge':
         setInput('Please analyze my fridge contents and suggest what I can cook.');
+        setSelectedMealType(''); // Clear meal type for fridge mode
         break;
     }
   };
@@ -963,6 +989,31 @@ const Chat = () => {
                 style={{ maxWidth: '100px', maxHeight: '100px', borderRadius: '4px' }}
               />
             )}
+          </Box>
+        )}
+
+        {/* Meal Type Selection for Food Logging */}
+        {selectedAnalysisMode === 'logging' && (
+          <Box sx={{ mb: 2 }}>
+            <FormControl size="small" sx={{ minWidth: 200 }}>
+              <InputLabel>Meal Type</InputLabel>
+              <Select
+                value={selectedMealType}
+                onChange={(e) => setSelectedMealType(e.target.value)}
+                label="Meal Type"
+              >
+                <MenuItem value={getDefaultMealType()}>
+                  <em>Auto-detect based on time ({getDefaultMealType()})</em>
+                </MenuItem>
+                <MenuItem value="breakfast">🍳 Breakfast</MenuItem>
+                <MenuItem value="lunch">🥪 Lunch</MenuItem>
+                <MenuItem value="dinner">🍽️ Dinner</MenuItem>
+                <MenuItem value="snack">🍎 Snack</MenuItem>
+              </Select>
+            </FormControl>
+            <Typography variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+              Select the meal type for logging this food
+            </Typography>
           </Box>
         )}
 

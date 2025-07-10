@@ -10,6 +10,10 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any
 from collections import defaultdict
 import asyncio
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # Database imports
 from database import interactions_container
@@ -18,11 +22,26 @@ from database import interactions_container
 from openai import AzureOpenAI
 
 # Initialize OpenAI client
-client = AzureOpenAI(
-    api_key=os.getenv("AZURE_OPENAI_API_KEY"),
-    api_version=os.getenv("AZURE_OPENAI_API_VERSION"),
-    azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT")
-)
+azure_openai_key = os.getenv("AZURE_OPENAI_KEY")
+azure_openai_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
+azure_openai_api_version = os.getenv("AZURE_OPENAI_API_VERSION")
+
+if not azure_openai_key or not azure_openai_endpoint or not azure_openai_api_version:
+    print("Warning: Azure OpenAI environment variables not set. AI features may not work properly.")
+    print("Missing variables:")
+    if not azure_openai_key:
+        print("  - AZURE_OPENAI_KEY")
+    if not azure_openai_endpoint:
+        print("  - AZURE_OPENAI_ENDPOINT")
+    if not azure_openai_api_version:
+        print("  - AZURE_OPENAI_API_VERSION")
+    client = None
+else:
+    client = AzureOpenAI(
+        api_key=azure_openai_key,
+        api_version=azure_openai_api_version,
+        azure_endpoint=azure_openai_endpoint
+    )
 
 class ConsumptionTracker:
     """Complete consumption tracking system with AI integration"""
@@ -30,19 +49,19 @@ class ConsumptionTracker:
     def __init__(self):
         self.container = interactions_container
     
-    async def quick_log_food(self, user_id: str, food_name: str, portion: str = "medium portion") -> Dict[str, Any]:
+    async def quick_log_food(self, user_id: str, food_name: str, portion: str = "medium portion", meal_type: str = None) -> Dict[str, Any]:
         """
         Quick log food with AI nutritional analysis
         Returns: Complete consumption record with analysis
         """
         try:
-            print(f"[ConsumptionTracker] Quick logging food for user {user_id}: {food_name} ({portion})")
+            print(f"[ConsumptionTracker] Quick logging food for user {user_id}: {food_name} ({portion}) as {meal_type or 'auto-detected meal type'}")
             
             # Get AI nutritional analysis
             analysis = await self._get_ai_nutrition_analysis(food_name, portion)
             
-            # Create consumption record
-            record = await self._create_consumption_record(user_id, analysis)
+            # Create consumption record with meal_type
+            record = await self._create_consumption_record(user_id, analysis, meal_type)
             
             print(f"[ConsumptionTracker] Successfully logged food with record ID: {record['id']}")
             
@@ -50,6 +69,7 @@ class ConsumptionTracker:
                 "success": True,
                 "record_id": record["id"],
                 "food_name": analysis["food_name"],
+                "meal_type": record["meal_type"],
                 "nutritional_summary": {
                     "calories": analysis["nutritional_info"]["calories"],
                     "carbohydrates": analysis["nutritional_info"]["carbohydrates"],
@@ -57,7 +77,7 @@ class ConsumptionTracker:
                     "fat": analysis["nutritional_info"]["fat"]
                 },
                 "diabetes_rating": analysis["medical_rating"]["diabetes_suitability"],
-                "message": f"Successfully logged {analysis['food_name']}"
+                "message": f"Successfully logged {analysis['food_name']} as {record['meal_type']}"
             }
             
         except Exception as e:
@@ -165,7 +185,7 @@ class ConsumptionTracker:
             print(f"[ConsumptionTracker] AI API error: {str(ai_error)}")
             return fallback_data
     
-    async def _create_consumption_record(self, user_id: str, analysis: Dict[str, Any]) -> Dict[str, Any]:
+    async def _create_consumption_record(self, user_id: str, analysis: Dict[str, Any], meal_type: str = None) -> Dict[str, Any]:
         """Create and save consumption record to database"""
         
         # Generate unique record ID
@@ -179,7 +199,7 @@ class ConsumptionTracker:
             "session_id": record_id,  # Partition key
             "user_id": user_id,
             "timestamp": timestamp.isoformat(),
-            "logged_at": timestamp,
+            "logged_at": timestamp.isoformat(),
             
             # Food information
             "food_name": analysis["food_name"],
@@ -203,8 +223,8 @@ class ConsumptionTracker:
             "image_analysis": analysis["analysis_notes"],
             "image_url": None,  # No image for quick log
             
-            # Meal type determination
-            "meal_type": self._determine_meal_type(timestamp)
+            # Meal type - use provided meal_type if available, otherwise determine from time
+            "meal_type": meal_type if meal_type else self._determine_meal_type(timestamp)
         }
         
         print(f"[ConsumptionTracker] Creating record: {record}")
@@ -358,6 +378,7 @@ class ConsumptionTracker:
             medical_rating = record.get("medical_rating", {})
             food_name = record.get("food_name", "Unknown Food")
             timestamp = record.get("timestamp", "")
+            # Use the stored meal type from the record (don't override with time-based logic)
             meal_type = record.get("meal_type", "snack")
             
             # Extract date
