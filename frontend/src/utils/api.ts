@@ -13,7 +13,7 @@ interface ApiConfig {
   retryDelay?: number;
 }
 
-const BASE_URL = config.API_URL;
+const BASE_URL = 'https://Dietra-backend.azurewebsites.net'; // HARDCODED
 const DEFAULT_TIMEOUT = config.API_TIMEOUT;
 const DEFAULT_RETRIES = config.RETRY_ATTEMPTS;
 const DEFAULT_RETRY_DELAY = 1000; // 1 second

@@ -69,6 +69,7 @@ import {
   LineElement,
   Filler
 } from 'chart.js';
+import config from '../config/environment';
 import { Bar, Pie, Line, Doughnut } from 'react-chartjs-2';
 
 // Register Chart.js components
@@ -301,9 +302,9 @@ const ConsumptionHistory: React.FC = () => {
 
       // Load all data in parallel with dynamic time range (using authenticated endpoints)
       const [historyResponse, analyticsResponse, insightsResponse] = await Promise.all([
-        fetch(`http://localhost:8000/consumption/history?limit=${historyLimit}`, { headers }),
-        fetch(`http://localhost:8000/consumption/analytics?days=${selectedDays}`, { headers }),
-        fetch('http://localhost:8000/coach/daily-insights', { headers })
+        fetch(`${config.API_URL}/consumption/history?limit=${historyLimit}`, { headers }),
+        fetch(`${config.API_URL}/consumption/analytics?days=${selectedDays}`, { headers }),
+        fetch(`${config.API_URL}/coach/daily-insights`, { headers })
       ]);
 
       if (!historyResponse.ok) {

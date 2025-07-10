@@ -16,6 +16,7 @@ import {
   Divider,
 } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
+import config from '../config/environment';
 import ConsentForm from './ConsentForm';
 
 const CURRENT_POLICY_VERSION = '1.0.0';
@@ -76,7 +77,7 @@ const Register = () => {
     }
 
     try {
-      const response = await fetch('http://localhost:8000/register', {
+      const response = await fetch(`${config.API_URL}/register`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

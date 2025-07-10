@@ -25,9 +25,9 @@ const development: Environment = {
 };
 
 const production: Environment = {
-  API_URL: process.env.REACT_APP_API_URL || 'https://api.dietra.com',
+  API_URL: 'https://Dietra-backend.azurewebsites.net', // HARDCODED for deployment
   APP_NAME: 'Dietra',
-  VERSION: process.env.REACT_APP_VERSION || '1.0.0',
+  VERSION: '1.0.0',
   NODE_ENV: 'production',
   ENABLE_ANALYTICS: true,
   ENABLE_ERROR_REPORTING: true,
@@ -51,16 +51,8 @@ const test: Environment = {
 };
 
 const getEnvironment = (): Environment => {
-  const env = process.env.NODE_ENV || 'development';
-  
-  switch (env) {
-    case 'production':
-      return production;
-    case 'test':
-      return test;
-    default:
-      return development;
-  }
+  // HARDCODE: Always return production config to ensure backend URL works
+  return production;
 };
 
 export const config = getEnvironment();

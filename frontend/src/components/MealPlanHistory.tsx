@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import config from '../config/environment';
 import {
   Container,
   Paper,
@@ -119,7 +120,7 @@ const MealPlanHistory = () => {
         return;
       }
 
-      const response = await fetch('http://localhost:8000/meal_plans', {
+      const response = await fetch(`${config.API_URL}/meal_plans`, {
         method: 'GET',
         headers,
       });
@@ -270,7 +271,7 @@ const MealPlanHistory = () => {
     try {
       const headers = getAuthHeaders();
       if (headers) {
-        fetch('http://localhost:8000/meal_plans/bulk_delete', {
+        fetch(`${config.API_URL}/meal_plans/bulk_delete`, {
           method: 'POST',
           headers,
           body: JSON.stringify({ plan_ids: selectedIds }),
@@ -317,7 +318,7 @@ const MealPlanHistory = () => {
     try {
       const headers = getAuthHeaders();
       if (headers) {
-        fetch('http://localhost:8000/meal_plans/all', {
+        fetch(`${config.API_URL}/meal_plans/all`, {
           method: 'DELETE',
           headers,
         }).catch(() => {
@@ -391,7 +392,7 @@ const MealPlanHistory = () => {
         return;
       }
 
-      const response = await fetch(`http://localhost:8000/download-saved-pdf/${filename}`, {
+      const response = await fetch(`${config.API_URL}/download-saved-pdf/${filename}`, {
         method: 'GET',
         headers,
       });

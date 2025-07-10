@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import config from '../config/environment';
 import {
   Container,
   Typography,
@@ -47,7 +48,7 @@ const AllShoppingListsPage: React.FC = () => {
           return;
         }
         // Assuming backend endpoint /user/shopping-lists returns an array of StoredShoppingList
-        const response = await fetch('http://localhost:8000/user/shopping-list', {
+        const response = await fetch(`${config.API_URL}/user/shopping-list`, {
           headers: {
             'Authorization': `Bearer ${token}`,
           },

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import config from '../config/environment';
 import {
   Container,
   Typography,
@@ -56,7 +57,7 @@ const AllRecipesPage: React.FC = () => {
         // Assuming backend endpoint /user/recipes returns an array of StoredRecipeSet
         // or an array of arrays of Recipe, which we'd then structure here.
         // For now, let's assume it returns StoredRecipeSet[] based on the interface above.
-        const response = await fetch('http://localhost:8000/user/recipes', {
+        const response = await fetch(`${config.API_URL}/user/recipes`, {
           headers: {
             'Authorization': `Bearer ${token}`,
           },

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import config from '../config/environment';
 import {
   Snackbar,
   Alert,
@@ -103,7 +104,7 @@ const NotificationSystem: React.FC<NotificationSystemProps> = ({ userId }) => {
       }
 
       // Fetch AI-generated notifications
-      const response = await fetch('http://localhost:8000/coach/notifications', {
+      const response = await fetch(`${config.API_URL}/coach/notifications`, {
         headers: { 'Authorization': `Bearer ${token}` },
       });
 

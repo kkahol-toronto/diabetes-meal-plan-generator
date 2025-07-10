@@ -16,6 +16,7 @@ import {
   Divider,
 } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
+import config from '../config/environment';
 import ConsentForm from './ConsentForm';
 
 const CURRENT_POLICY_VERSION = '1.0.0';
@@ -85,7 +86,7 @@ const Login = () => {
       formDataToSend.append('signature_timestamp', signatureData.signature_timestamp);
       formDataToSend.append('research_consent', signatureData.research_consent.toString());
 
-      const response = await fetch('http://localhost:8000/login', {
+      const response = await fetch(`${config.API_URL}/login`, {
         method: 'POST',
         headers: {
           'Accept': 'application/json',
@@ -132,7 +133,7 @@ const Login = () => {
         formDataToSend.append('policy_version', CURRENT_POLICY_VERSION);
       }
 
-      const response = await fetch('http://localhost:8000/login', {
+      const response = await fetch(`${config.API_URL}/login`, {
         method: 'POST',
         headers: {
           'Accept': 'application/json',

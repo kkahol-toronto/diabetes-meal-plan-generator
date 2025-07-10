@@ -5,6 +5,7 @@ import SendIcon from '@mui/icons-material/Send';
 import CircularProgress from '@mui/material/CircularProgress';
 import CameraAltIcon from '@mui/icons-material/CameraAlt';
 import MinimizeIcon from '@mui/icons-material/Minimize';
+import config from '../config/environment';
 
 interface Message {
   id: string;
@@ -87,7 +88,7 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ userToken }) => {
       }
       formData.append('session_id', 'homepage_widget');
 
-      const response = await fetch('/api/chat/message-with-image', {
+      const response = await fetch(`${config.API_URL}/chat/message-with-image`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${userToken}`

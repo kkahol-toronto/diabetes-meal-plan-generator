@@ -20,6 +20,7 @@ import PersonIcon from '@mui/icons-material/Person';
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
 import UserProfileForm from './UserProfileForm';
 import { UserProfile } from '../types';
+import config from '../config/environment';
 
 interface Patient {
   id: string;
@@ -67,7 +68,7 @@ const AdminPatientProfile = () => {
       setUserProfile(null);
 
       // Fetch patient info
-      const patientResponse = await fetch(`http://localhost:8000/admin/patient/${registrationCode}`, {
+      const patientResponse = await fetch(`${config.API_URL}/admin/patient/${registrationCode}`, {
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`,
         },
@@ -82,7 +83,7 @@ const AdminPatientProfile = () => {
 
       // Try to fetch existing profile if patient has registered
       try {
-        const profileResponse = await fetch(`http://localhost:8000/admin/patient-profile/${registrationCode}`, {
+        const profileResponse = await fetch(`${config.API_URL}/admin/patient-profile/${registrationCode}`, {
           headers: {
             'Authorization': `Bearer ${localStorage.getItem('token')}`,
           },
@@ -116,7 +117,7 @@ const AdminPatientProfile = () => {
       setSaving(true);
       setError(null);
 
-      const response = await fetch(`http://localhost:8000/admin/patient-profile/${registrationCode}`, {
+      const response = await fetch(`${config.API_URL}/admin/patient-profile/${registrationCode}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

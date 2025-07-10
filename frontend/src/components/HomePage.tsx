@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
+import config from '../config/environment';
 import {
   Container,
   Paper,
@@ -344,13 +345,13 @@ const HomePage: React.FC = () => {
         userProfileResponse,
         mealPlanHistoryResponse,
       ] = await Promise.all([
-        fetch('/coach/daily-insights', { headers }),
-        fetch('/consumption/analytics?days=30', { headers }), // Fetching 30 days for initial analytics
-        fetch('/consumption/progress', { headers }),
-        fetch('/coach/notifications', { headers }),
-        fetch('/coach/todays-meal-plan', { headers }),
-        fetch('/user/profile', { headers }),
-        fetch('/meal_plans', { headers })
+        fetch(`${config.API_URL}/coach/daily-insights`, { headers }),
+        fetch(`${config.API_URL}/consumption/analytics?days=30`, { headers }), // Fetching 30 days for initial analytics
+        fetch(`${config.API_URL}/consumption/progress`, { headers }),
+        fetch(`${config.API_URL}/coach/notifications`, { headers }),
+        fetch(`${config.API_URL}/coach/todays-meal-plan`, { headers }),
+        fetch(`${config.API_URL}/user/profile`, { headers }),
+        fetch(`${config.API_URL}/meal_plans`, { headers })
       ]);
 
       if (dailyInsightsResponse.status === 401 ||
@@ -432,7 +433,7 @@ const HomePage: React.FC = () => {
     console.log(`Fetching consumption analytics for time range: ${timeRange} (days: ${days})`);
 
     try {
-      const response = await fetch(`/consumption/analytics?days=${days}`, { headers });
+      const response = await fetch(`${config.API_URL}/consumption/analytics?days=${days}`, { headers });
       if (response.status === 401) {
         localStorage.removeItem('token');
         navigate('/login');
@@ -473,7 +474,7 @@ const HomePage: React.FC = () => {
     console.log(`Fetching macro analytics for time range: ${timeRange} (days: ${days})`);
 
     try {
-      const response = await fetch(`/consumption/analytics?days=${days}`, { headers });
+      const response = await fetch(`${config.API_URL}/consumption/analytics?days=${days}`, { headers });
       if (response.status === 401) {
         localStorage.removeItem('token');
         navigate('/login');
@@ -514,7 +515,7 @@ const HomePage: React.FC = () => {
     try {
       setLoading(true, 'Analyzing and logging food...');
       
-      const response = await fetch('/coach/quick-log', {
+      const response = await fetch(`${config.API_URL}/coach/quick-log`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -551,7 +552,7 @@ const HomePage: React.FC = () => {
       setAdaptivePlanLoading(true);
       setLoading(true, 'Creating your personalized meal plan...');
       
-      const response = await fetch('/coach/adaptive-meal-plan', {
+      const response = await fetch(`${config.API_URL}/coach/adaptive-meal-plan`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -582,7 +583,7 @@ const HomePage: React.FC = () => {
       setAICoachLoading(true);
       setAICoachResponse(''); // Clear previous response
       
-      const response = await fetch('/coach/meal-suggestion', {
+      const response = await fetch(`${config.API_URL}/coach/meal-suggestion`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,

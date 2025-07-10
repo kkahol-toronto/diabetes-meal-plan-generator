@@ -20,6 +20,7 @@ import {
   Snackbar,
 } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
+import config from '../config/environment';
 
 interface Patient {
   id: string;
@@ -62,7 +63,7 @@ const AdminPanel = () => {
 
   const fetchPatients = async () => {
     try {
-      const response = await fetch('http://localhost:8000/admin/patients', {
+      const response = await fetch(`${config.API_URL}/admin/patients`, {
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`,
         },
@@ -85,7 +86,7 @@ const AdminPanel = () => {
 
   const handleCreatePatient = async () => {
     try {
-      const response = await fetch('http://localhost:8000/admin/create-patient', {
+      const response = await fetch(`${config.API_URL}/admin/create-patient`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -117,7 +118,7 @@ const AdminPanel = () => {
 
   const handleResendCode = async (patientId: string) => {
     try {
-      const response = await fetch(`http://localhost:8000/admin/resend-code/${patientId}`, {
+      const response = await fetch(`${config.API_URL}/admin/resend-code/${patientId}`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`,

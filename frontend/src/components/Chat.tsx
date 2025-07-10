@@ -61,6 +61,7 @@ import PhotoCameraIcon from '@mui/icons-material/PhotoCamera';
 import { useNavigate } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import { v4 as uuidv4 } from 'uuid';
+import config from '../config/environment';
 
 // Animations
 const float = keyframes`
@@ -258,7 +259,7 @@ const Chat = () => {
       const token = localStorage.getItem('token');
       if (!token) return;
 
-      const response = await fetch('/coach/daily-insights', {
+      const response = await fetch(`${config.API_URL}/coach/daily-insights`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
@@ -337,7 +338,7 @@ const Chat = () => {
         return;
       }
 
-      const response = await fetch('/chat/sessions', {
+      const response = await fetch(`${config.API_URL}/chat/sessions`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
@@ -366,7 +367,7 @@ const Chat = () => {
 
       setIsLoading(true);
       
-      const response = await fetch(`/chat/history?session_id=${currentSession}`, {
+      const response = await fetch(`${config.API_URL}/chat/history?session_id=${currentSession}`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
@@ -429,7 +430,7 @@ const Chat = () => {
         formData.append('session_id', currentSession);
         formData.append('analysis_mode', selectedAnalysisMode || 'analysis');
 
-        response = await fetch('/chat/message-with-image', {
+        response = await fetch(`${config.API_URL}/chat/message-with-image`, {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${token}`,
@@ -438,7 +439,7 @@ const Chat = () => {
         });
       } else {
         // Handle text-only message
-        response = await fetch('/chat/message', {
+        response = await fetch(`${config.API_URL}/chat/message`, {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${token}`,
@@ -545,7 +546,7 @@ const Chat = () => {
       const token = localStorage.getItem('token');
       if (!token) return;
 
-      const response = await fetch(`/chat/history?session_id=${currentSession}`, {
+      const response = await fetch(`${config.API_URL}/chat/history?session_id=${currentSession}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${token}`,

@@ -25,6 +25,7 @@ import NavigateBeforeIcon from '@mui/icons-material/NavigateBefore';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import CategoryIcon from '@mui/icons-material/Category';
 import { ShoppingItem } from '../types';
+import config from '../config/environment';
 
 interface ShoppingListProps {
   shoppingList: ShoppingItem[];
@@ -47,7 +48,7 @@ const ShoppingList: React.FC<ShoppingListProps> = ({ shoppingList: initialShoppi
           navigate('/login');
           return;
         }
-        const response = await fetch('http://localhost:8000/user/shopping-list', {
+        const response = await fetch(`${config.API_URL}/user/shopping-list`, {
           headers: { 'Authorization': `Bearer ${token}` },
         });
         if (!response.ok) {

@@ -86,6 +86,7 @@ import {
   RadialLinearScale,
 } from 'chart.js';
 import { api } from '../utils/api';
+import config from '../config/environment';
 
 // Register Chart.js components
 ChartJS.register(
@@ -211,9 +212,18 @@ const AICoach: React.FC = () => {
 
   const fetchDailyInsights = async () => {
     try {
-      const responseData = await api.get<ApiResponse<DailyInsights>>('/coach/daily-insights');
-      if (responseData.data) {
-        setDailyInsights(responseData.data);
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${config.API_URL}/coach/daily-insights`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+      if (response.ok) {
+        const responseData = await response.json();
+        if (responseData.data) {
+          setDailyInsights(responseData.data);
+        }
       }
     } catch (err) {
       console.error('Error fetching daily insights:', err);
@@ -223,9 +233,18 @@ const AICoach: React.FC = () => {
 
   const fetchMealHistory = async () => {
     try {
-      const responseData = await api.get<ApiResponse<MealHistoryItem[]>>('/consumption/history?limit=20');
-      if (responseData.data) {
-        setMealHistory(responseData.data);
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${config.API_URL}/consumption/history?limit=20`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+      if (response.ok) {
+        const responseData = await response.json();
+        if (responseData.data) {
+          setMealHistory(responseData.data);
+        }
       }
     } catch (err) {
       console.error('Error fetching meal history:', err);
@@ -255,11 +274,11 @@ const AICoach: React.FC = () => {
         notificationsResponse,
         consumptionInsightsResponse
       ] = await Promise.all([
-        fetch('/coach/daily-insights', { headers }),
-        fetch('/consumption/analytics?days=30', { headers }),
-        fetch('/consumption/progress', { headers }),
-        fetch('/coach/notifications', { headers }),
-        fetch('/coach/consumption-insights?days=30', { headers })
+        fetch(`${config.API_URL}/coach/daily-insights`, { headers }),
+        fetch(`${config.API_URL}/consumption/analytics?days=30`, { headers }),
+        fetch(`${config.API_URL}/consumption/progress`, { headers }),
+        fetch(`${config.API_URL}/coach/notifications`, { headers }),
+        fetch(`${config.API_URL}/coach/consumption-insights?days=30`, { headers })
       ]);
 
       if (dailyInsightsResponse.status === 401) {
@@ -313,7 +332,7 @@ const AICoach: React.FC = () => {
       setAdaptivePlanLoading(true);
       setLoading(true, 'Creating your personalized meal plan...');
       
-      const response = await fetch('/coach/adaptive-meal-plan', {
+      const response = await fetch(`${config.API_URL}/coach/adaptive-meal-plan`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -349,21 +368,33 @@ const AICoach: React.FC = () => {
       const mealContext = determineMealContext(userQuery);
       
           // Get daily insights for calorie context
-    const insightsResponse = await api.get<ApiResponse<DailyInsights>>('/coach/daily-insights');
-    if (!insightsResponse.data) {
+    const insightsResponse = await fetch(`${config.API_URL}/coach/daily-insights`, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+    });
+    if (!insightsResponse.ok) {
       throw new Error('Failed to get daily insights');
     }
-    const insights = insightsResponse.data;
+    const insightsData = await insightsResponse.json();
+    const insights = insightsData.data;
     const dailyGoal = insights.goals.calories || 2000;
     const consumedCalories = insights.today_totals.calories || 0;
     const remainingCalories = Math.max(0, dailyGoal - consumedCalories);
 
     // Get meal history for context
-    const historyResponse = await api.get<ApiResponse<MealHistoryItem[]>>('/consumption/history?limit=20');
-    if (!historyResponse.data) {
+    const historyResponse = await fetch(`${config.API_URL}/consumption/history?limit=20`, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+    });
+    if (!historyResponse.ok) {
       throw new Error('Failed to get meal history');
     }
-    const mealHistory = historyResponse.data;
+    const historyData = await historyResponse.json();
+    const mealHistory = historyData.data;
     const todaysMeals = mealHistory
       .filter((meal: MealHistoryItem) => {
         const mealDate = new Date(meal.timestamp);
@@ -377,7 +408,7 @@ const AICoach: React.FC = () => {
       }));
 
           // Get meal suggestion
-    const response = await api.post<ApiResponse<MealSuggestionResponse>>('/coach/meal-suggestion', {
+    const response = await api.post<ApiResponse<MealSuggestionResponse>>('https://Dietra-backend.azurewebsites.net/coach/meal-suggestion', {
       meal_type: mealContext.type,
       remaining_calories: remainingCalories,
       preferences: mealContext.isLate ? 'prefer lighter meals' : '',
@@ -540,7 +571,7 @@ const AICoach: React.FC = () => {
           calories: meal.nutritional_info.calories
         }));
 
-      const response = await api.post<ApiResponse<MealSuggestionResponse>>('/coach/meal-suggestion', {
+      const response = await api.post<ApiResponse<MealSuggestionResponse>>('https://Dietra-backend.azurewebsites.net/coach/meal-suggestion', {
         meal_type: mealContext.type,
         remaining_calories: remainingCalories,
         preferences: mealContext.isLate ? 'prefer lighter meals' : '',

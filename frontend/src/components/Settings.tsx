@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import config from '../config/environment';
 import {
   Container,
   Paper,
@@ -136,7 +137,7 @@ const Settings: React.FC = () => {
       const token = localStorage.getItem('token');
       if (!token) return;
 
-      const response = await fetch('/users/me', {
+      const response = await fetch(`${config.API_URL}/users/me`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
@@ -168,14 +169,14 @@ const Settings: React.FC = () => {
 
     setIsExporting(true);
     try {
-      const response = await api.post('/privacy/export-data', {
+      const response = await api.post('https://Dietra-backend.azurewebsites.net/privacy/export-data', {
         data_types: selectedDataTypes,
         format_type: exportFormat,
       });
 
       // Since api.post() automatically handles the response, we need to handle the download differently
       // Let's make a direct fetch call for file downloads but with proper error handling
-      const downloadResponse = await fetch('/privacy/export-data', {
+              const downloadResponse = await fetch(`${config.API_URL}/privacy/export-data`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`,
@@ -237,7 +238,7 @@ const Settings: React.FC = () => {
 
     setIsDeleting(true);
     try {
-      const response = await fetch('/privacy/delete-account', {
+      const response = await fetch(`${config.API_URL}/privacy/delete-account`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`,
@@ -270,7 +271,7 @@ const Settings: React.FC = () => {
 
   const handleUpdateConsent = async () => {
     try {
-      const response = await fetch('/privacy/update-consent', {
+      const response = await fetch(`${config.API_URL}/privacy/update-consent`, {
         method: 'PUT',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`,

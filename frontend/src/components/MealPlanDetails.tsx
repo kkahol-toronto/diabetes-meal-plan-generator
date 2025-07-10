@@ -4,6 +4,7 @@ import { Container, Paper, Typography, Box, CircularProgress, Alert, Card, CardC
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { MealPlanData, Recipe, ShoppingItem } from '../types';
 import { handleAuthError, getAuthHeaders } from '../utils/auth';
+import config from '../config/environment';
 
 const MealPlanDetails: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -29,7 +30,7 @@ const MealPlanDetails: React.FC = () => {
           return;
         }
 
-        const response = await fetch(`http://localhost:8000/meal_plans/${id}`, {
+        const response = await fetch(`${config.API_URL}/meal_plans/${id}`, {
           headers,
         });
 
