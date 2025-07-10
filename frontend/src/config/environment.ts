@@ -51,8 +51,8 @@ const test: Environment = {
 };
 
 const getEnvironment = (): Environment => {
-  // HARDCODE: Always return production config to ensure backend URL works
-  return production;
+  // Use development config for local development
+  return development;
 };
 
 export const config = getEnvironment();
