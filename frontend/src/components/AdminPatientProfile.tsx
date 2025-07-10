@@ -13,11 +13,16 @@ import {
   Card,
   CardContent,
   Grid,
+  LinearProgress,
 } from '@mui/material';
 import { useNavigate, useParams } from 'react-router-dom';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import PersonIcon from '@mui/icons-material/Person';
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import ErrorIcon from '@mui/icons-material/Error';
+import PendingIcon from '@mui/icons-material/Pending';
+import StorageIcon from '@mui/icons-material/Storage';
 import UserProfileForm from './UserProfileForm';
 import { UserProfile } from '../types';
 import config from '../config/environment';
@@ -31,6 +36,8 @@ interface Patient {
   created_at: string;
 }
 
+type SaveStatus = 'unsaved' | 'saving' | 'saved' | 'error';
+
 const AdminPatientProfile = () => {
   const navigate = useNavigate();
   const { registrationCode } = useParams<{ registrationCode: string }>();
@@ -40,6 +47,8 @@ const AdminPatientProfile = () => {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>('unsaved');
+  const [lastSaveTime, setLastSaveTime] = useState<string | null>(null);
 
   useEffect(() => {
     if (registrationCode) {
@@ -55,6 +64,8 @@ const AdminPatientProfile = () => {
       setUserProfile(null);
       setError(null);
       setSuccess(null);
+      setSaveStatus('unsaved');
+      setLastSaveTime(null);
     };
   }, [registrationCode]);
 
@@ -63,6 +74,8 @@ const AdminPatientProfile = () => {
       setLoading(true);
       setError(null);
       setSuccess(null);
+      setSaveStatus('unsaved');
+      setLastSaveTime(null);
       // Clear previous data immediately when switching patients
       setPatient(null);
       setUserProfile(null);
@@ -92,29 +105,66 @@ const AdminPatientProfile = () => {
         if (profileResponse.ok) {
           const profileData = await profileResponse.json();
           setUserProfile(profileData.profile);
+          setSaveStatus('saved');
+          // Set last save time if available
+          if (profileData.profile.updated_at || profileData.profile.created_at) {
+            const saveTime = profileData.profile.updated_at || profileData.profile.created_at;
+            setLastSaveTime(new Date(saveTime).toLocaleString());
+          }
         } else if (profileResponse.status === 404) {
           // Patient hasn't created a profile yet - that's ok
           setUserProfile(null);
+          setSaveStatus('unsaved');
         } else {
           console.warn('Failed to fetch patient profile');
           setUserProfile(null);
+          setSaveStatus('unsaved');
         }
       } catch (profileError) {
         console.warn('Error fetching patient profile:', profileError);
         // Continue without profile - admin can create one
         setUserProfile(null);
+        setSaveStatus('unsaved');
       }
 
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch patient data');
+      setSaveStatus('error');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const verifyDatabaseSave = async () => {
+    try {
+      // Verify the profile is actually saved by fetching it again
+      const verifyResponse = await fetch(`${config.API_URL}/admin/patient-profile/${registrationCode}`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+        },
+      });
+
+      if (verifyResponse.ok) {
+        const verifyData = await verifyResponse.json();
+        if (verifyData.profile) {
+          setSaveStatus('saved');
+          setLastSaveTime(new Date().toLocaleString());
+          return true;
+        }
+      }
+      
+      setSaveStatus('error');
+      return false;
+    } catch (err) {
+      setSaveStatus('error');
+      return false;
     }
   };
 
   const handleProfileSubmit = async (profile: UserProfile) => {
     try {
       setSaving(true);
+      setSaveStatus('saving');
       setError(null);
 
       const response = await fetch(`${config.API_URL}/admin/patient-profile/${registrationCode}`, {
@@ -129,15 +179,65 @@ const AdminPatientProfile = () => {
       if (response.ok) {
         setSuccess('✅ Patient profile saved successfully! The patient can continue filling out any missing information.');
         setUserProfile(profile);
+        
+        // Verify the save was successful in the database
+        const isVerified = await verifyDatabaseSave();
+        if (isVerified) {
+          setSaveStatus('saved');
+          setLastSaveTime(new Date().toLocaleString());
+        } else {
+          setSaveStatus('error');
+          setError('❌ Profile save could not be verified in database. Please try again.');
+        }
+        
         setTimeout(() => setSuccess(null), 6000);
       } else {
         const errorData = await response.json();
+        setSaveStatus('error');
         throw new Error(errorData.detail || 'Failed to save patient profile');
       }
     } catch (err) {
+      setSaveStatus('error');
       setError(err instanceof Error ? err.message : 'Failed to save patient profile');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const getSaveStatusDisplay = () => {
+    switch (saveStatus) {
+      case 'saved':
+        return {
+          icon: <CheckCircleIcon sx={{ color: 'success.main' }} />,
+          text: 'Profile Saved in Database',
+          color: 'success.main',
+          bgColor: 'success.light',
+          subtitle: lastSaveTime ? `Last saved: ${lastSaveTime}` : 'Successfully saved'
+        };
+      case 'saving':
+        return {
+          icon: <CircularProgress size={20} sx={{ color: 'info.main' }} />,
+          text: 'Saving to Database...',
+          color: 'info.main',
+          bgColor: 'info.light',
+          subtitle: 'Please wait while we save your changes'
+        };
+      case 'error':
+        return {
+          icon: <ErrorIcon sx={{ color: 'error.main' }} />,
+          text: 'Profile Not Saved',
+          color: 'error.main',
+          bgColor: 'error.light',
+          subtitle: 'There was an error saving to the database'
+        };
+      default: // 'unsaved'
+        return {
+          icon: <PendingIcon sx={{ color: 'warning.main' }} />,
+          text: 'Profile Not Saved',
+          color: 'warning.main',
+          bgColor: 'warning.light',
+          subtitle: 'Profile has not been saved to the database yet'
+        };
     }
   };
 
@@ -255,6 +355,7 @@ const AdminPatientProfile = () => {
   }
 
   const completionStatus = getProfileCompletionStatus();
+  const saveStatusDisplay = getSaveStatusDisplay();
 
   return (
     <Container maxWidth="lg" sx={{ py: 4 }}>
@@ -278,7 +379,7 @@ const AdminPatientProfile = () => {
 
         <Paper elevation={3} sx={{ p: 3, mb: 3 }}>
           <Grid container spacing={3} alignItems="center">
-            <Grid item xs={12} md={8}>
+            <Grid item xs={12} md={6}>
               <Typography variant="h4" component="h1" gutterBottom>
                 Patient Profile Management
               </Typography>
@@ -291,7 +392,7 @@ const AdminPatientProfile = () => {
                 </Box>
               )}
             </Grid>
-            <Grid item xs={12} md={4}>
+            <Grid item xs={12} md={3}>
               <Card>
                 <CardContent sx={{ textAlign: 'center' }}>
                   <Typography variant="h6" gutterBottom>
@@ -302,6 +403,50 @@ const AdminPatientProfile = () => {
                     color={completionStatus.color}
                     size="medium"
                   />
+                </CardContent>
+              </Card>
+            </Grid>
+            <Grid item xs={12} md={3}>
+              <Card>
+                <CardContent>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                    <StorageIcon fontSize="small" />
+                    <Typography variant="h6" sx={{ fontSize: '1rem' }}>
+                      Database Status
+                    </Typography>
+                  </Box>
+                  <Box sx={{ 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    gap: 1,
+                    p: 1,
+                    bgcolor: saveStatusDisplay.bgColor,
+                    borderRadius: 1,
+                    mb: 1
+                  }}>
+                    {saveStatusDisplay.icon}
+                    <Box>
+                      <Typography 
+                        variant="body2" 
+                        sx={{ 
+                          fontWeight: 'bold',
+                          color: saveStatusDisplay.color,
+                          fontSize: '0.875rem'
+                        }}
+                      >
+                        {saveStatusDisplay.text}
+                      </Typography>
+                      <Typography 
+                        variant="caption" 
+                        sx={{ 
+                          color: 'text.secondary',
+                          fontSize: '0.75rem'
+                        }}
+                      >
+                        {saveStatusDisplay.subtitle}
+                      </Typography>
+                    </Box>
+                  </Box>
                 </CardContent>
               </Card>
             </Grid>
@@ -351,6 +496,47 @@ const AdminPatientProfile = () => {
           submitButtonText="💾 Save Patient Profile"
           isAdminMode={true}
         />
+
+        {/* Enhanced Save Status Display */}
+        <Box sx={{ mt: 3 }}>
+          <Paper 
+            elevation={2} 
+            sx={{ 
+              p: 2,
+              border: `2px solid ${saveStatusDisplay.color}`,
+              bgcolor: saveStatusDisplay.bgColor,
+              borderRadius: 2
+            }}
+          >
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+              {saveStatusDisplay.icon}
+              <Box sx={{ flex: 1 }}>
+                <Typography 
+                  variant="h6" 
+                  sx={{ 
+                    color: saveStatusDisplay.color,
+                    fontWeight: 'bold',
+                    mb: 0.5
+                  }}
+                >
+                  {saveStatusDisplay.text}
+                </Typography>
+                <Typography 
+                  variant="body2" 
+                  sx={{ color: 'text.secondary' }}
+                >
+                  {saveStatusDisplay.subtitle}
+                </Typography>
+                {saveStatus === 'saving' && (
+                  <LinearProgress 
+                    sx={{ mt: 1, borderRadius: 1, height: 6 }}
+                    color="info"
+                  />
+                )}
+              </Box>
+            </Box>
+          </Paper>
+        </Box>
 
         {saving && (
           <Box sx={{ 
