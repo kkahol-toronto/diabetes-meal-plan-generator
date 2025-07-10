@@ -1064,7 +1064,7 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({
               </Grid>
               <Grid item xs={12}>
                 <FormControl component="fieldset" fullWidth>
-                  <FormLabel component="legend">Current Dietary Features (select all that apply)</FormLabel>
+                  <FormLabel component="legend">Current Dietary Features (select all that apply) *Important: Select vegetarian options here if applicable*</FormLabel>
                   <FormGroup>
                     <Grid container>
                       {dietaryFeaturesOptions.map((feature) => (
@@ -1099,13 +1099,13 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({
               <Grid item xs={12} md={4}>
                 <TextField
                   fullWidth
-                  label="Food Items You Avoid"
-                  value={profile.avoids?.join(', ') || ''}
-                  onChange={(e) => handleInputChange('avoids', e.target.value.split(',').map(s => s.trim()).filter(Boolean))}
+                  label="Dietary Restrictions"
+                  value={profile.dietaryRestrictions?.join(', ') || ''}
+                  onChange={(e) => handleInputChange('dietaryRestrictions', e.target.value.split(',').map(s => s.trim()).filter(Boolean))}
                   variant="outlined"
                   multiline
                   rows={2}
-                  helperText="Separate multiple items with commas"
+                  helperText="E.g., vegetarian, vegan, no pork. Separate with commas"
                 />
               </Grid>
               <Grid item xs={12} md={4}>
