@@ -88,9 +88,21 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({
     normalized.dietaryRestrictions = normalized.dietaryRestrictions || [];
     normalized.foodPreferences = normalized.foodPreferences || [];
     normalized.allergies = normalized.allergies || [];
+    normalized.avoids = normalized.avoids || [];
     normalized.strongDislikes = normalized.strongDislikes || [];
     normalized.exerciseTypes = normalized.exerciseTypes || [];
-    normalized.availableAppliances = normalized.availableAppliances || [];
+    // Set default appliances for new users, but preserve existing user choices (even if empty)
+    normalized.availableAppliances = normalized.availableAppliances !== undefined ? normalized.availableAppliances : [
+      'Fridge & Freezer',
+      'Microwave',
+      'Stove/Oven',
+      'Instant Pot',
+      'Air Fryer',
+      'Slow Cooker',
+      'Blender',
+      'Food Processor',
+      'Toaster'
+    ];
     normalized.primaryGoals = normalized.primaryGoals || [];
     
     return normalized;
@@ -117,6 +129,7 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({
     dietaryRestrictions: [],
     foodPreferences: [],
     allergies: [],
+    avoids: [],
     strongDislikes: [],
     workActivityLevel: '',
     exerciseFrequency: '',
@@ -134,6 +147,21 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({
 
   const [errors, setErrors] = useState<Record<string, string>>({});
   
+  // State for unit preferences
+  const [unitPreferences, setUnitPreferences] = useState({
+    height: 'metric', // 'metric' or 'imperial'
+    weight: 'metric', // 'metric' or 'imperial'
+    waistCircumference: 'metric' // 'metric' or 'imperial'
+  });
+  
+  // State for imperial measurements
+  const [imperialMeasurements, setImperialMeasurements] = useState({
+    heightFeet: 0,
+    heightInches: 0,
+    weightPounds: 0,
+    waistInches: 0
+  });
+  
   // State for "Other" text inputs
   const [otherValues, setOtherValues] = useState({
     ethnicity: '',
@@ -145,6 +173,13 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({
     goals: '',
     eatingSchedule: '',
     calorieTarget: '',
+  });
+
+  // State for text input fields that need comma processing
+  const [textInputs, setTextInputs] = useState({
+    allergies: '',
+    avoids: '',
+    strongDislikes: ''
   });
 
   // Auto-calculate age from date of birth
@@ -171,6 +206,107 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({
       setProfile(prev => ({ ...prev, bmi: Math.round(bmi * 10) / 10 }));
     }
   }, [profile.height, profile.weight]);
+
+  // Conversion functions
+  const convertMetricToImperial = {
+    heightToFeetInches: (cm: number) => {
+      const totalInches = cm / 2.54;
+      const feet = Math.floor(totalInches / 12);
+      const inches = Math.round((totalInches % 12) * 10) / 10;
+      return { feet, inches };
+    },
+    weightToPounds: (kg: number) => Math.round(kg * 2.20462 * 10) / 10,
+    waistToInches: (cm: number) => Math.round(cm / 2.54 * 10) / 10
+  };
+
+  const convertImperialToMetric = {
+    feetInchesToCm: (feet: number, inches: number) => 
+      Math.round((feet * 12 + inches) * 2.54 * 10) / 10,
+    poundsToKg: (pounds: number) => Math.round(pounds / 2.20462 * 10) / 10,
+    inchesToCm: (inches: number) => Math.round(inches * 2.54 * 10) / 10
+  };
+
+  // Update imperial measurements when metric values change
+  useEffect(() => {
+    if (profile.height > 0) {
+      const { feet, inches } = convertMetricToImperial.heightToFeetInches(profile.height);
+      setImperialMeasurements(prev => ({
+        ...prev,
+        heightFeet: feet,
+        heightInches: inches
+      }));
+    }
+    
+    if (profile.weight > 0) {
+      const pounds = convertMetricToImperial.weightToPounds(profile.weight);
+      setImperialMeasurements(prev => ({
+        ...prev,
+        weightPounds: pounds
+      }));
+    }
+    
+    if (profile.waistCircumference && profile.waistCircumference > 0) {
+      const inches = convertMetricToImperial.waistToInches(profile.waistCircumference);
+      setImperialMeasurements(prev => ({
+        ...prev,
+        waistInches: inches
+      }));
+    }
+  }, [profile.height, profile.weight, profile.waistCircumference]);
+
+  // Initialize text inputs from profile arrays
+  useEffect(() => {
+    setTextInputs({
+      allergies: profile.allergies?.join(', ') || '',
+      avoids: profile.avoids?.join(', ') || '',
+      strongDislikes: profile.strongDislikes?.join(', ') || ''
+    });
+  }, [profile.allergies, profile.avoids, profile.strongDislikes]);
+
+  // Handle unit preference changes
+  const handleUnitPreferenceChange = (measurement: keyof typeof unitPreferences, unit: 'metric' | 'imperial') => {
+    setUnitPreferences(prev => ({
+      ...prev,
+      [measurement]: unit
+    }));
+  };
+
+  // Handle imperial measurement changes
+  const handleImperialMeasurementChange = (field: keyof typeof imperialMeasurements, value: number) => {
+    setImperialMeasurements(prev => ({
+      ...prev,
+      [field]: value
+    }));
+    
+    // Convert to metric and update profile
+    if (field === 'heightFeet' || field === 'heightInches') {
+      const feet = field === 'heightFeet' ? value : imperialMeasurements.heightFeet;
+      const inches = field === 'heightInches' ? value : imperialMeasurements.heightInches;
+      const cm = convertImperialToMetric.feetInchesToCm(feet, inches);
+      handleInputChange('height', cm);
+    } else if (field === 'weightPounds') {
+      const kg = convertImperialToMetric.poundsToKg(value);
+      handleInputChange('weight', kg);
+    } else if (field === 'waistInches') {
+      const cm = convertImperialToMetric.inchesToCm(value);
+      handleInputChange('waistCircumference', cm);
+    }
+  };
+
+  // Handle text input changes (for fields that need comma processing)
+  const handleTextInputChange = (field: keyof typeof textInputs, value: string) => {
+    setTextInputs(prev => ({
+      ...prev,
+      [field]: value
+    }));
+  };
+
+  // Process comma-separated text into array and update profile
+  const processTextInputToArray = (field: keyof typeof textInputs, profileField: keyof UserProfile) => {
+    const textValue = textInputs[field];
+    const processedArray = textValue.split(',').map(s => s.trim()).filter(Boolean);
+    handleInputChange(profileField, processedArray);
+  };
 
   // Auto-save functionality with database persistence
   useEffect(() => {
@@ -296,12 +432,13 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({
     
     if (otherValue && otherValue.trim()) {
       const currentArray = (profile[profileField] as string[]) || [];
+      const newCustomEntry = `Other: ${otherValue.trim()}`;
       
-      // Remove any existing "Other:" entries and add the new one
-      const filteredArray = currentArray.filter(item => !item.startsWith('Other:'));
-      const newArray = [...filteredArray, `Other: ${otherValue.trim()}`];
-      
-      setProfile(prev => ({ ...prev, [profileField]: newArray }));
+      // Check if this exact custom entry already exists to prevent duplicates
+      if (!currentArray.includes(newCustomEntry)) {
+        const newArray = [...currentArray, newCustomEntry];
+        setProfile(prev => ({ ...prev, [profileField]: newArray }));
+      }
       
       // Clear the input field
       setOtherValues(prev => ({ ...prev, [otherField]: '' }));
@@ -466,10 +603,24 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({
   const exerciseTypesOptions = [
     'Walking',
     'Jogging',
+    'Running',
+    'Hiking',
     'Resistance training / weights',
+    'Weightlifting',
     'Yoga / Pilates',
     'Swimming',
     'Cycling (indoor/outdoor)',
+    'Tennis',
+    'Basketball',
+    'Soccer / Football',
+    'Badminton',
+    'Volleyball',
+    'Golf',
+    'Dancing',
+    'Martial arts / Boxing',
+    'Rowing',
+    'CrossFit',
+    'Cardio machines (treadmill, elliptical)',
     'Fitness classes (e.g., Zumba, aerobics)',
     'Home workouts',
     'Other'
@@ -478,14 +629,17 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({
   const appliancesOptions = [
     'Fridge & Freezer',
     'Microwave',
+    'Stove/Oven',
     'Instant Pot',
     'Air Fryer',
+    'Slow Cooker',
     'Blender',
+    'Food Processor',
+    'Toaster',
     'Other'
   ];
 
   const primaryGoalsOptions = [
-    'Weight loss',
     'Improve A1C',
     'Lower cholesterol / triglycerides',
     'Improve energy / stamina',
@@ -660,31 +814,154 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({
           </AccordionSummary>
           <AccordionDetails sx={{ p: 3 }}>
             <Grid container spacing={3}>
-              <Grid item xs={12} md={3}>
-                <TextField
-                  fullWidth
-                  label={isAdminMode ? "Height (cm)" : "Height (cm) *"}
-                  type="number"
-                  value={profile.height || ''}
-                  onChange={(e) => handleInputChange('height', parseFloat(e.target.value) || 0)}
-                  error={!!errors.height}
-                  helperText={errors.height}
-                  variant="outlined"
-                />
+              {/* Height Section */}
+              <Grid item xs={12}>
+                <Box sx={{ mb: 2 }}>
+                  <Typography variant="h6" sx={{ mb: 1 }}>
+                    {isAdminMode ? "Height" : "Height *"}
+                  </Typography>
+                  <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
+                    <Button
+                      variant={unitPreferences.height === 'metric' ? 'contained' : 'outlined'}
+                      size="small"
+                      onClick={() => handleUnitPreferenceChange('height', 'metric')}
+                    >
+                      Metric (cm)
+                    </Button>
+                    <Button
+                      variant={unitPreferences.height === 'imperial' ? 'contained' : 'outlined'}
+                      size="small"
+                      onClick={() => handleUnitPreferenceChange('height', 'imperial')}
+                    >
+                      Imperial (ft/in)
+                    </Button>
+                  </Box>
+                  <Grid container spacing={2}>
+                    {unitPreferences.height === 'metric' ? (
+                      <Grid item xs={12} md={6}>
+                        <TextField
+                          fullWidth
+                          label="Height (cm)"
+                          type="number"
+                          value={profile.height || ''}
+                          onChange={(e) => handleInputChange('height', parseFloat(e.target.value) || 0)}
+                          error={!!errors.height}
+                          helperText={errors.height}
+                          variant="outlined"
+                          InputProps={{
+                            endAdornment: <InputAdornment position="end">cm</InputAdornment>,
+                          }}
+                        />
+                      </Grid>
+                    ) : (
+                      <>
+                        <Grid item xs={6} md={3}>
+                          <TextField
+                            fullWidth
+                            label="Feet"
+                            type="number"
+                            value={imperialMeasurements.heightFeet || ''}
+                            onChange={(e) => handleImperialMeasurementChange('heightFeet', parseFloat(e.target.value) || 0)}
+                            variant="outlined"
+                            InputProps={{
+                              endAdornment: <InputAdornment position="end">ft</InputAdornment>,
+                            }}
+                            inputProps={{ min: 0, max: 8 }}
+                          />
+                        </Grid>
+                        <Grid item xs={6} md={3}>
+                          <TextField
+                            fullWidth
+                            label="Inches"
+                            type="number"
+                            value={imperialMeasurements.heightInches || ''}
+                            onChange={(e) => handleImperialMeasurementChange('heightInches', parseFloat(e.target.value) || 0)}
+                            variant="outlined"
+                            InputProps={{
+                              endAdornment: <InputAdornment position="end">in</InputAdornment>,
+                            }}
+                            inputProps={{ min: 0, max: 11.9, step: 0.1 }}
+                          />
+                        </Grid>
+                      </>
+                    )}
+                    {profile.height > 0 && (
+                      <Grid item xs={12} md={6}>
+                        <Alert severity="info" sx={{ mt: 1 }}>
+                          {unitPreferences.height === 'metric' 
+                            ? `${profile.height} cm = ${imperialMeasurements.heightFeet}' ${imperialMeasurements.heightInches}"`
+                            : `${imperialMeasurements.heightFeet}' ${imperialMeasurements.heightInches}" = ${profile.height} cm`
+                          }
+                        </Alert>
+                      </Grid>
+                    )}
+                  </Grid>
+                </Box>
               </Grid>
-              <Grid item xs={12} md={3}>
-                <TextField
-                  fullWidth
-                  label={isAdminMode ? "Weight (kg)" : "Weight (kg) *"}
-                  type="number"
-                  value={profile.weight || ''}
-                  onChange={(e) => handleInputChange('weight', parseFloat(e.target.value) || 0)}
-                  error={!!errors.weight}
-                  helperText={errors.weight}
-                  variant="outlined"
-                />
+
+              {/* Weight Section */}
+              <Grid item xs={12}>
+                <Box sx={{ mb: 2 }}>
+                  <Typography variant="h6" sx={{ mb: 1 }}>
+                    {isAdminMode ? "Weight" : "Weight *"}
+                  </Typography>
+                  <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
+                    <Button
+                      variant={unitPreferences.weight === 'metric' ? 'contained' : 'outlined'}
+                      size="small"
+                      onClick={() => handleUnitPreferenceChange('weight', 'metric')}
+                    >
+                      Metric (kg)
+                    </Button>
+                    <Button
+                      variant={unitPreferences.weight === 'imperial' ? 'contained' : 'outlined'}
+                      size="small"
+                      onClick={() => handleUnitPreferenceChange('weight', 'imperial')}
+                    >
+                      Imperial (lbs)
+                    </Button>
+                  </Box>
+                  <Grid container spacing={2}>
+                    <Grid item xs={12} md={6}>
+                      <TextField
+                        fullWidth
+                        label={unitPreferences.weight === 'metric' ? 'Weight (kg)' : 'Weight (lbs)'}
+                        type="number"
+                        value={unitPreferences.weight === 'metric' ? (profile.weight || '') : (imperialMeasurements.weightPounds || '')}
+                        onChange={(e) => {
+                          const value = parseFloat(e.target.value) || 0;
+                          if (unitPreferences.weight === 'metric') {
+                            handleInputChange('weight', value);
+                          } else {
+                            handleImperialMeasurementChange('weightPounds', value);
+                          }
+                        }}
+                        error={!!errors.weight}
+                        helperText={errors.weight}
+                        variant="outlined"
+                        InputProps={{
+                          endAdornment: <InputAdornment position="end">
+                            {unitPreferences.weight === 'metric' ? 'kg' : 'lbs'}
+                          </InputAdornment>,
+                        }}
+                      />
+                    </Grid>
+                    {profile.weight > 0 && (
+                      <Grid item xs={12} md={6}>
+                        <Alert severity="info" sx={{ mt: 1 }}>
+                          {unitPreferences.weight === 'metric' 
+                            ? `${profile.weight} kg = ${imperialMeasurements.weightPounds} lbs`
+                            : `${imperialMeasurements.weightPounds} lbs = ${profile.weight} kg`
+                          }
+                        </Alert>
+                      </Grid>
+                    )}
+                  </Grid>
+                </Box>
               </Grid>
-              <Grid item xs={12} md={3}>
+
+              {/* BMI */}
+              <Grid item xs={12} md={4}>
                 <TextField
                   fullWidth
                   label="BMI"
@@ -700,16 +977,67 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({
                   helperText="Auto-calculated from height & weight"
                 />
               </Grid>
-              <Grid item xs={12} md={3}>
-                <TextField
-                  fullWidth
-                  label="Waist Circumference (cm)"
-                  type="number"
-                  value={profile.waistCircumference || ''}
-                  onChange={(e) => handleInputChange('waistCircumference', parseFloat(e.target.value) || undefined)}
-                  variant="outlined"
-                />
+
+              {/* Waist Circumference Section */}
+              <Grid item xs={12} md={8}>
+                <Box sx={{ mb: 2 }}>
+                  <Typography variant="h6" sx={{ mb: 1 }}>
+                    Waist Circumference (Optional)
+                  </Typography>
+                  <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
+                    <Button
+                      variant={unitPreferences.waistCircumference === 'metric' ? 'contained' : 'outlined'}
+                      size="small"
+                      onClick={() => handleUnitPreferenceChange('waistCircumference', 'metric')}
+                    >
+                      Metric (cm)
+                    </Button>
+                    <Button
+                      variant={unitPreferences.waistCircumference === 'imperial' ? 'contained' : 'outlined'}
+                      size="small"
+                      onClick={() => handleUnitPreferenceChange('waistCircumference', 'imperial')}
+                    >
+                      Imperial (in)
+                    </Button>
+                  </Box>
+                  <Grid container spacing={2}>
+                    <Grid item xs={12} md={6}>
+                      <TextField
+                        fullWidth
+                        label={unitPreferences.waistCircumference === 'metric' ? 'Waist Circumference (cm)' : 'Waist Circumference (in)'}
+                        type="number"
+                        value={unitPreferences.waistCircumference === 'metric' ? (profile.waistCircumference || '') : (imperialMeasurements.waistInches || '')}
+                        onChange={(e) => {
+                          const value = parseFloat(e.target.value) || 0;
+                          if (unitPreferences.waistCircumference === 'metric') {
+                            handleInputChange('waistCircumference', value || undefined);
+                          } else {
+                            handleImperialMeasurementChange('waistInches', value);
+                          }
+                        }}
+                        variant="outlined"
+                        InputProps={{
+                          endAdornment: <InputAdornment position="end">
+                            {unitPreferences.waistCircumference === 'metric' ? 'cm' : 'in'}
+                          </InputAdornment>,
+                        }}
+                      />
+                    </Grid>
+                    {profile.waistCircumference && profile.waistCircumference > 0 && (
+                      <Grid item xs={12} md={6}>
+                        <Alert severity="info" sx={{ mt: 1 }}>
+                          {unitPreferences.waistCircumference === 'metric' 
+                            ? `${profile.waistCircumference} cm = ${imperialMeasurements.waistInches} in`
+                            : `${imperialMeasurements.waistInches} in = ${profile.waistCircumference} cm`
+                          }
+                        </Alert>
+                      </Grid>
+                    )}
+                  </Grid>
+                </Box>
               </Grid>
+
+              {/* Blood Pressure */}
               <Grid item xs={12} md={4}>
                 <TextField
                   fullWidth
@@ -1148,36 +1476,42 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({
                 <TextField
                   fullWidth
                   label="Food Allergies"
-                  value={profile.allergies?.join(', ') || ''}
-                  onChange={(e) => handleInputChange('allergies', e.target.value.split(',').map(s => s.trim()).filter(Boolean))}
+                  value={textInputs.allergies}
+                  onChange={(e) => handleTextInputChange('allergies', e.target.value)}
+                  onBlur={() => processTextInputToArray('allergies', 'allergies')}
                   variant="outlined"
                   multiline
                   rows={2}
-                  helperText="Separate multiple allergies with commas"
+                  helperText="Separate multiple allergies with commas (e.g., peanuts, shellfish, dairy)"
+                  placeholder="Enter allergies separated by commas..."
                 />
               </Grid>
               <Grid item xs={12} md={4}>
                 <TextField
                   fullWidth
                   label="Food Items You Avoid"
-                  value={profile.avoids?.join(', ') || ''}
-                  onChange={(e) => handleInputChange('avoids', e.target.value.split(',').map(s => s.trim()).filter(Boolean))}
+                  value={textInputs.avoids}
+                  onChange={(e) => handleTextInputChange('avoids', e.target.value)}
+                  onBlur={() => processTextInputToArray('avoids', 'avoids')}
                   variant="outlined"
                   multiline
                   rows={2}
-                  helperText="Separate multiple items with commas"
+                  helperText="Separate multiple items with commas (e.g., spicy food, red meat, fried foods)"
+                  placeholder="Enter foods you avoid separated by commas..."
                 />
               </Grid>
               <Grid item xs={12} md={4}>
                 <TextField
                   fullWidth
                   label="Strong Dislikes"
-                  value={profile.strongDislikes?.join(', ') || ''}
-                  onChange={(e) => handleInputChange('strongDislikes', e.target.value.split(',').map(s => s.trim()).filter(Boolean))}
+                  value={textInputs.strongDislikes}
+                  onChange={(e) => handleTextInputChange('strongDislikes', e.target.value)}
+                  onBlur={() => processTextInputToArray('strongDislikes', 'strongDislikes')}
                   variant="outlined"
                   multiline
                   rows={2}
-                  helperText="Separate multiple dislikes with commas"
+                  helperText="Separate multiple dislikes with commas (e.g., mushrooms, Brussels sprouts, liver)"
+                  placeholder="Enter dislikes separated by commas..."
                 />
               </Grid>
             </Grid>

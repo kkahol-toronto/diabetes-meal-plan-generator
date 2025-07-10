@@ -38,6 +38,8 @@ import {
   InputLabel,
   Select,
   MenuItem,
+  Avatar,
+  IconButton,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -65,21 +67,31 @@ import {
   Nature as FiberIcon,
   Cake as SugarIcon,
   WaterDrop as SodiumIcon,
+  Close as CloseIcon,
+  ArrowBack as ArrowBackIcon,
+  ArrowForward as ArrowForwardIcon,
+  BarChart as BarChartIcon,
+  ShowChart as ShowChartIcon,
+  PieChart as PieChartIcon,
+  DonutLarge as DonutLargeIcon,
+  TrendingUp as AreaChartIcon,
+  BubbleChart as ScatterPlotIcon,
+  Assessment as CompareIcon,
 } from '@mui/icons-material';
 import { useApp } from '../contexts/AppContext';
-import { Line, Doughnut, Radar } from 'react-chartjs-2';
+import { Line, Doughnut, Radar, Bar, Pie } from 'react-chartjs-2';
 import {
   Chart as ChartJS,
   CategoryScale,
   LinearScale,
   PointElement,
   LineElement,
+  ArcElement,
   Title,
   Tooltip as ChartTooltip,
   Legend,
-  ArcElement,
   BarElement,
-  RadialLinearScale,
+  RadialLinearScale
 } from 'chart.js';
 
 // Register Chart.js components
@@ -88,10 +100,10 @@ ChartJS.register(
   LinearScale,
   PointElement,
   LineElement,
+  ArcElement,
   Title,
   ChartTooltip,
   Legend,
-  ArcElement,
   BarElement,
   RadialLinearScale
 );
@@ -121,7 +133,7 @@ interface NutritionalInfo {
 }
 
 interface ChartConfig {
-  type: 'bar' | 'line' | 'pie' | 'doughnut';
+  type: 'bar' | 'line' | 'pie' | 'doughnut' | 'area' | 'scatter' | 'comparison';
   metric: keyof NutritionalInfo;
   title: string;
   color: string;
@@ -311,11 +323,14 @@ const HomePage: React.FC = () => {
   
   // Adaptive Plan Dialog state
   const [showAdaptivePlanDialog, setShowAdaptivePlanDialog] = useState(false);
-  const [adaptivePlanDays, setAdaptivePlanDays] = useState(7);
-  const [adaptivePlanCuisine, setAdaptivePlanCuisine] = useState('');
+  const [adaptivePlanDays, setAdaptivePlanDays] = useState(3);
+  
+  // Analytics chart state
+  const [analyticsChartType, setAnalyticsChartType] = useState<'line' | 'bar' | 'pie' | 'doughnut' | 'area' | 'scatter' | 'comparison'>('line');
   
   // Carousel state
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
+
   const carouselImages = [
     '/photos/middle-eastern-cooking-meze-2025-02-12-05-24-20-utc.jpg',
     '/photos/top-view-tasty-salad-with-greens-on-dark-backgroun-2025-02-10-08-46-48-utc.jpg',
@@ -569,6 +584,27 @@ const HomePage: React.FC = () => {
       setAdaptivePlanLoading(true);
       setLoading(true, 'Creating your personalized meal plan...');
       
+      // Prepare profile data for meal plan generation
+      const profileData = {
+        dietary_restrictions: userProfile?.dietaryRestrictions || [],
+        food_allergies: userProfile?.foodAllergies || [],
+        foods_to_avoid: userProfile?.foodsToAvoid || [],
+        strong_dislikes: userProfile?.strongDislikes || [],
+        diet_type: userProfile?.dietType || [],
+        health_conditions: userProfile?.healthConditions || [],
+        activity_level: userProfile?.activityLevel || 'moderate',
+        age: userProfile?.age || 30,
+        gender: userProfile?.gender || 'other',
+        height: userProfile?.height || 170,
+        weight: userProfile?.weight || 70,
+        diabetes_type: userProfile?.diabetesType || 'type2',
+        medication: userProfile?.medication || [],
+        meal_preferences: userProfile?.mealPreferences || {},
+        cuisine_preferences: userProfile?.cuisinePreferences || [],
+        cooking_time: userProfile?.cookingTime || 'medium',
+        budget: userProfile?.budget || 'moderate'
+      };
+      
       const response = await fetch(`${config.API_URL}/coach/adaptive-meal-plan`, {
         method: 'POST',
         headers: {
@@ -576,14 +612,14 @@ const HomePage: React.FC = () => {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ 
-          days: adaptivePlanDays, 
-          cuisine_type: adaptivePlanCuisine 
+          days: adaptivePlanDays,
+          profile_data: profileData
         }),
       });
 
       if (response.ok) {
         await response.json();
-        showNotification('🎉 Your adaptive meal plan has been created!', 'success');
+        showNotification('🎉 Your adaptive meal plan has been created using your complete profile!', 'success');
         navigate('/meal_plans');
         setShowAdaptivePlanDialog(false);
       } else {
@@ -599,10 +635,8 @@ const HomePage: React.FC = () => {
 
   const handleOpenAdaptivePlanDialog = () => {
     setShowAdaptivePlanDialog(true);
-    // Set default values based on user profile if available
-    if (userProfile?.dietType?.length > 0) {
-      setAdaptivePlanCuisine(userProfile.dietType[0]);
-    }
+    // Reset to default days
+    setAdaptivePlanDays(3);
   };
 
   const handleGenerateRecipes = async () => {
@@ -812,93 +846,439 @@ const HomePage: React.FC = () => {
     if (!consumptionAnalytics?.daily_nutrition_history) return null;
 
     const data = consumptionAnalytics.daily_nutrition_history;
-    const labels = data.map((day: any) => formatDate(day.date));
-    const values = data.map((day: any) => (day as any)[metric] || 0);
+    
+    if (!data || data.length === 0) return null;
 
     const chartConfig = chartConfigs.find(config => config.metric === metric);
     const color = chartConfig?.color || '#45B7D1';
+
+    if (analyticsChartType === 'pie' || analyticsChartType === 'doughnut') {
+      // For pie charts, show distribution across meal types
+      const mealDistribution = consumptionAnalytics.meal_distribution || {};
+      const labels = Object.keys(mealDistribution);
+      const values = Object.values(mealDistribution);
+      
+      if (labels.length === 0) return null;
+
+      return {
+        labels: labels.map(label => label.charAt(0).toUpperCase() + label.slice(1)),
+        datasets: [{
+          data: values,
+          backgroundColor: ['#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A', '#98D8C8', '#F7DC6F'],
+          borderWidth: 2,
+          borderColor: '#fff',
+          hoverOffset: 4
+        }]
+      };
+    }
+
+    // For scatter plots, show relationship between calories and selected metric
+    if (analyticsChartType === 'scatter') {
+      const sortedData = [...data].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+      const scatterData = sortedData.map(day => ({
+        x: day.calories || 0,
+        y: (day as any)[metric] || 0
+      }));
+
+      return {
+        datasets: [{
+          label: `${chartConfig?.title || metric} vs Calories`,
+          data: scatterData,
+          backgroundColor: color,
+          borderColor: color,
+          borderWidth: 2,
+          pointRadius: 6,
+          pointHoverRadius: 8
+        }]
+      };
+    }
+
+    // For comparison charts, show actual vs target values
+    if (analyticsChartType === 'comparison') {
+      const sortedData = [...data].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+      const labels = sortedData.map(day => formatDate(day.date));
+      const values = sortedData.map(day => (day as any)[metric] || 0);
+      
+      // Calculate target values based on typical recommendations
+      const getTargetValue = (metric: keyof NutritionalInfo) => {
+        switch (metric) {
+          case 'calories': return 2000;
+          case 'protein': return 150;
+          case 'carbohydrates': return 250;
+          case 'fat': return 65;
+          case 'fiber': return 25;
+          case 'sugar': return 50;
+          case 'sodium': return 2300;
+          default: return 100;
+        }
+      };
+
+      const targetValue = getTargetValue(metric);
+      const targetValues = Array(labels.length).fill(targetValue);
+
+      return {
+        labels,
+        datasets: [{
+          label: `Actual ${chartConfig?.title || metric}`,
+          data: values,
+          backgroundColor: `${color}80`,
+          borderColor: color,
+          borderWidth: 2,
+          fill: false,
+          tension: 0.4,
+          pointBackgroundColor: color,
+          pointBorderColor: '#fff',
+          pointBorderWidth: 2,
+          pointRadius: 4,
+          pointHoverRadius: 6
+        }, {
+          label: `Target ${chartConfig?.title || metric}`,
+          data: targetValues,
+          backgroundColor: 'transparent',
+          borderColor: '#FF6B6B',
+          borderWidth: 2,
+          borderDash: [5, 5],
+          fill: false,
+          tension: 0,
+          pointRadius: 0,
+          pointHoverRadius: 0
+        }]
+      };
+    }
+
+    // For line, bar, and area charts, sort data by date and show time series
+    const sortedData = [...data].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    const labels = sortedData.map(day => formatDate(day.date));
+    const values = sortedData.map(day => (day as any)[metric] || 0);
 
     return {
       labels,
       datasets: [{
         label: chartConfig?.title || metric,
         data: values,
-        backgroundColor: color,
+        backgroundColor: analyticsChartType === 'line' ? 'rgba(0,0,0,0.05)' : 
+                         analyticsChartType === 'area' ? `${color}30` : color,
         borderColor: color,
         borderWidth: 2,
-        fill: false,
+        fill: analyticsChartType === 'area',
         tension: 0.4,
         pointBackgroundColor: color,
         pointBorderColor: '#fff',
         pointBorderWidth: 2,
-        pointRadius: 4
+        pointRadius: 4,
+        pointHoverRadius: 6
       }]
     };
   };
 
   const getChartOptions = (metric: keyof NutritionalInfo) => {
     const chartConfig = chartConfigs.find(config => config.metric === metric);
+    const selectedTimeRangeLabel = selectedTimeRange.charAt(0).toUpperCase() + selectedTimeRange.slice(1);
     
-    return {
+    const baseOptions = {
       responsive: true,
       maintainAspectRatio: false,
+      interaction: {
+        mode: 'index' as const,
+        intersect: false,
+      },
       plugins: {
         legend: {
           position: 'top' as const,
           labels: {
             usePointStyle: true,
-            padding: 20
+            padding: 20,
+            font: {
+              size: 12
+            }
           }
         },
         title: {
           display: true,
-          text: `${chartConfig?.title || metric} - ${selectedTimeRange.charAt(0).toUpperCase() + selectedTimeRange.slice(1)} Analysis`,
+          text: `${chartConfig?.title || metric} - ${selectedTimeRangeLabel} Analysis`,
           font: {
             size: 16,
             weight: 'bold' as const
-          }
+          },
+          padding: 20
         },
         tooltip: {
           backgroundColor: 'rgba(0,0,0,0.8)',
           titleColor: '#fff',
           bodyColor: '#fff',
           borderColor: chartConfig?.color || '#45B7D1',
-          borderWidth: 1
-        }
-      },
-      scales: {
-        y: {
-          beginAtZero: true,
-          grid: {
-            color: 'rgba(0,0,0,0.1)'
-          },
-          ticks: {
-            font: {
-              size: 12
-            }
-          }
-        },
-        x: {
-          grid: {
-            color: 'rgba(0,0,0,0.1)'
-          },
-          ticks: {
-            font: {
-              size: 12
+          borderWidth: 1,
+          cornerRadius: 6,
+          displayColors: true,
+          callbacks: {
+            label: function(context: any) {
+              const label = context.dataset.label || '';
+              const value = context.parsed.y || context.parsed || 0;
+              const unit = metric === 'calories' ? 'kcal' : 
+                          metric === 'sodium' ? 'mg' : 'g';
+              return `${label}: ${value.toFixed(1)} ${unit}`;
             }
           }
         }
       }
     };
+
+    // Add scales only for bar and line charts
+    if (analyticsChartType !== 'pie' && analyticsChartType !== 'doughnut') {
+      const unit = metric === 'calories' ? 'kcal' : 
+                   metric === 'sodium' ? 'mg' : 'g';
+      
+      return {
+        ...baseOptions,
+        scales: {
+          y: {
+            beginAtZero: true,
+            grid: {
+              color: 'rgba(0,0,0,0.1)',
+              borderDash: [5, 5]
+            },
+            ticks: {
+              font: {
+                size: 12
+              },
+              callback: function(value: any) {
+                return `${value} ${unit}`;
+              }
+            },
+            title: {
+              display: true,
+              text: `${chartConfig?.title || metric} (${unit})`,
+              font: {
+                size: 14,
+                weight: 'bold' as const
+              }
+            }
+          },
+          x: {
+            grid: {
+              color: 'rgba(0,0,0,0.1)',
+              borderDash: [5, 5]
+            },
+            ticks: {
+              font: {
+                size: 12
+              },
+              maxRotation: 45,
+              minRotation: 0
+            },
+            title: {
+              display: true,
+              text: 'Time Period',
+              font: {
+                size: 14,
+                weight: 'bold' as const
+              }
+            }
+          }
+        }
+      };
+    }
+
+    return baseOptions;
   };
 
   const renderChart = (metric: keyof NutritionalInfo) => {
     const data = generateChartData(metric);
-    if (!data) return <Typography>No data available</Typography>;
+    if (!data) return (
+      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 300 }}>
+        <Typography variant="body1" color="text.secondary">No data available</Typography>
+      </Box>
+    );
 
     const options = getChartOptions(metric);
+    
+    // Create a unique key to force chart re-rendering when chart type changes
+    const chartKey = `${selectedTimeRange}-${analyticsChartType}-${metric}`;
 
-    return <Line data={data} options={options} />;
+    return (
+      <Box sx={{ height: 400, width: '100%' }}>
+        {(() => {
+          switch (analyticsChartType) {
+            case 'bar':
+              return <Bar key={chartKey} data={data} options={options} />;
+            case 'line':
+              return <Line key={chartKey} data={data} options={options} />;
+            case 'area':
+              return <Line key={chartKey} data={data} options={options} />;
+            case 'scatter':
+              return <Line key={chartKey} data={data} options={{...options, showLine: false}} />;
+            case 'comparison':
+              return <Line key={chartKey} data={data} options={options} />;
+            case 'pie':
+              return <Pie key={chartKey} data={data} options={options} />;
+            case 'doughnut':
+              return <Doughnut key={chartKey} data={data} options={options} />;
+            default:
+              return <Line key={chartKey} data={data} options={options} />;
+          }
+        })()}
+      </Box>
+    );
+  };
+
+  // Additional chart rendering functions
+  const renderNutritionalSummaryChart = () => {
+    if (!consumptionAnalytics?.daily_nutrition_history) return <Typography>No data available</Typography>;
+    
+    const data = consumptionAnalytics.daily_nutrition_history;
+    const latest = data[data.length - 1];
+    
+    if (!latest) return <Typography>No data available</Typography>;
+    
+    const summaryData = {
+      labels: ['Calories', 'Protein', 'Carbs', 'Fat', 'Fiber', 'Sugar', 'Sodium'],
+      datasets: [{
+        label: 'Daily Average',
+        data: [
+          latest.calories || 0,
+          latest.protein || 0,
+          latest.carbohydrates || 0,
+          latest.fat || 0,
+          (latest as any).fiber || 0,
+          (latest as any).sugar || 0,
+          (latest as any).sodium || 0
+        ],
+        backgroundColor: ['#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A', '#98D8C8', '#F7DC6F', '#BB8FCE'],
+        borderWidth: 2,
+        borderColor: '#fff'
+      }]
+    };
+    
+    return <Radar data={summaryData} options={{
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        r: {
+          beginAtZero: true,
+          grid: { color: 'rgba(0,0,0,0.1)' },
+          pointLabels: { font: { size: 12 } }
+        }
+      },
+      plugins: {
+        legend: { display: false },
+        title: { display: false }
+      }
+    }} />;
+  };
+
+  const renderWeeklyPatternChart = () => {
+    if (!consumptionAnalytics?.daily_nutrition_history) return <Typography>No data available</Typography>;
+    
+    const data = consumptionAnalytics.daily_nutrition_history;
+    const weeklyData = data.slice(-7);
+    
+    if (weeklyData.length === 0) return <Typography>No data available</Typography>;
+    
+    const chartData = {
+      labels: weeklyData.map((day: any) => new Date(day.date).toLocaleDateString('en-US', { weekday: 'short' })),
+      datasets: [{
+        label: 'Calories',
+        data: weeklyData.map((day: any) => day.calories || 0),
+        borderColor: '#FF6B6B',
+        backgroundColor: '#FF6B6B30',
+        fill: true,
+        tension: 0.4
+      }, {
+        label: 'Protein',
+        data: weeklyData.map((day: any) => day.protein || 0),
+        borderColor: '#4ECDC4',
+        backgroundColor: '#4ECDC430',
+        fill: true,
+        tension: 0.4
+      }]
+    };
+    
+    return <Line data={chartData} options={{
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'top' },
+        title: { display: false }
+      },
+      scales: {
+        y: { beginAtZero: true }
+      }
+    }} />;
+  };
+
+  const renderMacroDistributionChart = () => {
+    if (!consumptionAnalytics?.daily_nutrition_history) return <Typography>No data available</Typography>;
+    
+    const data = consumptionAnalytics.daily_nutrition_history;
+    const avgData = data.slice(-7).reduce((acc: any, day: any) => ({
+      protein: acc.protein + (day.protein || 0),
+      carbs: acc.carbs + (day.carbohydrates || 0),
+      fat: acc.fat + (day.fat || 0)
+    }), { protein: 0, carbs: 0, fat: 0 });
+    
+    const total = avgData.protein + avgData.carbs + avgData.fat;
+    if (total === 0) return <Typography>No data available</Typography>;
+    
+    const chartData = {
+      labels: ['Protein', 'Carbohydrates', 'Fat'],
+      datasets: [{
+        data: [avgData.protein, avgData.carbs, avgData.fat],
+        backgroundColor: ['#4ECDC4', '#45B7D1', '#FFA07A'],
+        borderWidth: 2,
+        borderColor: '#fff'
+      }]
+    };
+    
+    return <Doughnut data={chartData} options={{
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'bottom' },
+        title: { display: false }
+      }
+    }} />;
+  };
+
+  const renderAdherenceChart = () => {
+    if (!consumptionAnalytics?.adherence_stats) return <Typography>No data available</Typography>;
+    
+    const adherenceData = consumptionAnalytics.adherence_stats;
+    
+    const chartData = {
+      labels: ['Diabetes Suitable', 'Calorie Goals', 'Protein Goals', 'Carb Goals'],
+      datasets: [{
+        label: 'Adherence %',
+        data: [
+          adherenceData.diabetes_suitable_percentage || 0,
+          adherenceData.calorie_goal_adherence || 0,
+          adherenceData.protein_goal_adherence || 0,
+          adherenceData.carb_goal_adherence || 0
+        ],
+        backgroundColor: ['#4ECDC4', '#45B7D1', '#FFA07A', '#98D8C8'],
+        borderWidth: 2,
+        borderColor: '#fff'
+      }]
+    };
+    
+    return <Bar data={chartData} options={{
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        title: { display: false }
+      },
+      scales: {
+        y: { 
+          beginAtZero: true,
+          max: 100,
+          ticks: {
+            callback: function(value) {
+              return value + '%';
+            }
+          }
+        }
+      }
+    }} />;
   };
 
   // Chart configurations with beautiful styling
@@ -1755,6 +2135,45 @@ const HomePage: React.FC = () => {
             <ToggleButton value="bi-weekly">Bi-Weekly</ToggleButton>
             <ToggleButton value="monthly">Monthly</ToggleButton>
           </ToggleButtonGroup>
+          
+          <ToggleButtonGroup
+            value={analyticsChartType}
+            exclusive
+            onChange={(e, newChartType) => newChartType && setAnalyticsChartType(newChartType)}
+            aria-label="chart type selection"
+            size="small"
+            color="secondary"
+            sx={{ mb: 2, ml: 2 }}
+          >
+            <ToggleButton value="line">
+              <ShowChartIcon sx={{ mr: 1 }} />
+              Line
+            </ToggleButton>
+            <ToggleButton value="bar">
+              <BarChartIcon sx={{ mr: 1 }} />
+              Bar
+            </ToggleButton>
+            <ToggleButton value="area">
+              <AreaChartIcon sx={{ mr: 1 }} />
+              Area
+            </ToggleButton>
+            <ToggleButton value="scatter">
+              <ScatterPlotIcon sx={{ mr: 1 }} />
+              Scatter
+            </ToggleButton>
+            <ToggleButton value="comparison">
+              <CompareIcon sx={{ mr: 1 }} />
+              Target
+            </ToggleButton>
+            <ToggleButton value="pie">
+              <PieChartIcon sx={{ mr: 1 }} />
+              Pie
+            </ToggleButton>
+            <ToggleButton value="doughnut">
+              <DonutLargeIcon sx={{ mr: 1 }} />
+              Doughnut
+            </ToggleButton>
+          </ToggleButtonGroup>
         </Box>
 
         {loading ? (
@@ -1818,6 +2237,73 @@ const HomePage: React.FC = () => {
           </Grid>
         ) : (
           <Alert severity="info">No consumption data available for the selected period.</Alert>
+        )}
+        
+        {/* Additional Analysis Charts */}
+        {consumptionAnalytics && (
+          <Box sx={{ mt: 4 }}>
+            <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
+              <AnalyticsIcon sx={{ mr: 1 }} />
+              Advanced Nutritional Analysis
+            </Typography>
+            <Grid container spacing={3}>
+              {/* Nutritional Summary Chart */}
+              <Grid item xs={12} md={6}>
+                <Card>
+                  <CardContent>
+                    <Typography variant="h6" gutterBottom>
+                      Daily Nutritional Summary
+                    </Typography>
+                    <Box sx={{ height: 300, width: '100%' }}>
+                      {renderNutritionalSummaryChart()}
+                    </Box>
+                  </CardContent>
+                </Card>
+              </Grid>
+              
+              {/* Weekly Pattern Analysis */}
+              <Grid item xs={12} md={6}>
+                <Card>
+                  <CardContent>
+                    <Typography variant="h6" gutterBottom>
+                      Weekly Intake Patterns
+                    </Typography>
+                    <Box sx={{ height: 300, width: '100%' }}>
+                      {renderWeeklyPatternChart()}
+                    </Box>
+                  </CardContent>
+                </Card>
+              </Grid>
+              
+              {/* Macro Distribution Over Time */}
+              <Grid item xs={12} md={6}>
+                <Card>
+                  <CardContent>
+                    <Typography variant="h6" gutterBottom>
+                      Macro Distribution Trends
+                    </Typography>
+                    <Box sx={{ height: 300, width: '100%' }}>
+                      {renderMacroDistributionChart()}
+                    </Box>
+                  </CardContent>
+                </Card>
+              </Grid>
+              
+              {/* Adherence Score Chart */}
+              <Grid item xs={12} md={6}>
+                <Card>
+                  <CardContent>
+                    <Typography variant="h6" gutterBottom>
+                      Adherence Score Analysis
+                    </Typography>
+                    <Box sx={{ height: 300, width: '100%' }}>
+                      {renderAdherenceChart()}
+                    </Box>
+                  </CardContent>
+                </Card>
+              </Grid>
+            </Grid>
+          </Box>
         )}
       </CustomTabPanel>
 
@@ -2151,17 +2637,21 @@ const HomePage: React.FC = () => {
             InputProps={{ inputProps: { min: 1, max: 7 } }}
             sx={{ mb: 2 }}
           />
-          <TextField
-            margin="dense"
-            label="Preferred Cuisine Type (e.g., Mediterranean, Asian, Vegan)"
-            fullWidth
-            value={adaptivePlanCuisine}
-            onChange={(e) => setAdaptivePlanCuisine(e.target.value)}
-            sx={{ mb: 2 }}
-          />
-          <Typography variant="body2" color="text.secondary">
-            We'll create a meal plan that adapts to your dietary preferences and eating history.
-            The plan will cover {adaptivePlanDays} days.
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            We'll create a personalized {adaptivePlanDays}-day meal plan using your complete profile data including:
+          </Typography>
+          <Box sx={{ mb: 2 }}>
+            <Typography variant="body2" color="text.secondary" component="div">
+              • Dietary restrictions and food allergies
+              • Foods to avoid and strong dislikes
+              • Diet type and cuisine preferences
+              • Health conditions and diabetes type
+              • Activity level and personal goals
+              • Cooking time and budget preferences
+            </Typography>
+          </Box>
+          <Typography variant="body2" color="primary" sx={{ fontWeight: 'bold' }}>
+            Your meal plan will automatically adapt to all your preferences and restrictions!
           </Typography>
         </DialogContent>
         <DialogActions>

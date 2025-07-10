@@ -756,6 +756,127 @@ async def resend_registration_code(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error resending registration code: {str(e)}")
 
+def enforce_dietary_restrictions(meal_plan_data: dict, user_profile: dict) -> dict:
+    """
+    Comprehensive dietary restriction enforcement function.
+    Ensures all meals strictly adhere to user's dietary restrictions, allergies, and preferences.
+    """
+    print("[enforce_dietary_restrictions] Starting dietary compliance check...")
+    
+    # Extract user dietary information
+    dietary_restrictions = user_profile.get('dietaryRestrictions', [])
+    food_allergies = user_profile.get('allergies', [])
+    strong_dislikes = user_profile.get('strongDislikes', [])
+    diet_type = user_profile.get('dietType', [])
+    
+    # Convert to lowercase for case-insensitive matching
+    restrictions_lower = [r.lower() for r in dietary_restrictions]
+    allergies_lower = [a.lower() for a in food_allergies]
+    dislikes_lower = [d.lower() for d in strong_dislikes]
+    diet_type_lower = [dt.lower() for dt in diet_type]
+    
+    # Build comprehensive banned ingredients list
+    banned_ingredients = set()
+    
+    # Add allergy-related banned ingredients
+    for allergy in allergies_lower:
+        if 'shellfish' in allergy:
+            banned_ingredients.update(['shrimp', 'crab', 'lobster', 'clams', 'mussels', 'oysters', 'scallops'])
+        elif 'tree nuts' in allergy or 'nuts' in allergy:
+            banned_ingredients.update(['almonds', 'walnuts', 'pecans', 'cashews', 'pistachios', 'hazelnuts', 'macadamia', 'brazil nuts'])
+        elif 'peanuts' in allergy:
+            banned_ingredients.update(['peanuts', 'peanut butter', 'peanut oil'])
+        elif 'dairy' in allergy or 'milk' in allergy:
+            banned_ingredients.update(['milk', 'cheese', 'butter', 'cream', 'yogurt', 'ice cream'])
+        elif 'eggs' in allergy or 'egg' in allergy:
+            banned_ingredients.update(['eggs', 'egg', 'omelet', 'omelette', 'mayonnaise'])
+        elif 'wheat' in allergy or 'gluten' in allergy:
+            banned_ingredients.update(['wheat', 'flour', 'bread', 'pasta', 'noodles'])
+        elif 'soy' in allergy:
+            banned_ingredients.update(['soy', 'tofu', 'soy sauce', 'tempeh', 'miso'])
+        else:
+            banned_ingredients.add(allergy)
+    
+    # Add dietary restriction-related banned ingredients
+    for restriction in restrictions_lower:
+        if 'vegetarian' in restriction:
+            banned_ingredients.update(['chicken', 'beef', 'pork', 'fish', 'salmon', 'tuna', 'turkey', 'lamb', 'meat', 'seafood', 'shrimp', 'bacon', 'ham'])
+        elif 'vegan' in restriction:
+            banned_ingredients.update(['chicken', 'beef', 'pork', 'fish', 'salmon', 'tuna', 'turkey', 'lamb', 'meat', 'seafood', 'shrimp', 'bacon', 'ham'])
+            banned_ingredients.update(['milk', 'cheese', 'butter', 'cream', 'yogurt', 'ice cream', 'eggs', 'egg'])
+        elif 'no dairy' in restriction or 'dairy-free' in restriction:
+            banned_ingredients.update(['milk', 'cheese', 'butter', 'cream', 'yogurt', 'ice cream'])
+        elif 'gluten-free' in restriction:
+            banned_ingredients.update(['wheat', 'flour', 'bread', 'pasta', 'noodles'])
+        elif 'low sodium' in restriction:
+            banned_ingredients.update(['salt', 'soy sauce', 'pickles', 'olives', 'bacon', 'ham'])
+        elif 'kosher' in restriction:
+            banned_ingredients.update(['pork', 'shellfish', 'bacon', 'ham'])
+        elif 'halal' in restriction:
+            banned_ingredients.update(['pork', 'alcohol', 'bacon', 'ham'])
+    
+    # Add strong dislikes
+    banned_ingredients.update(dislikes_lower)
+    
+    # Diet type enforcement
+    if 'vegetarian' in diet_type_lower:
+        banned_ingredients.update(['chicken', 'beef', 'pork', 'fish', 'salmon', 'tuna', 'turkey', 'lamb', 'meat', 'seafood', 'shrimp', 'bacon', 'ham'])
+    
+    print(f"[enforce_dietary_restrictions] Banned ingredients: {banned_ingredients}")
+    
+    def sanitize_meal(meal: str) -> str:
+        """Sanitize a meal to remove banned ingredients"""
+        meal_lower = meal.lower()
+        
+        # Check for banned ingredients
+        for banned in banned_ingredients:
+            if banned in meal_lower:
+                print(f"[enforce_dietary_restrictions] Found banned ingredient '{banned}' in meal '{meal}' - replacing")
+                
+                # Get appropriate replacement based on diet type
+                if 'vegetarian' in diet_type_lower or 'vegetarian' in restrictions_lower:
+                    if 'breakfast' in meal_lower:
+                        return "Oatmeal with fresh berries and almond milk"
+                    elif 'lunch' in meal_lower:
+                        return "Quinoa salad with mixed vegetables and tahini dressing"
+                    elif 'dinner' in meal_lower:
+                        return "Lentil curry with brown rice and steamed vegetables"
+                    else:
+                        return "Mixed nuts and fresh fruit"
+                else:
+                    if 'breakfast' in meal_lower:
+                        return "Scrambled eggs with whole grain toast"
+                    elif 'lunch' in meal_lower:
+                        return "Grilled chicken salad with olive oil dressing"
+                    elif 'dinner' in meal_lower:
+                        return "Baked salmon with roasted vegetables"
+                    else:
+                        return "Greek yogurt with berries"
+        
+        return meal
+    
+    # Sanitize all meals in the meal plan
+    sanitized_plan = meal_plan_data.copy()
+    
+    for meal_type in ['breakfast', 'lunch', 'dinner', 'snacks']:
+        if meal_type in sanitized_plan:
+            if isinstance(sanitized_plan[meal_type], list):
+                sanitized_plan[meal_type] = [sanitize_meal(meal) for meal in sanitized_plan[meal_type]]
+            elif isinstance(sanitized_plan[meal_type], str):
+                sanitized_plan[meal_type] = sanitize_meal(sanitized_plan[meal_type])
+    
+    # Also sanitize nested meal structures
+    if 'meals' in sanitized_plan:
+        for meal_type in ['breakfast', 'lunch', 'dinner', 'snack']:
+            if meal_type in sanitized_plan['meals']:
+                if isinstance(sanitized_plan['meals'][meal_type], list):
+                    sanitized_plan['meals'][meal_type] = [sanitize_meal(meal) for meal in sanitized_plan['meals'][meal_type]]
+                elif isinstance(sanitized_plan['meals'][meal_type], str):
+                    sanitized_plan['meals'][meal_type] = sanitize_meal(sanitized_plan['meals'][meal_type])
+    
+    print("[enforce_dietary_restrictions] Dietary compliance check completed")
+    return sanitized_plan
+
 def generate_meal_plan_prompt(user_profile: UserProfile) -> str:
     """Legacy function - now redirects to comprehensive profile handling"""
     # This function is deprecated - the main endpoint now uses comprehensive profiling
@@ -1035,6 +1156,7 @@ Provide 3-5 specific meal suggestions that:
 Focus on their specific health conditions, not just general advice."""
 
         elif query_type == "adaptive_plan":
+            days = specific_data.get('days', 7) if specific_data else 7
             prompt = f"""You are a comprehensive health coach AI creating adaptive meal plans for multiple health conditions.
 
 {condition_context}
@@ -1043,7 +1165,7 @@ Focus on their specific health conditions, not just general advice."""
 {consumption_context}
 {plan_context}
 
-Create a personalized 7-day meal plan that:
+Create a personalized {days}-day meal plan that:
 1. Addresses ALL the user's health conditions specifically
 2. Incorporates their favorite foods when condition-appropriate
 3. Respects all dietary restrictions and allergies
@@ -1055,13 +1177,13 @@ Create a personalized 7-day meal plan that:
 Provide a JSON response with the exact structure:
 {{
     "plan_name": "Personalized Health Plan - {datetime.now().strftime('%Y-%m-%d')}",
-    "duration_days": 7,
+    "duration_days": {days},
     "dailyCalories": {profile['calorie_target']},
     "health_focus": [list of their health conditions],
-    "breakfast": ["Day 1: [specific meal]", ...],
-    "lunch": ["Day 1: [specific meal]", ...],
-    "dinner": ["Day 1: [specific meal]", ...],
-    "snacks": ["Day 1: [specific snack]", ...],
+    "breakfast": [{', '.join([f'"Day {i+1}: [specific meal]"' for i in range(days)])}],
+    "lunch": [{', '.join([f'"Day {i+1}: [specific meal]"' for i in range(days)])}],
+    "dinner": [{', '.join([f'"Day {i+1}: [specific meal]"' for i in range(days)])}],
+    "snacks": [{', '.join([f'"Day {i+1}: [specific snack]"' for i in range(days)])}],
     "adaptations": ["Condition-specific adaptations based on their profile"],
     "coaching_notes": "Personalized notes for their health conditions and patterns"
 }}"""
@@ -1414,6 +1536,10 @@ REQUIREMENTS:
                 meal_plan = json.loads(raw_content)
                 print("Meal plan parsed successfully:")
                 print(json.dumps(meal_plan, indent=2))
+                
+                # CRITICAL: Enforce dietary restrictions before any other processing
+                meal_plan = enforce_dietary_restrictions(meal_plan, user_profile)
+                print("Dietary restrictions enforced successfully")
                 
                 # Validate meal plan structure
                 required_keys = ['breakfast', 'lunch', 'dinner', 'snacks', 'dailyCalories', 'macronutrients']
@@ -2072,13 +2198,6 @@ async def send_chat_message(
     message: ChatMessage,
     current_user: User = Depends(get_current_user)
 ):
-    # Save user message
-    user_message = await save_chat_message(
-        current_user["id"],
-        message.message,
-        is_user=True,
-        session_id=message.session_id
-    )
     
     # Get chat history for context
     chat_history = await format_chat_history_for_prompt(
@@ -2353,184 +2472,81 @@ async def save_user_profile(
     request: FastAPIRequest,
     current_user: User = Depends(get_current_user)
 ):
-    data = await request.json()
-    profile = data.get("profile")
-    if not profile:
-        raise HTTPException(status_code=400, detail="No profile data provided")
-    user_doc = await get_user_by_email(current_user["email"])
-    if not user_doc:
-        raise HTTPException(status_code=404, detail="User not found")
-    user_doc["profile"] = profile
-    user_container.replace_item(item=user_doc["id"], body=user_doc)
-    return {"message": "Profile saved"}
+    try:
+        data = await request.json()
+        profile = data.get("profile")
+        if not profile:
+            raise HTTPException(status_code=400, detail="No profile data provided")
+        
+        user_doc = await get_user_by_email(current_user["email"])
+        if not user_doc:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        # Update the profile
+        user_doc["profile"] = profile
+        user_doc["updated_at"] = datetime.utcnow().isoformat()
+        
+        # Save to database with proper error handling
+        try:
+            result = user_container.replace_item(item=user_doc["id"], body=user_doc)
+            print(f"Profile saved successfully for user {current_user['email']}")
+            
+            # Also create/update a separate profile record for easier querying
+            profile_record = {
+                "id": f"profile_{current_user['email']}",
+                "type": "user_profile",
+                "user_id": current_user["email"],
+                "profile": profile,
+                "updated_at": datetime.utcnow().isoformat(),
+                "created_at": user_doc.get("created_at", datetime.utcnow().isoformat())
+            }
+            
+            user_container.upsert_item(body=profile_record)
+            print(f"Profile record upserted for user {current_user['email']}")
+            
+        except Exception as db_error:
+            print(f"Database error saving profile: {str(db_error)}")
+            raise HTTPException(status_code=500, detail=f"Failed to save profile: {str(db_error)}")
+        
+        return {"message": "Profile saved successfully", "timestamp": datetime.utcnow().isoformat()}
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error saving profile: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 @app.get("/user/profile")
 async def get_user_profile(current_user: User = Depends(get_current_user)):
-    user_doc = await get_user_by_email(current_user["email"])
-    if not user_doc or "profile" not in user_doc:
-        return {}
-    return user_doc["profile"]
-
-@app.post("/generate-recipe")
-async def generate_recipe(
-    request: FastAPIRequest,
-    current_user: User = Depends(get_current_user)
-):
     try:
-        data = await request.json()
-        meal_name = data.get('meal_name')
-        user_profile = data.get('user_profile', {})
-        print("/generate-recipe endpoint called")
-        print("Meal name:", meal_name)
-        print("User profile:", user_profile)
+        user_doc = await get_user_by_email(current_user["email"])
+        if not user_doc:
+            raise HTTPException(status_code=404, detail="User not found")
         
-        if not meal_name:
-            raise HTTPException(status_code=400, detail="No meal name provided")
+        profile = user_doc.get("profile", {})
         
-        # Check if OpenAI client is properly configured
-        if not client:
-            print("ERROR: OpenAI client is not initialized")
-            raise HTTPException(status_code=500, detail="OpenAI client not configured")
+        # If no profile in user doc, try to get from separate profile record
+        if not profile:
+            try:
+                profile_query = f"SELECT * FROM c WHERE c.type = 'user_profile' AND c.user_id = '{current_user['email']}'"
+                profiles = list(user_container.query_items(query=profile_query, enable_cross_partition_query=True))
+                if profiles:
+                    profile = profiles[0].get('profile', {})
+            except Exception as e:
+                print(f"Error loading profile record: {str(e)}")
         
-        # Check environment variables
-        openai_key = os.getenv("AZURE_OPENAI_KEY")
-        openai_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
-        deployment_name = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME")
+        # If still no profile, return empty dict
+        if not profile:
+            print(f"No profile found for user {current_user['email']}")
+            return {}
         
-        print(f"OpenAI Key exists: {bool(openai_key)}")
-        print(f"OpenAI Endpoint: {openai_endpoint}")
-        print(f"Deployment Name: {deployment_name}")
-        
-        if not openai_key or not openai_endpoint or not deployment_name:
-            missing = []
-            if not openai_key: missing.append("AZURE_OPENAI_KEY")
-            if not openai_endpoint: missing.append("AZURE_OPENAI_ENDPOINT")
-            if not deployment_name: missing.append("AZURE_OPENAI_DEPLOYMENT_NAME")
-            error_msg = f"Missing environment variables: {', '.join(missing)}"
-            print(f"ERROR: {error_msg}")
-            raise HTTPException(status_code=500, detail=error_msg)
-        
-        # Create profile summary for recipe generation
-        def get_profile_value(profile, new_key, old_key=None, default='Not specified'):
-            value = profile.get(new_key)
-            if not value and old_key:
-                value = profile.get(old_key)
-            if isinstance(value, list) and value:
-                return ', '.join(value)
-            elif isinstance(value, list):
-                return default
-            return value or default
-
-        medical_summary = f"""
-MEDICAL CONDITIONS: {get_profile_value(user_profile, 'medicalConditions', 'medical_conditions', 'None')}
-CURRENT MEDICATIONS: {get_profile_value(user_profile, 'currentMedications', default='None')}
-DIETARY RESTRICTIONS: {get_profile_value(user_profile, 'dietaryRestrictions', default='None')}
-FOOD ALLERGIES: {get_profile_value(user_profile, 'allergies', default='None')}
-FOOD DISLIKES: {get_profile_value(user_profile, 'strongDislikes', default='None')}
-**PREFERRED CUISINE TYPE: {get_profile_value(user_profile, 'dietType', 'diet_type', 'Standard')}** ⭐ MUST FOLLOW THIS CUISINE STYLE ⭐
-DIETARY FEATURES: {get_profile_value(user_profile, 'dietaryFeatures', 'diet_features', 'None')}
-AVAILABLE APPLIANCES: {get_profile_value(user_profile, 'availableAppliances', default='Standard kitchen equipment')}
-MEAL PREP CAPABILITY: {get_profile_value(user_profile, 'mealPrepCapability', default='Self-prepared')}
-        """
-
-        prompt = f"""Generate a detailed, medically-appropriate recipe for: {meal_name}
-
-PATIENT MEDICAL & DIETARY CONTEXT:
-{medical_summary}
-
-CRITICAL REQUIREMENTS:
-1. MEDICAL SAFETY: Ensure recipe is safe for all listed medical conditions
-2. MEDICATION INTERACTIONS: Avoid ingredients that may interact with medications
-3. DIETARY COMPLIANCE: Strictly adhere to dietary restrictions and allergies
-4. CUISINE TYPE ADHERENCE: **CRITICALLY IMPORTANT** - Follow the specified cuisine type exactly:
-   - If "Western" or "European": Use Western/European cooking methods, ingredients, and flavors
-   - If "Mediterranean": Use Mediterranean ingredients like olive oil, herbs, fish, vegetables
-   - If "South Asian": Use appropriate spices, cooking methods, and traditional ingredients
-   - If "East Asian": Use Asian cooking techniques, sauces, and ingredients
-   - If "Caribbean": Use Caribbean spices, cooking methods, and traditional ingredients
-5. EQUIPMENT CONSTRAINTS: Only use available appliances and match meal prep capability
-6. DIABETES-FRIENDLY: Ensure appropriate carbohydrate content and glycemic index
-
-Please provide:
-1. A list of ingredients with precise quantities
-2. Step-by-step preparation instructions
-3. Cooking tips for the specified medical conditions
-4. Nutritional information per serving
-
-Format the response as a JSON object with the following structure:
-{{
-    "name": "Recipe Name",
-    "ingredients": ["ingredient1 with quantity", "ingredient2 with quantity", ...],
-    "instructions": ["step1", "step2", ...],
-    "nutritional_info": {{
-        "calories": "number with unit, e.g. '115 kcal'",
-        "protein": "number with unit, e.g. '3g'",
-        "carbs": "number with unit, e.g. '16g'",
-        "fat": "number with unit, e.g. '4g'"
-    }}
-}}"""
-        
-        print("Prompt for OpenAI:")
-        print(prompt[:200] + "..." if len(prompt) > 200 else prompt)
-        
-        try:
-            print("Calling OpenAI API...")
-            response = client.chat.completions.create(
-                model=deployment_name,
-                messages=[
-                    {"role": "system", "content": "You are a diabetes diet planning assistant."},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.7,
-                max_tokens=2000,
-            )
-            print("OpenAI response received successfully")
-        except Exception as openai_error:
-            print(f"OpenAI API Error: {type(openai_error).__name__}: {str(openai_error)}")
-            # Check for common OpenAI errors
-            if "rate_limit" in str(openai_error).lower():
-                raise HTTPException(status_code=429, detail="OpenAI rate limit exceeded. Please try again later.")
-            elif "quota" in str(openai_error).lower():
-                raise HTTPException(status_code=503, detail="OpenAI quota exceeded. Please check your API limits.")
-            elif "authentication" in str(openai_error).lower() or "401" in str(openai_error):
-                raise HTTPException(status_code=500, detail="OpenAI authentication failed. Please check API credentials.")
-            elif "network" in str(openai_error).lower() or "connection" in str(openai_error).lower():
-                raise HTTPException(status_code=502, detail="Network error connecting to OpenAI. Please try again.")
-            else:
-                raise HTTPException(status_code=500, detail=f"OpenAI API error: {str(openai_error)}")
-        
-        raw_content = response.choices[0].message.content
-        print("Raw OpenAI response received")
-        print(f"Response length: {len(raw_content) if raw_content else 0}")
-        
-        if not raw_content:
-            raise HTTPException(status_code=500, detail="Empty response from OpenAI")
-        
-        # Remove Markdown code block if present
-        if raw_content.strip().startswith('```'):
-            raw_content = re.sub(r'^```[a-zA-Z]*\s*|```$', '', raw_content.strip(), flags=re.MULTILINE).strip()
-        
-        try:
-            recipe = json.loads(raw_content)
-            print("Successfully parsed recipe JSON")
-            print(f"Recipe name: {recipe.get('name', 'Unknown')}")
-        except json.JSONDecodeError as parse_err:
-            print(f"JSON parsing error: {str(parse_err)}")
-            print(f"Raw content (first 500 chars): {raw_content[:500]}")
-            raise HTTPException(status_code=500, detail=f"Invalid JSON response from OpenAI: {str(parse_err)}")
-        except Exception as parse_err:
-            print(f"Unexpected parsing error: {str(parse_err)}")
-            raise HTTPException(status_code=500, detail=f"Error parsing OpenAI response: {str(parse_err)}")
-        
-        return recipe
-        
+        print(f"Profile loaded successfully for user {current_user['email']}")
+        return profile
+    
     except HTTPException:
-        # Re-raise HTTP exceptions as-is
         raise
     except Exception as e:
-        print(f"Unexpected error in /generate-recipe: {type(e).__name__}: {str(e)}")
-        import traceback
-        traceback.print_exc()
+        print(f"Error loading profile: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 @app.get("/user/shopping-list")
@@ -5026,9 +5042,9 @@ Generate a complete meal plan for today:
 }}
 
 Examples of appropriate dishes:
-- Breakfast: "Steel-cut oats with almond milk, cinnamon, and fresh blueberries"
-- Lunch: "Mediterranean quinoa salad with chickpeas, cucumber, and olive oil"
-- Dinner: "Black bean and sweet potato curry with brown rice"
+- Breakfast: "Steel-cut oats with almond milk and fresh berries"
+- Lunch: "Quinoa Buddha bowl with roasted vegetables and tahini"
+- Dinner: "Lentil curry with brown rice and steamed broccoli"
 - Snack: "Apple slices with almond butter"
 
 Ensure ALL dishes are completely vegetarian and egg-free."""
@@ -5226,6 +5242,13 @@ async def create_adaptive_meal_plan(
         # Use requested cuisine type or fall back to profile preferences
         cuisine_preference = req_cuisine if req_cuisine else ', '.join(diet_type) if diet_type else 'Mixed international'
         
+        # Create dynamic meal plan structure for the prompt
+        day_examples = []
+        for day_num in range(1, req_days + 1):
+            day_examples.append(f'"Day {day_num}: [specific meal with portions]"')
+        
+        day_examples_str = ", ".join(day_examples)
+        
         # Create comprehensive adaptive meal plan prompt
         prompt = f"""Create a personalized {req_days}-day diabetes-friendly meal plan based on this user's analysis:
         
@@ -5262,15 +5285,15 @@ Provide a JSON response with this exact structure:
             "duration_days": {req_days},
     "dailyCalories": {target_calories},
     "macronutrients": {{"protein": {int(target_calories * 0.2 / 4)}, "carbs": {int(target_calories * 0.45 / 4)}, "fats": {int(target_calories * 0.35 / 9)}}},
-    "breakfast": ["Day 1: [specific breakfast with portions]", "Day 2: [specific breakfast with portions]", "Day 3: [specific breakfast with portions]", "Day 4: [specific breakfast with portions]", "Day 5: [specific breakfast with portions]", "Day 6: [specific breakfast with portions]", "Day 7: [specific breakfast with portions]"],
-    "lunch": ["Day 1: [specific lunch with portions]", "Day 2: [specific lunch with portions]", "Day 3: [specific lunch with portions]", "Day 4: [specific lunch with portions]", "Day 5: [specific lunch with portions]", "Day 6: [specific lunch with portions]", "Day 7: [specific lunch with portions]"],
-    "dinner": ["Day 1: [specific dinner with portions]", "Day 2: [specific dinner with portions]", "Day 3: [specific dinner with portions]", "Day 4: [specific dinner with portions]", "Day 5: [specific dinner with portions]", "Day 6: [specific dinner with portions]", "Day 7: [specific dinner with portions]"],
-    "snacks": ["Day 1: [specific snack]", "Day 2: [specific snack]", "Day 3: [specific snack]", "Day 4: [specific snack]", "Day 5: [specific snack]", "Day 6: [specific snack]", "Day 7: [specific snack]"],
+    "breakfast": [{day_examples_str}],
+    "lunch": [{day_examples_str}],
+    "dinner": [{day_examples_str}],
+    "snacks": [{day_examples_str}],
     "adaptations": ["Based on your {adherence_rate:.0f}% diabetes adherence rate, this plan focuses on [specific adaptations]", "Incorporated your favorite foods: {', '.join(favorite_foods_list[:3]) if favorite_foods_list else 'general healthy options'}", "Adjusted calories from your average {avg_daily_calories:.0f} to target {target_calories}"],
     "coaching_notes": "This adaptive plan is personalized based on your eating patterns over the last 30 days. [Add specific coaching based on adherence rate and patterns]"
 }}
 
-Make each meal specific with exact portions and cooking methods. Ensure all 7 days are included for each meal type."""
+Make each meal specific with exact portions and cooking methods. Ensure all {req_days} days are included for each meal type."""
         
         try:
             response = client.chat.completions.create(
@@ -5297,6 +5320,16 @@ Make each meal specific with exact portions and cooking methods. Ensure all 7 da
             if start_idx != -1 and end_idx != -1:
                 json_str = ai_content[start_idx:end_idx]
                 meal_plan_data = json.loads(json_str)
+                
+                # CRITICAL: Enforce dietary restrictions for adaptive meal plan
+                user_profile_dict = {
+                    'dietaryRestrictions': dietary_restrictions,
+                    'allergies': allergies,
+                    'strongDislikes': strong_dislikes,
+                    'dietType': diet_type
+                }
+                meal_plan_data = enforce_dietary_restrictions(meal_plan_data, user_profile_dict)
+                print("Dietary restrictions enforced for adaptive meal plan")
             else:
                 raise json.JSONDecodeError("No JSON found", ai_content, 0)
                 
@@ -5343,24 +5376,16 @@ Make each meal specific with exact portions and cooking methods. Ensure all 7 da
                 "macronutrients": {"protein": int(target_calories * 0.2 / 4), "carbs": int(target_calories * 0.45 / 4), "fats": int(target_calories * 0.35 / 9)},
                 "breakfast": [f"Day {i+1}: {meal}" for i, meal in enumerate(fallback_breakfast)],
                 "lunch": [f"Day {i+1}: {meal}" for i, meal in enumerate(fallback_lunch)],
-                "dinner": [
-                    "Day 1: Baked cod (5 oz) with roasted Brussels sprouts and sweet potato",
-                    "Day 2: Lean beef stir-fry with bell peppers and brown rice",
-                    "Day 3: Grilled chicken breast with asparagus and quinoa",
-                    "Day 4: Baked salmon with roasted vegetables",
-                    "Day 5: Turkey meatballs with zucchini noodles and marinara",
-                    "Day 6: Pork tenderloin with roasted cauliflower and green beans",
-                    "Day 7: Vegetarian chili with side of mixed greens"
-                ],
-                "snacks": [
-                    "Day 1: Apple slices with almond butter (1 tbsp)",
-                    "Day 2: Handful of mixed nuts (1 oz)",
-                    "Day 3: Celery sticks with hummus (2 tbsp)",
-                    "Day 4: Greek yogurt (1/2 cup) with cinnamon",
-                    "Day 5: Hard-boiled egg with cucumber slices",
-                    "Day 6: Berries (1/2 cup) with cottage cheese",
-                    "Day 7: Vegetable sticks with guacamole"
-                ],
+                "dinner": [f"Day {i+1}: {meal}" for i, meal in enumerate(fallback_dinner)],
+                "snacks": [f"Day {i+1}: {snack}" for i, snack in enumerate([
+                    "Apple slices with almond butter (1 tbsp)",
+                    "Handful of mixed nuts (1 oz)",
+                    "Celery sticks with hummus (2 tbsp)",
+                    "Greek yogurt (1/2 cup) with cinnamon",
+                    "Hard-boiled egg with cucumber slices",
+                    "Berries (1/2 cup) with cottage cheese",
+                    "Vegetable sticks with guacamole"
+                ][:req_days])],
                 "adaptations": [
                     f"Based on your {adherence_rate:.0f}% diabetes adherence rate, this plan emphasizes low-glycemic foods",
                     f"Incorporated your eating patterns from {total_recent_meals} recent meals",
@@ -7541,7 +7566,7 @@ def generate_consumption_pdf_section(consumption_history: List[dict], styles):
     summary_table = Table(summary_data, colWidths=[2.5*inch, 2*inch])
     summary_table.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (0,-1), colors.HexColor('#E8F5E8')),
-        ('FONTNAME', (0,0), (0,-1), 'Helvetica-Bold'),
+        ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
         ('FONTSIZE', (0,0), (-1,-1), 10),
         ('GRID', (0,0), (-1,-1), 1, colors.HexColor('#4CAF50')),
         ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
