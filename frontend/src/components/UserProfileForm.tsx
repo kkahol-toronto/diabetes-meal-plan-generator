@@ -39,6 +39,7 @@ import FitnessIcon from '@mui/icons-material/FitnessCenter';
 import HomeIcon from '@mui/icons-material/Home';
 import TrackChangesIcon from '@mui/icons-material/TrackChanges';
 import { UserProfile } from '../types';
+import config from '../config/environment';
 
 interface UserProfileFormProps {
   onSubmit: (profile: UserProfile) => void;
@@ -171,28 +172,87 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({
     }
   }, [profile.height, profile.weight]);
 
-  // Auto-save functionality
+  // Auto-save functionality with database persistence
   useEffect(() => {
-    const timeoutId = setTimeout(() => {
+    const timeoutId = setTimeout(async () => {
+      // Save to localStorage for immediate access
       localStorage.setItem('userProfile', JSON.stringify(profile));
-    }, 1000);
+      
+      // Also save to database for persistence
+      await saveProfileToDatabase(profile);
+    }, 2000); // Increased delay to reduce API calls
 
     return () => clearTimeout(timeoutId);
   }, [profile]);
 
-  // Load saved profile on mount
+  const saveProfileToDatabase = async (profileData: UserProfile) => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) return; // User not logged in, skip database save
+
+      const response = await fetch(`${config.API_URL}/user/profile`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({ profile: profileData }),
+      });
+
+      if (response.ok) {
+        console.log('Profile saved to database successfully');
+      } else {
+        console.error('Failed to save profile to database');
+      }
+    } catch (error) {
+      console.error('Error saving profile to database:', error);
+    }
+  };
+
+  // Load saved profile on mount - try database first, then localStorage
   useEffect(() => {
-    if (!initialProfile) {
-      const savedProfile = localStorage.getItem('userProfile');
-      if (savedProfile) {
-        try {
-          const parsed = JSON.parse(savedProfile);
-          setProfile(prev => ({ ...prev, ...normalizeProfile(parsed) }));
-        } catch (error) {
-          console.error('Error loading saved profile:', error);
+    const loadProfile = async () => {
+      if (!initialProfile) {
+        const token = localStorage.getItem('token');
+        
+        // Try to load from database first
+        if (token) {
+          try {
+            const response = await fetch(`${config.API_URL}/user/profile`, {
+              method: 'GET',
+              headers: {
+                'Authorization': `Bearer ${token}`,
+              },
+            });
+
+            if (response.ok) {
+              const profileData = await response.json();
+              if (profileData && Object.keys(profileData).length > 0) {
+                console.log('Profile loaded from database successfully');
+                setProfile(prev => ({ ...prev, ...normalizeProfile(profileData) }));
+                return; // Exit early if database load was successful
+              }
+            }
+          } catch (error) {
+            console.error('Error loading profile from database:', error);
+          }
+        }
+
+        // Fallback to localStorage if database load failed or user not logged in
+        const savedProfile = localStorage.getItem('userProfile');
+        if (savedProfile) {
+          try {
+            const parsed = JSON.parse(savedProfile);
+            console.log('Profile loaded from localStorage as fallback');
+            setProfile(prev => ({ ...prev, ...normalizeProfile(parsed) }));
+          } catch (error) {
+            console.error('Error loading saved profile from localStorage:', error);
+          }
         }
       }
-    }
+    };
+
+    loadProfile();
   }, [initialProfile]);
 
   const handleInputChange = (field: keyof UserProfile, value: any) => {

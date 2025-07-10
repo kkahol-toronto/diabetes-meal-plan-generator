@@ -296,6 +296,7 @@ const HomePage: React.FC = () => {
   const [showProfileAlert, setShowProfileAlert] = useState(false);
   const [showQuickLogDialog, setShowQuickLogDialog] = useState(false);
   const [quickLogFood, setQuickLogFood] = useState('');
+  const [quickLogMealType, setQuickLogMealType] = useState('');
   const [tabValue, setTabValue] = useState(0);
   const [macroTimeRange, setMacroTimeRange] = useState<'daily' | 'weekly' | 'bi-weekly' | 'monthly'>('daily');
   const [macroConsumptionAnalytics, setMacroConsumptionAnalytics] = useState<any>(null);
@@ -307,6 +308,11 @@ const HomePage: React.FC = () => {
   const [analyticsTabValue, setAnalyticsTabValue] = useState(0); // For Daily, Weekly, etc. tabs
   const [selectedTimeRange, setSelectedTimeRange] = useState<'daily' | 'weekly' | 'bi-weekly' | 'monthly'>('daily');
   const [consumptionAnalytics, setConsumptionAnalytics] = useState<any>(null);
+  
+  // Adaptive Plan Dialog state
+  const [showAdaptivePlanDialog, setShowAdaptivePlanDialog] = useState(false);
+  const [adaptivePlanDays, setAdaptivePlanDays] = useState(7);
+  const [adaptivePlanCuisine, setAdaptivePlanCuisine] = useState('');
   
   // Carousel state
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
@@ -512,6 +518,19 @@ const HomePage: React.FC = () => {
   const handleQuickLogFood = async () => {
     if (!quickLogFood.trim()) return;
     
+    // Auto-determine meal type based on current time if not explicitly selected
+    const determineMealType = () => {
+      if (quickLogMealType) return quickLogMealType;
+      
+      const hour = new Date().getHours();
+      if (hour >= 5 && hour < 11) return 'breakfast';
+      if (hour >= 11 && hour < 16) return 'lunch';
+      if (hour >= 16 && hour < 22) return 'dinner';
+      return 'snack';
+    };
+
+    const mealType = determineMealType();
+    
     try {
       setLoading(true, 'Analyzing and logging food...');
       
@@ -521,13 +540,18 @@ const HomePage: React.FC = () => {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ food_name: quickLogFood, portion: 'medium portion' }),
+        body: JSON.stringify({ 
+          food_name: quickLogFood, 
+          portion: 'medium portion',
+          meal_type: mealType
+        }),
       });
 
       if (response.ok) {
         await response.json();
-        showNotification(`✅ Successfully logged: ${quickLogFood}`, 'success');
+        showNotification(`✅ Successfully logged: ${quickLogFood} (${mealType})`, 'success');
         setQuickLogFood('');
+        setQuickLogMealType('');
         setShowQuickLogDialog(false);
         fetchAllData(); // Refresh all data
       } else {
@@ -541,13 +565,6 @@ const HomePage: React.FC = () => {
   };
 
   const handleCreateAdaptivePlan = async () => {
-    // Ask a couple of quick questions first (super-light UX – window.prompt for now)
-    const daysStr = window.prompt('📅 How many days should the adaptive plan cover? (1-7)', '1');
-    if (daysStr === null) return; // User cancelled
-    const days = Math.min(Math.max(parseInt(daysStr || '1', 10) || 1, 1), 7);
-
-    const cuisineType = window.prompt('🍽️ Preferred cuisine type (leave blank to use your profile preference):', '') || '';
-
     try {
       setAdaptivePlanLoading(true);
       setLoading(true, 'Creating your personalized meal plan...');
@@ -558,13 +575,17 @@ const HomePage: React.FC = () => {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ days, cuisine_type: cuisineType }),
+        body: JSON.stringify({ 
+          days: adaptivePlanDays, 
+          cuisine_type: adaptivePlanCuisine 
+        }),
       });
 
       if (response.ok) {
         await response.json();
         showNotification('🎉 Your adaptive meal plan has been created!', 'success');
         navigate('/meal_plans');
+        setShowAdaptivePlanDialog(false);
       } else {
         throw new Error('Failed to create adaptive meal plan');
       }
@@ -572,6 +593,140 @@ const HomePage: React.FC = () => {
       showNotification('Failed to create meal plan. Please try again.', 'error');
     } finally {
       setAdaptivePlanLoading(false);
+      setLoading(false);
+    }
+  };
+
+  const handleOpenAdaptivePlanDialog = () => {
+    setShowAdaptivePlanDialog(true);
+    // Set default values based on user profile if available
+    if (userProfile?.dietType?.length > 0) {
+      setAdaptivePlanCuisine(userProfile.dietType[0]);
+    }
+  };
+
+  const handleGenerateRecipes = async () => {
+    try {
+      setLoading(true, 'Generating recipes from your meal plan...');
+      
+      // Check if user has a meal plan
+      if (!todaysMealPlan && !hasGeneratedMealPlans) {
+        showNotification('Please create a meal plan first to generate recipes.', 'warning');
+        navigate('/meal-plan-request');
+        return;
+      }
+
+      // Get the latest meal plan to generate recipes from
+      const latestMealPlan = todaysMealPlan || {
+        breakfast: ['Oatmeal with berries', 'Greek yogurt with nuts'],
+        lunch: ['Grilled chicken salad', 'Quinoa bowl with vegetables'],
+        dinner: ['Baked salmon with vegetables', 'Turkey stir-fry with brown rice'],
+        snacks: ['Apple with almond butter', 'Mixed nuts']
+      };
+
+      const response = await fetch(`${config.API_URL}/generate-recipes`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ meal_plan: latestMealPlan }),
+      });
+
+      if (response.ok) {
+        showNotification('🍳 Recipes generated successfully!', 'success');
+        navigate('/my-recipes');
+      } else {
+        throw new Error('Failed to generate recipes');
+      }
+    } catch (err) {
+      showNotification('Failed to generate recipes. Please try again.', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleGenerateShoppingList = async () => {
+    try {
+      setLoading(true, 'Creating your shopping list...');
+      
+      // Check if user has a meal plan
+      if (!todaysMealPlan && !hasGeneratedMealPlans) {
+        showNotification('Please create a meal plan first to generate a shopping list.', 'warning');
+        navigate('/meal-plan-request');
+        return;
+      }
+
+      // Get the latest meal plan to generate shopping list from
+      const latestMealPlan = todaysMealPlan || {
+        breakfast: ['Oatmeal with berries', 'Greek yogurt with nuts'],
+        lunch: ['Grilled chicken salad', 'Quinoa bowl with vegetables'],
+        dinner: ['Baked salmon with vegetables', 'Turkey stir-fry with brown rice'],
+        snacks: ['Apple with almond butter', 'Mixed nuts']
+      };
+
+      const response = await fetch(`${config.API_URL}/generate-shopping-list`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ meal_plan: latestMealPlan }),
+      });
+
+      if (response.ok) {
+        showNotification('🛒 Shopping list created successfully!', 'success');
+        navigate('/my-shopping-lists');
+      } else {
+        throw new Error('Failed to generate shopping list');
+      }
+    } catch (err) {
+      showNotification('Failed to create shopping list. Please try again.', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleInsightAction = async (action: string, category: string) => {
+    try {
+      setLoading(true, `Processing ${action}...`);
+      
+      switch (action) {
+        case 'View Details':
+          // Navigate to detailed analytics
+          navigate('/consumption-history');
+          break;
+          
+        case 'Keep Going':
+          // Encourage the user and show progress
+          showNotification(`Great job on your ${category}! Keep up the excellent work! 🎉`, 'success');
+          break;
+          
+        case 'Get Recommendations':
+          // Get AI recommendations for this category
+          const response = await fetch(`${config.API_URL}/coach/recommendations`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ category, context: 'detailed_recommendations' }),
+          });
+
+          if (response.ok) {
+            const result = await response.json();
+            showNotification(`💡 AI Recommendation: ${result.recommendation || 'Keep following your current plan - you\'re doing great!'}`, 'info');
+          } else {
+            showNotification('Here\'s a tip: Focus on consistent meal timing and portion control for better diabetes management.', 'info');
+          }
+          break;
+          
+        default:
+          showNotification('Feature coming soon!', 'info');
+      }
+    } catch (err) {
+      showNotification('Unable to process request. Please try again.', 'error');
+    } finally {
       setLoading(false);
     }
   };
@@ -1760,7 +1915,7 @@ const HomePage: React.FC = () => {
                 </Typography>
                 <Button
                   variant="contained"
-                  onClick={handleCreateAdaptivePlan}
+                  onClick={handleOpenAdaptivePlanDialog}
                   disabled={adaptivePlanLoading}
                   startIcon={adaptivePlanLoading ? <CircularProgress size={20} /> : <PlanIcon />}
                   fullWidth
@@ -1774,8 +1929,8 @@ const HomePage: React.FC = () => {
                 </Typography>
                 <ButtonGroup variant="outlined" fullWidth>
                   <Button onClick={() => navigate('/meal_plans')}>View Plans</Button>
-                  <Button onClick={() => navigate('/my-recipes')}>Recipes</Button>
-                  <Button onClick={() => navigate('/my-shopping-lists')}>Shopping</Button>
+                  <Button onClick={handleGenerateRecipes}>Generate Recipes</Button>
+                  <Button onClick={handleGenerateShoppingList}>Shopping List</Button>
                 </ButtonGroup>
               </CardContent>
             </Card>
@@ -1800,7 +1955,11 @@ const HomePage: React.FC = () => {
                           {insight.message}
                         </Typography>
                         {insight.action && (
-                          <Button size="small" sx={{ mt: 1 }}>
+                          <Button 
+                            size="small" 
+                            sx={{ mt: 1 }}
+                            onClick={() => handleInsightAction(insight.action, insight.category)}
+                          >
                             {insight.action}
                           </Button>
                         )}
@@ -1878,10 +2037,29 @@ const HomePage: React.FC = () => {
             variant="outlined"
             value={quickLogFood}
             onChange={(e) => setQuickLogFood(e.target.value)}
-            onKeyPress={(e) => e.key === 'Enter' && handleQuickLogFood()}
+            onKeyPress={(e) => e.key === 'Enter' && !quickLogMealType && handleQuickLogFood()}
+            sx={{ mb: 2 }}
           />
+          <FormControl fullWidth variant="outlined" sx={{ mb: 1 }}>
+            <InputLabel>Meal Type</InputLabel>
+            <Select
+              value={quickLogMealType}
+              onChange={(e) => setQuickLogMealType(e.target.value)}
+              label="Meal Type"
+              onKeyPress={(e) => e.key === 'Enter' && handleQuickLogFood()}
+            >
+              <MenuItem value="">
+                <em>Auto-detect from time</em>
+              </MenuItem>
+              <MenuItem value="breakfast">Breakfast</MenuItem>
+              <MenuItem value="lunch">Lunch</MenuItem>
+              <MenuItem value="dinner">Dinner</MenuItem>
+              <MenuItem value="snack">Snack</MenuItem>
+            </Select>
+          </FormControl>
           <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-            Our AI will analyze the nutrition and diabetes suitability automatically.
+            Our AI will analyze the nutrition and diabetes suitability automatically. 
+            {!quickLogMealType && ' Meal type will be auto-detected based on current time.'}
           </Typography>
         </DialogContent>
         <DialogActions>
@@ -1951,6 +2129,50 @@ const HomePage: React.FC = () => {
             startIcon={aiCoachLoading ? <CircularProgress size={20} /> : <CoachIcon />}
           >
             {aiCoachLoading ? 'Thinking...' : 'Ask'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Adaptive Plan Dialog */}
+      <Dialog open={showAdaptivePlanDialog} onClose={() => setShowAdaptivePlanDialog(false)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center' }}>
+          <PlanIcon sx={{ mr: 1 }} />
+          Create Adaptive Meal Plan
+        </DialogTitle>
+        <DialogContent>
+          <TextField
+            autoFocus
+            margin="dense"
+            label="Number of Days"
+            type="number"
+            fullWidth
+            value={adaptivePlanDays}
+            onChange={(e) => setAdaptivePlanDays(Math.max(1, parseInt(e.target.value || '1', 10)))}
+            InputProps={{ inputProps: { min: 1, max: 7 } }}
+            sx={{ mb: 2 }}
+          />
+          <TextField
+            margin="dense"
+            label="Preferred Cuisine Type (e.g., Mediterranean, Asian, Vegan)"
+            fullWidth
+            value={adaptivePlanCuisine}
+            onChange={(e) => setAdaptivePlanCuisine(e.target.value)}
+            sx={{ mb: 2 }}
+          />
+          <Typography variant="body2" color="text.secondary">
+            We'll create a meal plan that adapts to your dietary preferences and eating history.
+            The plan will cover {adaptivePlanDays} days.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setShowAdaptivePlanDialog(false)}>Cancel</Button>
+          <Button 
+            onClick={handleCreateAdaptivePlan} 
+            variant="contained"
+            disabled={adaptivePlanLoading}
+            startIcon={adaptivePlanLoading ? <CircularProgress size={20} /> : <PlanIcon />}
+          >
+            {adaptivePlanLoading ? 'Creating...' : 'Create Plan'}
           </Button>
         </DialogActions>
       </Dialog>

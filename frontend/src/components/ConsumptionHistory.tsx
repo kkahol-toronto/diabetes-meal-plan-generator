@@ -339,33 +339,45 @@ const ConsumptionHistory: React.FC = () => {
   const generateChartData = (metric: keyof NutritionalInfo) => {
     if (!analytics?.daily_nutrition_history) return null;
 
-    const data = analytics.daily_nutrition_history.slice(-parseInt(selectedTimeRange));
-    const labels = data.map(day => formatDate(day.date));
-    const values = data.map(day => (day as any)[metric] || 0);
+    // Use all available data since backend filters by time range
+    const data = analytics.daily_nutrition_history;
+    
+    if (!data || data.length === 0) return null;
 
     const chartConfig = chartConfigs.find(config => config.metric === metric);
     const color = chartConfig?.color || '#45B7D1';
 
     if (selectedChartType === 'pie' || selectedChartType === 'doughnut') {
       // For pie charts, show distribution across meal types
-      const mealDistribution = analytics.meal_distribution;
+      const mealDistribution = analytics.meal_distribution || {};
+      const labels = Object.keys(mealDistribution);
+      const values = Object.values(mealDistribution);
+      
+      if (labels.length === 0) return null;
+
       return {
-        labels: Object.keys(mealDistribution),
+        labels: labels.map(label => label.charAt(0).toUpperCase() + label.slice(1)),
         datasets: [{
-          data: Object.values(mealDistribution),
-          backgroundColor: ['#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A'],
+          data: values,
+          backgroundColor: ['#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A', '#98D8C8', '#F7DC6F'],
           borderWidth: 2,
-          borderColor: '#fff'
+          borderColor: '#fff',
+          hoverOffset: 4
         }]
       };
     }
+
+    // For line and bar charts, sort data by date and show time series
+    const sortedData = [...data].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    const labels = sortedData.map(day => formatDate(day.date));
+    const values = sortedData.map(day => (day as any)[metric] || 0);
 
     return {
       labels,
       datasets: [{
         label: chartConfig?.title || metric,
         data: values,
-        backgroundColor: selectedChartType === 'line' ? 'transparent' : color,
+        backgroundColor: selectedChartType === 'line' ? 'rgba(0,0,0,0.05)' : color,
         borderColor: color,
         borderWidth: 2,
         fill: selectedChartType === 'line',
@@ -373,65 +385,121 @@ const ConsumptionHistory: React.FC = () => {
         pointBackgroundColor: color,
         pointBorderColor: '#fff',
         pointBorderWidth: 2,
-        pointRadius: 4
+        pointRadius: 4,
+        pointHoverRadius: 6
       }]
     };
   };
 
   const getChartOptions = (metric: keyof NutritionalInfo) => {
     const chartConfig = chartConfigs.find(config => config.metric === metric);
+    const selectedTimeRangeLabel = timeRanges.find(r => r.value === selectedTimeRange)?.label || 'Selected Period';
     
-    return {
+    const baseOptions = {
       responsive: true,
       maintainAspectRatio: false,
+      interaction: {
+        mode: 'index' as const,
+        intersect: false,
+      },
       plugins: {
         legend: {
           position: 'top' as const,
           labels: {
             usePointStyle: true,
-            padding: 20
+            padding: 20,
+            font: {
+              size: 12
+            }
           }
         },
         title: {
           display: true,
-          text: `${chartConfig?.title || metric} - ${timeRanges.find(r => r.value === selectedTimeRange)?.label}`,
+          text: `${chartConfig?.title || metric} - ${selectedTimeRangeLabel}`,
           font: {
             size: 16,
             weight: 'bold' as const
-          }
+          },
+          padding: 20
         },
         tooltip: {
           backgroundColor: 'rgba(0,0,0,0.8)',
           titleColor: '#fff',
           bodyColor: '#fff',
           borderColor: chartConfig?.color || '#45B7D1',
-          borderWidth: 1
-        }
-      },
-      scales: selectedChartType === 'pie' || selectedChartType === 'doughnut' ? {} : {
-        y: {
-          beginAtZero: true,
-          grid: {
-            color: 'rgba(0,0,0,0.1)'
-          },
-          ticks: {
-            font: {
-              size: 12
-            }
-          }
-        },
-        x: {
-          grid: {
-            color: 'rgba(0,0,0,0.1)'
-          },
-          ticks: {
-            font: {
-              size: 12
+          borderWidth: 1,
+          cornerRadius: 6,
+          displayColors: true,
+          callbacks: {
+            label: function(context: any) {
+              const label = context.dataset.label || '';
+              const value = context.parsed.y || context.parsed || 0;
+              const unit = metric === 'calories' ? 'kcal' : 
+                          metric === 'sodium' ? 'mg' : 'g';
+              return `${label}: ${value.toFixed(1)} ${unit}`;
             }
           }
         }
       }
     };
+
+    // Add scales only for bar and line charts
+    if (selectedChartType !== 'pie' && selectedChartType !== 'doughnut') {
+      const unit = metric === 'calories' ? 'kcal' : 
+                   metric === 'sodium' ? 'mg' : 'g';
+      
+      return {
+        ...baseOptions,
+        scales: {
+          y: {
+            beginAtZero: true,
+            grid: {
+              color: 'rgba(0,0,0,0.1)',
+              borderDash: [5, 5]
+            },
+            ticks: {
+              font: {
+                size: 12
+              },
+              callback: function(value: any) {
+                return `${value} ${unit}`;
+              }
+            },
+            title: {
+              display: true,
+              text: `${chartConfig?.title || metric} (${unit})`,
+              font: {
+                size: 14,
+                weight: 'bold' as const
+              }
+            }
+          },
+          x: {
+            grid: {
+              color: 'rgba(0,0,0,0.1)',
+              borderDash: [5, 5]
+            },
+            ticks: {
+              font: {
+                size: 12
+              },
+              maxRotation: 45,
+              minRotation: 0
+            },
+            title: {
+              display: true,
+              text: 'Time Period',
+              font: {
+                size: 14,
+                weight: 'bold' as const
+              }
+            }
+          }
+        }
+      };
+    }
+
+    return baseOptions;
   };
 
   const renderChart = (metric: keyof NutritionalInfo) => {
@@ -439,29 +507,53 @@ const ConsumptionHistory: React.FC = () => {
     if (!data) return <Typography>No data available</Typography>;
 
     const options = getChartOptions(metric);
+    
+    // Create a unique key to force chart re-rendering when time range or chart type changes
+    const chartKey = `${selectedTimeRange}-${selectedChartType}-${metric}`;
 
     switch (selectedChartType) {
       case 'bar':
-        return <Bar data={data} options={options} />;
+        return <Bar key={chartKey} data={data} options={options} />;
       case 'line':
-        return <Line data={data} options={options} />;
+        return <Line key={chartKey} data={data} options={options} />;
       case 'pie':
-        return <Pie data={data} options={options} />;
+        return <Pie key={chartKey} data={data} options={options} />;
       case 'doughnut':
-        return <Doughnut data={data} options={options} />;
+        return <Doughnut key={chartKey} data={data} options={options} />;
       default:
-        return <Bar data={data} options={options} />;
+        return <Bar key={chartKey} data={data} options={options} />;
     }
   };
 
   const formatDate = (dateString: string) => {
     try {
-      return new Date(dateString).toLocaleDateString('en-US', {
-        month: 'short',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
-      });
+      const date = new Date(dateString);
+      const selectedDays = parseInt(selectedTimeRange);
+      
+      // Use different formats based on time range
+      if (selectedDays === 1) {
+        return date.toLocaleDateString('en-US', {
+          hour: '2-digit',
+          minute: '2-digit'
+        });
+      } else if (selectedDays <= 7) {
+        return date.toLocaleDateString('en-US', {
+          weekday: 'short',
+          month: 'short',
+          day: 'numeric'
+        });
+      } else if (selectedDays <= 30) {
+        return date.toLocaleDateString('en-US', {
+          month: 'short',
+          day: 'numeric'
+        });
+      } else {
+        return date.toLocaleDateString('en-US', {
+          month: 'short',
+          day: 'numeric',
+          year: '2-digit'
+        });
+      }
     } catch {
       return 'Invalid Date';
     }

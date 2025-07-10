@@ -3448,7 +3448,19 @@ async def chat_message_with_image(
 
     # --- Determine meal type from the user's message, if mentioned ---
     meal_type_match = re.search(r"\b(breakfast|lunch|dinner|snack)s?\b", message.lower())
-    meal_type = meal_type_match.group(1) if meal_type_match else None
+    if meal_type_match:
+        meal_type = meal_type_match.group(1)
+    else:
+        # Auto-determine based on current time when not explicitly mentioned
+        current_hour = datetime.utcnow().hour
+        if 5 <= current_hour < 11:
+            meal_type = "breakfast"
+        elif 11 <= current_hour < 16:
+            meal_type = "lunch"
+        elif 16 <= current_hour < 22:
+            meal_type = "dinner"
+        else:
+            meal_type = "snack"
 
     # 🧠 GET COMPREHENSIVE USER CONTEXT - This is the key integration!
     try:
@@ -3684,7 +3696,7 @@ Would you like me to create a detailed recipe for any of these meal suggestions?
             "image_analysis": food_data.get("analysis_notes"),
             "image_url": img_str
         }
-        await save_consumption_record(current_user["email"], consumption_data, meal_type=meal_type or "")
+        await save_consumption_record(current_user["email"], consumption_data, meal_type=meal_type)
 
         meal_type_text = f" as your **{meal_type}**" if meal_type else ""
         
@@ -3762,7 +3774,7 @@ Would you like me to log this to your consumption history? Just say "log this as
             "image_analysis": food_data.get("analysis_notes"),
             "image_url": img_str if analysis_data else None
         }
-        await save_consumption_record(current_user["email"], consumption_data, meal_type=meal_type or "")
+        await save_consumption_record(current_user["email"], consumption_data, meal_type=meal_type)
 
         context_note = " (from previous analysis)" if recent_context and not analysis_data else ""
         meal_type_text = f" as your **{meal_type}**" if meal_type else ""
@@ -4450,6 +4462,24 @@ async def quick_log_food(
             print(f"[quick_log_food] OpenAI API error: {str(openai_error)}. Using fallback estimation.")
             analysis_data = fallback_data
         
+        # Determine meal type based on provided value or current time
+        provided_meal_type = food_data.get("meal_type", "").strip().lower()
+        if provided_meal_type and provided_meal_type in ["breakfast", "lunch", "dinner", "snack"]:
+            meal_type = provided_meal_type
+        else:
+            # Auto-determine based on current time
+            current_hour = datetime.utcnow().hour
+            if 5 <= current_hour < 11:
+                meal_type = "breakfast"
+            elif 11 <= current_hour < 16:
+                meal_type = "lunch"
+            elif 16 <= current_hour < 22:
+                meal_type = "dinner"
+            else:
+                meal_type = "snack"
+        
+        print(f"[quick_log_food] Determined meal type: {meal_type}")
+        
         # Prepare consumption data in the same format as the image analysis system
         consumption_data = {
             "food_name": analysis_data.get("food_name", food_name),
@@ -4458,14 +4488,14 @@ async def quick_log_food(
             "medical_rating": analysis_data.get("medical_rating", fallback_data["medical_rating"]),
             "image_analysis": analysis_data.get("analysis_notes", f"Quick log entry for {food_name}"),
             "image_url": None,  # No image for quick log
-            "meal_type": (food_data.get("meal_type") or "snack").lower()
+            "meal_type": meal_type
         }
         
         print(f"[quick_log_food] Prepared consumption data: {consumption_data}")
         
         # Save to consumption history using the ORIGINAL save function
         print(f"[quick_log_food] Saving consumption record for user {current_user['email']}")
-        consumption_record = await save_consumption_record(current_user["email"], consumption_data, meal_type=food_data.get("meal_type", "snack"))
+        consumption_record = await save_consumption_record(current_user["email"], consumption_data, meal_type=meal_type)
         print(f"[quick_log_food] Successfully saved consumption record with ID: {consumption_record['id']}")
         
         # ------------------------------
@@ -5188,29 +5218,43 @@ async def create_adaptive_meal_plan(
         except:
             target_calories = int(avg_daily_calories) if avg_daily_calories > 1200 else 2000
         
-        # Create adaptive meal plan prompt
+        # Get additional profile information for better personalization
+        diet_type = user_profile.get("dietType", [])
+        strong_dislikes = user_profile.get("strongDislikes", [])
+        ethnicity = user_profile.get("ethnicity", [])
+        
+        # Use requested cuisine type or fall back to profile preferences
+        cuisine_preference = req_cuisine if req_cuisine else ', '.join(diet_type) if diet_type else 'Mixed international'
+        
+        # Create comprehensive adaptive meal plan prompt
         prompt = f"""Create a personalized {req_days}-day diabetes-friendly meal plan based on this user's analysis:
         
 USER ANALYSIS:
 - Total recent meals logged: {total_recent_meals}
-        - Diabetes adherence rate: {adherence_rate:.1f}%
+- Diabetes adherence rate: {adherence_rate:.1f}%
 - Average daily calories: {avg_daily_calories:.0f}
 - Target daily calories: {target_calories}
-        - Favorite foods: {', '.join(favorite_foods_list[:5]) if favorite_foods_list else 'None identified'}
+- Favorite foods: {', '.join(favorite_foods_list[:5]) if favorite_foods_list else 'None identified'}
         
-USER PREFERENCES:
+USER PREFERENCES & RESTRICTIONS:
+- CUISINE TYPE: {cuisine_preference} (STRICTLY FOLLOW THIS)
 - Dietary restrictions: {', '.join(dietary_restrictions) if dietary_restrictions else 'None'}
+- Diet type: {', '.join(diet_type) if diet_type else 'None'}
 - Food preferences: {', '.join(food_preferences) if food_preferences else 'None'}
+- Strong dislikes: {', '.join(strong_dislikes) if strong_dislikes else 'None'}
 - Allergies: {', '.join(allergies) if allergies else 'None'}
+- Ethnicity: {', '.join(ethnicity) if ethnicity else 'Not specified'}
 
-REQUIREMENTS:
+CRITICAL REQUIREMENTS:
 1. Create a diabetes-friendly meal plan with {target_calories} calories per day
-2. Incorporate user's favorite foods where diabetes-appropriate
-3. Respect all dietary restrictions and allergies
-4. Focus on low glycemic index foods
-5. Balance macronutrients appropriately for diabetes
-6. Include variety and meal prep efficiency
-7. Provide specific adaptations based on user's eating patterns
+2. STRICTLY follow the cuisine type: {cuisine_preference}
+3. ABSOLUTELY respect all dietary restrictions and allergies - NO EXCEPTIONS
+4. Incorporate user's favorite foods where diabetes-appropriate and cuisine-consistent
+5. Avoid all foods listed in strong dislikes
+6. Focus on low glycemic index foods appropriate for the cuisine
+7. Balance macronutrients appropriately for diabetes
+8. Include variety within the specified cuisine type
+9. Provide specific adaptations based on user's eating patterns
 
 Provide a JSON response with this exact structure:
 {{
@@ -5234,7 +5278,7 @@ Make each meal specific with exact portions and cooking methods. Ensure all 7 da
                 messages=[
                     {
                         "role": "system",
-                        "content": "You are a diabetes nutrition specialist. Create practical, specific meal plans that are diabetes-friendly and personalized to the user's history."
+                        "content": f"You are a diabetes nutrition specialist with expertise in {cuisine_preference} cuisine. Create practical, specific meal plans that are: 1) Diabetes-friendly with low glycemic index, 2) Authentic to the specified cuisine type, 3) STRICTLY compliant with all dietary restrictions and allergies - NO EXCEPTIONS, 4) Personalized to the user's eating history and preferences. Always provide exactly {req_days} meals for each meal type (breakfast, lunch, dinner, snacks)."
                     },
                     {
                         "role": "user",
@@ -5258,30 +5302,47 @@ Make each meal specific with exact portions and cooking methods. Ensure all 7 da
                 
         except Exception as ai_error:
             print(f"AI generation error: {str(ai_error)}. Using fallback meal plan.")
+            
+            # Create cuisine-appropriate fallback meals
+            def get_fallback_meals(cuisine_type: str, is_vegetarian: bool = False):
+                if 'chinese' in cuisine_type.lower() or 'east asian' in cuisine_type.lower():
+                    breakfast_base = ["Congee with vegetables", "Steamed sweet potato with soy milk", "Rice porridge with mushrooms"]
+                    lunch_base = ["Steamed tofu with vegetables", "Vegetable fried rice", "Chinese broccoli with brown sauce"] if is_vegetarian else ["Steamed fish with vegetables", "Chicken stir-fry with minimal oil", "Lean pork with vegetables"]
+                    dinner_base = ["Tofu and vegetable soup", "Braised vegetables with brown rice", "Chinese vegetable curry"] if is_vegetarian else ["Steamed chicken with vegetables", "Fish with ginger and scallions", "Lean beef with broccoli"]
+                elif 'indian' in cuisine_type.lower() or 'south asian' in cuisine_type.lower():
+                    breakfast_base = ["Upma with vegetables", "Poha with nuts", "Idli with sambar"]
+                    lunch_base = ["Dal with roti", "Vegetable curry with quinoa", "Chickpea curry with brown rice"]
+                    dinner_base = ["Palak paneer with roti", "Mixed vegetable curry", "Lentil dal with vegetables"]
+                elif 'vegetarian' in dietary_restrictions or is_vegetarian:
+                    breakfast_base = ["Oatmeal with berries", "Greek yogurt with nuts", "Avocado toast"]
+                    lunch_base = ["Quinoa salad with vegetables", "Lentil soup", "Chickpea curry"]
+                    dinner_base = ["Vegetable stir-fry with tofu", "Bean and vegetable stew", "Roasted vegetable bowl"]
+                else:
+                    breakfast_base = ["Greek yogurt with berries", "Oatmeal with nuts", "Cottage cheese with vegetables"]
+                    lunch_base = ["Grilled chicken salad", "Lentil soup", "Turkey and avocado wrap"]
+                    dinner_base = ["Grilled fish with vegetables", "Chicken stir-fry", "Lean protein with quinoa"]
+                
+                # Ensure we have enough meals for the requested days
+                while len(breakfast_base) < req_days:
+                    breakfast_base.extend(breakfast_base)
+                while len(lunch_base) < req_days:
+                    lunch_base.extend(lunch_base)
+                while len(dinner_base) < req_days:
+                    dinner_base.extend(dinner_base)
+                
+                return breakfast_base[:req_days], lunch_base[:req_days], dinner_base[:req_days]
+            
+            is_vegetarian = 'vegetarian' in [r.lower() for r in dietary_restrictions]
+            fallback_breakfast, fallback_lunch, fallback_dinner = get_fallback_meals(cuisine_preference, is_vegetarian)
+            
             # Comprehensive fallback meal plan
             meal_plan_data = {
-                "plan_name": f"Adaptive Diabetes Plan - {datetime.now().strftime('%Y-%m-%d')}",
-                "duration_days": {req_days},
+                "plan_name": f"Adaptive {cuisine_preference} Plan - {datetime.now().strftime('%Y-%m-%d')}",
+                "duration_days": req_days,
                 "dailyCalories": target_calories,
                 "macronutrients": {"protein": int(target_calories * 0.2 / 4), "carbs": int(target_calories * 0.45 / 4), "fats": int(target_calories * 0.35 / 9)},
-                "breakfast": [
-                    "Day 1: Greek yogurt (1 cup) with berries (1/2 cup) and almonds (1 oz)",
-                    "Day 2: Oatmeal (1/2 cup dry) with cinnamon and walnuts (1 tbsp)",
-                    "Day 3: Scrambled eggs (2) with spinach and whole grain toast (1 slice)",
-                    "Day 4: Smoothie with protein powder, spinach, and berries",
-                    "Day 5: Cottage cheese (1 cup) with cucumber and tomatoes",
-                    "Day 6: Avocado toast (1 slice) with poached egg",
-                    "Day 7: Chia pudding with unsweetened almond milk and berries"
-                ],
-                "lunch": [
-                    "Day 1: Grilled chicken salad (4 oz) with mixed greens and olive oil dressing",
-                    "Day 2: Lentil soup (1 cup) with side salad",
-                    "Day 3: Turkey and avocado wrap in whole grain tortilla",
-                    "Day 4: Quinoa bowl with roasted vegetables and chickpeas",
-                    "Day 5: Salmon (4 oz) with steamed broccoli and brown rice (1/3 cup)",
-                    "Day 6: Vegetable stir-fry with tofu and cauliflower rice",
-                    "Day 7: Bean and vegetable soup with whole grain roll"
-                ],
+                "breakfast": [f"Day {i+1}: {meal}" for i, meal in enumerate(fallback_breakfast)],
+                "lunch": [f"Day {i+1}: {meal}" for i, meal in enumerate(fallback_lunch)],
                 "dinner": [
                     "Day 1: Baked cod (5 oz) with roasted Brussels sprouts and sweet potato",
                     "Day 2: Lean beef stir-fry with bell peppers and brown rice",
