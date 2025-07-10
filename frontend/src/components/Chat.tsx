@@ -730,15 +730,7 @@ const Chat = () => {
             </Button>
           </ButtonGroup>
 
-          <Box sx={{ ml: 'auto', display: 'flex', gap: 1 }}>
-            <Tooltip title="Enhanced Image Analysis">
-              <IconButton onClick={handleRecordFoodButtonClick} color="primary">
-                <Badge badgeContent="NEW" color="secondary">
-                  <PhotoCameraIcon />
-                </Badge>
-              </IconButton>
-            </Tooltip>
-          </Box>
+
         </Box>
       </Paper>
 
@@ -988,6 +980,26 @@ const Chat = () => {
               },
             }}
           />
+          <Tooltip title="Enhanced Image Analysis">
+            <span>
+              <IconButton
+                onClick={handleRecordFoodButtonClick}
+                color="secondary"
+                sx={{
+                  bgcolor: 'secondary.main',
+                  color: 'white',
+                  '&:hover': { bgcolor: 'secondary.dark' },
+                  width: 48,
+                  height: 48,
+                  mr: 0.5,
+                }}
+              >
+                <Badge badgeContent="NEW" color="error" sx={{ '& .MuiBadge-badge': { fontSize: '0.6rem', minWidth: '16px', height: '16px' } }}>
+                  <PhotoCameraIcon />
+                </Badge>
+              </IconButton>
+            </span>
+          </Tooltip>
           <Tooltip title="Send Message">
             <span>
               <IconButton

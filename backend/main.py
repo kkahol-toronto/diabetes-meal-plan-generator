@@ -2412,8 +2412,34 @@ async def send_chat_message(
         message.session_id or user_message["session_id"]
     )
     
-    # 🧠 ENHANCED AI COACH CONTEXT - Get comprehensive user data
-    profile = current_user.get("profile", {})
+    # 🧠 GET COMPREHENSIVE USER CONTEXT - Use the advanced system for complete personalization
+    try:
+        user_context = await get_comprehensive_user_context(current_user["email"])
+        print(f"✅ Retrieved comprehensive user context with full profile data")
+        
+        if not user_context:
+            # Fallback to basic profile if comprehensive context fails
+            profile = current_user.get("profile", {})
+        else:
+            # Extract comprehensive profile data
+            profile = user_context["user_profile"]
+            consumption_analysis = user_context["consumption_analysis"]
+            meal_plan_context = user_context["meal_plan_context"]
+            
+    except Exception as e:
+        print(f"❌ Error getting comprehensive context: {str(e)}")
+        # Fallback to basic profile
+        profile = current_user.get("profile", {})
+        user_context = None
+    
+    # 🔍 DEBUG: Print profile data being used for chat personalization
+    print(f"[CHAT_DEBUG] Using comprehensive context: {user_context is not None}")
+    if user_context:
+        print(f"[CHAT_DEBUG] Profile keys from comprehensive context: {list(profile.keys())}")
+        print(f"[CHAT_DEBUG] Sample profile data: dietary_restrictions={profile.get('dietary_restrictions', [])}, medical_conditions={profile.get('medical_conditions', [])}")
+    else:
+        print(f"[CHAT_DEBUG] Profile keys from basic profile: {list(profile.keys())}")
+        print(f"[CHAT_DEBUG] Sample profile data: dietaryRestrictions={profile.get('dietaryRestrictions', [])}, medicalConditions={profile.get('medicalConditions', [])}")
     
     # Get recent meal plans (last 3 for context)
     try:
@@ -2497,23 +2523,129 @@ async def send_chat_message(
     
     diabetes_adherence = (diabetes_suitable_count / total_recent_records * 100) if total_recent_records > 0 else 0
     
-    # Create comprehensive AI Coach system prompt
-    system_prompt = f"""You are an advanced AI Diet Coach and Diabetes Management Specialist. You are the central intelligence of a comprehensive diabetes meal planning and tracking system.
+    # Build explicit dietary restriction warnings (similar to meal plan generation)
+    # Handle field name differences between comprehensive context (snake_case) and basic profile (camelCase)
+    if user_context and 'user_profile' in user_context and profile == user_context["user_profile"]:
+        # Using comprehensive context - fields are in snake_case
+        dietary_restrictions = profile.get('dietary_restrictions', [])
+        allergies = profile.get('allergies', [])
+        # Get diet_type from original profile since comprehensive context doesn't include it
+        original_profile = current_user.get("profile", {})
+        diet_type = original_profile.get('dietType', [])
+    else:
+        # Using basic profile - fields are in camelCase
+        dietary_restrictions = profile.get('dietaryRestrictions', [])
+        diet_type = profile.get('dietType', [])
+        allergies = profile.get('allergies', [])
+    
+    restriction_warnings = []
+    if 'vegetarian' in [r.lower() for r in dietary_restrictions] or 'vegetarian' in [d.lower() for d in diet_type]:
+        restriction_warnings.append("⚠️ STRICTLY VEGETARIAN - NO MEAT, POULTRY, FISH, OR SEAFOOD")
+    if 'vegan' in [r.lower() for r in dietary_restrictions] or 'vegan' in [d.lower() for d in diet_type]:
+        restriction_warnings.append("⚠️ STRICTLY VEGAN - NO ANIMAL PRODUCTS INCLUDING DAIRY, EGGS, MEAT, FISH")
+    if any('egg' in r.lower() for r in dietary_restrictions) or any('egg' in a.lower() for a in allergies):
+        restriction_warnings.append("⚠️ NO EGGS - Avoid all egg-based dishes and ingredients")
+    if any('dairy' in r.lower() for r in dietary_restrictions) or any('dairy' in a.lower() for a in allergies):
+        restriction_warnings.append("⚠️ NO DAIRY - Avoid milk, cheese, butter, cream, yogurt")
+    if any('nut' in a.lower() for a in allergies):
+        restriction_warnings.append("⚠️ NUT ALLERGY - Avoid all nuts and nut-based products")
+    if any('gluten' in r.lower() for r in dietary_restrictions):
+        restriction_warnings.append("⚠️ GLUTEN-FREE - Avoid wheat, flour, bread, pasta")
+    
+    dietary_enforcement_text = ""
+    if restriction_warnings:
+        dietary_enforcement_text = f"""
+🚨 **CRITICAL DIETARY RESTRICTIONS** - MUST BE FOLLOWED AT ALL TIMES:
+{chr(10).join(restriction_warnings)}
 
-🎯 **YOUR ROLE**: You are not just a chatbot - you are the user's personal diet coach, meal planner, and diabetes management companion. You have full access to their meal plans, consumption history, and progress data.
+When suggesting ANY food, meal, or recipe, you MUST ensure it complies with these restrictions. If uncertain, err on the side of caution and suggest alternatives that are definitely compliant."""
+    
+    # Get comprehensive profile data for enhanced personalization - handle field name differences
+    if user_context and 'user_profile' in user_context and profile == user_context["user_profile"]:
+        # Using comprehensive context - fields are in snake_case
+        food_preferences = profile.get('food_preferences', [])
+        strong_dislikes = profile.get('strong_dislikes', [])
+        # Get ethnicity from original profile since comprehensive context doesn't include it
+        original_profile = current_user.get("profile", {})
+        ethnicity = original_profile.get('ethnicity', [])
+    else:
+        # Using basic profile - fields are in camelCase
+        food_preferences = profile.get('foodPreferences', [])
+        strong_dislikes = profile.get('strongDislikes', [])
+        ethnicity = profile.get('ethnicity', [])
+    
+    # Create helper variables for consistent field access regardless of data source
+    is_comprehensive_context = user_context and 'user_profile' in user_context and profile == user_context["user_profile"]
+    
+    # Get field values with proper field name handling
+    medical_conditions = profile.get('medical_conditions', []) if is_comprehensive_context else profile.get('medicalConditions', [])
+    current_medications = profile.get('current_medications', []) if is_comprehensive_context else profile.get('currentMedications', [])
+    dietary_features = profile.get('dietary_features', []) if is_comprehensive_context else profile.get('dietaryFeatures', [])
+    exercise_types = profile.get('exercise_types', []) if is_comprehensive_context else profile.get('exerciseTypes', [])
+    available_appliances = profile.get('available_appliances', []) if is_comprehensive_context else profile.get('availableAppliances', [])
+    primary_goals = profile.get('primary_goals', []) if is_comprehensive_context else profile.get('primaryGoals', [])
+    
+    # Get field values that have different field names in comprehensive context
+    work_activity_level = profile.get('work_activity_level', 'Not specified') if is_comprehensive_context else profile.get('workActivityLevel', 'Not specified')
+    exercise_frequency = profile.get('exercise_frequency', 'Not specified') if is_comprehensive_context else profile.get('exerciseFrequency', 'Not specified')
+    meal_prep_capability = profile.get('meal_prep_capability', 'Not specified') if is_comprehensive_context else profile.get('mealPrepCapability', 'Not specified')
+    eating_schedule = profile.get('eating_schedule', 'Not specified') if is_comprehensive_context else profile.get('eatingSchedule', 'Not specified')
+    readiness_to_change = profile.get('readiness_to_change', 'Not specified') if is_comprehensive_context else profile.get('readinessToChange', 'Not specified')
+    wants_weight_loss = profile.get('wants_weight_loss', False) if is_comprehensive_context else profile.get('wantsWeightLoss', False)
+    
+    # Get vital signs with proper field names
+    systolic_bp = profile.get('systolic_bp', 'Not specified') if is_comprehensive_context else profile.get('systolicBP', 'Not specified')
+    diastolic_bp = profile.get('diastolic_bp', 'Not specified') if is_comprehensive_context else profile.get('diastolicBP', 'Not specified')
+    heart_rate = profile.get('heart_rate', 'Not specified') if is_comprehensive_context else profile.get('heartRate', 'Not specified')
+    waist_circumference = profile.get('waist_circumference', 'Not specified') if is_comprehensive_context else profile.get('waistCircumference', 'Not specified')
+    mobility_issues = profile.get('mobility_issues', False) if is_comprehensive_context else profile.get('mobilityIssues', False)
+    
+    # Create COMPREHENSIVE AI Coach system prompt with FULL profile integration
+    system_prompt = f"""You are an advanced AI Diet Coach and Diabetes Management Specialist with COMPLETE ACCESS to the user's comprehensive health profile. You are their personal nutrition expert, meal planner, and health companion with full visibility into their health journey.
 
-👤 **USER PROFILE**:
+🎯 **YOUR ROLE**: You are the central intelligence of their diabetes management system with comprehensive access to their complete health profile, eating patterns, progress, and lifestyle factors.
+
+{dietary_enforcement_text}
+
+👤 **COMPREHENSIVE USER PROFILE**:
+🏥 DEMOGRAPHICS & HEALTH:
 - Name: {profile.get('name', 'Not specified')}
-- Age: {profile.get('age', 'Not specified')}
-- Gender: {profile.get('gender', 'Not specified')}
-- Weight: {profile.get('weight', 'Not specified')} kg
-- Height: {profile.get('height', 'Not specified')} cm
+- Age: {profile.get('age', 'Not specified')} | Gender: {profile.get('gender', 'Not specified')}
+- Ethnicity: {', '.join(ethnicity) if ethnicity else 'Not specified'}
+- Weight: {profile.get('weight', 'Not specified')} kg | Height: {profile.get('height', 'Not specified')} cm
 - BMI: {profile.get('bmi', 'Not calculated')}
-- Blood Pressure: {profile.get('systolicBP', 'Not specified')}/{profile.get('diastolicBP', 'Not specified')} mmHg
-- Medical Conditions: {', '.join(profile.get('medicalConditions', []))}
-- Allergies: {', '.join(profile.get('allergies', []))}
-- Diet Type: {', '.join(profile.get('dietType', []))}
-- Dietary Restrictions: {', '.join(profile.get('dietaryRestrictions', []))}
+- Blood Pressure: {systolic_bp}/{diastolic_bp} mmHg
+- Heart Rate: {heart_rate} bpm
+- Waist Circumference: {waist_circumference} cm
+
+🏥 MEDICAL CONDITIONS & MEDICATIONS:
+- Medical Conditions: {', '.join(medical_conditions) if medical_conditions else 'None specified'}
+- Current Medications: {', '.join(current_medications) if current_medications else 'None specified'}
+- Lab Values: {profile.get('labValues', 'Not provided')}
+
+🍽️ COMPREHENSIVE DIETARY PROFILE:
+- Preferred Cuisine Type: {', '.join(diet_type) if diet_type else 'Not specified'} ⭐ CRITICAL FOR MEAL SUGGESTIONS ⭐
+- Dietary Features: {', '.join(dietary_features) if dietary_features else 'None specified'}
+- Dietary Restrictions: {', '.join(dietary_restrictions) if dietary_restrictions else 'None specified'}
+- Food Preferences: {', '.join(food_preferences) if food_preferences else 'None specified'}
+- Allergies: {', '.join(allergies) if allergies else 'None specified'}
+- Strong Dislikes: {', '.join(strong_dislikes) if strong_dislikes else 'None specified'}
+
+🏃 PHYSICAL ACTIVITY & LIFESTYLE:
+- Work Activity Level: {work_activity_level}
+- Exercise Frequency: {exercise_frequency}
+- Exercise Types: {', '.join(exercise_types) if exercise_types else 'None specified'}
+- Mobility Issues: {'Yes' if mobility_issues else 'No'}
+
+🏠 MEAL PREPARATION & LIFESTYLE:
+- Meal Prep Capability: {meal_prep_capability}
+- Available Appliances: {', '.join(available_appliances) if available_appliances else 'Not specified'}
+- Eating Schedule: {eating_schedule}
+
+🎯 GOALS & PREFERENCES:
+- Primary Goals: {', '.join(primary_goals) if primary_goals else 'General health'}
+- Wants Weight Loss: {'Yes' if wants_weight_loss else 'No'}
+- Readiness to Change: {readiness_to_change}
 
 🎯 **DAILY GOALS & PROGRESS**:
 - Calorie Goal: {calorie_goal} kcal
@@ -2539,30 +2671,36 @@ async def send_chat_message(
 🥗 **TODAY'S CONSUMPTION**:
 {chr(10).join([f"- {record.get('food_name', 'Unknown food')} ({record.get('estimated_portion', 'Unknown portion')}) - {record.get('nutritional_info', {}).get('calories', 'N/A')} kcal" for record in today_consumption[-3:]]) if today_consumption else "- No meals logged today yet"}
 
-🧠 **YOUR COACHING INTELLIGENCE**:
-1. **Adaptive Recommendations**: Based on today's intake, suggest meal adjustments
-2. **Progress Recognition**: Celebrate achievements and provide encouragement
-3. **Smart Balancing**: If user exceeded calories/carbs, suggest lighter options for remaining meals
-4. **Reward System**: If user has been compliant, occasionally suggest enjoyable treats within limits
-5. **Meal Plan Integration**: Reference their actual meal plans and suggest modifications
-6. **Real-time Guidance**: Provide immediate feedback on food choices and portions
+🧠 **YOUR COMPREHENSIVE COACHING INTELLIGENCE**:
+1. **Complete Personalization**: Use ALL profile data including medical conditions, medications, lab values, activity level, cuisine preferences, appliances, and lifestyle factors
+2. **Cultural & Cuisine Awareness**: Incorporate their ethnicity and preferred cuisine types into suggestions
+3. **Medical Safety**: Consider all health conditions, medications, and lab values for safe recommendations
+4. **Lifestyle Integration**: Factor in their meal prep capability, available appliances, work schedule, and activity level
+5. **Goal Alignment**: Align suggestions with their specific health goals, weight objectives, and readiness to change
+6. **Adaptive Recommendations**: Based on today's intake and patterns, suggest meal adjustments
+7. **Progress Recognition**: Celebrate achievements and provide encouragement based on actual data
+8. **Smart Balancing**: If exceeded calories/carbs, suggest lighter options considering their appliances and prep capability
 
-🎯 **COACHING PRIORITIES**:
-1. **Diabetes Management**: Always prioritize blood sugar stability
-2. **Adherence Support**: Help user stick to their meal plans while being flexible
-3. **Behavioral Coaching**: Encourage positive habits and address challenges
-4. **Nutritional Education**: Explain the 'why' behind recommendations
-5. **Motivation**: Keep user engaged and motivated in their health journey
+🎯 **COMPREHENSIVE COACHING PRIORITIES**:
+1. **Dietary Restriction Compliance**: NEVER suggest foods that violate their dietary restrictions, allergies, or cuisine preferences
+2. **Medical Condition Management**: Always prioritize all health conditions, not just diabetes
+3. **Cultural Food Preferences**: Honor their ethnicity and preferred cuisine types in all suggestions
+4. **Lifestyle Compatibility**: Ensure suggestions match their meal prep capability and available appliances
+5. **Activity Integration**: Consider their exercise routine and work activity level for calorie and macro suggestions
+6. **Goal-Oriented Coaching**: Align all advice with their specific primary goals and weight objectives
+7. **Comprehensive Education**: Explain the 'why' behind recommendations considering their complete health profile
 
-💡 **RESPONSE STYLE**:
-- Be encouraging, supportive, and knowledgeable
-- Use specific data from their actual consumption and meal plans
-- Provide actionable, personalized advice
-- Acknowledge their progress and efforts
-- Be conversational but professional
+💡 **ENHANCED RESPONSE STYLE**:
+- Be encouraging, supportive, and knowledgeable with deep understanding of their complete profile
+- Use specific data from their comprehensive health profile, consumption patterns, and meal plans
+- Provide actionable, personalized advice that respects ALL aspects of their profile
+- Consider their cuisine preferences, appliances, and lifestyle factors in every suggestion
+- Acknowledge their progress and efforts across all health dimensions
+- Be conversational but professional with expertise across all their health conditions
 - Use emojis appropriately to make interactions engaging
+- When suggesting meals, ALWAYS ensure they align with cuisine preferences, dietary restrictions, prep capabilities, and available appliances
 
-Remember: You have access to their complete meal planning and consumption history. Use this data to provide highly personalized, contextual advice that feels like it comes from someone who truly knows their journey."""
+Remember: You have comprehensive access to their complete health profile, lifestyle factors, cuisine preferences, equipment, and health journey. Use this complete context to provide highly personalized, culturally appropriate, lifestyle-compatible advice that feels like it comes from a health coach who truly understands every aspect of their life and health needs."""
     
     # Ensure chat history is a list of message objects
     formatted_chat_history = []
@@ -2613,12 +2751,47 @@ Remember: You have access to their complete meal planning and consumption histor
     # Create a streaming response
     streaming_response = StreamingResponse(generate(), media_type="text/event-stream")
     
+    # Apply dietary safety filter to AI response
+    def apply_dietary_safety_filter(message: str, user_restrictions: list, user_diet_type: list, user_allergies: list) -> str:
+        """Safety filter to catch and replace dietary violations in AI responses"""
+        message_lower = message.lower()
+        
+        # Check for vegetarian violations
+        is_vegetarian = 'vegetarian' in [r.lower() for r in user_restrictions] or 'vegetarian' in [d.lower() for d in user_diet_type]
+        non_veg_keywords = ['chicken', 'beef', 'pork', 'fish', 'salmon', 'tuna', 'turkey', 'lamb', 'meat', 'seafood', 'shrimp', 'bacon', 'ham']
+        
+        if is_vegetarian:
+            for keyword in non_veg_keywords:
+                if keyword in message_lower:
+                    print(f"[DIETARY_SAFETY_FILTER] Detected non-vegetarian suggestion '{keyword}' in chat response - filtering applied")
+                    # Add warning to the message
+                    filtered_message = message + f"\n\n⚠️ **Note**: I apologize, but I initially suggested something that may contain {keyword}. As a vegetarian, please ensure any meal suggestions align with your dietary preferences. Would you like me to suggest vegetarian alternatives instead?"
+                    return filtered_message
+        
+        # Check for other restrictions (eggs, dairy, etc.)
+        if any('egg' in r.lower() for r in user_restrictions) or any('egg' in a.lower() for a in user_allergies):
+            egg_keywords = ['egg', 'eggs', 'omelet', 'omelette']
+            for keyword in egg_keywords:
+                if keyword in message_lower:
+                    print(f"[DIETARY_SAFETY_FILTER] Detected egg suggestion '{keyword}' in chat response - filtering applied")
+                    filtered_message = message + f"\n\n⚠️ **Note**: I mentioned {keyword}, but I see you avoid eggs. Please disregard that suggestion. Would you like egg-free alternatives?"
+                    return filtered_message
+        
+        return message
+    
     # Save the complete assistant message after streaming is done
     async def save_message():
         if full_message:
+            # Apply safety filter before saving
+            filtered_message = apply_dietary_safety_filter(
+                full_message, 
+                profile.get('dietaryRestrictions', []), 
+                profile.get('dietType', []), 
+                profile.get('allergies', [])
+            )
             await save_chat_message(
                 current_user["id"],
-                full_message,
+                filtered_message,
                 is_user=False,
                 session_id=user_message["session_id"]
             )
@@ -3688,10 +3861,54 @@ async def chat_message_with_image(
     # 🧠 GET COMPREHENSIVE USER CONTEXT - This is the key integration!
     try:
         user_context = await get_comprehensive_user_context(current_user["email"])
-        print(f"✅ Retrieved comprehensive context for user: {len(user_context.get('health_conditions', []))} conditions, {len(user_context.get('consumption_history', []))} recent meals")
+        print(f"✅ Retrieved comprehensive context for user with full profile data")
+        
+        if not user_context:
+            # Fallback to basic profile if comprehensive context fails
+            profile = current_user.get("profile", {})
+        else:
+            # Extract comprehensive profile data
+            profile = user_context["user_profile"]
+            consumption_analysis = user_context["consumption_analysis"]
+            meal_plan_context = user_context["meal_plan_context"]
+            
     except Exception as e:
         print(f"❌ Error getting comprehensive context: {str(e)}")
-        user_context = {"error": "Could not retrieve user context"}
+        # Fallback to basic profile
+        profile = current_user.get("profile", {})
+        user_context = None
+
+    # Build comprehensive dietary restriction warnings for image chat - handle field name differences
+    if user_context and 'user_profile' in user_context and profile == user_context["user_profile"]:
+        # Using comprehensive context - fields are in snake_case
+        dietary_restrictions = profile.get('dietary_restrictions', [])
+        allergies = profile.get('allergies', [])
+        # Get diet_type from original profile since comprehensive context doesn't include it
+        original_profile = current_user.get("profile", {})
+        diet_type = original_profile.get('dietType', [])
+    else:
+        # Using basic profile - fields are in camelCase
+        dietary_restrictions = profile.get('dietaryRestrictions', [])
+        diet_type = profile.get('dietType', [])
+        allergies = profile.get('allergies', [])
+    
+    # Apply dietary safety filter to AI responses (for consistency with text chat)
+    def apply_dietary_safety_filter_image(message: str) -> str:
+        """Safety filter for image chat responses"""
+        message_lower = message.lower()
+        
+        # Check for vegetarian violations
+        is_vegetarian = 'vegetarian' in [r.lower() for r in dietary_restrictions] or 'vegetarian' in [d.lower() for d in diet_type]
+        non_veg_keywords = ['chicken', 'beef', 'pork', 'fish', 'salmon', 'tuna', 'turkey', 'lamb', 'meat', 'seafood', 'shrimp', 'bacon', 'ham']
+        
+        if is_vegetarian:
+            for keyword in non_veg_keywords:
+                if keyword in message_lower and not ("avoid" in message_lower or "don't" in message_lower or "not suitable" in message_lower):
+                    print(f"[DIETARY_SAFETY_FILTER_IMAGE] Detected non-vegetarian suggestion '{keyword}' in image chat response")
+                    filtered_message = message + f"\n\n⚠️ **Dietary Notice**: As a vegetarian, please ensure any suggestions align with your dietary preferences. If I mentioned {keyword}, please consider vegetarian alternatives instead."
+                    return filtered_message
+        
+        return message
 
     # 🧠 CONTEXT RETRIEVAL - Get recent chat history for context
     recent_context = None
@@ -4121,10 +4338,11 @@ How can I help you today?
 
 ⚠️ **Note:** Using fallback response - comprehensive AI system temporarily unavailable."""
 
-    # Save assistant response
+    # Apply dietary safety filter and save assistant response
+    filtered_assistant_message = apply_dietary_safety_filter_image(assistant_message)
     await save_chat_message(
         current_user["email"],
-        assistant_message,
+        filtered_assistant_message,
         is_user=False,
         session_id=session_id
     )
@@ -4133,7 +4351,7 @@ How can I help you today?
     import json as _json
 
     def _event_stream():
-        chunk = _json.dumps({"content": assistant_message})
+        chunk = _json.dumps({"content": filtered_assistant_message})
         yield f"data: {chunk}\n\n"
 
     return StreamingResponse(_event_stream(), media_type="text/event-stream")
