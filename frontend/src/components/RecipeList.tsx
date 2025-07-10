@@ -85,16 +85,16 @@ const RecipeList: React.FC<RecipeListProps> = ({ recipes }) => {
               </Typography>
               <Grid container spacing={1} sx={{ mt: 1 }}>
                 <Grid item xs={6} sm={3}>
-                  <Chip icon={<LocalFireDepartmentIcon fontSize="small" />} label={`Calories: ${recipe.nutritional_info.calories}`} variant="outlined" color="warning" size="small" sx={{width: '100%'}} />
+                  <Chip icon={<LocalFireDepartmentIcon fontSize="small" />} label={`Calories: ${recipe.nutritional_info?.calories || 'N/A'}`} variant="outlined" color="warning" size="small" sx={{width: '100%'}} />
                 </Grid>
                 <Grid item xs={6} sm={3}>
-                  <Chip icon={<FitnessCenterIcon fontSize="small"/>} label={`Protein: ${recipe.nutritional_info.protein}`} variant="outlined" color="info" size="small" sx={{width: '100%'}} />
+                  <Chip icon={<FitnessCenterIcon fontSize="small"/>} label={`Protein: ${recipe.nutritional_info?.protein || 'N/A'}`} variant="outlined" color="info" size="small" sx={{width: '100%'}} />
                 </Grid>
                 <Grid item xs={6} sm={3}>
-                  <Chip icon={<SpaIcon fontSize="small"/>} label={`Carbs: ${recipe.nutritional_info.carbs}`} variant="outlined" color="success" size="small" sx={{width: '100%'}} />
+                  <Chip icon={<SpaIcon fontSize="small"/>} label={`Carbs: ${recipe.nutritional_info?.carbs || 'N/A'}`} variant="outlined" color="success" size="small" sx={{width: '100%'}} />
                 </Grid>
                 <Grid item xs={6} sm={3}>
-                  <Chip icon={<HealingIcon fontSize="small"/>} label={`Fat: ${recipe.nutritional_info.fat}`} variant="outlined" color="default" size="small" sx={{width: '100%'}} />
+                  <Chip icon={<HealingIcon fontSize="small"/>} label={`Fat: ${recipe.nutritional_info?.fat || 'N/A'}`} variant="outlined" color="default" size="small" sx={{width: '100%'}} />
                 </Grid>
               </Grid>
             </Box>

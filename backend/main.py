@@ -1626,27 +1626,234 @@ async def generate_recipes(
         meal_plan = data.get('meal_plan', {})
         print("/generate-recipes endpoint called")
         print("Received meal_plan:", meal_plan)
+        
+        # Extract all unique meals from the meal plan
+        all_meals = []
+        for meal_type in ['breakfast', 'lunch', 'dinner', 'snacks']:
+            if meal_type in meal_plan and isinstance(meal_plan[meal_type], list):
+                all_meals.extend(meal_plan[meal_type])
+        
+        # Remove duplicates while preserving order
+        unique_meals = []
+        seen = set()
+        for meal in all_meals:
+            if meal not in seen:
+                unique_meals.append(meal)
+                seen.add(meal)
+        
+        print(f"Unique meals to generate recipes for: {unique_meals}")
+        
         # Format the prompt for recipe generation
-        prompt = f"""Generate detailed recipes for the following meal plan:\n{json.dumps(meal_plan, indent=2)}\n\nFor each meal, provide:\n1. A list of ingredients with quantities\n2. Step-by-step preparation instructions\n3. Nutritional information (calories, protein, carbs, fat)\n\nFormat the response as a JSON array of recipe objects with the following structure:\n[\n    {{\n        \"name\": \"Recipe Name\",\n        \"ingredients\": [\"ingredient1\", \"ingredient2\", ...],\n        \"instructions\": [\"step1\", \"step2\", ...],\n        \"nutritional_info\": {{\n            \"calories\": number,\n            \"protein\": number,\n            \"carbs\": number,\n            \"fat\": number\n        }}\n    }},\n    ...\n]"""
+        prompt = f"""Generate detailed recipes for the following meals from a diabetes-friendly meal plan:
+
+Meals: {', '.join(unique_meals)}
+
+For each meal, provide:
+1. A list of ingredients with quantities
+2. Step-by-step preparation instructions
+3. Nutritional information (calories, protein, carbs, fat)
+
+Format the response as a JSON array of recipe objects with the following structure:
+[
+    {{
+        "name": "Recipe Name",
+        "ingredients": ["ingredient1 with quantity", "ingredient2 with quantity", ...],
+        "instructions": ["step1", "step2", ...],
+        "nutritional_info": {{
+            "calories": number,
+            "protein": number,
+            "carbs": number,
+            "fat": number
+        }}
+    }},
+    ...
+]
+
+IMPORTANT: 
+- Only return valid JSON, no explanations or markdown
+- Generate recipes for all {len(unique_meals)} meals
+- Each recipe must have all required fields
+- Ensure nutritional_info values are numbers, not strings"""
+        
         print("Prompt for OpenAI:")
         print(prompt)
+        
         response = client.chat.completions.create(
             model=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
             messages=[
-                {"role": "system", "content": "You are a diabetes diet planning assistant."},
+                {"role": "system", "content": "You are a diabetes diet planning assistant. Generate healthy, diabetes-friendly recipes with accurate nutritional information. Always respond with valid JSON only."},
                 {"role": "user", "content": prompt}
             ],
             temperature=0.7,
-            max_tokens=2000,
+            max_tokens=4000,
+            response_format={"type": "json_object"}
         )
+        
         print("OpenAI response received")
-        recipes = json.loads(response.choices[0].message.content)
-        print("Recipes parsed:")
-        print(recipes)
-        await save_recipes(current_user["email"], recipes)
-        return recipes
+        
+        if not response.choices or not response.choices[0].message:
+            raise HTTPException(status_code=500, detail="No response received from OpenAI")
+            
+        raw_content = response.choices[0].message.content.strip()
+        print("Raw OpenAI response:")
+        print(raw_content)
+        
+        try:
+            # Parse the JSON response
+            parsed_response = json.loads(raw_content)
+            
+            # Handle case where OpenAI returns an object with a recipes array
+            if isinstance(parsed_response, dict) and "recipes" in parsed_response:
+                recipes = parsed_response["recipes"]
+            elif isinstance(parsed_response, list):
+                recipes = parsed_response
+            else:
+                # If it's neither, create a fallback
+                recipes = []
+            
+            # Validate and fix recipe structure
+            validated_recipes = []
+            for i, recipe in enumerate(recipes):
+                if not isinstance(recipe, dict):
+                    continue
+                    
+                # Ensure all required fields exist
+                validated_recipe = {
+                    "name": recipe.get("name", f"Recipe {i+1}"),
+                    "ingredients": recipe.get("ingredients", []),
+                    "instructions": recipe.get("instructions", []),
+                    "nutritional_info": recipe.get("nutritional_info", {
+                        "calories": 0,
+                        "protein": 0,
+                        "carbs": 0,
+                        "fat": 0
+                    })
+                }
+                
+                # Ensure nutritional_info is properly formatted
+                if not isinstance(validated_recipe["nutritional_info"], dict):
+                    validated_recipe["nutritional_info"] = {
+                        "calories": 0,
+                        "protein": 0,
+                        "carbs": 0,
+                        "fat": 0
+                    }
+                
+                # Ensure nutritional values are numbers
+                for key in ["calories", "protein", "carbs", "fat"]:
+                    if key not in validated_recipe["nutritional_info"]:
+                        validated_recipe["nutritional_info"][key] = 0
+                    elif not isinstance(validated_recipe["nutritional_info"][key], (int, float)):
+                        validated_recipe["nutritional_info"][key] = 0
+                
+                validated_recipes.append(validated_recipe)
+            
+            print("Validated recipes:")
+            print(json.dumps(validated_recipes, indent=2))
+            
+            if not validated_recipes:
+                raise HTTPException(status_code=500, detail="No valid recipes were generated")
+            
+            await save_recipes(current_user["email"], validated_recipes)
+            return validated_recipes
+            
+        except json.JSONDecodeError as e:
+            print(f"JSON parsing error: {str(e)}")
+            print(f"Raw content: {raw_content}")
+            raise HTTPException(status_code=500, detail=f"Failed to parse recipe response: {str(e)}")
+            
     except Exception as e:
         print(f"Error in /generate-recipes: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/generate-recipe")
+async def generate_recipe(
+    request: FastAPIRequest,
+    current_user: User = Depends(get_current_user)
+):
+    try:
+        data = await request.json()
+        meal_name = data.get('meal_name', '')
+        user_profile = data.get('user_profile', {})
+        
+        print("/generate-recipe endpoint called")
+        print("Received meal_name:", meal_name)
+        print("Received user_profile:", json.dumps(user_profile, indent=2))
+        
+        if not meal_name:
+            raise HTTPException(status_code=400, detail="meal_name is required")
+        
+        # Extract dietary restrictions and health conditions from user profile
+        dietary_restrictions = user_profile.get('dietaryRestrictions', []) or user_profile.get('dietary_restrictions', [])
+        health_conditions = user_profile.get('medicalConditions', []) or user_profile.get('medical_conditions', [])
+        allergies = user_profile.get('allergies', [])
+        strong_dislikes = user_profile.get('strongDislikes', []) or user_profile.get('strong_dislikes', [])
+        
+        # Build dietary context
+        dietary_context = ""
+        if dietary_restrictions:
+            dietary_context += f"Dietary restrictions: {', '.join(dietary_restrictions)}\n"
+        if health_conditions:
+            dietary_context += f"Health conditions: {', '.join(health_conditions)}\n"
+        if allergies:
+            dietary_context += f"Allergies: {', '.join(allergies)}\n"
+        if strong_dislikes:
+            dietary_context += f"Foods to avoid: {', '.join(strong_dislikes)}\n"
+        
+        # Format the prompt for single recipe generation
+        prompt = f"""Generate a detailed recipe for: {meal_name}
+
+{dietary_context}
+
+Please provide:
+1. A list of ingredients with quantities
+2. Step-by-step preparation instructions
+3. Nutritional information (calories, protein, carbs, fat)
+4. Ensure the recipe is suitable for the dietary restrictions and health conditions mentioned above
+
+Format the response as a JSON object with the following structure:
+{{
+    "name": "{meal_name}",
+    "ingredients": ["ingredient1 with quantity", "ingredient2 with quantity", ...],
+    "instructions": ["step1", "step2", ...],
+    "nutritional_info": {{
+        "calories": number,
+        "protein": number,
+        "carbs": number,
+        "fat": number
+    }},
+    "prep_time": "X minutes",
+    "cook_time": "X minutes",
+    "servings": number
+}}"""
+        
+        print("Prompt for OpenAI:")
+        print(prompt)
+        
+        response = client.chat.completions.create(
+            model=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
+            messages=[
+                {"role": "system", "content": "You are a diabetes diet planning assistant. Generate healthy recipes that are suitable for the user's dietary restrictions and health conditions."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.7,
+            max_tokens=1500,
+        )
+        
+        print("OpenAI response received")
+        recipe_content = response.choices[0].message.content
+        recipe = json.loads(recipe_content)
+        
+        print("Recipe parsed:")
+        print(recipe)
+        
+        return recipe
+        
+    except json.JSONDecodeError as e:
+        print(f"JSON parsing error in /generate-recipe: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to parse recipe response")
+    except Exception as e:
+        print(f"Error in /generate-recipe: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 def consolidate_ingredients(recipes: List[dict]) -> List[dict]:
@@ -2535,13 +2742,13 @@ async def get_user_profile(current_user: User = Depends(get_current_user)):
             except Exception as e:
                 print(f"Error loading profile record: {str(e)}")
         
-        # If still no profile, return empty dict
+        # If still no profile, return empty dict wrapped in profile object
         if not profile:
             print(f"No profile found for user {current_user['email']}")
-            return {}
+            return {"profile": {}}
         
         print(f"Profile loaded successfully for user {current_user['email']}")
-        return profile
+        return {"profile": profile}
     
     except HTTPException:
         raise
