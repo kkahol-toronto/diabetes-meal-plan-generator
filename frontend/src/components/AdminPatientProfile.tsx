@@ -213,7 +213,7 @@ const AdminPatientProfile = () => {
           icon: <CloudDoneIcon sx={{ color: 'success.main' }} />,
           text: 'Profile Saved Successfully',
           subtext: lastSaveTime ? `Verified in patient's account: ${lastSaveTime}` : 'Profile saved and accessible to patient',
-          color: 'success.main',
+          color: '#1b5e20', // Dark green for better readability
           bgColor: 'success.light',
           borderColor: 'success.main'
         };
@@ -222,7 +222,7 @@ const AdminPatientProfile = () => {
           icon: <CloudOffIcon sx={{ color: 'error.main' }} />,
           text: 'Database Save Failed',
           subtext: 'Profile not saved properly - patient will not see changes',
-          color: 'error.main',
+          color: '#b71c1c', // Dark red for better readability
           bgColor: 'error.light',
           borderColor: 'error.main'
         };
@@ -231,7 +231,7 @@ const AdminPatientProfile = () => {
           icon: <CircularProgress size={20} sx={{ color: 'info.main' }} />,
           text: 'Verifying Database Save...',
           subtext: 'Checking if profile is saved in patient\'s account...',
-          color: 'info.main',
+          color: '#0d47a1', // Dark blue for better readability
           bgColor: 'info.light',
           borderColor: 'info.main'
         };
@@ -240,7 +240,7 @@ const AdminPatientProfile = () => {
           icon: <ErrorIcon sx={{ color: 'warning.main' }} />,
           text: 'Profile Not Saved',
           subtext: 'Profile has not been saved to patient\'s account yet',
-          color: 'warning.main',
+          color: '#e65100', // Dark orange for better readability
           bgColor: 'warning.light',
           borderColor: 'warning.main'
         };
@@ -469,8 +469,7 @@ const AdminPatientProfile = () => {
               borderColor: dbStatus.borderColor,
               backgroundColor: dbStatus.bgColor,
               borderRadius: 2,
-              flex: 1,
-              opacity: 0.9
+              flex: 1
             }}
           >
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
@@ -480,7 +479,8 @@ const AdminPatientProfile = () => {
                   variant="body1" 
                   sx={{ 
                     fontWeight: 'bold',
-                    color: dbStatus.color
+                    color: dbStatus.color,
+                    fontSize: '1rem'
                   }}
                 >
                   {dbStatus.text}
@@ -490,7 +490,8 @@ const AdminPatientProfile = () => {
                     variant="caption" 
                     sx={{ 
                       color: dbStatus.color,
-                      opacity: 0.8
+                      fontSize: '0.9rem',
+                      fontWeight: 500
                     }}
                   >
                     {dbStatus.subtext}
