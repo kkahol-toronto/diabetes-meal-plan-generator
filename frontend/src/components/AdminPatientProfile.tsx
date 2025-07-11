@@ -214,8 +214,8 @@ const AdminPatientProfile = () => {
           text: 'Profile Saved Successfully',
           subtext: lastSaveTime ? `Verified in patient's account: ${lastSaveTime}` : 'Profile saved and accessible to patient',
           color: '#1b5e20', // Dark green for better readability
-          bgColor: 'success.light',
-          borderColor: 'success.main'
+          bgColor: '#f1f8e9', // Very light green background
+          borderColor: '#4caf50'
         };
       case 'failed':
         return {
@@ -223,8 +223,8 @@ const AdminPatientProfile = () => {
           text: 'Database Save Failed',
           subtext: 'Profile not saved properly - patient will not see changes',
           color: '#b71c1c', // Dark red for better readability
-          bgColor: 'error.light',
-          borderColor: 'error.main'
+          bgColor: '#ffebee', // Very light red background
+          borderColor: '#f44336'
         };
       case 'checking':
         return {
@@ -232,8 +232,8 @@ const AdminPatientProfile = () => {
           text: 'Verifying Database Save...',
           subtext: 'Checking if profile is saved in patient\'s account...',
           color: '#0d47a1', // Dark blue for better readability
-          bgColor: 'info.light',
-          borderColor: 'info.main'
+          bgColor: '#e3f2fd', // Very light blue background
+          borderColor: '#2196f3'
         };
       default:
         return {
@@ -241,8 +241,8 @@ const AdminPatientProfile = () => {
           text: 'Profile Not Saved',
           subtext: 'Profile has not been saved to patient\'s account yet',
           color: '#e65100', // Dark orange for better readability
-          bgColor: 'warning.light',
-          borderColor: 'warning.main'
+          bgColor: '#fff3e0', // Very light orange background
+          borderColor: '#ff9800'
         };
     }
   };
