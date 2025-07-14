@@ -1,277 +1,429 @@
-# 🤖 AI Diabetes Coach - Comprehensive Health Management System
+# Diabetes Meal Planning Assistant
 
-A **fully integrated, intelligent diabetes management platform** powered by AI that provides personalized coaching, adaptive meal planning, real-time analytics, and comprehensive health insights with enhanced meal logging capabilities.
+A comprehensive AI-powered diabetes management platform that provides personalized meal planning, nutrition tracking, and intelligent health coaching. Built with React TypeScript frontend and FastAPI Python backend, integrated with Azure OpenAI for intelligent recommendations.
 
-## 🌟 Key Features
+## Project Overview
 
-### 🧠 **Enhanced AI Health Coach** *(Recently Improved)*
-- **Fixed AI Coach Functionality**: Robust meal-suggestion endpoint with proper error handling
-- **Comprehensive User Context**: AI has access to complete user history, preferences, and health data
-- **Personalized Recommendations**: Real-time, context-aware suggestions based on eating patterns and health conditions
-- **Adaptive Learning**: System learns from user behavior and continuously improves recommendations
-- **Natural Language Processing**: Chat with AI coach using natural language for meal suggestions and health advice
-- **Dual Response Format**: Enhanced compatibility with both simple queries and detailed meal suggestions
+This application helps people with diabetes manage their condition through:
+- **AI-powered meal planning** that adapts to individual health needs
+- **Intelligent food logging** with image recognition and nutritional analysis
+- **Personalized coaching** that provides real-time health insights
+- **Comprehensive analytics** for tracking progress and health trends
+- **HIPAA-compliant consent management** for health data protection
 
-### 📊 **Advanced Analytics & Insights**
-- **Real-time Dashboard**: Beautiful, interactive dashboard with tabbed interface (Overview, Analytics, AI Insights, Notifications)
-- **Progress Tracking**: Comprehensive tracking of diabetes adherence, nutrition goals, and consistency
-- **Visual Analytics**: Chart.js integration with doughnut charts, line graphs, and radar plots
-- **Predictive Analytics**: AI-powered insights that predict and prevent potential health issues
-- **30-Day Consumption Analysis**: Detailed consumption pattern analysis with visual charts
+## How It Works
 
-### 🍽️ **Enhanced Meal Logging & Planning** *(Recently Improved)*
-- **Streamlined Food Logging**: Enhanced camera interface with image attachment (no auto-analysis)
-- **Smart Meal Type Detection**: AI detects meal types (breakfast/lunch/dinner/snack) from chat messages
-- **Meal Type Context Integration**: Proper meal plan calibration based on logged consumption with meal types
-- **AI Image Analysis**: Upload food photos for automatic nutritional analysis when ready
-- **Quick Logging**: Simple text-based food logging with AI interpretation
-- **Diabetes Suitability**: Automatic assessment of food choices for diabetes management
+### User Journey
+1. **Registration & Consent**: Users create accounts and provide informed consent for health data collection
+2. **Health Profile Setup**: Input medical conditions, dietary preferences, and health goals
+3. **Daily Interaction**: Log meals, chat with AI coach, and receive personalized recommendations
+4. **Meal Planning**: AI generates custom meal plans based on consumption history and health data
+5. **Progress Tracking**: Visual analytics show health trends and goal achievement
 
-### 🎯 **Adaptive Meal Planning**
-- **Smart Meal Plans**: AI creates personalized meal plans based on consumption history
-- **Dynamic Adaptation**: Plans automatically adjust based on user preferences and health goals
-- **Diabetes-Optimized**: All recommendations are specifically tailored for diabetes management
-- **Nutritional Balance**: Ensures proper macronutrient distribution and glycemic control
-- **Consumption-Based Calibration**: Today's meal plan updates dynamically when users log food
+### AI Integration
+- **Azure OpenAI GPT-4** powers all intelligent features
+- **Natural language processing** for conversational interactions
+- **Computer vision** for food image analysis and nutritional assessment
+- **Machine learning** adapts recommendations based on user behavior
 
-### 🎨 **Improved User Interface** *(Recently Enhanced)*
-- **Cleaned Homepage**: Removed floating action buttons that were causing errors
-- **Fixed UI Issues**: Resolved repeated "(recommended)" text in meal plan snacks
-- **Cleaner Design**: Removed automatic notes display for a more streamlined experience
-- **Enhanced Chat Interface**: Improved meal logging integration with image attachment workflow
-- **Tabbed Dashboard**: Organized sections for better user experience
+## Architecture
 
-### 📱 **Intelligent Food Logging**
-- **Enhanced Camera Integration**: Single camera button for food logging with improved workflow
-- **Meal Type Context**: Consumption records now include meal_type parameter for better tracking
-- **PATCH Endpoint**: New endpoint for updating meal types (/consumption/{record_id}/meal-type)
-- **Regex-Based Detection**: Smart meal type detection using pattern matching in chat messages
-- **Contextual AI Responses**: AI considers user's health conditions and dietary restrictions
+### Frontend (React TypeScript)
+```
+src/
+├── components/           # Reusable UI components
+│   ├── ConsentForm.tsx  # HIPAA-compliant consent management
+│   ├── MealPlan.tsx     # Meal planning interface
+│   ├── AICoach.tsx      # AI chat interface
+│   ├── Analytics.tsx    # Health analytics dashboard
+│   └── ...
+├── pages/               # Application pages
+├── contexts/            # React contexts for state management
+├── utils/               # Utility functions and API calls
+└── types/               # TypeScript type definitions
+```
 
-## 🏗️ **System Architecture**
+**Key Features:**
+- Material-UI for professional, accessible design
+- Real-time updates with WebSocket connections
+- Responsive design for mobile and desktop
+- Interactive charts for data visualization
+- Image upload and processing for food logging
 
-### **Frontend (React TypeScript)**
-- **Modern UI/UX**: Beautiful, responsive design with Material-UI components
-- **Real-time Updates**: Live data synchronization and automatic refresh
-- **Interactive Charts**: Chart.js integration for comprehensive data visualization
-- **Enhanced Chat Interface**: Streamlined meal logging with image attachment workflow
-- **Progressive Web App**: Mobile-optimized experience
+### Backend (FastAPI Python)
+```
+app/
+├── main.py             # Application entry point
+├── database.py         # Azure Cosmos DB integration
+├── consumption_system.py # Food logging and analysis
+├── routers/
+│   └── coach.py        # AI coaching endpoints
+├── tests/              # Comprehensive test suite
+└── requirements.txt    # Dependencies
+```
 
-### **Backend (FastAPI Python)**
-- **Enhanced AI Integration**: Fixed OpenAI GPT-4 integration with robust error handling
-- **Comprehensive APIs**: 40+ endpoints covering all aspects of diabetes management
-- **Real-time Processing**: Streaming responses for chat and real-time updates
-- **Advanced Data Analytics**: Enhanced analytics engine for health insights
-- **Azure Cosmos DB**: Robust database integration with proper error handling
+**Key Features:**
+- FastAPI for high-performance async API
+- Azure OpenAI integration for AI features
+- Comprehensive error handling and logging
+- JWT authentication for secure access
+- CORS configuration for frontend integration
 
-### **Database (Azure Cosmos DB)**
-- **User Profiles**: Comprehensive health profiles with medical history
-- **Enhanced Consumption Tracking**: Detailed food consumption with meal type context
-- **Adaptive Meal Plans**: Meal plans with user feedback integration and consumption-based calibration
-- **Analytics Data**: Historical data for trend analysis and predictions
+### Database (Azure Cosmos DB)
+```
+Collections:
+├── user_information    # User profiles and health data
+├── interactions       # Chat history and AI responses
+├── consumption_logs   # Food intake records
+├── meal_plans        # Generated meal plans
+└── analytics_data    # Health metrics and trends
+```
 
-## 🚀 **Getting Started**
+## Core Features
 
-### **Prerequisites**
-- Node.js 18+ and npm
+### 1. Intelligent Meal Planning
+- **Personalized Generation**: AI creates meal plans based on user's health condition, dietary preferences, and consumption history
+- **Adaptive Recommendations**: Plans adjust based on user feedback and changing health needs
+- **Nutritional Optimization**: Ensures proper macronutrient balance for diabetes management
+- **Shopping List Integration**: Automatically generates shopping lists from meal plans
+
+### 2. AI-Powered Food Logging
+- **Image Recognition**: Upload food photos for automatic identification and nutritional analysis
+- **Smart Meal Detection**: AI detects meal types (breakfast, lunch, dinner, snack) from conversations
+- **Nutritional Analysis**: Detailed breakdown of calories, carbs, proteins, and micronutrients
+- **Diabetes Assessment**: AI evaluates food suitability for diabetes management
+
+### 3. Conversational AI Coach
+- **Natural Language Interface**: Chat with AI using everyday language
+- **Context-Aware Responses**: AI remembers conversation history and user preferences
+- **Health-Specific Advice**: Recommendations tailored to user's medical conditions
+- **Real-Time Insights**: Immediate feedback on food choices and health decisions
+
+### 4. Comprehensive Analytics
+- **Progress Tracking**: Visual charts showing health trends over time
+- **Goal Management**: Set and track nutrition and health objectives
+- **Comparative Analysis**: Compare current performance with historical data
+- **Predictive Insights**: AI predicts potential health issues and suggests preventive measures
+
+### 5. HIPAA-Compliant Consent System
+- **Informed Consent**: Detailed consent forms complying with PHIPA and HIPAA
+- **Privacy Policy Integration**: Clickable privacy policy with comprehensive data usage explanation
+- **Electronic Signatures**: Legally binding digital consent process
+- **Data Rights Management**: Users can withdraw consent and request data deletion
+
+## Technical Implementation
+
+### Frontend Architecture
+```typescript
+// API Integration
+const apiClient = {
+  post: async (endpoint: string, data: any) => {
+    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify(data)
+    });
+    return response.json();
+  }
+};
+
+// State Management
+const AppContext = createContext({
+  user: null,
+  mealPlans: [],
+  consumptionHistory: [],
+  updateUser: (userData: UserData) => {},
+  addConsumption: (consumption: Consumption) => {}
+});
+```
+
+### Backend Architecture
+```python
+# FastAPI Application
+app = FastAPI(title="Diabetes Meal Planning Assistant")
+
+# Database Connection
+async def get_database():
+    client = CosmosClient(CONNECTION_STRING)
+    return client.get_database_client(DATABASE_NAME)
+
+# AI Integration
+async def get_ai_response(prompt: str, context: dict):
+    client = AzureOpenAI(
+        api_key=AZURE_OPENAI_KEY,
+        api_version=AZURE_OPENAI_API_VERSION,
+        azure_endpoint=AZURE_OPENAI_ENDPOINT
+    )
+    
+    response = await client.chat.completions.create(
+        model=DEPLOYMENT_NAME,
+        messages=[
+            {"role": "system", "content": "You are a diabetes nutrition expert..."},
+            {"role": "user", "content": prompt}
+        ],
+        context=context
+    )
+    return response.choices[0].message.content
+```
+
+## Setup and Installation
+
+### Prerequisites
+- Node.js 18+
 - Python 3.11+
 - Azure Cosmos DB account
-- OpenAI API key
+- Azure OpenAI service
 
-### **Backend Setup**
+### Backend Setup
 ```bash
+# Navigate to backend directory
 cd backend
+
+# Create virtual environment
 python -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+# Install dependencies
 pip install -r requirements.txt
 
 # Set environment variables
-export AZURE_OPENAI_KEY="your-azure-openai-key"
-export AZURE_OPENAI_ENDPOINT="your-azure-openai-endpoint"
-export AZURE_OPENAI_API_VERSION="2024-02-15-preview"
-export AZURE_OPENAI_DEPLOYMENT="your-deployment-name"
-export COSMO_DB_CONNECTION_STRING="your-cosmos-db-connection-string"
-export INTERACTIONS_CONTAINER="interactions"
-export USER_INFORMATION_CONTAINER="user_information"
+export AZURE_OPENAI_KEY="your-openai-key"
+export AZURE_OPENAI_ENDPOINT="your-openai-endpoint"
+export COSMO_DB_CONNECTION_STRING="your-cosmos-connection"
+export JWT_SECRET="your-jwt-secret"
 
-# Start the server
-python -m uvicorn main:app --reload --host 0.0.0.0 --port 8000
+# Initialize database
+python init_db.py
+
+# Start server
+uvicorn main:app --reload --port 8000
 ```
 
-### **Frontend Setup**
+### Frontend Setup
 ```bash
+# Navigate to frontend directory
 cd frontend
+
+# Install dependencies
 npm install
+
+# Set environment variables
+echo "REACT_APP_API_URL=http://localhost:8000" > .env
+
+# Start development server
 npm start
 ```
 
-The application will be available at `http://localhost:3000`
+### Database Setup
+```sql
+-- Cosmos DB Collections
+CREATE COLLECTION user_information
+CREATE COLLECTION interactions  
+CREATE COLLECTION consumption_logs
+CREATE COLLECTION meal_plans
+CREATE COLLECTION analytics_data
 
-## 🎯 **Core Functionality**
+-- Indexes for performance
+CREATE INDEX ON user_information (email)
+CREATE INDEX ON consumption_logs (user_id, date)
+CREATE INDEX ON meal_plans (user_id, created_date)
+```
 
-### **1. Enhanced AI-Powered Dashboard**
-- **Real-time Health Metrics**: Live tracking of calories, macronutrients, and diabetes scores
-- **Intelligent Insights**: AI-generated recommendations based on recent activity
-- **Progress Visualization**: Beautiful charts showing health trends and achievements
-- **Quick Actions**: Streamlined access to food logging and meal planning
-- **Tabbed Interface**: Organized sections for Overview, Analytics, AI Insights, and Notifications
+## API Endpoints
 
-### **2. Improved Food Analysis & Logging**
-- **Enhanced Image Recognition**: Upload food photos with improved workflow
-- **Meal Type Integration**: Smart detection and logging of meal types for better tracking
-- **Diabetes Assessment**: AI evaluates food suitability for diabetes management
-- **Nutritional Breakdown**: Detailed macro and micronutrient information
-- **Contextual Logging**: AI considers user's health conditions and dietary restrictions
+### Authentication
+- `POST /auth/register` - User registration with consent
+- `POST /auth/login` - User login
+- `POST /auth/logout` - User logout
+- `GET /auth/profile` - Get user profile
 
-### **3. Fixed AI Coach System**
-- **Robust Error Handling**: Enhanced meal-suggestion endpoint with proper fallback mechanisms
-- **Natural Language**: Chat with AI coach using everyday language
-- **Context Awareness**: AI remembers conversation history and user preferences
-- **Health-Aware Responses**: AI considers user's medical conditions and dietary restrictions
-- **Multi-modal Input**: Support for text and image inputs with improved workflow
+### AI Coach
+- `POST /coach/chat` - Chat with AI coach
+- `POST /coach/meal-suggestion` - Get meal recommendations
+- `GET /coach/daily-insights` - Daily health insights
+- `POST /coach/analyze-food` - Analyze food from image
 
-### **4. Adaptive Meal Planning**
-- **Consumption-Based Plans**: AI creates meal plans based on actual consumption history
-- **Dynamic Adjustment**: Plans adapt based on user feedback and changing needs
-- **Nutritional Optimization**: Ensures proper balance for diabetes management
-- **Shopping Integration**: Automatic shopping list generation from meal plans
+### Meal Planning
+- `POST /generate-meal-plan` - Generate personalized meal plan
+- `GET /meal-plans` - Get user's meal plans
+- `POST /meal-plans/{id}/feedback` - Provide feedback on meal plan
+- `GET /meal-plans/{id}/shopping-list` - Generate shopping list
 
-### **5. Advanced Analytics**
-- **Trend Analysis**: Long-term health trend identification and analysis
-- **Goal Tracking**: Comprehensive tracking of health and nutrition goals
-- **Predictive Insights**: AI predicts potential issues and suggests preventive measures
-- **Visual Reports**: Enhanced charts with Chart.js integration
+### Food Logging
+- `POST /consumption/log` - Log food consumption
+- `GET /consumption/history` - Get consumption history
+- `POST /consumption/analyze-image` - Analyze food from image
+- `PATCH /consumption/{id}/meal-type` - Update meal type
 
-## 🔧 **API Endpoints**
+### Analytics
+- `GET /analytics/dashboard` - Dashboard data
+- `GET /analytics/trends` - Health trends
+- `GET /analytics/goals` - Goal progress
+- `GET /analytics/insights` - AI-generated insights
 
-### **Core Endpoints**
-- `GET /coach/daily-insights` - Comprehensive daily health insights
-- `POST /coach/meal-suggestion` - **Enhanced** personalized meal suggestions with robust error handling
-- `POST /coach/adaptive-meal-plan` - Create personalized meal plans
-- `POST /coach/quick-log` - Quick food logging with AI analysis
-- `GET /consumption/analytics` - Detailed consumption analytics
-- `GET /consumption/progress` - Progress tracking and goal achievement
-- `POST /chat/message-with-image` - **Enhanced** AI chat with meal type detection
-- `POST /consumption/analyze-and-record` - Image-based food analysis with meal type context
+## Usage Examples
 
-### **New/Enhanced Features**
-- `PATCH /consumption/{record_id}/meal-type` - **New** endpoint for updating meal types
-- `GET /coach/consumption-insights` - AI-powered consumption insights
-- `GET /coach/notifications` - Intelligent health notifications
-- `POST /generate-meal-plan` - Comprehensive meal plan generation
+### Logging Food
+```typescript
+// Upload food image
+const logFood = async (imageFile: File, mealType: string) => {
+  const formData = new FormData();
+  formData.append('image', imageFile);
+  formData.append('meal_type', mealType);
+  
+  const response = await fetch('/consumption/analyze-image', {
+    method: 'POST',
+    body: formData
+  });
+  
+  const result = await response.json();
+  console.log('Food logged:', result);
+};
 
-## 🎨 **User Interface**
+// Chat with AI coach
+const chatWithCoach = async (message: string) => {
+  const response = await fetch('/coach/chat', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({message})
+  });
+  
+  const result = await response.json();
+  return result.response;
+};
+```
 
-### **Enhanced Dashboard Features**
-- **Cleaned Interface**: Removed problematic floating action buttons
-- **Tabbed Interface**: Organized sections for better navigation
-- **Interactive Charts**: Doughnut charts, line graphs, radar charts, and progress bars
-- **Quick Actions**: Streamlined buttons for common tasks
-- **Real-time Updates**: Live data refresh every 5 minutes
+### Generating Meal Plans
+```python
+# Backend meal plan generation
+@app.post("/generate-meal-plan")
+async def generate_meal_plan(request: MealPlanRequest):
+    # Get user profile and preferences
+    user_profile = await get_user_profile(request.user_id)
+    consumption_history = await get_consumption_history(request.user_id)
+    
+    # Generate AI-powered meal plan
+    meal_plan = await ai_service.generate_meal_plan(
+        user_profile=user_profile,
+        consumption_history=consumption_history,
+        preferences=request.preferences
+    )
+    
+    # Save to database
+    await save_meal_plan(meal_plan)
+    
+    return meal_plan
+```
 
-### **Improved AI Coach Interface**
-- **Fixed Functionality**: Robust AI coach with proper error handling
-- **Conversational UI**: Natural chat interface with enhanced meal type detection
-- **Image Upload**: Improved drag-and-drop food image workflow
-- **Response Formatting**: Rich text formatting with markdown support
-- **Context-Aware Responses**: AI considers user's health profile and dietary restrictions
+## Testing
 
-### **Enhanced Analytics Dashboard**
-- **Comprehensive Metrics**: Detailed health and nutrition analytics
-- **Visual Trends**: Beautiful charts showing progress over time with Chart.js
-- **Goal Tracking**: Visual progress indicators for all health goals
-- **Comparative Analysis**: Side-by-side comparison of different metrics
-
-## 🔒 **Security & Privacy**
-
-- **JWT Authentication**: Secure token-based authentication
-- **Data Encryption**: All sensitive data encrypted in transit and at rest
-- **Privacy Controls**: User control over data sharing and retention
-- **HIPAA Compliance**: Healthcare data handling best practices
-- **Robust Error Handling**: Secure fallback mechanisms to prevent data exposure
-
-## 🌐 **Deployment**
-
-### **Production Deployment**
+### Backend Tests
 ```bash
-# Backend
-docker build -t diabetes-coach-backend .
-docker run -p 8000:8000 diabetes-coach-backend
+# Run all tests
+python -m pytest tests/
 
-# Frontend
+# Run specific test file
+python -m pytest tests/test_meal_planning.py
+
+# Run with coverage
+python -m pytest tests/ --cov=app --cov-report=html
+```
+
+### Frontend Tests
+```bash
+# Run unit tests
+npm test
+
+# Run integration tests
+npm run test:integration
+
+# Run e2e tests
+npm run test:e2e
+```
+
+## Security Features
+
+### Data Protection
+- **Encryption**: All data encrypted in transit (TLS) and at rest (AES-256)
+- **Authentication**: JWT tokens with secure refresh mechanism
+- **Authorization**: Role-based access control
+- **Input Validation**: Comprehensive input sanitization
+
+### Privacy Compliance
+- **HIPAA Compliance**: Health data handling follows HIPAA guidelines
+- **PHIPA Compliance**: Compliant with Ontario privacy laws
+- **Consent Management**: Granular consent for data usage
+- **Data Rights**: Users can access, correct, and delete their data
+
+### Security Best Practices
+- **CORS Configuration**: Proper cross-origin resource sharing
+- **Rate Limiting**: API rate limiting to prevent abuse
+- **Error Handling**: Secure error messages without data leakage
+- **Logging**: Comprehensive audit logging for security monitoring
+
+## Deployment
+
+### Production Deployment
+```bash
+# Backend (Docker)
+docker build -t diabetes-app-backend .
+docker run -p 8000:8000 diabetes-app-backend
+
+# Frontend (Static hosting)
 npm run build
-# Deploy build folder to your hosting service
+# Deploy build/ folder to hosting service
+
+# Database
+# Use Azure Cosmos DB in production
 ```
 
-### **Environment Variables**
+### Environment Configuration
 ```bash
-# Backend
-AZURE_OPENAI_KEY=your-azure-openai-key
-AZURE_OPENAI_ENDPOINT=your-azure-openai-endpoint
-AZURE_OPENAI_API_VERSION=2024-02-15-preview
-AZURE_OPENAI_DEPLOYMENT=your-deployment-name
-COSMO_DB_CONNECTION_STRING=your-cosmos-db-connection-string
-INTERACTIONS_CONTAINER=interactions
-USER_INFORMATION_CONTAINER=user_information
-JWT_SECRET=your-jwt-secret
+# Production Environment Variables
 ENVIRONMENT=production
-
-# Frontend
-REACT_APP_API_URL=https://your-api-domain.com
+AZURE_OPENAI_KEY=prod-key
+COSMO_DB_CONNECTION_STRING=prod-connection
+JWT_SECRET=secure-secret
+CORS_ORIGINS=https://yourdomain.com
 ```
 
-## 🆕 **Recent Improvements (June 2025)**
+## Monitoring and Maintenance
 
-### **AI Coach Enhancements**
-- ✅ **Fixed AI Coach Functionality**: Resolved meal-suggestion endpoint with robust error handling
-- ✅ **Enhanced Error Handling**: Added proper fallback mechanisms for missing user data
-- ✅ **Dual Response Format**: Support for both simple queries and detailed meal suggestions
-- ✅ **Context-Aware Responses**: AI now considers user's health conditions and dietary restrictions
+### Health Checks
+- API health endpoints for monitoring
+- Database connection monitoring
+- AI service availability checks
+- Frontend performance monitoring
 
-### **Meal Logging Improvements**
-- ✅ **Streamlined Image Upload**: Enhanced camera interface with attach-first workflow
-- ✅ **Meal Type Detection**: Smart detection of meal types from chat messages using regex
-- ✅ **Enhanced Database Integration**: Added meal_type parameter to consumption records
-- ✅ **New PATCH Endpoint**: Added endpoint for updating meal types after logging
+### Logging and Analytics
+- Comprehensive application logging
+- User interaction analytics
+- Performance metrics tracking
+- Error monitoring and alerting
 
-### **UI/UX Enhancements**
-- ✅ **Cleaned Homepage**: Removed floating action buttons causing errors
-- ✅ **Fixed UI Issues**: Resolved repeated text in meal plan sections
-- ✅ **Improved Chat Interface**: Better integration between chat and meal logging
-- ✅ **Enhanced Dashboard**: Tabbed interface with better organization
-
-### **Technical Improvements**
-- ✅ **Robust Database Queries**: Added try-catch blocks for all database operations
-- ✅ **Enhanced API Endpoints**: Improved error handling across all endpoints
-- ✅ **Better Integration**: Improved connection between consumption logging and meal planning
-- ✅ **Performance Optimization**: Enhanced response times and error recovery
-
-## 🤝 **Contributing**
+## Contributing
 
 1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+2. Create a feature branch (`git checkout -b feature/new-feature`)
+3. Commit changes (`git commit -m 'Add new feature'`)
+4. Push to branch (`git push origin feature/new-feature`)
+5. Create Pull Request
 
-## 📄 **License**
+## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## 🙏 **Acknowledgments**
+## Support
 
-- Azure OpenAI for GPT-4 integration
-- Material-UI for beautiful React components
-- Chart.js for enhanced data visualization
-- FastAPI for the robust backend framework
-- Azure Cosmos DB for scalable data storage
-
-## 📞 **Support**
-
-For support, email support@diabetescoach.ai or join our Slack channel.
+For technical support or questions:
+- Email: support@mirakalous.com
+- Phone: +1 (647) 292-3991
 
 ---
 
-**Built with ❤️ for the diabetes community**
+**Built with care for the diabetes community** 🏥
 
-*Empowering individuals with diabetes through intelligent technology and personalized care.* 
+*Empowering individuals with diabetes through intelligent technology and personalized health management.* 

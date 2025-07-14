@@ -14,6 +14,7 @@ from passlib.context import CryptContext
 from twilio.rest import Client
 import random
 import string
+import asyncio
 from database import (
     create_user, get_user_by_email, create_patient,
     get_patient_by_registration_code, get_all_patients,
@@ -87,6 +88,411 @@ client = AzureOpenAI(
 
 # Configure Twilio
 twilio_client = Client(os.getenv("SMS_API_SID"), os.getenv("SMS_KEY"))
+
+# Robust OpenAI API wrapper with retry logic and better error handling
+async def robust_openai_call(
+    messages: List[Dict[str, str]], 
+    max_tokens: int = 2000, 
+    temperature: float = 0.7,
+    response_format: Optional[Dict[str, str]] = None,
+    max_retries: int = 3,
+    timeout: int = 60,
+    context: str = "openai_call"
+) -> Dict[str, Any]:
+    """
+    Robust OpenAI API call with retry logic, timeout handling, and comprehensive error handling.
+    
+    Args:
+        messages: List of message dictionaries for the chat completion
+        max_tokens: Maximum tokens for the response
+        temperature: Temperature for response generation
+        response_format: Optional response format (e.g., {"type": "json_object"})
+        max_retries: Maximum number of retry attempts
+        timeout: Timeout in seconds for each API call
+        context: Context string for logging purposes
+        
+    Returns:
+        Dict containing the API response or error information
+    """
+    
+    for attempt in range(max_retries):
+        try:
+            print(f"[{context}] Attempt {attempt + 1}/{max_retries} - Calling OpenAI API...")
+            
+            # Prepare the API call parameters
+            api_params = {
+                "model": os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
+                "messages": messages,
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+                "timeout": timeout
+            }
+            
+            # Add response format if specified
+            if response_format:
+                api_params["response_format"] = response_format
+                
+            # Make the API call
+            response = client.chat.completions.create(**api_params)
+            
+            # Validate the response
+            if not response.choices or not response.choices[0].message:
+                raise ValueError("Empty response from OpenAI API")
+                
+            raw_content = response.choices[0].message.content
+            if not raw_content or not raw_content.strip():
+                raise ValueError("Empty content in OpenAI response")
+                
+            print(f"[{context}] API call successful on attempt {attempt + 1}")
+            
+            return {
+                "success": True,
+                "content": raw_content.strip(),
+                "usage": response.usage.dict() if response.usage else None,
+                "attempt": attempt + 1
+            }
+            
+        except Exception as e:
+            error_msg = str(e)
+            print(f"[{context}] Attempt {attempt + 1} failed: {error_msg}")
+            
+            # Check if this is a rate limit error
+            if "rate_limit" in error_msg.lower() or "429" in error_msg:
+                wait_time = min(2 ** attempt, 30)  # Exponential backoff, max 30 seconds
+                print(f"[{context}] Rate limit detected, waiting {wait_time} seconds...")
+                await asyncio.sleep(wait_time)
+                continue
+                
+            # Check if this is a timeout error
+            if "timeout" in error_msg.lower():
+                print(f"[{context}] Timeout detected on attempt {attempt + 1}")
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(2 ** attempt)  # Exponential backoff
+                    continue
+                    
+            # For other errors, wait a bit before retrying
+            if attempt < max_retries - 1:
+                wait_time = min(2 ** attempt, 10)  # Exponential backoff, max 10 seconds
+                print(f"[{context}] Waiting {wait_time} seconds before retry...")
+                await asyncio.sleep(wait_time)
+            else:
+                # Final attempt failed
+                print(f"[{context}] All {max_retries} attempts failed. Last error: {error_msg}")
+                return {
+                    "success": False,
+                    "error": error_msg,
+                    "error_type": type(e).__name__,
+                    "attempts": max_retries
+                }
+                
+    # This should never be reached, but just in case
+    return {
+        "success": False,
+        "error": "Maximum retries exceeded",
+        "attempts": max_retries
+    }
+
+# Helper function to parse JSON with better error handling
+def robust_json_parse(json_string: str, context: str = "json_parse") -> Dict[str, Any]:
+    """
+    Parse JSON string with better error handling and fallback mechanisms.
+    
+    Args:
+        json_string: The JSON string to parse
+        context: Context string for logging
+        
+    Returns:
+        Dict containing parsed JSON or error information
+    """
+    try:
+        # First, try to parse as-is
+        return {"success": True, "data": json.loads(json_string)}
+    except json.JSONDecodeError as e:
+        print(f"[{context}] Initial JSON parse failed: {e}")
+        
+        # Try to extract JSON from the string (in case there's extra text)
+        try:
+            # Find the first { and last }
+            start_idx = json_string.find('{')
+            end_idx = json_string.rfind('}') + 1
+            
+            if start_idx != -1 and end_idx > start_idx:
+                extracted_json = json_string[start_idx:end_idx]
+                return {"success": True, "data": json.loads(extracted_json)}
+        except:
+            pass
+            
+        # Try to clean up common JSON issues
+        try:
+            # Remove common markdown formatting
+            cleaned = json_string.replace('```json', '').replace('```', '')
+            cleaned = cleaned.strip()
+            
+            # Fix common trailing comma issues
+            cleaned = re.sub(r',\s*}', '}', cleaned)
+            cleaned = re.sub(r',\s*]', ']', cleaned)
+            
+            return {"success": True, "data": json.loads(cleaned)}
+        except:
+            pass
+            
+        # Return error if all parsing attempts failed
+        return {
+            "success": False,
+            "error": f"JSON parsing failed: {str(e)}",
+            "raw_content": json_string[:500] + "..." if len(json_string) > 500 else json_string
+        }
+
+# Fallback mechanisms for when OpenAI API fails
+def generate_fallback_meal_plan(user_profile: dict, days: int = 7) -> dict:
+    """
+    Generate a fallback meal plan when OpenAI API fails.
+    This provides a safe, diabetes-friendly meal plan based on user profile.
+    """
+    print("[FALLBACK] Generating fallback meal plan...")
+    
+    # Get dietary restrictions for safe fallback
+    dietary_restrictions = user_profile.get('dietaryRestrictions', [])
+    allergies = user_profile.get('allergies', [])
+    diet_type = user_profile.get('dietType', [])
+    
+    # Check if user is vegetarian
+    is_vegetarian = any('vegetarian' in str(restriction).lower() for restriction in dietary_restrictions + diet_type)
+    
+    # Check for allergies
+    has_egg_allergy = any('egg' in str(allergy).lower() for allergy in allergies)
+    has_dairy_allergy = any('dairy' in str(allergy).lower() or 'milk' in str(allergy).lower() for allergy in allergies)
+    has_gluten_allergy = any('gluten' in str(allergy).lower() or 'wheat' in str(allergy).lower() for allergy in allergies)
+    
+    # Safe breakfast options
+    breakfast_options = [
+        "Oatmeal with berries and cinnamon",
+        "Greek yogurt with nuts and seeds",
+        "Whole grain toast with avocado",
+        "Smoothie with spinach and banana",
+        "Chia seed pudding with fruit",
+        "Quinoa breakfast bowl with vegetables",
+        "Almond butter on whole grain toast"
+    ]
+    
+    # Safe lunch options
+    lunch_options = [
+        "Quinoa salad with mixed vegetables",
+        "Lentil soup with whole grain bread",
+        "Chickpea curry with brown rice",
+        "Vegetable stir-fry with tofu",
+        "Bean and vegetable wrap",
+        "Hummus with vegetable sticks",
+        "Stuffed bell peppers with quinoa"
+    ]
+    
+    # Safe dinner options
+    dinner_options = [
+        "Baked sweet potato with black beans",
+        "Vegetable curry with brown rice",
+        "Grilled vegetables with quinoa",
+        "Lentil dal with steamed vegetables",
+        "Stuffed zucchini with vegetables",
+        "Roasted vegetables with chickpeas",
+        "Vegetable soup with whole grain bread"
+    ]
+    
+    # Safe snack options
+    snack_options = [
+        "Mixed nuts and seeds",
+        "Apple slices with almond butter",
+        "Carrot sticks with hummus",
+        "Berries with Greek yogurt",
+        "Cucumber slices with tahini",
+        "Roasted chickpeas",
+        "Homemade trail mix"
+    ]
+    
+    # Adjust for non-vegetarian users
+    if not is_vegetarian:
+        lunch_options.extend([
+            "Grilled chicken salad with olive oil dressing",
+            "Baked salmon with steamed vegetables",
+            "Turkey and vegetable wrap"
+        ])
+        dinner_options.extend([
+            "Grilled chicken with roasted vegetables",
+            "Baked fish with quinoa and vegetables",
+            "Lean beef stir-fry with brown rice"
+        ])
+    
+    # Adjust for allergies
+    if has_egg_allergy:
+        breakfast_options = [opt for opt in breakfast_options if 'egg' not in opt.lower()]
+    
+    if has_dairy_allergy:
+        breakfast_options = [opt for opt in breakfast_options if 'yogurt' not in opt.lower()]
+        snack_options = [opt for opt in snack_options if 'yogurt' not in opt.lower()]
+    
+    if has_gluten_allergy:
+        breakfast_options = [opt for opt in breakfast_options if 'toast' not in opt.lower() and 'bread' not in opt.lower()]
+        lunch_options = [opt for opt in lunch_options if 'bread' not in opt.lower() and 'wrap' not in opt.lower()]
+        dinner_options = [opt for opt in dinner_options if 'bread' not in opt.lower()]
+    
+    # Ensure we have enough options
+    while len(breakfast_options) < days:
+        breakfast_options.extend(breakfast_options)
+    while len(lunch_options) < days:
+        lunch_options.extend(lunch_options)
+    while len(dinner_options) < days:
+        dinner_options.extend(dinner_options)
+    while len(snack_options) < days:
+        snack_options.extend(snack_options)
+    
+    # Generate meal plan
+    meal_plan = {
+        "breakfast": breakfast_options[:days],
+        "lunch": lunch_options[:days],
+        "dinner": dinner_options[:days],
+        "snacks": snack_options[:days],
+        "dailyCalories": int(user_profile.get('calorieTarget', 2000)),
+        "macronutrients": {
+            "protein": 100,
+            "carbs": 250,
+            "fats": 70
+        }
+    }
+    
+    print(f"[FALLBACK] Generated fallback meal plan with {days} days")
+    return meal_plan
+
+def generate_fallback_recipes(meal_names: List[str]) -> List[dict]:
+    """
+    Generate fallback recipes when OpenAI API fails.
+    This provides basic recipes for common meals.
+    """
+    print(f"[FALLBACK] Generating fallback recipes for {len(meal_names)} meals...")
+    
+    # Common diabetes-friendly recipes
+    recipe_templates = {
+        "oatmeal": {
+            "name": "Diabetes-Friendly Oatmeal",
+            "ingredients": [
+                "1/2 cup rolled oats",
+                "1 cup water or unsweetened almond milk",
+                "1/4 cup fresh berries",
+                "1 tbsp chopped nuts",
+                "1/2 tsp cinnamon",
+                "1 tsp vanilla extract"
+            ],
+            "instructions": [
+                "Bring water or almond milk to a boil",
+                "Add oats and reduce heat to medium",
+                "Cook for 5-7 minutes, stirring occasionally",
+                "Add cinnamon and vanilla",
+                "Top with berries and nuts",
+                "Serve warm"
+            ],
+            "nutritional_info": {
+                "calories": 250,
+                "protein": 8,
+                "carbs": 42,
+                "fat": 6
+            }
+        },
+        "quinoa salad": {
+            "name": "Diabetes-Friendly Quinoa Salad",
+            "ingredients": [
+                "1 cup cooked quinoa",
+                "1 cup mixed vegetables (cucumber, tomatoes, bell peppers)",
+                "2 tbsp olive oil",
+                "1 tbsp lemon juice",
+                "1/4 cup fresh herbs (parsley, mint)",
+                "Salt and pepper to taste"
+            ],
+            "instructions": [
+                "Cook quinoa according to package instructions",
+                "Let quinoa cool completely",
+                "Dice vegetables into small pieces",
+                "Mix quinoa with vegetables",
+                "Whisk together olive oil and lemon juice",
+                "Add dressing to salad and toss",
+                "Season with salt, pepper, and herbs"
+            ],
+            "nutritional_info": {
+                "calories": 320,
+                "protein": 12,
+                "carbs": 45,
+                "fat": 12
+            }
+        },
+        "vegetable soup": {
+            "name": "Diabetes-Friendly Vegetable Soup",
+            "ingredients": [
+                "2 cups mixed vegetables (carrots, celery, onions)",
+                "4 cups low-sodium vegetable broth",
+                "1 can diced tomatoes",
+                "1 cup leafy greens (spinach or kale)",
+                "1 tsp herbs (thyme, basil)",
+                "Salt and pepper to taste"
+            ],
+            "instructions": [
+                "Heat oil in large pot over medium heat",
+                "Add onions and cook until soft",
+                "Add other vegetables and cook for 5 minutes",
+                "Add broth and diced tomatoes",
+                "Bring to boil, then simmer for 20 minutes",
+                "Add leafy greens and herbs",
+                "Season with salt and pepper"
+            ],
+            "nutritional_info": {
+                "calories": 150,
+                "protein": 5,
+                "carbs": 25,
+                "fat": 3
+            }
+        }
+    }
+    
+    fallback_recipes = []
+    
+    for meal_name in meal_names:
+        meal_lower = meal_name.lower()
+        
+        # Try to match with existing templates
+        if "oatmeal" in meal_lower:
+            recipe = recipe_templates["oatmeal"].copy()
+            recipe["name"] = meal_name
+        elif "quinoa" in meal_lower or "salad" in meal_lower:
+            recipe = recipe_templates["quinoa salad"].copy()
+            recipe["name"] = meal_name
+        elif "soup" in meal_lower:
+            recipe = recipe_templates["vegetable soup"].copy()
+            recipe["name"] = meal_name
+        else:
+            # Generic fallback recipe
+            recipe = {
+                "name": meal_name,
+                "ingredients": [
+                    "2 cups mixed vegetables",
+                    "1 cup whole grains (quinoa, brown rice, or oats)",
+                    "1 tbsp healthy oil (olive or avocado)",
+                    "Herbs and spices to taste"
+                ],
+                "instructions": [
+                    "Prepare whole grains according to package instructions",
+                    "Cook vegetables until tender",
+                    "Combine ingredients",
+                    "Season with herbs and spices",
+                    "Serve warm"
+                ],
+                "nutritional_info": {
+                    "calories": 280,
+                    "protein": 10,
+                    "carbs": 40,
+                    "fat": 8
+                }
+            }
+        
+        fallback_recipes.append(recipe)
+    
+    print(f"[FALLBACK] Generated {len(fallback_recipes)} fallback recipes")
+    return fallback_recipes
 
 # Health Check Endpoint for Azure App Service
 @app.get("/health")
@@ -914,6 +1320,7 @@ async def get_comprehensive_user_context(user_email: str):
         
         # Get dietary restrictions and preferences
         dietary_restrictions = user_profile.get("dietaryRestrictions", [])
+        dietary_features = user_profile.get("dietaryFeatures", []) or user_profile.get("diet_features", [])
         food_preferences = user_profile.get("foodPreferences", [])
         allergies = user_profile.get("allergies", [])
         strong_dislikes = user_profile.get("strongDislikes", [])
@@ -992,6 +1399,7 @@ async def get_comprehensive_user_context(user_email: str):
                 "medical_conditions": medical_conditions,
                 "current_medications": current_medications,
                 "dietary_restrictions": dietary_restrictions,
+                "dietary_features": dietary_features,
                 "food_preferences": food_preferences,
                 "allergies": allergies,
                 "strong_dislikes": strong_dislikes,
@@ -1074,6 +1482,7 @@ async def get_ai_health_coach_response(user_context: dict, query_type: str, spec
         
         # Build dietary context
         dietary_context = f"""DIETARY PROFILE:
+- Dietary Features: {', '.join(profile['dietary_features']) if profile['dietary_features'] else 'None'}
 - Restrictions: {', '.join(profile['dietary_restrictions']) if profile['dietary_restrictions'] else 'None'}
 - Preferences: {', '.join(profile['food_preferences']) if profile['food_preferences'] else 'None'}
 - Allergies: {', '.join(profile['allergies']) if profile['allergies'] else 'None'}
@@ -1507,8 +1916,8 @@ REQUIREMENTS:
         print(prompt)
 
         try:
-            response = client.chat.completions.create(
-                model=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
+            # Use the robust OpenAI call with better error handling
+            api_result = await robust_openai_call(
                 messages=[
                     {
                         "role": "system",
@@ -1518,22 +1927,30 @@ REQUIREMENTS:
                 ],
                 temperature=0.7,
                 max_tokens=2000,
-                response_format={"type": "json_object"}
+                response_format={"type": "json_object"},
+                context="meal_plan_generation"
             )
-            print("OpenAI response received")
             
-            if not response.choices or not response.choices[0].message:
+            if not api_result["success"]:
                 raise HTTPException(
                     status_code=500,
-                    detail="No response received from OpenAI"
+                    detail=f"OpenAI API failed: {api_result['error']}"
                 )
 
-            raw_content = response.choices[0].message.content.strip()
+            raw_content = api_result["content"]
             print("Raw OpenAI response:")
             print(raw_content)
 
             try:
-                meal_plan = json.loads(raw_content)
+                # Use robust JSON parsing
+                json_result = robust_json_parse(raw_content, "meal_plan_json")
+                if not json_result["success"]:
+                    raise HTTPException(
+                        status_code=500,
+                        detail=f"Failed to parse meal plan JSON: {json_result['error']}"
+                    )
+                
+                meal_plan = json_result["data"]
                 print("Meal plan parsed successfully:")
                 print(json.dumps(meal_plan, indent=2))
                 
@@ -1600,10 +2017,47 @@ REQUIREMENTS:
         except Exception as openai_error:
             print("OpenAI API error:", str(openai_error))
             print("Full error details:", openai_error.__dict__)
-            raise HTTPException(
-                status_code=500,
-                detail=f"OpenAI API error: {str(openai_error)}"
-            )
+            
+            # Use fallback mechanism when OpenAI fails
+            print("[FALLBACK] OpenAI API failed, generating fallback meal plan...")
+            try:
+                meal_plan = generate_fallback_meal_plan(user_profile, days)
+                
+                # Apply the same validation and processing as normal response
+                meal_plan = enforce_dietary_restrictions(meal_plan, user_profile)
+                print("Dietary restrictions enforced on fallback meal plan")
+                
+                # Validate meal plan structure
+                required_keys = ['breakfast', 'lunch', 'dinner', 'snacks', 'dailyCalories', 'macronutrients']
+                missing_keys = [key for key in required_keys if key not in meal_plan]
+                if missing_keys:
+                    print(f"Missing required keys in fallback meal plan: {missing_keys}")
+                    # Add missing keys with defaults
+                    for key in missing_keys:
+                        if key == 'dailyCalories':
+                            meal_plan[key] = 2000
+                        elif key == 'macronutrients':
+                            meal_plan[key] = {"protein": 100, "carbs": 250, "fats": 70}
+                        else:
+                            meal_plan[key] = ["Healthy meal option"] * days
+
+                # Ensure arrays have the correct number of items
+                for meal_type in ['breakfast', 'lunch', 'dinner', 'snacks']:
+                    if not isinstance(meal_plan[meal_type], list):
+                        meal_plan[meal_type] = ["Healthy meal option"] * days
+                    while len(meal_plan[meal_type]) < days:
+                        meal_plan[meal_type].append("Healthy meal option")
+                    meal_plan[meal_type] = meal_plan[meal_type][:days]
+
+                print("Successfully generated fallback meal plan")
+                return meal_plan
+                
+            except Exception as fallback_error:
+                print(f"Fallback meal plan generation also failed: {str(fallback_error)}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Both OpenAI API and fallback meal plan generation failed. OpenAI error: {str(openai_error)}"
+                )
 
     except HTTPException as he:
         print(f"HTTP Exception in /generate-meal-plan: {str(he.detail)}")
@@ -1678,29 +2132,38 @@ IMPORTANT:
         print("Prompt for OpenAI:")
         print(prompt)
         
-        response = client.chat.completions.create(
-            model=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
+        # Use the robust OpenAI call with better error handling
+        api_result = await robust_openai_call(
             messages=[
                 {"role": "system", "content": "You are a diabetes diet planning assistant. Generate healthy, diabetes-friendly recipes with accurate nutritional information. Always respond with valid JSON only."},
                 {"role": "user", "content": prompt}
             ],
             temperature=0.7,
             max_tokens=4000,
-            response_format={"type": "json_object"}
+            response_format={"type": "json_object"},
+            context="recipe_generation"
         )
         
-        print("OpenAI response received")
-        
-        if not response.choices or not response.choices[0].message:
-            raise HTTPException(status_code=500, detail="No response received from OpenAI")
+        if not api_result["success"]:
+            raise HTTPException(
+                status_code=500,
+                detail=f"OpenAI API failed: {api_result['error']}"
+            )
             
-        raw_content = response.choices[0].message.content.strip()
+        raw_content = api_result["content"]
         print("Raw OpenAI response:")
         print(raw_content)
         
         try:
-            # Parse the JSON response
-            parsed_response = json.loads(raw_content)
+            # Use robust JSON parsing
+            json_result = robust_json_parse(raw_content, "recipe_json")
+            if not json_result["success"]:
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Failed to parse recipe JSON: {json_result['error']}"
+                )
+                
+            parsed_response = json_result["data"]
             
             # Handle case where OpenAI returns an object with a recipes array
             if isinstance(parsed_response, dict) and "recipes" in parsed_response:
@@ -1760,11 +2223,53 @@ IMPORTANT:
         except json.JSONDecodeError as e:
             print(f"JSON parsing error: {str(e)}")
             print(f"Raw content: {raw_content}")
-            raise HTTPException(status_code=500, detail=f"Failed to parse recipe response: {str(e)}")
+            
+            # Use fallback mechanism when JSON parsing fails
+            print("[FALLBACK] JSON parsing failed, generating fallback recipes...")
+            try:
+                fallback_recipes = generate_fallback_recipes(unique_meals)
+                await save_recipes(current_user["email"], fallback_recipes)
+                return fallback_recipes
+            except Exception as fallback_error:
+                print(f"Fallback recipe generation also failed: {str(fallback_error)}")
+                raise HTTPException(
+                    status_code=500, 
+                    detail=f"Both OpenAI recipe generation and fallback failed. Parse error: {str(e)}"
+                )
             
     except Exception as e:
         print(f"Error in /generate-recipes: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        
+        # Use fallback mechanism when main exception occurs
+        print("[FALLBACK] Main recipe generation failed, generating fallback recipes...")
+        try:
+            # Extract meals from meal plan for fallback
+            all_meals = []
+            for meal_type in ['breakfast', 'lunch', 'dinner', 'snacks']:
+                if meal_type in meal_plan and isinstance(meal_plan[meal_type], list):
+                    all_meals.extend(meal_plan[meal_type])
+            
+            # Remove duplicates while preserving order
+            unique_meals = []
+            seen = set()
+            for meal in all_meals:
+                if meal not in seen:
+                    unique_meals.append(meal)
+                    seen.add(meal)
+            
+            if unique_meals:
+                fallback_recipes = generate_fallback_recipes(unique_meals)
+                await save_recipes(current_user["email"], fallback_recipes)
+                return fallback_recipes
+            else:
+                raise HTTPException(status_code=500, detail="No meals found in meal plan for recipe generation")
+                
+        except Exception as fallback_error:
+            print(f"Fallback recipe generation also failed: {str(fallback_error)}")
+            raise HTTPException(
+                status_code=500, 
+                detail=f"Both OpenAI recipe generation and fallback failed. Error: {str(e)}"
+            )
 
 @app.post("/generate-recipe")
 async def generate_recipe(
@@ -1830,28 +2335,43 @@ Format the response as a JSON object with the following structure:
         print("Prompt for OpenAI:")
         print(prompt)
         
-        response = client.chat.completions.create(
-            model=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
+        # Use the robust OpenAI call with better error handling
+        api_result = await robust_openai_call(
             messages=[
                 {"role": "system", "content": "You are a diabetes diet planning assistant. Generate healthy recipes that are suitable for the user's dietary restrictions and health conditions."},
                 {"role": "user", "content": prompt}
             ],
             temperature=0.7,
             max_tokens=1500,
+            response_format={"type": "json_object"},
+            context="single_recipe_generation"
         )
         
-        print("OpenAI response received")
-        recipe_content = response.choices[0].message.content
-        recipe = json.loads(recipe_content)
+        if not api_result["success"]:
+            raise HTTPException(
+                status_code=500,
+                detail=f"OpenAI API failed: {api_result['error']}"
+            )
+        
+        recipe_content = api_result["content"]
+        
+        # Use robust JSON parsing
+        json_result = robust_json_parse(recipe_content, "single_recipe_json")
+        if not json_result["success"]:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to parse recipe JSON: {json_result['error']}"
+            )
+            
+        recipe = json_result["data"]
         
         print("Recipe parsed:")
         print(recipe)
         
         return recipe
         
-    except json.JSONDecodeError as e:
-        print(f"JSON parsing error in /generate-recipe: {str(e)}")
-        raise HTTPException(status_code=500, detail="Failed to parse recipe response")
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"Error in /generate-recipe: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -2513,6 +3033,7 @@ async def send_chat_message(
 - Medical Conditions: {', '.join(profile.get('medicalConditions', []))}
 - Allergies: {', '.join(profile.get('allergies', []))}
 - Diet Type: {', '.join(profile.get('dietType', []))}
+- Dietary Features: {', '.join(profile.get('dietaryFeatures', []) or profile.get('diet_features', []))}
 - Dietary Restrictions: {', '.join(profile.get('dietaryRestrictions', []))}
 
 🎯 **DAILY GOALS & PROGRESS**:
@@ -4846,13 +5367,22 @@ Ensure ALL dishes are completely vegetarian and egg-free."""
                     new_plan["meals"][meal_type] = sanitize_meal(new_plan["meals"][meal_type])
                 
                 # Save the new calibrated plan
-                await save_meal_plan(current_user["email"], new_plan)
-                print(f"[quick_log_food] Generated and saved new calibrated meal plan. Remaining calories: {remaining_calories}")
+                try:
+                    await save_meal_plan(current_user["email"], new_plan)
+                    print(f"[quick_log_food] Generated and saved new calibrated meal plan. Remaining calories: {remaining_calories}")
+                except ValueError as validation_err:
+                    print(f"[quick_log_food] Validation error saving meal plan: {validation_err}")
+                    # Don't save invalid/empty meal plans
+                except Exception as save_err:
+                    print(f"[quick_log_food] Error saving meal plan: {save_err}")
                 
             except Exception as parse_err:
                 print(f"[quick_log_food] Failed to parse AI meal plan JSON: {parse_err}")
                 # Fallback: just trigger the normal get_todays_meal_plan
-                await get_todays_meal_plan(current_user)
+                try:
+                    await get_todays_meal_plan(current_user)
+                except Exception as fallback_err:
+                    print(f"[quick_log_food] Fallback also failed: {fallback_err}")
                 
         except Exception as plan_err:
             print(f"[quick_log_food] Failed to regenerate meal plan: {plan_err}")
@@ -5127,8 +5657,14 @@ Ensure ALL dishes are completely vegetarian and egg-free. Do not include any mea
                     todays_plan["notes"] = (todays_plan.get("notes", "") + " Meals made concrete by AI with dietary compliance.").strip()
 
                     # Save the updated plan to history
-                    await save_meal_plan(current_user["email"], todays_plan)
-                    print("[get_todays_meal_plan] Saved AI-generated concrete meals for today.")
+                    try:
+                        await save_meal_plan(current_user["email"], todays_plan)
+                        print("[get_todays_meal_plan] Saved AI-generated concrete meals for today.")
+                    except ValueError as validation_err:
+                        print(f"[get_todays_meal_plan] Validation error saving concrete meals: {validation_err}")
+                        # Don't save invalid/empty meal plans
+                    except Exception as save_err:
+                        print(f"[get_todays_meal_plan] Error saving concrete meals: {save_err}")
                 except Exception as gen_err:
                     print(f"[get_todays_meal_plan] Error during concrete meal generation or parsing: {gen_err}")
                     import traceback
@@ -5191,8 +5727,14 @@ Ensure ALL dishes are completely vegetarian and egg-free. Do not include any mea
                     todays_plan["created_at"] = datetime.utcnow().isoformat()
                 
                 todays_plan["type"] = "calibrated_daily"
-                await save_meal_plan(current_user["email"], todays_plan)
-                print("[get_todays_meal_plan] Saved calibrated meal plan for today.")
+                try:
+                    await save_meal_plan(current_user["email"], todays_plan)
+                    print("[get_todays_meal_plan] Saved calibrated meal plan for today.")
+                except ValueError as validation_err:
+                    print(f"[get_todays_meal_plan] Validation error saving calibrated plan: {validation_err}")
+                    # Don't save invalid/empty meal plans
+                except Exception as save_err:
+                    print(f"[get_todays_meal_plan] Error saving calibrated plan: {save_err}")
 
         except Exception as e:
             print(f"[get_todays_meal_plan] Calibration error: {e}")
@@ -5612,7 +6154,14 @@ Make each meal specific with exact portions and cooking methods. Ensure all {req
         })
         
         # Save using existing database function
-        saved_plan = await save_meal_plan(current_user["email"], meal_plan_data)
+        try:
+            saved_plan = await save_meal_plan(current_user["email"], meal_plan_data)
+        except ValueError as validation_err:
+            print(f"[create_adaptive_meal_plan] Validation error: {validation_err}")
+            raise HTTPException(status_code=400, detail=f"Invalid meal plan data: {validation_err}")
+        except Exception as save_err:
+            print(f"[create_adaptive_meal_plan] Error saving meal plan: {save_err}")
+            raise HTTPException(status_code=500, detail=f"Failed to save meal plan: {save_err}")
         
         return {
             "success": True,
@@ -6717,6 +7266,7 @@ async def get_meal_suggestion(
 - Medical Conditions: {', '.join(health_conditions) if health_conditions else 'None specified'}
 - Current Medications: {', '.join(medications) if medications else 'None specified'}
 - Allergies: {', '.join(allergies) if allergies else 'None specified'}
+- Dietary Features: {', '.join(user_profile.get('dietaryFeatures', []) or user_profile.get('diet_features', [])) if user_profile.get('dietaryFeatures') or user_profile.get('diet_features') else 'None specified'}
 - Dietary Restrictions: {', '.join(dietary_restrictions) if dietary_restrictions else 'None specified'}
 
 🎯 **DAILY GOALS & TODAY'S PROGRESS** ({datetime.utcnow().strftime('%B %d, %Y')}):

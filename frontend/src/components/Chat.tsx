@@ -158,6 +158,31 @@ const Chat = () => {
   const [selectedAnalysisMode, setSelectedAnalysisMode] = useState<'logging' | 'analysis' | 'question' | 'fridge' | null>(null);
   const [pendingImageFile, setPendingImageFile] = useState<File | null>(null);
 
+  // Meal type selection for food logging
+  const [selectedMealType, setSelectedMealType] = useState<string>('');
+  const [showMealTypeSelector, setShowMealTypeSelector] = useState(false);
+
+  // Auto-detect meal type based on current time
+  const autoDetectMealType = () => {
+    const hour = new Date().getHours();
+    if (hour >= 5 && hour < 11) return 'breakfast';
+    if (hour >= 11 && hour < 16) return 'lunch';
+    if (hour >= 16 && hour < 22) return 'dinner';
+    return 'snack';
+  };
+
+  // Check if the input text suggests food logging
+  const checkForFoodLogging = (text: string) => {
+    const logKeywords = ['log', 'record', 'ate', 'eaten', 'had', 'consumed', 'just ate', 'just had'];
+    const foodKeywords = ['food', 'meal', 'breakfast', 'lunch', 'dinner', 'snack'];
+    
+    const textLower = text.toLowerCase();
+    const hasLogKeyword = logKeywords.some(keyword => textLower.includes(keyword));
+    const hasFoodKeyword = foodKeywords.some(keyword => textLower.includes(keyword));
+    
+    return hasLogKeyword && hasFoodKeyword;
+  };
+
   const quickActions: QuickAction[] = [
     {
       label: 'Meal Suggestion',
@@ -455,6 +480,8 @@ const Chat = () => {
     setSelectedImage(null);
     setImagePreviewUrl(null);
     setSelectedAnalysisMode(null);
+    setSelectedMealType('');
+    setShowMealTypeSelector(false);
     setIsLoading(true);
     setShowQuickActions(false);
 
@@ -468,6 +495,12 @@ const Chat = () => {
         formData.append('image', selectedImage);
         formData.append('session_id', currentSession);
         formData.append('analysis_mode', selectedAnalysisMode || 'analysis');
+        
+        // Add meal type if in logging mode
+        if (selectedAnalysisMode === 'logging') {
+          const mealType = selectedMealType || autoDetectMealType();
+          formData.append('meal_type', mealType);
+        }
 
         response = await fetch(`${config.API_URL}/chat/message-with-image`, {
           method: 'POST',
@@ -478,16 +511,23 @@ const Chat = () => {
         });
       } else {
         // Handle text-only message
+        const messageBody: any = {
+          message: input,
+          session_id: currentSession,
+        };
+        
+        // Add meal type if food logging is detected
+        if (showMealTypeSelector && checkForFoodLogging(input)) {
+          messageBody.meal_type = selectedMealType || autoDetectMealType();
+        }
+        
         response = await fetch(`${config.API_URL}/chat/message`, {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({
-            message: input,
-            session_id: currentSession,
-          }),
+          body: JSON.stringify(messageBody),
         });
       }
 
@@ -650,15 +690,20 @@ const Chat = () => {
     switch (mode) {
       case 'logging':
         setInput('Please analyze this food and log it to my consumption history.');
+        setShowMealTypeSelector(true);
+        setSelectedMealType(''); // Reset meal type
         break;
       case 'analysis':
         setInput('Please provide a detailed nutritional analysis of this food.');
+        setShowMealTypeSelector(false);
         break;
       case 'question':
         setInput('I have a question about this food: ');
+        setShowMealTypeSelector(false);
         break;
       case 'fridge':
         setInput('Please analyze my fridge contents and suggest what I can cook.');
+        setShowMealTypeSelector(false);
         break;
     }
   };
@@ -1013,13 +1058,74 @@ const Chat = () => {
           </Box>
         )}
 
+        {/* Meal Type Selector for Food Logging */}
+        {showMealTypeSelector && (
+          <Box sx={{ mb: 2, p: 2, bgcolor: 'primary.50', borderRadius: 2, border: '1px solid', borderColor: 'primary.200' }}>
+            <Typography variant="subtitle2" gutterBottom sx={{ color: 'primary.main', fontWeight: 'bold' }}>
+              Select Meal Type:
+            </Typography>
+            <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+              <Button
+                size="small"
+                variant={selectedMealType === '' ? 'contained' : 'outlined'}
+                onClick={() => setSelectedMealType('')}
+                sx={{ minWidth: 'auto' }}
+              >
+                🤖 Auto ({autoDetectMealType()})
+              </Button>
+              <Button
+                size="small"
+                variant={selectedMealType === 'breakfast' ? 'contained' : 'outlined'}
+                onClick={() => setSelectedMealType('breakfast')}
+                sx={{ minWidth: 'auto' }}
+              >
+                🌅 Breakfast
+              </Button>
+              <Button
+                size="small"
+                variant={selectedMealType === 'lunch' ? 'contained' : 'outlined'}
+                onClick={() => setSelectedMealType('lunch')}
+                sx={{ minWidth: 'auto' }}
+              >
+                🥗 Lunch
+              </Button>
+              <Button
+                size="small"
+                variant={selectedMealType === 'dinner' ? 'contained' : 'outlined'}
+                onClick={() => setSelectedMealType('dinner')}
+                sx={{ minWidth: 'auto' }}
+              >
+                🍽️ Dinner
+              </Button>
+              <Button
+                size="small"
+                variant={selectedMealType === 'snack' ? 'contained' : 'outlined'}
+                onClick={() => setSelectedMealType('snack')}
+                sx={{ minWidth: 'auto' }}
+              >
+                🍿 Snacks
+              </Button>
+            </Box>
+          </Box>
+        )}
+
         <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-end' }}>
           <TextField
             fullWidth
             multiline
             maxRows={4}
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={(e) => {
+              const value = e.target.value;
+              setInput(value);
+              
+              // Show meal type selector if text suggests food logging
+              if (checkForFoodLogging(value) && !selectedImage) {
+                setShowMealTypeSelector(true);
+              } else if (!selectedImage && selectedAnalysisMode !== 'logging') {
+                setShowMealTypeSelector(false);
+              }
+            }}
             placeholder="Ask your AI health coach anything about diabetes, nutrition, meal planning, or upload images for analysis..."
             variant="outlined"
             onKeyPress={(e) => {

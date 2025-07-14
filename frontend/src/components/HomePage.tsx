@@ -79,18 +79,20 @@ import {
   Assessment as CompareIcon,
 } from '@mui/icons-material';
 import { useApp } from '../contexts/AppContext';
-import { Line, Doughnut, Radar, Bar, Pie } from 'react-chartjs-2';
+import { Line, Doughnut, Radar, Bar, Pie, Scatter } from 'react-chartjs-2';
 import {
   Chart as ChartJS,
   CategoryScale,
   LinearScale,
   PointElement,
   LineElement,
-  ArcElement,
+  BarElement,
   Title,
   Tooltip as ChartTooltip,
   Legend,
-  BarElement,
+  ArcElement,
+  Filler,
+  ScatterController,
   RadialLinearScale
 } from 'chart.js';
 
@@ -100,11 +102,13 @@ ChartJS.register(
   LinearScale,
   PointElement,
   LineElement,
-  ArcElement,
+  BarElement,
   Title,
   ChartTooltip,
   Legend,
-  BarElement,
+  ArcElement,
+  Filler,
+  ScatterController,
   RadialLinearScale
 );
 
@@ -843,7 +847,7 @@ const HomePage: React.FC = () => {
   };
 
   // Helper functions for chart data generation
-  const generateChartData = (metric: keyof NutritionalInfo) => {
+  const generateChartData = (metric: keyof NutritionalInfo): any => {
     if (!consumptionAnalytics?.daily_nutrition_history) return null;
 
     const data = consumptionAnalytics.daily_nutrition_history;
@@ -879,7 +883,9 @@ const HomePage: React.FC = () => {
       const scatterData = sortedData.map(day => ({
         x: day.calories || 0,
         y: (day as any)[metric] || 0
-      }));
+      })).filter(point => point.x > 0 || point.y > 0); // Filter out zero values for better visualization
+
+      if (scatterData.length === 0) return null;
 
       return {
         datasets: [{
@@ -889,7 +895,8 @@ const HomePage: React.FC = () => {
           borderColor: color,
           borderWidth: 2,
           pointRadius: 6,
-          pointHoverRadius: 8
+          pointHoverRadius: 8,
+          showLine: false
         }]
       };
     }
@@ -899,6 +906,8 @@ const HomePage: React.FC = () => {
       const sortedData = [...data].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
       const labels = sortedData.map(day => formatDate(day.date));
       const values = sortedData.map(day => (day as any)[metric] || 0);
+      
+      if (labels.length === 0) return null;
       
       // Calculate target values based on typical recommendations
       const getTargetValue = (metric: keyof NutritionalInfo) => {
@@ -951,6 +960,26 @@ const HomePage: React.FC = () => {
     const sortedData = [...data].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
     const labels = sortedData.map(day => formatDate(day.date));
     const values = sortedData.map(day => (day as any)[metric] || 0);
+
+    if (labels.length === 0) return null;
+
+    // For better visualization, if we have only one data point, create a couple more with the same value
+    if (labels.length === 1) {
+      const singleValue = values[0];
+      const singleLabel = labels[0];
+      const baseDate = new Date(sortedData[0].date);
+      
+      // Create previous and next day entries with same value for better line visualization
+      const prevDate = new Date(baseDate);
+      prevDate.setDate(baseDate.getDate() - 1);
+      const nextDate = new Date(baseDate);
+      nextDate.setDate(baseDate.getDate() + 1);
+      
+      labels.unshift(formatDate(prevDate.toISOString()));
+      labels.push(formatDate(nextDate.toISOString()));
+      values.unshift(singleValue);
+      values.push(singleValue);
+    }
 
     return {
       labels,
@@ -1014,6 +1043,17 @@ const HomePage: React.FC = () => {
           callbacks: {
             label: function(context: any) {
               const label = context.dataset.label || '';
+              
+              // Special handling for scatter plots
+              if (analyticsChartType === 'scatter') {
+                const unit = metric === 'calories' ? 'kcal' : 
+                            metric === 'sodium' ? 'mg' : 'g';
+                const xValue = context.parsed.x || 0;
+                const yValue = context.parsed.y || 0;
+                return `${label}: ${xValue.toFixed(1)} kcal → ${yValue.toFixed(1)} ${unit}`;
+              }
+              
+              // Regular charts
               const value = context.parsed.y || context.parsed || 0;
               const unit = metric === 'calories' ? 'kcal' : 
                           metric === 'sodium' ? 'mg' : 'g';
@@ -1029,6 +1069,62 @@ const HomePage: React.FC = () => {
       const unit = metric === 'calories' ? 'kcal' : 
                    metric === 'sodium' ? 'mg' : 'g';
       
+      // Special handling for scatter plots
+      if (analyticsChartType === 'scatter') {
+        return {
+          ...baseOptions,
+          scales: {
+            y: {
+              beginAtZero: true,
+              grid: {
+                color: 'rgba(0,0,0,0.1)',
+                borderDash: [5, 5]
+              },
+              ticks: {
+                font: {
+                  size: 12
+                },
+                callback: function(value: any) {
+                  return `${value} ${unit}`;
+                }
+              },
+              title: {
+                display: true,
+                text: `${chartConfig?.title || metric} (${unit})`,
+                font: {
+                  size: 14,
+                  weight: 'bold' as const
+                }
+              }
+            },
+            x: {
+              beginAtZero: true,
+              grid: {
+                color: 'rgba(0,0,0,0.1)',
+                borderDash: [5, 5]
+              },
+              ticks: {
+                font: {
+                  size: 12
+                },
+                callback: function(value: any) {
+                  return `${value} kcal`;
+                }
+              },
+              title: {
+                display: true,
+                text: 'Calories (kcal)',
+                font: {
+                  size: 14,
+                  weight: 'bold' as const
+                }
+              }
+            }
+          }
+        };
+      }
+      
+      // Regular time series charts
       return {
         ...baseOptions,
         scales: {
@@ -1105,11 +1201,49 @@ const HomePage: React.FC = () => {
             case 'line':
               return <Line key={chartKey} data={data} options={options} />;
             case 'area':
-              return <Line key={chartKey} data={data} options={options} />;
+              return <Line key={chartKey} data={data} options={{
+                ...options,
+                elements: {
+                  line: {
+                    fill: true,
+                    tension: 0.4
+                  }
+                },
+                plugins: {
+                  ...options.plugins,
+                  filler: {
+                    propagate: true
+                  }
+                }
+              }} />;
             case 'scatter':
-              return <Line key={chartKey} data={data} options={{...options, showLine: false}} />;
+              return <Scatter key={chartKey} data={data} options={{
+                ...options,
+                elements: {
+                  point: {
+                    radius: 6,
+                    hoverRadius: 8
+                  }
+                },
+                plugins: {
+                  ...options.plugins,
+                  legend: {
+                    ...options.plugins?.legend,
+                    display: true
+                  }
+                }
+              }} />;
             case 'comparison':
-              return <Line key={chartKey} data={data} options={options} />;
+              return <Line key={chartKey} data={data} options={{
+                ...options,
+                plugins: {
+                  ...options.plugins,
+                  legend: {
+                    ...options.plugins?.legend,
+                    display: true
+                  }
+                }
+              }} />;
             case 'pie':
               return <Pie key={chartKey} data={data} options={options} />;
             case 'doughnut':
@@ -1150,21 +1284,27 @@ const HomePage: React.FC = () => {
       }]
     };
     
-    return <Radar data={summaryData} options={{
-      responsive: true,
-      maintainAspectRatio: false,
-      scales: {
-        r: {
-          beginAtZero: true,
-          grid: { color: 'rgba(0,0,0,0.1)' },
-          pointLabels: { font: { size: 12 } }
+    const radarKey = `radar-${selectedTimeRange}-${Date.now()}`;
+    
+    return <Radar 
+      key={radarKey}
+      data={summaryData} 
+      options={{
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          r: {
+            beginAtZero: true,
+            grid: { color: 'rgba(0,0,0,0.1)' },
+            pointLabels: { font: { size: 12 } }
+          }
+        },
+        plugins: {
+          legend: { display: false },
+          title: { display: false }
         }
-      },
-      plugins: {
-        legend: { display: false },
-        title: { display: false }
-      }
-    }} />;
+      }} 
+    />;
   };
 
   const renderWeeklyPatternChart = () => {
@@ -1194,17 +1334,23 @@ const HomePage: React.FC = () => {
       }]
     };
     
-    return <Line data={chartData} options={{
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: { position: 'top' },
-        title: { display: false }
-      },
-      scales: {
-        y: { beginAtZero: true }
-      }
-    }} />;
+    const weeklyKey = `weekly-${selectedTimeRange}-${Date.now()}`;
+    
+    return <Line 
+      key={weeklyKey}
+      data={chartData} 
+      options={{
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { position: 'top' },
+          title: { display: false }
+        },
+        scales: {
+          y: { beginAtZero: true }
+        }
+      }} 
+    />;
   };
 
   const renderMacroDistributionChart = () => {
@@ -1230,14 +1376,20 @@ const HomePage: React.FC = () => {
       }]
     };
     
-    return <Doughnut data={chartData} options={{
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: { position: 'bottom' },
-        title: { display: false }
-      }
-    }} />;
+    const macroKey = `macro-${selectedTimeRange}-${Date.now()}`;
+    
+    return <Doughnut 
+      key={macroKey}
+      data={chartData} 
+      options={{
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { position: 'bottom' },
+          title: { display: false }
+        }
+      }} 
+    />;
   };
 
   const renderAdherenceChart = () => {
@@ -1261,25 +1413,31 @@ const HomePage: React.FC = () => {
       }]
     };
     
-    return <Bar data={chartData} options={{
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: { display: false },
-        title: { display: false }
-      },
-      scales: {
-        y: { 
-          beginAtZero: true,
-          max: 100,
-          ticks: {
-            callback: function(value) {
-              return value + '%';
+    const adherenceKey = `adherence-${selectedTimeRange}-${Date.now()}`;
+    
+    return <Bar 
+      key={adherenceKey}
+      data={chartData} 
+      options={{
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          title: { display: false }
+        },
+        scales: {
+          y: { 
+            beginAtZero: true,
+            max: 100,
+            ticks: {
+              callback: function(value) {
+                return value + '%';
+              }
             }
           }
         }
-      }
-    }} />;
+      }} 
+    />;
   };
 
   // Chart configurations with beautiful styling
@@ -1787,6 +1945,7 @@ const HomePage: React.FC = () => {
                 {createMacroChart() && (
                   <Box sx={{ height: 300 }}>
                     <Doughnut 
+                      key={`macro-${macroTimeRange}-${Date.now()}`}
                       data={createMacroChart()!} 
                       options={{
                         responsive: true,

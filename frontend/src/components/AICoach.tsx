@@ -860,6 +860,7 @@ const AICoach: React.FC = () => {
                 {createHealthRadarChart() && (
                   <Box sx={{ height: 300 }}>
                     <Radar 
+                      key={`health-radar-${Date.now()}`}
                       data={createHealthRadarChart()!} 
                       options={{
                         responsive: true,
@@ -931,6 +932,7 @@ const AICoach: React.FC = () => {
                 {createProgressChart() && (
                   <Box sx={{ height: 300 }}>
                     <Line 
+                      key={`weekly-progress-${Date.now()}`}
                       data={createProgressChart()!} 
                       options={{
                         responsive: true,
@@ -967,6 +969,7 @@ const AICoach: React.FC = () => {
                       Calorie Goal Achievement
                     </Typography>
                     <LinearProgress 
+                      key={`calorie-progress-${Date.now()}`}
                       variant="determinate" 
                       value={progressData?.calorie_progress || 0}
                       sx={{ mt: 1, height: 8, borderRadius: 4 }}
@@ -981,6 +984,7 @@ const AICoach: React.FC = () => {
                       Protein Goal Achievement
                     </Typography>
                     <LinearProgress 
+                      key={`protein-progress-${Date.now()}`}
                       variant="determinate" 
                       value={progressData?.protein_progress || 0}
                       color="success"
@@ -996,6 +1000,7 @@ const AICoach: React.FC = () => {
                       Carb Management
                     </Typography>
                     <LinearProgress 
+                      key={`carb-progress-${Date.now()}`}
                       variant="determinate" 
                       value={progressData?.carb_progress || 0}
                       color="warning"
@@ -1011,6 +1016,7 @@ const AICoach: React.FC = () => {
                       Consistency Score
                     </Typography>
                     <LinearProgress 
+                      key={`consistency-score-${Date.now()}`}
                       variant="determinate" 
                       value={progressData?.consistency_score || 0}
                       color="info"

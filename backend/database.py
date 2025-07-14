@@ -99,6 +99,55 @@ async def get_patient_by_id(patient_id: str):
 async def save_meal_plan(user_id: str, meal_plan_data: dict):
     """Saves a user's meal plan to Cosmos DB."""
     
+    # Validate that the meal plan is not empty or incomplete
+    if not meal_plan_data:
+        print(f"[save_meal_plan] Rejecting empty meal plan for user {user_id}")
+        raise ValueError("Cannot save empty meal plan")
+    
+    # Validate required fields for a proper meal plan
+    # Check if it has the new format (meals dict) or old format (breakfast, lunch, dinner, snacks arrays)
+    has_new_format = "meals" in meal_plan_data and isinstance(meal_plan_data["meals"], dict)
+    has_old_format = all(key in meal_plan_data for key in ["breakfast", "lunch", "dinner", "snacks"])
+    
+    if has_new_format:
+        # New format validation
+        meals = meal_plan_data["meals"]
+        required_meal_types = ["breakfast", "lunch", "dinner"]
+        
+        # Check if meals dict has required meal types and they're not empty
+        for meal_type in required_meal_types:
+            if meal_type not in meals or not meals[meal_type] or meals[meal_type].strip() == "":
+                print(f"[save_meal_plan] Rejecting meal plan with empty {meal_type} for user {user_id}")
+                raise ValueError(f"Meal plan missing or empty {meal_type}")
+        
+        # Check if at least one meal is not just a placeholder
+        all_meals = [meals.get("breakfast", ""), meals.get("lunch", ""), meals.get("dinner", ""), meals.get("snack", "")]
+        placeholders = ["not specified", "not provided", "healthy meal option", "placeholder", "tbd", "to be determined"]
+        
+        if all(any(placeholder in meal.lower() for placeholder in placeholders) for meal in all_meals if meal):
+            print(f"[save_meal_plan] Rejecting meal plan with only placeholder meals for user {user_id}")
+            raise ValueError("Meal plan contains only placeholder meals")
+    
+    elif has_old_format:
+        # Old format validation (arrays for breakfast, lunch, dinner, snacks)
+        required_meal_types = ["breakfast", "lunch", "dinner", "snacks"]
+        
+        for meal_type in required_meal_types:
+            meals_array = meal_plan_data.get(meal_type, [])
+            if not meals_array or not isinstance(meals_array, list) or len(meals_array) == 0:
+                print(f"[save_meal_plan] Rejecting meal plan with empty {meal_type} array for user {user_id}")
+                raise ValueError(f"Meal plan missing or empty {meal_type} array")
+            
+            # Check if all meals in the array are empty or placeholders
+            placeholders = ["not specified", "not provided", "healthy meal option", "placeholder", "tbd", "to be determined"]
+            if all(not meal or any(placeholder in meal.lower() for placeholder in placeholders) for meal in meals_array):
+                print(f"[save_meal_plan] Rejecting meal plan with only placeholder meals in {meal_type} for user {user_id}")
+                raise ValueError(f"Meal plan contains only placeholder meals in {meal_type}")
+    
+    else:
+        print(f"[save_meal_plan] Rejecting meal plan with invalid format for user {user_id}")
+        raise ValueError("Meal plan must have either 'meals' dict or 'breakfast', 'lunch', 'dinner', 'snacks' arrays")
+    
     # Rebuild the item dictionary explicitly to avoid potential CosmosDict issues
     item = {}
     for key, value in meal_plan_data.items():
@@ -111,7 +160,7 @@ async def save_meal_plan(user_id: str, meal_plan_data: dict):
     item['_partitionKey'] = user_id # Explicitly set the partition key
     item['created_at'] = datetime.utcnow().isoformat() # Add timestamp
     
-    print(f"[save_meal_plan] Attempting to save item: {item.get('id')}, type: {item.get('type')}, user_id: {item.get('user_id')}")
+    print(f"[save_meal_plan] Attempting to save validated item: {item.get('id')}, type: {item.get('type')}, user_id: {item.get('user_id')}")
     print(f"[save_meal_plan] Full item data (partial): {list(item.keys())}")
     
     try:
