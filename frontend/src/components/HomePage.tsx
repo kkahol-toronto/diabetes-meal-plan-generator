@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import config from '../config/environment';
 import {
@@ -80,6 +80,15 @@ import {
 } from '@mui/icons-material';
 import { useApp } from '../contexts/AppContext';
 import { Line, Doughnut, Radar, Bar, Pie, Scatter } from 'react-chartjs-2';
+// Timezone utilities - temporarily commented out due to import issues
+// import { 
+//   getUserTimezone, 
+//   getUserLocalDate, 
+//   isToday, 
+//   calculateDailyTotalsFromRecords, 
+//   filterTodayRecords,
+//   debugTimezone 
+// } from '../utils/timezone';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -324,6 +333,8 @@ const HomePage: React.FC = () => {
   const [analyticsTabValue, setAnalyticsTabValue] = useState(0); // For Daily, Weekly, etc. tabs
   const [selectedTimeRange, setSelectedTimeRange] = useState<'daily' | 'weekly' | 'bi-weekly' | 'monthly'>('daily');
   const [consumptionAnalytics, setConsumptionAnalytics] = useState<any>(null);
+  const [consumptionHistory, setConsumptionHistory] = useState<any[]>([]);
+  const [timezoneAdjustedData, setTimezoneAdjustedData] = useState<any>(null);
   
   // Adaptive Plan Dialog state
   const [showAdaptivePlanDialog, setShowAdaptivePlanDialog] = useState(false);
@@ -361,6 +372,7 @@ const HomePage: React.FC = () => {
       };
 
       // Fetch all data in parallel for maximum efficiency
+      // Fetch extra consumption history (3 days) to handle timezone differences
       const [
         dailyInsightsResponse,
         analyticsResponse,
@@ -369,6 +381,7 @@ const HomePage: React.FC = () => {
         mealPlanResponse,
         userProfileResponse,
         mealPlanHistoryResponse,
+        consumptionHistoryResponse,
       ] = await Promise.all([
         fetch(`${config.API_URL}/coach/daily-insights`, { headers }),
         fetch(`${config.API_URL}/consumption/analytics?days=30`, { headers }), // Fetching 30 days for initial analytics
@@ -376,7 +389,8 @@ const HomePage: React.FC = () => {
         fetch(`${config.API_URL}/coach/notifications`, { headers }),
         fetch(`${config.API_URL}/coach/todays-meal-plan`, { headers }),
         fetch(`${config.API_URL}/user/profile`, { headers }),
-        fetch(`${config.API_URL}/meal_plans`, { headers })
+        fetch(`${config.API_URL}/meal_plans`, { headers }),
+        fetch(`${config.API_URL}/consumption/history?limit=100`, { headers }) // Fetch more records for timezone filtering
       ]);
 
       if (dailyInsightsResponse.status === 401 ||
@@ -385,23 +399,105 @@ const HomePage: React.FC = () => {
           notificationsResponse.status === 401 ||
           mealPlanResponse.status === 401 ||
           userProfileResponse.status === 401 ||
-          mealPlanHistoryResponse.status === 401) {
+          mealPlanHistoryResponse.status === 401 ||
+          consumptionHistoryResponse.status === 401) {
         localStorage.removeItem('token');
         navigate('/login');
         return;
       }
 
-      const [dailyData, analytics, progress, notifs, mealPlan, profileData, mealPlanHistory] = await Promise.all([
+      const [dailyData, analytics, progress, notifs, mealPlan, profileData, mealPlanHistory, consumptionHistoryData] = await Promise.all([
         dailyInsightsResponse.ok ? dailyInsightsResponse.json() : null,
         analyticsResponse.ok ? analyticsResponse.json() : null,
         progressResponse.ok ? progressResponse.json() : [],
         notificationsResponse.ok ? notificationsResponse.json() : null,
         mealPlanResponse.ok ? mealPlanResponse.json() : null,
         userProfileResponse.ok ? userProfileResponse.json() : {},
-        mealPlanHistoryResponse.ok ? mealPlanHistoryResponse.json() : null
+        mealPlanHistoryResponse.ok ? mealPlanHistoryResponse.json() : null,
+        consumptionHistoryResponse.ok ? consumptionHistoryResponse.json() : []
       ]);
 
-      setDashboardData(dailyData);
+      // Process consumption history with timezone filtering
+      const consumptionRecords = consumptionHistoryData || [];
+      setConsumptionHistory(consumptionRecords);
+      
+      // Frontend-only timezone adjustment
+      let timezoneAdjustedTodayTotals = null;
+      if (consumptionRecords.length > 0) {
+        try {
+          // Get user's timezone and current local date
+          const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+          const now = new Date();
+          const localDate = new Date(now.toLocaleString('en-US', { timeZone: userTimezone }));
+          const todayLocal = localDate.toISOString().split('T')[0];
+          
+          console.log('User timezone:', userTimezone);
+          console.log('Today (local):', todayLocal);
+          console.log('Today (UTC):', now.toISOString().split('T')[0]);
+          
+          // Filter consumption records to only include today's records (user's timezone)
+          const todayRecords = consumptionRecords.filter((record: any) => {
+            if (!record.timestamp) return false;
+            
+            // Convert UTC timestamp to user's local date
+            const utcDate = new Date(record.timestamp);
+            const localRecordDate = new Date(utcDate.toLocaleString('en-US', { timeZone: userTimezone }));
+            const recordLocalDate = localRecordDate.toISOString().split('T')[0];
+            
+            return recordLocalDate === todayLocal;
+          });
+          
+          console.log('Total records:', consumptionRecords.length);
+          console.log('Today records (timezone-adjusted):', todayRecords.length);
+          
+          // Calculate totals from today's records
+          const totals = {
+            calories: 0,
+            protein: 0,
+            carbohydrates: 0,
+            fat: 0,
+            fiber: 0,
+            sugar: 0,
+            sodium: 0
+          };
+          
+          todayRecords.forEach((record: any) => {
+            const nutrition = record.nutritional_info || {};
+            totals.calories += nutrition.calories || 0;
+            totals.protein += nutrition.protein || 0;
+            totals.carbohydrates += nutrition.carbohydrates || 0;
+            totals.fat += nutrition.fat || 0;
+            totals.fiber += nutrition.fiber || 0;
+            totals.sugar += nutrition.sugar || 0;
+            totals.sodium += nutrition.sodium || 0;
+          });
+          
+          timezoneAdjustedTodayTotals = totals;
+          console.log('Timezone-adjusted today totals:', timezoneAdjustedTodayTotals);
+          
+        } catch (error) {
+          console.error('Error calculating timezone-adjusted totals:', error);
+        }
+      }
+      
+      // Update dashboard data with timezone-adjusted totals if available
+      let adjustedDailyData = dailyData;
+      if (timezoneAdjustedTodayTotals && dailyData) {
+        adjustedDailyData = {
+          ...dailyData,
+          today_totals: timezoneAdjustedTodayTotals,
+          // Recalculate adherence percentages
+          adherence: {
+            calories: Math.min(100, (timezoneAdjustedTodayTotals.calories / (dailyData.goals?.calories || 2000)) * 100),
+            protein: Math.min(100, (timezoneAdjustedTodayTotals.protein / (dailyData.goals?.protein || 100)) * 100),
+            carbohydrates: Math.min(100, (timezoneAdjustedTodayTotals.carbohydrates / (dailyData.goals?.carbohydrates || 250)) * 100),
+            fat: Math.min(100, (timezoneAdjustedTodayTotals.fat / (dailyData.goals?.fat || 70)) * 100)
+          }
+        };
+      }
+      
+      setDashboardData(adjustedDailyData);
+      setTimezoneAdjustedData(timezoneAdjustedTodayTotals);
       setAnalyticsData(analytics); // Existing analytics data, consider renaming for clarity
       setProgressData(progress);
       setNotifications(notifs);
@@ -1284,7 +1380,7 @@ const HomePage: React.FC = () => {
       }]
     };
     
-    const radarKey = `radar-${selectedTimeRange}-${Date.now()}`;
+    const radarKey = `radar-${selectedTimeRange}`;
     
     return <Radar 
       key={radarKey}
@@ -1334,7 +1430,7 @@ const HomePage: React.FC = () => {
       }]
     };
     
-    const weeklyKey = `weekly-${selectedTimeRange}-${Date.now()}`;
+    const weeklyKey = `weekly-${selectedTimeRange}`;
     
     return <Line 
       key={weeklyKey}
@@ -1376,7 +1472,7 @@ const HomePage: React.FC = () => {
       }]
     };
     
-    const macroKey = `macro-${selectedTimeRange}-${Date.now()}`;
+    const macroKey = `macro-${selectedTimeRange}`;
     
     return <Doughnut 
       key={macroKey}
@@ -1413,7 +1509,7 @@ const HomePage: React.FC = () => {
       }]
     };
     
-    const adherenceKey = `adherence-${selectedTimeRange}-${Date.now()}`;
+    const adherenceKey = `adherence-${selectedTimeRange}`;
     
     return <Bar 
       key={adherenceKey}
@@ -1440,8 +1536,8 @@ const HomePage: React.FC = () => {
     />;
   };
 
-  // Chart configurations with beautiful styling
-  const createMacroChart = () => {
+  // Chart configurations with beautiful styling - memoized to prevent unnecessary re-renders
+  const createMacroChart = useMemo(() => {
     let protein = 0;
     let carbs = 0;
     let fat = 0;
@@ -1497,7 +1593,7 @@ const HomePage: React.FC = () => {
         }
       ]
     };
-  };
+  }, [macroTimeRange, dashboardData?.today_totals, macroConsumptionAnalytics, theme]);
 
   const createWeeklyTrendChart = () => {
     if (!analyticsData?.daily_breakdown) return null;
@@ -1942,11 +2038,11 @@ const HomePage: React.FC = () => {
                     <MenuItem value="monthly">Monthly</MenuItem>
                   </Select>
                 </FormControl>
-                {createMacroChart() && (
+                {createMacroChart && (
                   <Box sx={{ height: 300 }}>
                     <Doughnut 
-                      key={`macro-${macroTimeRange}-${Date.now()}`}
-                      data={createMacroChart()!} 
+                      key={`macro-${macroTimeRange}`}
+                      data={createMacroChart} 
                       options={{
                         responsive: true,
                         maintainAspectRatio: false,
