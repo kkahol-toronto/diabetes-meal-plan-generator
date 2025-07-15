@@ -34,6 +34,7 @@ import DownloadIcon from '@mui/icons-material/Download';
 import { useNavigate } from 'react-router-dom';
 import { MealPlanData } from '../types';
 import { handleAuthError, getAuthHeaders } from '../utils/auth';
+import { mealPlanApi } from '../utils/api';
 
 // Animations
 const float = keyframes`
@@ -120,19 +121,7 @@ const MealPlanHistory = () => {
         return;
       }
 
-      const response = await fetch(`${config.API_URL}/meal_plans`, {
-        method: 'GET',
-        headers,
-      });
-
-      if (!response.ok) {
-        if (handleAuthError(response, navigate)) {
-          return;
-        }
-        throw new Error(`HTTP ${response.status}: Failed to fetch meal plans.`);
-      }
-
-      const data = await response.json();
+      const data = await mealPlanApi.getHistory() as { meal_plans: MealPlanData[] };
       console.log('Fetched meal plans from backend:', data);
       
       // Get permanently deleted IDs
@@ -156,10 +145,8 @@ const MealPlanHistory = () => {
       setMealPlans(visiblePlans);
       setFilteredPlans(visiblePlans);
     } catch (err) {
-      if (!handleAuthError(err, navigate)) {
-        console.error('Error fetching meal plans:', err);
-        setError(err instanceof Error ? err.message : 'Failed to fetch meal plans.');
-      }
+      console.error('Error fetching meal plans:', err);
+      setError(err instanceof Error ? err.message : 'Failed to fetch meal plans.');
     } finally {
       setLoading(false);
     }
@@ -269,16 +256,9 @@ const MealPlanHistory = () => {
 
     // Try backend deletion in background (optional - user doesn't care)
     try {
-      const headers = getAuthHeaders();
-      if (headers) {
-        fetch(`${config.API_URL}/meal_plans/bulk_delete`, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({ plan_ids: selectedIds }),
-        }).catch(() => {
-          console.log('Backend deletion failed, but UI already updated');
-        });
-      }
+      mealPlanApi.delete(selectedIds).catch(() => {
+        console.log('Backend deletion failed, but UI already updated');
+      });
     } catch (error) {
       console.log('Backend deletion failed, but UI already updated');
     }
@@ -316,16 +296,10 @@ const MealPlanHistory = () => {
 
     // Try to delete from backend in the background (optional - user doesn't care if this fails)
     try {
-      const headers = getAuthHeaders();
-      if (headers) {
-        fetch(`${config.API_URL}/meal_plans/all`, {
-          method: 'DELETE',
-          headers,
-        }).catch(() => {
-          // Silent fail - user doesn't care about backend errors
-          console.log('Backend clear all failed, but UI already updated');
-        });
-      }
+      mealPlanApi.deleteAll().catch(() => {
+        // Silent fail - user doesn't care about backend errors
+        console.log('Backend clear all failed, but UI already updated');
+      });
     } catch (error) {
       // Silent fail - user doesn't care about backend errors
       console.log('Backend clear all failed, but UI already updated');

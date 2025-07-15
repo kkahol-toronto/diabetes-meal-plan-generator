@@ -13,7 +13,7 @@ interface ApiConfig {
   retryDelay?: number;
 }
 
-const BASE_URL = 'https://Dietra-backend.azurewebsites.net'; // HARDCODED
+const BASE_URL = config.API_URL;
 const DEFAULT_TIMEOUT = config.API_TIMEOUT;
 const DEFAULT_RETRIES = config.RETRY_ATTEMPTS;
 const DEFAULT_RETRY_DELAY = 1000; // 1 second
@@ -190,7 +190,7 @@ export const mealPlanApi = {
   generate: (data: any) => api.post('/generate-meal-plan', data, { timeout: 60000 }),
   getHistory: () => api.get('/meal_plans'),
   getById: (id: string) => api.get(`/meal_plans/${id}`),
-  delete: (ids: string[]) => api.post('/meal_plans/bulk_delete', { meal_plan_ids: ids }),
+  delete: (ids: string[]) => api.post('/meal_plans/bulk_delete', ids),
   deleteAll: () => api.delete('/meal_plans/all'),
 };
 
