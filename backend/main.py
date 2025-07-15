@@ -2943,9 +2943,9 @@ async def send_chat_message(
         print(f"Error fetching meal plans for chat context: {e}")
         recent_meal_plans = []
     
-    # Get recent consumption history (last 7 days)
+    # Get recent consumption history (last 7 days) - INCREASED LIMIT to ensure we get ALL today's meals
     try:
-        recent_consumption = await get_user_consumption_history(current_user["id"], limit=20)
+        recent_consumption = await get_user_consumption_history(current_user["id"], limit=200)
         # Filter to last 7 days
         from datetime import datetime, timedelta
         seven_days_ago = datetime.utcnow() - timedelta(days=7)
@@ -2986,6 +2986,14 @@ async def send_chat_message(
         today_totals["protein"] += nutritional_info.get("protein", 0)
         today_totals["carbs"] += nutritional_info.get("carbohydrates", 0)
         today_totals["fat"] += nutritional_info.get("fat", 0)
+    
+    # Debug logging for today's consumption
+    print(f"[CHAT_DEBUG] Found {len(today_consumption)} meals for today")
+    print(f"[CHAT_DEBUG] Today's totals: {today_totals}")
+    if today_consumption:
+        print(f"[CHAT_DEBUG] Today's meals: {[record.get('food_name') for record in today_consumption]}")
+    else:
+        print(f"[CHAT_DEBUG] No meals found for today - recent_consumption had {len(recent_consumption)} records")
     
     # Get user's goals from profile or latest meal plan
     calorie_goal = 2000  # Default
@@ -5780,7 +5788,7 @@ Ensure ALL dishes are completely vegetarian and egg-free. Do not include any mea
         # REAL-TIME CALIBRATION (same-day)
         # ------------------
         try:
-            consumption_data_full = await get_user_consumption_history(current_user["email"], limit=100)
+            consumption_data_full = await get_user_consumption_history(current_user["email"], limit=300)
             now_utc = datetime.utcnow()
             today_utc = now_utc.date()
             
@@ -6036,8 +6044,8 @@ async def create_adaptive_meal_plan(
         req_days = int(payload.get("days", 7)) if payload else 7
         req_cuisine = payload.get("cuisine_type", "") if payload else ""
 
-        # Get user's consumption history using existing function
-        consumption_history = await get_user_consumption_history(current_user["email"], limit=100)
+        # Get user's consumption history using existing function - INCREASED LIMIT to ensure we get ALL today's meals
+        consumption_history = await get_user_consumption_history(current_user["email"], limit=300)
         
         # Get user's meal plan history using existing function
         meal_plan_history = await get_user_meal_plans(current_user["email"])
@@ -6326,8 +6334,8 @@ async def get_consumption_insights(
     current_user: User = Depends(get_current_user)
 ):
     try:
-        # Get consumption data using existing function
-        consumption_data = await get_user_consumption_history(current_user["email"], limit=200)
+        # Get consumption data using existing function - INCREASED LIMIT to ensure we get ALL today's meals
+        consumption_data = await get_user_consumption_history(current_user["email"], limit=400)
         
         # Filter to specified period - USE CONSISTENT FILTERING
         now_utc = datetime.utcnow()
@@ -6436,8 +6444,8 @@ async def get_notifications(
     try:
         print(f"[get_notifications] Getting notifications for user {current_user['email']}")
         
-        # Get user's recent consumption data
-        consumption_data = await get_user_consumption_history(current_user["email"], limit=20)
+        # Get user's recent consumption data - INCREASED LIMIT to ensure we get ALL today's meals
+        consumption_data = await get_user_consumption_history(current_user["email"], limit=200)
         
         if not consumption_data:
             print("[get_notifications] No consumption data found")
@@ -7222,9 +7230,9 @@ async def get_meal_suggestion(
             print(f"[AI_COACH] Error fetching user profile: {e}")
             user_profile = {}
         
-        # 2. Get comprehensive consumption history (last 30 days)
+        # 2. Get comprehensive consumption history (last 30 days) - INCREASED LIMIT to ensure we get ALL today's meals
         try:
-            consumption_history = await get_user_consumption_history(current_user["email"], limit=100)
+            consumption_history = await get_user_consumption_history(current_user["email"], limit=300)
             # Filter to last 30 days for comprehensive analysis
             from datetime import datetime, timedelta
             thirty_days_ago = datetime.utcnow() - timedelta(days=30)
@@ -7296,6 +7304,14 @@ async def get_meal_suggestion(
             today_totals["fiber"] += nutritional_info.get("fiber", 0)
             today_totals["sugar"] += nutritional_info.get("sugar", 0)
             today_totals["sodium"] += nutritional_info.get("sodium", 0)
+        
+        # Debug logging for today's consumption
+        print(f"[AI_COACH_DEBUG] Found {len(today_consumption)} meals for today")
+        print(f"[AI_COACH_DEBUG] Today's totals: {today_totals}")
+        if today_consumption:
+            print(f"[AI_COACH_DEBUG] Today's meals: {[record.get('food_name') for record in today_consumption]}")
+        else:
+            print(f"[AI_COACH_DEBUG] No meals found for today - recent_consumption had {len(recent_consumption)} records")
         
         # Calculate weekly averages
         weekly_totals = {"calories": 0, "protein": 0, "carbs": 0, "fat": 0, "meals": 0}
