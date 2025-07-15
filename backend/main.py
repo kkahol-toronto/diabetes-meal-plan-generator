@@ -5040,15 +5040,16 @@ async def get_daily_coaching_insights(current_user: User = Depends(get_current_u
         if today_consumption:
             print(f"[DEBUG] Sample today consumption record: {today_consumption[0]}")
         
-        # Calorie recommendations - fix logic
-        calorie_adherence_pct = adherence["calories"]
+        # Calorie recommendations - fix logic by using raw percentage instead of capped adherence
+        raw_calorie_adherence_pct = (today_totals["calories"] / calorie_goal * 100) if calorie_goal > 0 else 0
         remaining_calories = calorie_goal - today_totals["calories"]
         
         # Debug the calculation
         print(f"[DEBUG] Calorie calculation: {calorie_goal} - {today_totals['calories']} = {remaining_calories}")
-        print(f"[DEBUG] Calorie adherence: {calorie_adherence_pct}%")
+        print(f"[DEBUG] Raw calorie adherence: {raw_calorie_adherence_pct}%")
+        print(f"[DEBUG] Capped calorie adherence: {adherence['calories']}%")
         
-        if calorie_adherence_pct < 70:  # Less than 70% of goal
+        if raw_calorie_adherence_pct < 70:  # Less than 70% of goal
             if remaining_calories > 0:  # Only show if actually below goal
                 recommendations.append({
                     "type": "calorie_low",
@@ -5056,7 +5057,7 @@ async def get_daily_coaching_insights(current_user: User = Depends(get_current_u
                     "message": f"You're {remaining_calories:.0f} calories below your goal. Consider adding a healthy snack or slightly larger portions.",
                     "action": "increase_intake"
                 })
-        elif calorie_adherence_pct > 110:  # More than 110% of goal
+        elif raw_calorie_adherence_pct > 110:  # More than 110% of goal
             excess_calories = today_totals["calories"] - calorie_goal
             if excess_calories > 0:  # Only show if actually over goal
                 recommendations.append({
@@ -5065,7 +5066,7 @@ async def get_daily_coaching_insights(current_user: User = Depends(get_current_u
                     "message": f"You're {excess_calories:.0f} calories over your goal. Consider lighter options for remaining meals.",
                     "action": "reduce_intake"
                 })
-        elif calorie_adherence_pct >= 85:  # Good adherence
+        elif raw_calorie_adherence_pct >= 85:  # Good adherence
             recommendations.append({
                 "type": "calorie_good",
                 "priority": "low",
