@@ -2957,14 +2957,23 @@ async def send_chat_message(
         print(f"Error fetching consumption history for chat context: {e}")
         recent_consumption = []
     
-    # Get today's consumption for daily tracking
+    # Get today's consumption for daily tracking - USE CONSISTENT FILTERING
     try:
-        today = datetime.utcnow().date()
-        tomorrow = today + timedelta(days=1)
-        today_consumption = [
-            record for record in recent_consumption
-            if today <= datetime.fromisoformat(record.get("timestamp", "").replace("Z", "+00:00")).date() < tomorrow
-        ]
+        now_utc = datetime.utcnow()
+        today_utc = now_utc.date()
+        today_consumption = []
+        
+        for record in recent_consumption:
+            try:
+                record_timestamp = datetime.fromisoformat(record.get("timestamp", "").replace("Z", "+00:00"))
+                record_date = record_timestamp.date()
+                
+                # Use consistent timezone-aware filtering (24-hour window)
+                if record_date == today_utc or (now_utc - record_timestamp).total_seconds() <= 86400:  # 24 hours
+                    today_consumption.append(record)
+            except Exception as e:
+                print(f"Error parsing timestamp for record: {e}")
+                continue
     except Exception as e:
         print(f"Error filtering today's consumption: {e}")
         today_consumption = []
@@ -4731,17 +4740,36 @@ async def get_consumption_progress(current_user: User = Depends(get_current_user
     # 3. (Future extensibility) Consider dietary info and physical activity for smarter defaults
     # For now, just use the above logic
 
-    # 4. Get today's consumption records
-    today = datetime.utcnow().date()
-    tomorrow = today + timedelta(days=1)
+    # 4. Get today's consumption records - USE CONSISTENT FILTERING
+    now_utc = datetime.utcnow()
+    today_utc = now_utc.date()
+    
+    # Use 24-hour lookback for consistent timezone handling
+    cutoff_time = now_utc - timedelta(hours=24)
+    
     query = (
-        "SELECT c.nutritional_info FROM c WHERE c.type = 'consumption_record' "
+        "SELECT c.nutritional_info, c.timestamp FROM c WHERE c.type = 'consumption_record' "
         f"AND c.user_id = '{current_user['email']}' "
-        f"AND c.timestamp >= '{today.isoformat()}' AND c.timestamp < '{tomorrow.isoformat()}'"
+        f"AND c.timestamp >= '{cutoff_time.isoformat()}'"
     )
-    records = list(interactions_container.query_items(query=query, enable_cross_partition_query=True))
+    all_records = list(interactions_container.query_items(query=query, enable_cross_partition_query=True))
+    
+    # Filter records using consistent timezone-aware logic
+    today_records = []
+    for record in all_records:
+        try:
+            record_timestamp = datetime.fromisoformat(record.get("timestamp", "").replace("Z", "+00:00"))
+            record_date = record_timestamp.date()
+            
+            # Use consistent timezone-aware filtering (24-hour window)
+            if record_date == today_utc or (now_utc - record_timestamp).total_seconds() <= 86400:  # 24 hours
+                today_records.append(record)
+        except Exception as e:
+            print(f"Error parsing timestamp for record: {e}")
+            continue
+    
     today_totals = {"calories": 0, "protein": 0, "carbs": 0, "fat": 0}
-    for rec in records:
+    for rec in today_records:
         ni = rec.get("nutritional_info", {})
         today_totals["calories"] += ni.get("calories", 0)
         today_totals["protein"] += ni.get("protein", 0)
@@ -5753,10 +5781,22 @@ Ensure ALL dishes are completely vegetarian and egg-free. Do not include any mea
         # ------------------
         try:
             consumption_data_full = await get_user_consumption_history(current_user["email"], limit=100)
-            today_consumption_full = [
-                r for r in consumption_data_full
-                if datetime.fromisoformat(r.get("timestamp", "").replace("Z", "+00:00")).date() == today
-            ]
+            now_utc = datetime.utcnow()
+            today_utc = now_utc.date()
+            
+            # Use consistent timezone-aware filtering
+            today_consumption_full = []
+            for record in consumption_data_full:
+                try:
+                    record_timestamp = datetime.fromisoformat(record.get("timestamp", "").replace("Z", "+00:00"))
+                    record_date = record_timestamp.date()
+                    
+                    # Use consistent timezone-aware filtering (24-hour window)
+                    if record_date == today_utc or (now_utc - record_timestamp).total_seconds() <= 86400:  # 24 hours
+                        today_consumption_full.append(record)
+                except Exception as e:
+                    print(f"Error parsing timestamp for record: {e}")
+                    continue
 
             # Sum calories eaten so far
             calories_so_far = sum(r.get("nutritional_info", {}).get("calories", 0) for r in today_consumption_full)
@@ -6013,14 +6053,15 @@ async def create_adaptive_meal_plan(
         total_carbs = 0
         total_protein = 0
         
-        # Filter to last 30 days
-        thirty_days_ago = datetime.utcnow() - timedelta(days=30)
+        # Filter to last 30 days - USE CONSISTENT FILTERING
+        now_utc = datetime.utcnow()
+        thirty_days_ago = now_utc - timedelta(days=30)
         recent_consumption = []
         
         for entry in consumption_history:
             try:
-                entry_date = datetime.fromisoformat(entry.get("timestamp", "").replace("Z", "+00:00"))
-                if entry_date >= thirty_days_ago:
+                entry_timestamp = datetime.fromisoformat(entry.get("timestamp", "").replace("Z", "+00:00"))
+                if entry_timestamp >= thirty_days_ago:
                     recent_consumption.append(entry)
             except:
                 continue
@@ -6288,13 +6329,14 @@ async def get_consumption_insights(
         # Get consumption data using existing function
         consumption_data = await get_user_consumption_history(current_user["email"], limit=200)
         
-        # Filter to specified period
-        start_date = datetime.utcnow() - timedelta(days=days)
+        # Filter to specified period - USE CONSISTENT FILTERING
+        now_utc = datetime.utcnow()
+        start_date = now_utc - timedelta(days=days)
         filtered_data = []
         for entry in consumption_data:
             try:
-                entry_date = datetime.fromisoformat(entry.get("timestamp", "").replace("Z", "+00:00"))
-                if entry_date >= start_date:
+                entry_timestamp = datetime.fromisoformat(entry.get("timestamp", "").replace("Z", "+00:00"))
+                if entry_timestamp >= start_date:
                     filtered_data.append(entry)
             except:
                 continue
@@ -6401,14 +6443,18 @@ async def get_notifications(
             print("[get_notifications] No consumption data found")
             return []  # Return empty array if no data
         
-        # Filter today's consumption
-        today = datetime.utcnow().date()
+        # Filter today's consumption - USE CONSISTENT FILTERING
+        now_utc = datetime.utcnow()
+        today_utc = now_utc.date()
         today_consumption = []
         
         for entry in consumption_data:
             try:
-                entry_date = datetime.fromisoformat(entry.get("timestamp", "").replace("Z", "+00:00")).date()
-                if entry_date == today:
+                entry_timestamp = datetime.fromisoformat(entry.get("timestamp", "").replace("Z", "+00:00"))
+                entry_date = entry_timestamp.date()
+                
+                # Use consistent timezone-aware filtering (24-hour window)
+                if entry_date == today_utc or (now_utc - entry_timestamp).total_seconds() <= 86400:  # 24 hours
                     today_consumption.append(entry)
             except:
                 continue
@@ -7190,14 +7236,23 @@ async def get_meal_suggestion(
             print(f"[AI_COACH] Error fetching consumption history: {e}")
             recent_consumption = []
         
-        # 3. Get today's consumption for daily analysis
+        # 3. Get today's consumption for daily analysis - USE CONSISTENT FILTERING
         try:
-            today = datetime.utcnow().date()
-            tomorrow = today + timedelta(days=1)
-            today_consumption = [
-                record for record in recent_consumption
-                if today <= datetime.fromisoformat(record.get("timestamp", "").replace("Z", "+00:00")).date() < tomorrow
-            ]
+            now_utc = datetime.utcnow()
+            today_utc = now_utc.date()
+            today_consumption = []
+            
+            for record in recent_consumption:
+                try:
+                    record_timestamp = datetime.fromisoformat(record.get("timestamp", "").replace("Z", "+00:00"))
+                    record_date = record_timestamp.date()
+                    
+                    # Use consistent timezone-aware filtering (24-hour window)
+                    if record_date == today_utc or (now_utc - record_timestamp).total_seconds() <= 86400:  # 24 hours
+                        today_consumption.append(record)
+                except Exception as e:
+                    print(f"[AI_COACH] Error parsing timestamp for record: {e}")
+                    continue
         except Exception as e:
             print(f"[AI_COACH] Error filtering today's consumption: {e}")
             today_consumption = []
