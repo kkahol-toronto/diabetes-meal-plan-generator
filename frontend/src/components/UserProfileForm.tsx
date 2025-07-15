@@ -1,847 +1,1974 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Container,
-  Paper,
+  Box,
   Typography,
   TextField,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
   Button,
-  Grid,
-  Box,
-  Chip,
-  OutlinedInput,
-  SelectChangeEvent,
-  FormHelperText,
+  FormControl,
+  FormLabel,
+  FormGroup,
   FormControlLabel,
   Checkbox,
+  Select,
+  MenuItem,
+  Card,
+  CardContent,
+  Grid,
+  Chip,
+  Autocomplete,
+  InputAdornment,
+  Divider,
+  Alert,
+  Paper,
+  useTheme,
+  Accordion,
+  AccordionSummary,
+  AccordionDetails,
   Switch,
+  RadioGroup,
+  Radio,
 } from '@mui/material';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import PersonIcon from '@mui/icons-material/Person';
+import LocalHospitalIcon from '@mui/icons-material/LocalHospital';
+import MedicationIcon from '@mui/icons-material/Medication';
+import ScienceIcon from '@mui/icons-material/Science';
+import FavoriteIcon from '@mui/icons-material/Favorite';
+import RestaurantIcon from '@mui/icons-material/Restaurant';
+import FitnessIcon from '@mui/icons-material/FitnessCenter';
+import HomeIcon from '@mui/icons-material/Home';
+import TrackChangesIcon from '@mui/icons-material/TrackChanges';
 import { UserProfile } from '../types';
-
-const medicalConditions = [
-  'Diabetes',
-  'Obesity',
-  'Coronary Artery Disease',
-  'Stroke',
-  'Peripheral Vascular Disease',
-  'Chronic Kidney Disease',
-  'Proteinuria',
-  'Elevated Potassium',
-  'Hypertension',
-  'High Cholesterol',
-  'High Triglycerides',
-  'Fatty Liver',
-  'PCOS',
-  'Other'
-];
-
-const ethnicities = [
-  'South Asian',
-  'East Asian',
-  'European',
-  'Caucasian',
-  'African',
-  'African American',
-  'Caribbean',
-  'Jamaican',
-  'Guyanese',
-  'Middle Eastern'
-];
-
-const dietTypes = [
-  'Western',
-  'Mediterranean',
-  'South Asian - North Indian',
-  'South Asian - South Indian',
-  'South Asian - Sri Lankan',
-  'South Asian - Pakistan',
-  'South Asian - Bangladesh',
-  'East Asian',
-  'European',
-  'Caucasian',
-  'African',
-  'African American',
-  'Caribbean',
-  'Jamaican',
-  'Guyanese',
-  'Middle Eastern'
-];
-
-const dietFeatures = [
-  'Low carb',
-  'High protein',
-  'Normal protein',
-  'Low potassium',
-  'Low saturated fat',
-  'Predominantly plant based with some animal protein',
-  'Completely plant based',
-  'Vegetarian with no eggs',
-  'Vegetarian with eggs'
-];
-
-const calorieTargets = [
-  '1500',
-  '1800',
-  '2000',
-  '2200'
-];
-
-const genderOptions = [
-  'Male',
-  'Female',
-  'Non-binary',
-  'Genderqueer',
-  'Transgender',
-  'Prefer not to say',
-  'Other',
-];
-
-// Add options for new fields
-const dietaryRestrictionsOptions = [
-  'Vegetarian',
-  'Vegan',
-  'Gluten Free',
-  'Dairy Free',
-  'Nut Free',
-  'Low Sodium',
-  'Low Sugar',
-  'Halal',
-  'Kosher',
-  'Other',
-];
-const healthConditionsOptions = [
-  'Diabetes',
-  'Hypertension',
-  'Celiac Disease',
-  'Heart Disease',
-  'Kidney Disease',
-  'High Cholesterol',
-  'Other',
-];
-const foodPreferencesOptions = [
-  'Spicy',
-  'Mild',
-  'Sweet',
-  'Savory',
-  'Crunchy',
-  'Soft',
-  'Other',
-];
-const allergiesOptions = [
-  'None',
-  'Peanuts',
-  'Tree Nuts',
-  'Milk',
-  'Eggs',
-  'Fish',
-  'Shellfish',
-  'Soy',
-  'Wheat',
-  'Sesame',
-  'Other',
-];
+import config from '../config/environment';
 
 interface UserProfileFormProps {
   onSubmit: (profile: UserProfile) => void;
   initialProfile?: UserProfile;
+  submitButtonText?: string;
+  isAdminMode?: boolean;
 }
 
-const UserProfileForm: React.FC<UserProfileFormProps> = ({ onSubmit, initialProfile }) => {
-  const [formData, setFormData] = useState<Partial<UserProfile>>(() => {
-    if (initialProfile) {
-      return initialProfile;
+const UserProfileForm: React.FC<UserProfileFormProps> = ({ 
+  onSubmit, 
+  initialProfile, 
+  submitButtonText = "🚀 Generate My Personalized Meal Plan",
+  isAdminMode = false 
+}) => {
+  const theme = useTheme();
+  
+  // Normalize profile data to handle old format
+  const normalizeProfile = (profileData: any): Partial<UserProfile> => {
+    if (!profileData) return {};
+    
+    const normalized = { ...profileData };
+    
+    // Convert old string fields to arrays
+    if (typeof normalized.ethnicity === 'string') {
+      normalized.ethnicity = normalized.ethnicity ? [normalized.ethnicity] : [];
     }
-    return {
-      name: '',
-      age: undefined,
-      gender: '',
-      weight: undefined,
-      height: undefined,
-      waistCircumference: undefined,
-      systolicBP: undefined,
-      diastolicBP: undefined,
-      heartRate: undefined,
-      ethnicity: '',
-      dietType: '',
-      calorieTarget: '',
-      dietFeatures: [],
-      medicalConditions: [],
-      wantsWeightLoss: false,
-      dietaryRestrictions: [],
-      healthConditions: [],
-      foodPreferences: [],
-      allergies: [],
-    };
+    if (typeof normalized.dietType === 'string') {
+      normalized.dietType = normalized.dietType ? [normalized.dietType] : [];
+    }
+    if (typeof normalized.medicalConditions === 'string') {
+      normalized.medicalConditions = normalized.medicalConditions ? [normalized.medicalConditions] : [];
+    }
+    if (typeof normalized.dietaryFeatures === 'string') {
+      normalized.dietaryFeatures = normalized.dietaryFeatures ? [normalized.dietaryFeatures] : [];
+    }
+    if (typeof normalized.dietFeatures === 'string') {
+      normalized.dietaryFeatures = normalized.dietFeatures ? [normalized.dietFeatures] : [];
+    }
+    
+    // Ensure arrays exist
+    normalized.ethnicity = normalized.ethnicity || [];
+    normalized.dietType = normalized.dietType || [];
+    normalized.medicalConditions = normalized.medicalConditions || [];
+    normalized.currentMedications = normalized.currentMedications || [];
+    normalized.dietaryFeatures = normalized.dietaryFeatures || [];
+    normalized.dietaryRestrictions = normalized.dietaryRestrictions || [];
+    normalized.foodPreferences = normalized.foodPreferences || [];
+    normalized.allergies = normalized.allergies || [];
+    normalized.avoids = normalized.avoids || [];
+    normalized.strongDislikes = normalized.strongDislikes || [];
+    normalized.exerciseTypes = normalized.exerciseTypes || [];
+    // Set default appliances for new users and users with empty appliances array
+    // All appliances are pre-selected by default, users can deselect what they don't have
+    if (!normalized.availableAppliances || normalized.availableAppliances.length === 0) {
+      normalized.availableAppliances = [
+        'Fridge & Freezer',
+        'Microwave',
+        'Stove/Oven',
+        'Instant Pot',
+        'Air Fryer',
+        'Slow Cooker',
+        'Blender',
+        'Food Processor',
+        'Toaster'
+      ];
+    }
+    normalized.primaryGoals = normalized.primaryGoals || [];
+    
+    return normalized;
+  };
+
+  const [profile, setProfile] = useState<UserProfile>({
+    name: '',
+    dateOfBirth: '',
+    age: undefined,
+    gender: '',
+    ethnicity: [],
+    medicalConditions: [],
+    currentMedications: [],
+    labValues: {},
+    height: 0,
+    weight: 0,
+    bmi: undefined,
+    waistCircumference: undefined,
+    systolicBP: undefined,
+    diastolicBP: undefined,
+    heartRate: undefined,
+    dietType: [],
+    dietaryFeatures: [],
+    dietaryRestrictions: [],
+    foodPreferences: [],
+    allergies: [],
+    avoids: [],
+    strongDislikes: [],
+    workActivityLevel: '',
+    exerciseFrequency: '',
+    exerciseTypes: [],
+    mobilityIssues: false,
+    mealPrepCapability: '',
+    availableAppliances: [
+      'Fridge & Freezer',
+      'Microwave',
+      'Stove/Oven',
+      'Instant Pot',
+      'Air Fryer',
+      'Slow Cooker',
+      'Blender',
+      'Food Processor',
+      'Toaster'
+    ],
+    eatingSchedule: '',
+    primaryGoals: [],
+    readinessToChange: '',
+    wantsWeightLoss: false,
+    calorieTarget: '',
+    ...normalizeProfile(initialProfile),
   });
 
-  const [heightUnit, setHeightUnit] = useState<'cm' | 'ft-in'>('cm');
-  const [weightUnit, setWeightUnit] = useState<'kg' | 'lbs'>('kg');
-  const [waistUnit, setWaistUnit] = useState<'cm' | 'in'>('cm');
-  const [heightFeet, setHeightFeet] = useState<number | ''>('');
-  const [heightInches, setHeightInches] = useState<number | ''>('');
-  const [errors, setErrors] = useState<Partial<Record<keyof UserProfile, string>>>({});
-  const [loadingProfile, setLoadingProfile] = useState(false);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  
+  // State for unit preferences
+  const [unitPreferences, setUnitPreferences] = useState({
+    height: 'metric', // 'metric' or 'imperial'
+    weight: 'metric', // 'metric' or 'imperial'
+    waistCircumference: 'metric' // 'metric' or 'imperial'
+  });
+  
+  // State for imperial measurements
+  const [imperialMeasurements, setImperialMeasurements] = useState({
+    heightFeet: 0,
+    heightInches: 0,
+    weightPounds: 0,
+    waistInches: 0
+  });
+  
+  // State for "Other" text inputs
+  const [otherValues, setOtherValues] = useState({
+    ethnicity: '',
+    medicalConditions: '',
+    medications: '',
+    dietType: '',
+    exerciseTypes: '',
+    appliances: '',
+    goals: '',
+    eatingSchedule: '',
+    calorieTarget: '',
+  });
 
-  // Convert height from feet/inches to cm
-  const convertHeightToCm = (feet: number, inches: number) => {
-    return Math.round((feet * 30.48) + (inches * 2.54));
-  };
+  // State for text input fields that need comma processing
+  const [textInputs, setTextInputs] = useState({
+    allergies: '',
+    avoids: '',
+    strongDislikes: ''
+  });
 
-  // Convert height from cm to feet/inches
-  const convertHeightToFtIn = (cm: number) => {
-    const totalInches = cm / 2.54;
-    const feet = Math.floor(totalInches / 12);
-    const inches = Math.round(totalInches % 12);
-    return { feet, inches };
-  };
-
-  // Convert weight between kg and lbs
-  const convertWeight = (value: number, from: 'kg' | 'lbs', to: 'kg' | 'lbs') => {
-    if (from === to) return value;
-    return from === 'kg' ? Math.round(value * 2.20462) : Math.round(value / 2.20462);
-  };
-
-  // Convert waist circumference between cm and inches
-  const convertWaist = (value: number, from: 'cm' | 'in', to: 'cm' | 'in') => {
-    if (from === to) return value;
-    return from === 'cm' ? Math.round(value / 2.54) : Math.round(value * 2.54);
-  };
-
-  const handleHeightUnitChange = (event: SelectChangeEvent<'cm' | 'ft-in'>) => {
-    const newUnit = event.target.value as 'cm' | 'ft-in';
-    setHeightUnit(newUnit);
-    
-    if (formData.height) {
-      if (newUnit === 'ft-in') {
-        const { feet, inches } = convertHeightToFtIn(formData.height);
-        setHeightFeet(feet);
-        setHeightInches(inches);
-      }
-    }
-  };
-
-  const handleWeightUnitChange = (event: SelectChangeEvent<'kg' | 'lbs'>) => {
-    const newUnit = event.target.value as 'kg' | 'lbs';
-    setWeightUnit(newUnit);
-    
-    if (formData.weight) {
-      const newWeight = convertWeight(formData.weight, weightUnit, newUnit);
-      setFormData(prev => ({ ...prev, weight: newWeight }));
-    }
-  };
-
-  const handleHeightChange = (type: 'feet' | 'inches' | 'cm', value: string) => {
-    if (heightUnit === 'cm') {
-      setFormData(prev => ({ ...prev, height: value === '' ? undefined : Number(value) }));
-    } else {
-      const numValue = value === '' ? '' : Number(value);
-      if (type === 'feet') {
-        setHeightFeet(numValue);
-      } else {
-        setHeightInches(numValue);
-      }
-      
-      if (typeof heightFeet === 'number' && typeof heightInches === 'number') {
-        const heightInCm = convertHeightToCm(heightFeet, heightInches);
-        setFormData(prev => ({ ...prev, height: heightInCm }));
-      }
-    }
-  };
-
-  const handleWaistUnitChange = (event: SelectChangeEvent<'cm' | 'in'>) => {
-    const newUnit = event.target.value as 'cm' | 'in';
-    setWaistUnit(newUnit);
-    
-    if (formData.waistCircumference) {
-      const newWaist = convertWaist(formData.waistCircumference, waistUnit, newUnit);
-      setFormData(prev => ({ ...prev, waistCircumference: newWaist }));
-    }
-  };
-
+  // Auto-calculate age from date of birth
   useEffect(() => {
-    const fetchProfile = async () => {
-      setLoadingProfile(true);
-      try {
+    if (profile.dateOfBirth) {
+      const today = new Date();
+      const birthDate = new Date(profile.dateOfBirth);
+      const age = today.getFullYear() - birthDate.getFullYear();
+      const monthDiff = today.getMonth() - birthDate.getMonth();
+      
+      if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+        setProfile(prev => ({ ...prev, age: age - 1 }));
+      } else {
+        setProfile(prev => ({ ...prev, age }));
+      }
+    }
+  }, [profile.dateOfBirth]);
+
+  // Auto-calculate BMI
+  useEffect(() => {
+    if (profile.height && profile.weight && profile.height > 0 && profile.weight > 0) {
+      const heightInMeters = profile.height / 100;
+      const bmi = profile.weight / (heightInMeters * heightInMeters);
+      setProfile(prev => ({ ...prev, bmi: Math.round(bmi * 10) / 10 }));
+    }
+  }, [profile.height, profile.weight]);
+
+  // Conversion functions
+  const convertMetricToImperial = {
+    heightToFeetInches: (cm: number) => {
+      const totalInches = cm / 2.54;
+      const feet = Math.floor(totalInches / 12);
+      const inches = Math.round((totalInches % 12) * 10) / 10;
+      return { feet, inches };
+    },
+    weightToPounds: (kg: number) => Math.round(kg * 2.20462 * 10) / 10,
+    waistToInches: (cm: number) => Math.round(cm / 2.54 * 10) / 10
+  };
+
+  const convertImperialToMetric = {
+    feetInchesToCm: (feet: number, inches: number) => 
+      Math.round((feet * 12 + inches) * 2.54 * 10) / 10,
+    poundsToKg: (pounds: number) => Math.round(pounds / 2.20462 * 10) / 10,
+    inchesToCm: (inches: number) => Math.round(inches * 2.54 * 10) / 10
+  };
+
+  // Update imperial measurements when metric values change
+  useEffect(() => {
+    if (profile.height > 0) {
+      const { feet, inches } = convertMetricToImperial.heightToFeetInches(profile.height);
+      setImperialMeasurements(prev => ({
+        ...prev,
+        heightFeet: feet,
+        heightInches: inches
+      }));
+    }
+    
+    if (profile.weight > 0) {
+      const pounds = convertMetricToImperial.weightToPounds(profile.weight);
+      setImperialMeasurements(prev => ({
+        ...prev,
+        weightPounds: pounds
+      }));
+    }
+    
+    if (profile.waistCircumference && profile.waistCircumference > 0) {
+      const inches = convertMetricToImperial.waistToInches(profile.waistCircumference);
+      setImperialMeasurements(prev => ({
+        ...prev,
+        waistInches: inches
+      }));
+    }
+  }, [profile.height, profile.weight, profile.waistCircumference]);
+
+  // Initialize text inputs from profile arrays
+  useEffect(() => {
+    setTextInputs({
+      allergies: profile.allergies?.join(', ') || '',
+      avoids: profile.avoids?.join(', ') || '',
+      strongDislikes: profile.strongDislikes?.join(', ') || ''
+    });
+  }, [profile.allergies, profile.avoids, profile.strongDislikes]);
+
+  // Handle unit preference changes
+  const handleUnitPreferenceChange = (measurement: keyof typeof unitPreferences, unit: 'metric' | 'imperial') => {
+    setUnitPreferences(prev => ({
+      ...prev,
+      [measurement]: unit
+    }));
+  };
+
+  // Handle imperial measurement changes
+  const handleImperialMeasurementChange = (field: keyof typeof imperialMeasurements, value: number) => {
+    setImperialMeasurements(prev => ({
+      ...prev,
+      [field]: value
+    }));
+    
+    // Convert to metric and update profile
+    if (field === 'heightFeet' || field === 'heightInches') {
+      const feet = field === 'heightFeet' ? value : imperialMeasurements.heightFeet;
+      const inches = field === 'heightInches' ? value : imperialMeasurements.heightInches;
+      const cm = convertImperialToMetric.feetInchesToCm(feet, inches);
+      handleInputChange('height', cm);
+    } else if (field === 'weightPounds') {
+      const kg = convertImperialToMetric.poundsToKg(value);
+      handleInputChange('weight', kg);
+    } else if (field === 'waistInches') {
+      const cm = convertImperialToMetric.inchesToCm(value);
+      handleInputChange('waistCircumference', cm);
+    }
+  };
+
+  // Handle text input changes (for fields that need comma processing)
+  const handleTextInputChange = (field: keyof typeof textInputs, value: string) => {
+    setTextInputs(prev => ({
+      ...prev,
+      [field]: value
+    }));
+  };
+
+  // Process comma-separated text into array and update profile
+  const processTextInputToArray = (field: keyof typeof textInputs, profileField: keyof UserProfile) => {
+    const textValue = textInputs[field];
+    const processedArray = textValue.split(',').map(s => s.trim()).filter(Boolean);
+    handleInputChange(profileField, processedArray);
+  };
+
+  // Auto-save functionality with database persistence
+  useEffect(() => {
+    const timeoutId = setTimeout(async () => {
+      // Save to localStorage for immediate access
+      localStorage.setItem('userProfile', JSON.stringify(profile));
+      
+      // Also save to database for persistence
+      await saveProfileToDatabase(profile);
+    }, 2000); // Increased delay to reduce API calls
+
+    return () => clearTimeout(timeoutId);
+  }, [profile]);
+
+  const saveProfileToDatabase = async (profileData: UserProfile) => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) return; // User not logged in, skip database save
+
+      const response = await fetch(`${config.API_URL}/user/profile`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({ profile: profileData }),
+      });
+
+      if (response.ok) {
+        console.log('Profile saved to database successfully');
+      } else {
+        console.error('Failed to save profile to database');
+      }
+    } catch (error) {
+      console.error('Error saving profile to database:', error);
+    }
+  };
+
+  // Load saved profile on mount - try database first, then localStorage
+  useEffect(() => {
+    const loadProfile = async () => {
+      if (!initialProfile) {
         const token = localStorage.getItem('token');
-        if (!token) return;
-        const response = await fetch('http://localhost:8000/user/profile', {
-          headers: { 'Authorization': `Bearer ${token}` },
-        });
-        if (response.ok) {
-          const data = await response.json();
-          if (data && Object.keys(data).length > 0) {
-            setFormData(data);
+        
+        // Try to load from database first
+        if (token) {
+          try {
+            const response = await fetch(`${config.API_URL}/user/profile`, {
+              method: 'GET',
+              headers: {
+                'Authorization': `Bearer ${token}`,
+              },
+            });
+
+            if (response.ok) {
+              const data = await response.json();
+              if (data && data.profile && Object.keys(data.profile).length > 0) {
+                console.log('Profile loaded from database successfully');
+                setProfile(prev => ({ ...prev, ...normalizeProfile(data.profile) }));
+                return; // Exit early if database load was successful
+              }
+            }
+          } catch (error) {
+            console.error('Error loading profile from database:', error);
           }
         }
-      } catch (err) {
-        // ignore
-      } finally {
-        setLoadingProfile(false);
+
+        // Fallback to localStorage if database load failed or user not logged in
+        const savedProfile = localStorage.getItem('userProfile');
+        if (savedProfile) {
+          try {
+            const parsed = JSON.parse(savedProfile);
+            console.log('Profile loaded from localStorage as fallback');
+            setProfile(prev => ({ ...prev, ...normalizeProfile(parsed) }));
+          } catch (error) {
+            console.error('Error loading saved profile from localStorage:', error);
+          }
+        }
       }
     };
-    fetchProfile();
-  }, []);
 
-  const handleInputChange = (field: keyof UserProfile) => (
-    event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
-  ) => {
-    const value = event.target.value;
-    setFormData((prev) => ({
-      ...prev,
-      [field]: value,
-    }));
+    loadProfile();
+  }, [initialProfile]);
+
+  const handleInputChange = (field: keyof UserProfile, value: any) => {
+    setProfile(prev => ({ ...prev, [field]: value }));
     if (errors[field]) {
-      setErrors((prev) => ({
-        ...prev,
-        [field]: undefined,
-      }));
+      setErrors(prev => ({ ...prev, [field]: '' }));
     }
   };
 
-  const handleSelectChange = (field: keyof UserProfile) => (
-    event: SelectChangeEvent<string>
-  ) => {
-    const value = event.target.value;
-    setFormData((prev) => ({
+  const handleLabValueChange = (field: string, value: string) => {
+    setProfile(prev => ({
       ...prev,
-      [field]: value,
-    }));
-    if (errors[field]) {
-      setErrors((prev) => ({
-        ...prev,
-        [field]: undefined,
-      }));
-    }
-  };
-
-  const handleMultiSelectChange = (field: keyof UserProfile) => (
-    event: SelectChangeEvent<string[]>
-  ) => {
-    const value = event.target.value as string[];
-    setFormData((prev) => ({
-      ...prev,
-      [field]: value,
+      labValues: { ...prev.labValues, [field]: value }
     }));
   };
 
-  const calculateBMI = () => {
-    if (formData.height && formData.weight) {
-      // Height should always be in cm and weight in kg in formData
-      const heightInMeters = formData.height / 100;
-      const weightInKg = weightUnit === 'lbs' ? formData.weight / 2.20462 : formData.weight;
-      return (weightInKg / (heightInMeters * heightInMeters)).toFixed(1);
+  const handleArrayChange = (field: keyof UserProfile, value: string, checked: boolean) => {
+    const currentValue = profile[field];
+    let currentArray: string[] = [];
+    
+    // Ensure we always work with an array
+    if (Array.isArray(currentValue)) {
+      currentArray = currentValue;
+    } else if (typeof currentValue === 'string' && currentValue) {
+      currentArray = [currentValue];
     }
-    return '';
+    
+    const newArray = checked
+      ? [...currentArray, value]
+      : currentArray.filter(item => item !== value);
+    
+    setProfile(prev => ({ ...prev, [field]: newArray }));
   };
 
-  const handleSubmit = async (event: React.FormEvent) => {
-    event.preventDefault();
-    const newErrors: Partial<Record<keyof UserProfile, string>> = {};
+  const handleOtherChange = (field: string, value: string) => {
+    setOtherValues(prev => ({ ...prev, [field]: value }));
+  };
 
-    // Validate required fields
-    if (!formData.name?.trim()) {
-      newErrors.name = 'Name is required';
-    }
-    if (!formData.height || formData.height <= 0) {
-      newErrors.height = 'Height is required and must be greater than 0';
-    }
-    if (!formData.weight || formData.weight <= 0) {
-      newErrors.weight = 'Weight is required and must be greater than 0';
-    }
-    if (!formData.gender) {
-      newErrors.gender = 'Gender is required';
-    }
-
-    if (Object.keys(newErrors).length > 0) {
-      setErrors(newErrors);
-      return;
-    }
-
-    try {
-      // Save profile to backend
-      const token = localStorage.getItem('token');
-      if (token) {
-        await fetch('http://localhost:8000/user/profile', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`,
-          },
-          body: JSON.stringify({ profile: formData }),
-        });
+  const addOtherOption = (profileField: keyof UserProfile, otherField: string) => {
+    const otherValue = otherValues[otherField as keyof typeof otherValues];
+    
+    if (otherValue && otherValue.trim()) {
+      const currentArray = (profile[profileField] as string[]) || [];
+      const newCustomEntry = `Other: ${otherValue.trim()}`;
+      
+      // Check if this exact custom entry already exists to prevent duplicates
+      if (!currentArray.includes(newCustomEntry)) {
+        const newArray = [...currentArray, newCustomEntry];
+        setProfile(prev => ({ ...prev, [profileField]: newArray }));
       }
-      onSubmit(formData as UserProfile);
-    } catch (error) {
-      console.error('Error creating profile:', error);
-      setErrors({
-        name: 'Failed to generate meal plan. Please check your inputs and try again.'
-      });
+      
+      // Clear the input field
+      setOtherValues(prev => ({ ...prev, [otherField]: '' }));
     }
+  };
+
+  const getBMICategory = (bmi: number): string => {
+    if (bmi < 18.5) return '(Underweight)';
+    if (bmi < 25) return '(Normal)';
+    if (bmi < 30) return '(Overweight)';
+    return '(Obese)';
+  };
+
+  const getBMIColor = (bmi: number): string => {
+    if (bmi < 18.5) return '#2196f3'; // Blue
+    if (bmi < 25) return '#4caf50'; // Green
+    if (bmi < 30) return '#ff9800'; // Orange
+    return '#f44336'; // Red
+  };
+
+  const validateForm = () => {
+    const newErrors: Record<string, string> = {};
+    
+    // For admin mode, validation is more relaxed - only name is required
+    if (isAdminMode) {
+      if (!profile.name?.trim()) {
+        newErrors.name = 'Patient name is required';
+      }
+    } else {
+      // For patient mode, more strict validation
+      if (!profile.name?.trim()) {
+        newErrors.name = 'Full name is required';
+      }
+      
+      if (!profile.height || profile.height <= 0) {
+        newErrors.height = 'Please enter a valid height (e.g., 170 cm)';
+      } else if (profile.height < 100 || profile.height > 250) {
+        newErrors.height = 'Height should be between 100-250 cm';
+      }
+      
+      if (!profile.weight || profile.weight <= 0) {
+        newErrors.weight = 'Please enter a valid weight (e.g., 70 kg)';
+      } else if (profile.weight < 30 || profile.weight > 300) {
+        newErrors.weight = 'Weight should be between 30-300 kg';
+      }
+      
+      if (!profile.gender) {
+        newErrors.gender = 'Please select your sex';
+      }
+      
+      // Warn if important fields are missing but don't block submission
+      const warnings: string[] = [];
+      if (!profile.age && !profile.dateOfBirth) {
+        warnings.push('Age or date of birth');
+      }
+      if (!profile.medicalConditions?.length) {
+        warnings.push('Medical conditions');
+      }
+      if (!profile.dietType?.length) {
+        warnings.push('Diet type');
+      }
+      
+      if (warnings.length > 0 && Object.keys(newErrors).length === 0) {
+        // Show a gentle reminder but allow submission
+        console.log('Optional fields that could improve meal planning:', warnings.join(', '));
+      }
+    }
+    
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
+  const handleSubmit = () => {
+    if (validateForm()) {
+      onSubmit(profile);
+    }
+  };
+
+  // Option arrays
+  const ethnicityOptions = [
+    'South Asian – North Indian',
+    'South Asian – Pakistani', 
+    'South Asian – Sri Lankan',
+    'South Asian – Bangladeshi',
+    'East Asian – Chinese',
+    'East Asian – Korean',
+    'Filipino',
+    'Caucasian / White',
+    'Black / African / African-American',
+    'Caribbean – Jamaican',
+    'Caribbean – Guyanese',
+    'Indigenous / First Nations',
+    'Middle Eastern',
+    'Hispanic / Latin American',
+    'Other'
+  ];
+
+  const medicalConditionsOptions = [
+    'Type 2 Diabetes',
+    'Type 1 Diabetes',
+    'Obesity',
+    'Hypertension',
+    'High Cholesterol',
+    'High Triglycerides',
+    'Coronary Artery Disease',
+    'Stroke',
+    'Peripheral Vascular Disease',
+    'Fatty Liver',
+    'Chronic Kidney Disease',
+    'Proteinuria',
+    'Elevated Potassium',
+    'PCOS',
+    'Hypothyroidism',
+    'Osteoporosis',
+    'GERD / acid reflux',
+    'B12 deficiency',
+    'Iron deficiency / anemia',
+    'Other'
+  ];
+
+  const medicationsOptions = [
+    'Metformin',
+    'Insulin',
+    'GLP-1 agonist (e.g., Ozempic, Trulicity)',
+    'SGLT2 inhibitor (e.g., Jardiance, Farxiga)',
+    'Statin',
+    'Diuretic',
+    'Thyroid hormone',
+    'Antihypertensives',
+    'Anticoagulants (e.g., Aspirin, Eliquis)',
+    'Other'
+  ];
+
+  const dietTypeOptions = [
+    'Western',
+    'Mediterranean',
+    'South Asian – North Indian',
+    'South Asian – Pakistani',
+    'South Asian – Sri Lankan',
+    'South Asian – South Indian',
+    'East Asian – Chinese / Korean',
+    'Caribbean – Jamaican / Guyanese',
+    'Filipino',
+    'Other'
+  ];
+
+  const dietaryFeaturesOptions = [
+    'Low Carb',
+    'High Protein',
+    'Normal Protein',
+    'Low Saturated Fat',
+    'Low Potassium',
+    'Predominantly Plant-Based',
+    'Plant-Based + Egg Whites / Chicken / Fish',
+    'Vegetarian (with eggs)',
+    'Vegetarian (no eggs)',
+    'Soft Texture Required',
+    'Gluten-Free',
+    'Lactose-Free'
+  ];
+
+  const exerciseTypesOptions = [
+    'Walking',
+    'Jogging',
+    'Running',
+    'Hiking',
+    'Resistance training / weights',
+    'Weightlifting',
+    'Yoga / Pilates',
+    'Swimming',
+    'Cycling (indoor/outdoor)',
+    'Tennis',
+    'Basketball',
+    'Soccer / Football',
+    'Badminton',
+    'Volleyball',
+    'Golf',
+    'Dancing',
+    'Martial arts / Boxing',
+    'Rowing',
+    'CrossFit',
+    'Cardio machines (treadmill, elliptical)',
+    'Fitness classes (e.g., Zumba, aerobics)',
+    'Home workouts',
+    'Other'
+  ];
+
+  const appliancesOptions = [
+    'Fridge & Freezer',
+    'Microwave',
+    'Stove/Oven',
+    'Instant Pot',
+    'Air Fryer',
+    'Slow Cooker',
+    'Blender',
+    'Food Processor',
+    'Toaster',
+    'Other'
+  ];
+
+  const primaryGoalsOptions = [
+    'Improve A1C',
+    'Lower cholesterol / triglycerides',
+    'Improve energy / stamina',
+    'Reduce blood pressure',
+    'Improve digestion',
+    'General wellness',
+    'Other'
+  ];
+
+  const sectionStyle = {
+    mb: 3,
+    background: 'linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)',
+    borderRadius: 2,
+    overflow: 'hidden',
+  };
+
+  const sectionHeaderStyle = {
+    background: `linear-gradient(135deg, ${theme.palette.primary.main}, ${theme.palette.primary.dark})`,
+    color: 'white',
+    py: 2,
+    px: 3,
   };
 
   return (
-    <Container maxWidth="md" sx={{ py: 4 }}>
+    <Box sx={{ maxWidth: 1200, mx: 'auto', p: 3 }}>
       <Paper elevation={3} sx={{ p: 4 }}>
-        <Typography variant="h4" component="h1" gutterBottom>
-          Create Your Profile
+        <Typography variant="h4" align="center" gutterBottom sx={{ 
+          color: theme.palette.primary.main,
+          fontWeight: 'bold',
+          mb: 3 
+        }}>
+          Comprehensive Health Profile
         </Typography>
-        <Typography variant="subtitle1" color="text.secondary" gutterBottom>
-          Tell us about yourself to get a personalized meal plan
-        </Typography>
+        
+        <Alert severity="info" sx={{ mb: 3 }}>
+          {isAdminMode ? (
+            <>🏥 You are filling out this profile on behalf of the patient. The patient can complete any missing information later. Only the patient name is required.</>
+          ) : (
+            <>🔒 Your information is automatically saved as you type and stays private. The more details you provide, the more personalized your meal plan will be. All fields marked with * are required.</>
+          )}
+        </Alert>
 
-        <Box component="form" onSubmit={handleSubmit} sx={{ mt: 3 }}>
-          <Grid container spacing={3}>
-            <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                required
-                label="Name"
-                value={formData.name}
-                onChange={handleInputChange('name')}
-                error={!!errors.name}
-                helperText={errors.name}
-              />
-            </Grid>
-
-            <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                required
-                label="Age (Years)"
-                type="number"
-                value={formData.age || ''}
-                onChange={handleInputChange('age')}
-                InputProps={{ inputProps: { min: 1, max: 120 } }}
-              />
-            </Grid>
-
-            <Grid item xs={12} sm={6}>
-              <FormControl fullWidth required>
-                <InputLabel>Gender</InputLabel>
-                <Select
-                  value={formData.gender}
-                  onChange={handleSelectChange('gender')}
-                  label="Gender"
-                >
-                  {genderOptions.map((option) => (
-                    <MenuItem key={option} value={option}>
-                      {option}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Grid>
-
-            <Grid item xs={12}>
-              <Typography variant="h6" gutterBottom>
-                Medical Conditions
-              </Typography>
-              <FormControl fullWidth>
-                <InputLabel>Select Medical Conditions</InputLabel>
-                <Select
-                  multiple
-                  value={formData.medicalConditions || []}
-                  onChange={handleMultiSelectChange('medicalConditions')}
-                  input={<OutlinedInput label="Select Medical Conditions" />}
-                  renderValue={(selected) => (
-                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                      {selected.map((value) => (
-                        <Chip key={value} label={value} />
-                      ))}
-                    </Box>
-                  )}
-                >
-                  {medicalConditions.map((condition) => (
-                    <MenuItem key={condition} value={condition}>
-                      {condition}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Grid>
-
-            <Grid item xs={12}>
-              <Typography variant="h6" gutterBottom>
-                Dietary Restrictions
-              </Typography>
-              <FormControl fullWidth>
-                <InputLabel>Select Dietary Restrictions</InputLabel>
-                <Select
-                  multiple
-                  value={formData.dietaryRestrictions || []}
-                  onChange={handleMultiSelectChange('dietaryRestrictions')}
-                  input={<OutlinedInput label="Select Dietary Restrictions" />}
-                  renderValue={(selected) => (
-                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                      {selected.map((value) => (
-                        <Chip key={value} label={value} />
-                      ))}
-                    </Box>
-                  )}
-                >
-                  {dietaryRestrictionsOptions.map((restriction) => (
-                    <MenuItem key={restriction} value={restriction}>
-                      {restriction}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Grid>
-
-            <Grid item xs={12}>
-              <Typography variant="h6" gutterBottom>
-                Health Conditions
-              </Typography>
-              <FormControl fullWidth>
-                <InputLabel>Select Health Conditions</InputLabel>
-                <Select
-                  multiple
-                  value={formData.healthConditions || []}
-                  onChange={handleMultiSelectChange('healthConditions')}
-                  input={<OutlinedInput label="Select Health Conditions" />}
-                  renderValue={(selected) => (
-                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                      {selected.map((value) => (
-                        <Chip key={value} label={value} />
-                      ))}
-                    </Box>
-                  )}
-                >
-                  {healthConditionsOptions.map((condition) => (
-                    <MenuItem key={condition} value={condition}>
-                      {condition}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Grid>
-
-            <Grid item xs={12}>
-              <Typography variant="h6" gutterBottom>
-                Food Preferences
-              </Typography>
-              <FormControl fullWidth>
-                <InputLabel>Select Food Preferences</InputLabel>
-                <Select
-                  multiple
-                  value={formData.foodPreferences || []}
-                  onChange={handleMultiSelectChange('foodPreferences')}
-                  input={<OutlinedInput label="Select Food Preferences" />}
-                  renderValue={(selected) => (
-                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                      {selected.map((value) => (
-                        <Chip key={value} label={value} />
-                      ))}
-                    </Box>
-                  )}
-                >
-                  {foodPreferencesOptions.map((preference) => (
-                    <MenuItem key={preference} value={preference}>
-                      {preference}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Grid>
-
-            <Grid item xs={12}>
-              <Typography variant="h6" gutterBottom>
-                Allergies
-              </Typography>
-              <FormControl fullWidth>
-                <InputLabel>Select Allergies</InputLabel>
-                <Select
-                  multiple
-                  value={formData.allergies || []}
-                  onChange={handleMultiSelectChange('allergies')}
-                  input={<OutlinedInput label="Select Allergies" />}
-                  renderValue={(selected) => (
-                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                      {selected.map((value) => (
-                        <Chip key={value} label={value} />
-                      ))}
-                    </Box>
-                  )}
-                >
-                  {allergiesOptions.map((allergy) => (
-                    <MenuItem key={allergy} value={allergy}>
-                      {allergy}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Grid>
-
-            <Grid item xs={12}>
-              <Typography variant="h6" gutterBottom>
-                Vital Signs
-              </Typography>
-            </Grid>
-
-            <Grid item xs={12} sm={6}>
-              <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-start' }}>
-                <FormControl fullWidth>
-                  <InputLabel>Height Unit</InputLabel>
-                  <Select
-                    value={heightUnit}
-                    onChange={handleHeightUnitChange}
-                    label="Height Unit"
+        {/* Patient Demographics */}
+        <Accordion defaultExpanded sx={sectionStyle}>
+          <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={sectionHeaderStyle}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <PersonIcon />
+              <Typography variant="h6">👤 Patient Demographics</Typography>
+            </Box>
+          </AccordionSummary>
+          <AccordionDetails sx={{ p: 3 }}>
+            <Grid container spacing={3}>
+              <Grid item xs={12} md={6}>
+                <TextField
+                  fullWidth
+                  label={isAdminMode ? "Patient Name *" : "Full Name *"}
+                  value={profile.name}
+                  onChange={(e) => handleInputChange('name', e.target.value)}
+                  error={!!errors.name}
+                  helperText={errors.name}
+                  variant="outlined"
+                />
+              </Grid>
+              <Grid item xs={12} md={3}>
+                <TextField
+                  fullWidth
+                  label="Date of Birth"
+                  type="date"
+                  value={profile.dateOfBirth}
+                  onChange={(e) => handleInputChange('dateOfBirth', e.target.value)}
+                  InputLabelProps={{ shrink: true }}
+                  variant="outlined"
+                />
+              </Grid>
+              <Grid item xs={12} md={3}>
+                <TextField
+                  fullWidth
+                  label="Age"
+                  type="number"
+                  value={profile.age || ''}
+                  onChange={(e) => handleInputChange('age', parseInt(e.target.value) || undefined)}
+                  variant="outlined"
+                  InputProps={{ readOnly: !!profile.dateOfBirth }}
+                  helperText={profile.dateOfBirth ? "Auto-calculated" : "Years"}
+                />
+              </Grid>
+              <Grid item xs={12} md={4}>
+                <FormControl fullWidth error={!!errors.gender}>
+                  <FormLabel>{isAdminMode ? "Sex" : "Sex *"}</FormLabel>
+                  <RadioGroup
+                    row
+                    value={profile.gender}
+                    onChange={(e) => handleInputChange('gender', e.target.value)}
                   >
-                    <MenuItem value="cm">Centimeters (cm)</MenuItem>
-                    <MenuItem value="ft-in">Feet & Inches</MenuItem>
-                  </Select>
+                    <FormControlLabel value="Male" control={<Radio />} label="Male" />
+                    <FormControlLabel value="Female" control={<Radio />} label="Female" />
+                    <FormControlLabel value="Other" control={<Radio />} label="Other" />
+                  </RadioGroup>
                 </FormControl>
-                
-                {heightUnit === 'cm' ? (
-                  <TextField
-                    fullWidth
-                    label="Height"
-                    type="number"
-                    value={formData.height || ''}
-                    onChange={(e) => handleHeightChange('cm', e.target.value)}
-                    error={!!errors.height}
-                    helperText={errors.height}
-                    InputProps={{ endAdornment: 'cm' }}
-                  />
-                ) : (
-                  <Box sx={{ display: 'flex', gap: 1 }}>
+              </Grid>
+              <Grid item xs={12}>
+                <Autocomplete
+                  multiple
+                  options={ethnicityOptions}
+                  value={profile.ethnicity || []}
+                  onChange={(_, newValue) => handleInputChange('ethnicity', newValue)}
+                  renderTags={(value, getTagProps) =>
+                    value.map((option, index) => (
+                      <Chip variant="outlined" label={option} {...getTagProps({ index })} key={option} />
+                    ))
+                  }
+                  renderInput={(params) => (
+                    <TextField {...params} label="Ethnicity (select all that apply)" variant="outlined" />
+                  )}
+                />
+                {(profile.ethnicity || []).includes('Other') && (
+                  <Box sx={{ mt: 2, display: 'flex', gap: 1, alignItems: 'center' }}>
                     <TextField
-                      label="Feet"
-                      type="number"
-                      value={heightFeet}
-                      onChange={(e) => handleHeightChange('feet', e.target.value)}
-                      error={!!errors.height}
-                      sx={{ width: '100px' }}
+                      size="small"
+                      label="Please specify other ethnicity"
+                      value={otherValues.ethnicity}
+                      onChange={(e) => handleOtherChange('ethnicity', e.target.value)}
+                      variant="outlined"
+                      sx={{ flexGrow: 1 }}
+                      onKeyPress={(e) => {
+                        if (e.key === 'Enter' && otherValues.ethnicity.trim()) {
+                          addOtherOption('ethnicity', 'ethnicity');
+                        }
+                      }}
                     />
-                    <TextField
-                      label="Inches"
-                      type="number"
-                      value={heightInches}
-                      onChange={(e) => handleHeightChange('inches', e.target.value)}
-                      error={!!errors.height}
-                      sx={{ width: '100px' }}
-                    />
+                    <Button
+                      variant="outlined"
+                      size="small"
+                      onClick={() => addOtherOption('ethnicity', 'ethnicity')}
+                      disabled={!otherValues.ethnicity?.trim()}
+                    >
+                      Add
+                    </Button>
                   </Box>
                 )}
-              </Box>
-            </Grid>
-
-            <Grid item xs={12} sm={6}>
-              <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-start' }}>
-                <FormControl fullWidth>
-                  <InputLabel>Weight Unit</InputLabel>
-                  <Select
-                    value={weightUnit}
-                    onChange={handleWeightUnitChange}
-                    label="Weight Unit"
-                  >
-                    <MenuItem value="kg">Kilograms (kg)</MenuItem>
-                    <MenuItem value="lbs">Pounds (lbs)</MenuItem>
-                  </Select>
-                </FormControl>
                 
+                {/* Show current custom ethnicity values */}
+                {(profile.ethnicity || []).filter(item => item.startsWith('Other:')).length > 0 && (
+                  <Box sx={{ mt: 1 }}>
+                    <Typography variant="caption" color="textSecondary">Custom entries:</Typography>
+                    {(profile.ethnicity || []).filter(item => item.startsWith('Other:')).map((item, index) => (
+                      <Chip
+                        key={index}
+                        label={item.replace('Other: ', '')}
+                        size="small"
+                        onDelete={() => {
+                          const newEthnicity = (profile.ethnicity || []).filter(e => e !== item);
+                          handleInputChange('ethnicity', newEthnicity);
+                        }}
+                        sx={{ mr: 1, mt: 1 }}
+                      />
+                    ))}
+                  </Box>
+                )}
+              </Grid>
+            </Grid>
+          </AccordionDetails>
+        </Accordion>
+
+        {/* Vital Signs */}
+        <Accordion defaultExpanded sx={sectionStyle}>
+          <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={sectionHeaderStyle}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <FavoriteIcon />
+              <Typography variant="h6">📏 Vital Signs</Typography>
+            </Box>
+          </AccordionSummary>
+          <AccordionDetails sx={{ p: 3 }}>
+            <Grid container spacing={3}>
+              {/* Height Section */}
+              <Grid item xs={12}>
+                <Box sx={{ mb: 2 }}>
+                  <Typography variant="h6" sx={{ mb: 1 }}>
+                    {isAdminMode ? "Height" : "Height *"}
+                  </Typography>
+                  <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
+                    <Button
+                      variant={unitPreferences.height === 'metric' ? 'contained' : 'outlined'}
+                      size="small"
+                      onClick={() => handleUnitPreferenceChange('height', 'metric')}
+                    >
+                      Metric (cm)
+                    </Button>
+                    <Button
+                      variant={unitPreferences.height === 'imperial' ? 'contained' : 'outlined'}
+                      size="small"
+                      onClick={() => handleUnitPreferenceChange('height', 'imperial')}
+                    >
+                      Imperial (ft/in)
+                    </Button>
+                  </Box>
+                  <Grid container spacing={2}>
+                    {unitPreferences.height === 'metric' ? (
+                      <Grid item xs={12} md={6}>
+                        <TextField
+                          fullWidth
+                          label="Height (cm)"
+                          type="number"
+                          value={profile.height || ''}
+                          onChange={(e) => handleInputChange('height', parseFloat(e.target.value) || 0)}
+                          error={!!errors.height}
+                          helperText={errors.height}
+                          variant="outlined"
+                          InputProps={{
+                            endAdornment: <InputAdornment position="end">cm</InputAdornment>,
+                          }}
+                        />
+                      </Grid>
+                    ) : (
+                      <>
+                        <Grid item xs={6} md={3}>
+                          <TextField
+                            fullWidth
+                            label="Feet"
+                            type="number"
+                            value={imperialMeasurements.heightFeet || ''}
+                            onChange={(e) => handleImperialMeasurementChange('heightFeet', parseFloat(e.target.value) || 0)}
+                            variant="outlined"
+                            InputProps={{
+                              endAdornment: <InputAdornment position="end">ft</InputAdornment>,
+                            }}
+                            inputProps={{ min: 0, max: 8 }}
+                          />
+                        </Grid>
+                        <Grid item xs={6} md={3}>
+                          <TextField
+                            fullWidth
+                            label="Inches"
+                            type="number"
+                            value={imperialMeasurements.heightInches || ''}
+                            onChange={(e) => handleImperialMeasurementChange('heightInches', parseFloat(e.target.value) || 0)}
+                            variant="outlined"
+                            InputProps={{
+                              endAdornment: <InputAdornment position="end">in</InputAdornment>,
+                            }}
+                            inputProps={{ min: 0, max: 11.9, step: 0.1 }}
+                          />
+                        </Grid>
+                      </>
+                    )}
+                    {profile.height > 0 && (
+                      <Grid item xs={12} md={6}>
+                        <Alert severity="info" sx={{ mt: 1 }}>
+                          {unitPreferences.height === 'metric' 
+                            ? `${profile.height} cm = ${imperialMeasurements.heightFeet}' ${imperialMeasurements.heightInches}"`
+                            : `${imperialMeasurements.heightFeet}' ${imperialMeasurements.heightInches}" = ${profile.height} cm`
+                          }
+                        </Alert>
+                      </Grid>
+                    )}
+                  </Grid>
+                </Box>
+              </Grid>
+
+              {/* Weight Section */}
+              <Grid item xs={12}>
+                <Box sx={{ mb: 2 }}>
+                  <Typography variant="h6" sx={{ mb: 1 }}>
+                    {isAdminMode ? "Weight" : "Weight *"}
+                  </Typography>
+                  <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
+                    <Button
+                      variant={unitPreferences.weight === 'metric' ? 'contained' : 'outlined'}
+                      size="small"
+                      onClick={() => handleUnitPreferenceChange('weight', 'metric')}
+                    >
+                      Metric (kg)
+                    </Button>
+                    <Button
+                      variant={unitPreferences.weight === 'imperial' ? 'contained' : 'outlined'}
+                      size="small"
+                      onClick={() => handleUnitPreferenceChange('weight', 'imperial')}
+                    >
+                      Imperial (lbs)
+                    </Button>
+                  </Box>
+                  <Grid container spacing={2}>
+                    <Grid item xs={12} md={6}>
+                      <TextField
+                        fullWidth
+                        label={unitPreferences.weight === 'metric' ? 'Weight (kg)' : 'Weight (lbs)'}
+                        type="number"
+                        value={unitPreferences.weight === 'metric' ? (profile.weight || '') : (imperialMeasurements.weightPounds || '')}
+                        onChange={(e) => {
+                          const value = parseFloat(e.target.value) || 0;
+                          if (unitPreferences.weight === 'metric') {
+                            handleInputChange('weight', value);
+                          } else {
+                            handleImperialMeasurementChange('weightPounds', value);
+                          }
+                        }}
+                        error={!!errors.weight}
+                        helperText={errors.weight}
+                        variant="outlined"
+                        InputProps={{
+                          endAdornment: <InputAdornment position="end">
+                            {unitPreferences.weight === 'metric' ? 'kg' : 'lbs'}
+                          </InputAdornment>,
+                        }}
+                      />
+                    </Grid>
+                    {profile.weight > 0 && (
+                      <Grid item xs={12} md={6}>
+                        <Alert severity="info" sx={{ mt: 1 }}>
+                          {unitPreferences.weight === 'metric' 
+                            ? `${profile.weight} kg = ${imperialMeasurements.weightPounds} lbs`
+                            : `${imperialMeasurements.weightPounds} lbs = ${profile.weight} kg`
+                          }
+                        </Alert>
+                      </Grid>
+                    )}
+                  </Grid>
+                </Box>
+              </Grid>
+
+              {/* BMI */}
+              <Grid item xs={12} md={4}>
                 <TextField
                   fullWidth
-                  label="Weight"
-                  type="number"
-                  value={formData.weight || ''}
-                  onChange={(e) => {
-                    const value = e.target.value === '' ? undefined : Number(e.target.value);
-                    setFormData(prev => ({ ...prev, weight: value }));
-                  }}
-                  error={!!errors.weight}
-                  helperText={errors.weight}
-                  InputProps={{ endAdornment: weightUnit }}
-                />
-              </Box>
-            </Grid>
-
-            <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                label="BMI"
-                value={calculateBMI()}
-                InputProps={{ 
-                  readOnly: true,
-                  endAdornment: 'kg/m²'
-                }}
-              />
-            </Grid>
-
-            <Grid item xs={12} sm={6}>
-              <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-start' }}>
-                <FormControl fullWidth>
-                  <InputLabel>Waist Unit</InputLabel>
-                  <Select
-                    value={waistUnit}
-                    onChange={handleWaistUnitChange}
-                    label="Waist Unit"
-                  >
-                    <MenuItem value="cm">Centimeters (cm)</MenuItem>
-                    <MenuItem value="in">Inches (in)</MenuItem>
-                  </Select>
-                </FormControl>
-                
-                <TextField
-                  fullWidth
-                  label="Waist Circumference"
-                  type="number"
-                  value={formData.waistCircumference || ''}
-                  onChange={(e) => {
-                    const value = e.target.value === '' ? undefined : Number(e.target.value);
-                    setFormData(prev => ({ ...prev, waistCircumference: value }));
-                  }}
+                  label="BMI"
+                  value={profile.bmi ? `${profile.bmi} ${getBMICategory(profile.bmi)}` : ''}
+                  variant="outlined"
                   InputProps={{ 
-                    endAdornment: waistUnit,
-                    inputProps: { 
-                      min: waistUnit === 'cm' ? 50 : 20,
-                      max: waistUnit === 'cm' ? 200 : 80 
+                    readOnly: true,
+                    style: { 
+                      backgroundColor: '#f5f5f5',
+                      color: getBMIColor(profile.bmi || 0)
                     }
                   }}
+                  helperText="Auto-calculated from height & weight"
                 />
-              </Box>
-            </Grid>
+              </Grid>
 
-            <Grid item xs={12} sm={4}>
-              <TextField
-                fullWidth
-                label="Systolic BP"
-                type="number"
-                value={formData.systolicBP || ''}
-                onChange={handleInputChange('systolicBP')}
-                InputProps={{ inputProps: { min: 60, max: 250 } }}
-              />
-            </Grid>
+              {/* Waist Circumference Section */}
+              <Grid item xs={12} md={8}>
+                <Box sx={{ mb: 2 }}>
+                  <Typography variant="h6" sx={{ mb: 1 }}>
+                    Waist Circumference (Optional)
+                  </Typography>
+                  <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
+                    <Button
+                      variant={unitPreferences.waistCircumference === 'metric' ? 'contained' : 'outlined'}
+                      size="small"
+                      onClick={() => handleUnitPreferenceChange('waistCircumference', 'metric')}
+                    >
+                      Metric (cm)
+                    </Button>
+                    <Button
+                      variant={unitPreferences.waistCircumference === 'imperial' ? 'contained' : 'outlined'}
+                      size="small"
+                      onClick={() => handleUnitPreferenceChange('waistCircumference', 'imperial')}
+                    >
+                      Imperial (in)
+                    </Button>
+                  </Box>
+                  <Grid container spacing={2}>
+                    <Grid item xs={12} md={6}>
+                      <TextField
+                        fullWidth
+                        label={unitPreferences.waistCircumference === 'metric' ? 'Waist Circumference (cm)' : 'Waist Circumference (in)'}
+                        type="number"
+                        value={unitPreferences.waistCircumference === 'metric' ? (profile.waistCircumference || '') : (imperialMeasurements.waistInches || '')}
+                        onChange={(e) => {
+                          const value = parseFloat(e.target.value) || 0;
+                          if (unitPreferences.waistCircumference === 'metric') {
+                            handleInputChange('waistCircumference', value || undefined);
+                          } else {
+                            handleImperialMeasurementChange('waistInches', value);
+                          }
+                        }}
+                        variant="outlined"
+                        InputProps={{
+                          endAdornment: <InputAdornment position="end">
+                            {unitPreferences.waistCircumference === 'metric' ? 'cm' : 'in'}
+                          </InputAdornment>,
+                        }}
+                      />
+                    </Grid>
+                    {profile.waistCircumference && profile.waistCircumference > 0 && (
+                      <Grid item xs={12} md={6}>
+                        <Alert severity="info" sx={{ mt: 1 }}>
+                          {unitPreferences.waistCircumference === 'metric' 
+                            ? `${profile.waistCircumference} cm = ${imperialMeasurements.waistInches} in`
+                            : `${imperialMeasurements.waistInches} in = ${profile.waistCircumference} cm`
+                          }
+                        </Alert>
+                      </Grid>
+                    )}
+                  </Grid>
+                </Box>
+              </Grid>
 
-            <Grid item xs={12} sm={4}>
-              <TextField
-                fullWidth
-                label="Diastolic BP"
-                type="number"
-                value={formData.diastolicBP || ''}
-                onChange={handleInputChange('diastolicBP')}
-                InputProps={{ inputProps: { min: 40, max: 150 } }}
-              />
+              {/* Blood Pressure */}
+              <Grid item xs={12} md={4}>
+                <TextField
+                  fullWidth
+                  label="Blood Pressure (Systolic)"
+                  type="number"
+                  value={profile.systolicBP || ''}
+                  onChange={(e) => handleInputChange('systolicBP', parseInt(e.target.value) || undefined)}
+                  InputProps={{
+                    endAdornment: <InputAdornment position="end">mmHg</InputAdornment>,
+                  }}
+                  variant="outlined"
+                />
+              </Grid>
+              <Grid item xs={12} md={4}>
+                <TextField
+                  fullWidth
+                  label="Blood Pressure (Diastolic)"
+                  type="number"
+                  value={profile.diastolicBP || ''}
+                  onChange={(e) => handleInputChange('diastolicBP', parseInt(e.target.value) || undefined)}
+                  InputProps={{
+                    endAdornment: <InputAdornment position="end">mmHg</InputAdornment>,
+                  }}
+                  variant="outlined"
+                />
+              </Grid>
+              <Grid item xs={12} md={4}>
+                <TextField
+                  fullWidth
+                  label="Heart Rate"
+                  type="number"
+                  value={profile.heartRate || ''}
+                  onChange={(e) => handleInputChange('heartRate', parseInt(e.target.value) || undefined)}
+                  InputProps={{
+                    endAdornment: <InputAdornment position="end">bpm</InputAdornment>,
+                  }}
+                  variant="outlined"
+                />
+              </Grid>
             </Grid>
+          </AccordionDetails>
+        </Accordion>
 
-            <Grid item xs={12} sm={4}>
-              <TextField
-                fullWidth
-                label="Heart Rate (bpm)"
-                type="number"
-                value={formData.heartRate || ''}
-                onChange={handleInputChange('heartRate')}
-                InputProps={{ inputProps: { min: 40, max: 200 } }}
-              />
-            </Grid>
-
-            <Grid item xs={12} sm={6}>
-              <FormControl fullWidth>
-                <InputLabel>Ethnicity</InputLabel>
-                <Select
-                  value={formData.ethnicity}
-                  onChange={handleSelectChange('ethnicity')}
-                  label="Ethnicity"
-                >
-                  {ethnicities.map((ethnicity) => (
-                    <MenuItem key={ethnicity} value={ethnicity}>
-                      {ethnicity}
-                    </MenuItem>
+        {/* Medical History */}
+        <Accordion sx={sectionStyle}>
+          <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={sectionHeaderStyle}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <LocalHospitalIcon />
+              <Typography variant="h6">🩺 Medical History</Typography>
+            </Box>
+          </AccordionSummary>
+          <AccordionDetails sx={{ p: 3 }}>
+            <FormControl component="fieldset" fullWidth>
+              <FormLabel component="legend">Check all that apply</FormLabel>
+              <FormGroup>
+                <Grid container>
+                  {medicalConditionsOptions.map((condition) => (
+                    <Grid item xs={12} md={6} key={condition}>
+                      <FormControlLabel
+                        control={
+                          <Checkbox
+                            checked={(profile.medicalConditions || []).includes(condition)}
+                            onChange={(e) => handleArrayChange('medicalConditions', condition, e.target.checked)}
+                          />
+                        }
+                        label={condition}
+                      />
+                    </Grid>
                   ))}
-                </Select>
-              </FormControl>
-            </Grid>
+                </Grid>
+                {(profile.medicalConditions || []).includes('Other') && (
+                  <Box sx={{ mt: 2, display: 'flex', gap: 1, alignItems: 'center' }}>
+                    <TextField
+                      size="small"
+                      label="Please specify other medical condition"
+                      value={otherValues.medicalConditions}
+                      onChange={(e) => handleOtherChange('medicalConditions', e.target.value)}
+                      variant="outlined"
+                      sx={{ flexGrow: 1 }}
+                      onKeyPress={(e) => {
+                        if (e.key === 'Enter' && otherValues.medicalConditions?.trim()) {
+                          addOtherOption('medicalConditions', 'medicalConditions');
+                        }
+                      }}
+                    />
+                    <Button
+                      variant="outlined"
+                      size="small"
+                      onClick={() => addOtherOption('medicalConditions', 'medicalConditions')}
+                      disabled={!otherValues.medicalConditions?.trim()}
+                    >
+                      Add
+                    </Button>
+                  </Box>
+                )}
+                
+                {/* Show current custom medical conditions */}
+                {(profile.medicalConditions || []).filter(item => item.startsWith('Other:')).length > 0 && (
+                  <Box sx={{ mt: 1 }}>
+                    <Typography variant="caption" color="textSecondary">Custom entries:</Typography>
+                    {(profile.medicalConditions || []).filter(item => item.startsWith('Other:')).map((item, index) => (
+                      <Chip
+                        key={index}
+                        label={item.replace('Other: ', '')}
+                        size="small"
+                        onDelete={() => {
+                          const newConditions = (profile.medicalConditions || []).filter(c => c !== item);
+                          handleInputChange('medicalConditions', newConditions);
+                        }}
+                        sx={{ mr: 1, mt: 1 }}
+                      />
+                    ))}
+                  </Box>
+                )}
+              </FormGroup>
+            </FormControl>
+          </AccordionDetails>
+        </Accordion>
 
-            <Grid item xs={12} sm={6}>
-              <FormControl fullWidth>
-                <InputLabel>Type of Diet</InputLabel>
-                <Select
-                  value={formData.dietType}
-                  onChange={handleSelectChange('dietType')}
-                  label="Type of Diet"
-                >
-                  {dietTypes.map((type) => (
-                    <MenuItem key={type} value={type}>
-                      {type}
-                    </MenuItem>
+        {/* Current Medications */}
+        <Accordion sx={sectionStyle}>
+          <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={sectionHeaderStyle}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <MedicationIcon />
+              <Typography variant="h6">💊 Current Medications</Typography>
+            </Box>
+          </AccordionSummary>
+          <AccordionDetails sx={{ p: 3 }}>
+            <FormControl component="fieldset" fullWidth>
+              <FormLabel component="legend">Check all that apply</FormLabel>
+              <FormGroup>
+                <Grid container>
+                  {medicationsOptions.map((medication) => (
+                    <Grid item xs={12} md={6} key={medication}>
+                      <FormControlLabel
+                        control={
+                          <Checkbox
+                            checked={(profile.currentMedications || []).includes(medication)}
+                            onChange={(e) => handleArrayChange('currentMedications', medication, e.target.checked)}
+                          />
+                        }
+                        label={medication}
+                      />
+                    </Grid>
                   ))}
-                </Select>
-              </FormControl>
-            </Grid>
+                </Grid>
+                {(profile.currentMedications || []).includes('Other') && (
+                  <Box sx={{ mt: 2, display: 'flex', gap: 1, alignItems: 'center' }}>
+                    <TextField
+                      size="small"
+                      label="Please specify other medication"
+                      value={otherValues.medications}
+                      onChange={(e) => handleOtherChange('medications', e.target.value)}
+                      variant="outlined"
+                      sx={{ flexGrow: 1 }}
+                      onKeyPress={(e) => {
+                        if (e.key === 'Enter' && otherValues.medications?.trim()) {
+                          addOtherOption('currentMedications', 'medications');
+                        }
+                      }}
+                    />
+                    <Button
+                      variant="outlined"
+                      size="small"
+                      onClick={() => addOtherOption('currentMedications', 'medications')}
+                      disabled={!otherValues.medications?.trim()}
+                    >
+                      Add
+                    </Button>
+                  </Box>
+                )}
+                
+                {/* Show current custom medications */}
+                {(profile.currentMedications || []).filter(item => item.startsWith('Other:')).length > 0 && (
+                  <Box sx={{ mt: 1 }}>
+                    <Typography variant="caption" color="textSecondary">Custom entries:</Typography>
+                    {(profile.currentMedications || []).filter(item => item.startsWith('Other:')).map((item, index) => (
+                      <Chip
+                        key={index}
+                        label={item.replace('Other: ', '')}
+                        size="small"
+                        onDelete={() => {
+                          const newMedications = (profile.currentMedications || []).filter(m => m !== item);
+                          handleInputChange('currentMedications', newMedications);
+                        }}
+                        sx={{ mr: 1, mt: 1 }}
+                      />
+                    ))}
+                  </Box>
+                )}
+              </FormGroup>
+            </FormControl>
+          </AccordionDetails>
+        </Accordion>
 
-            <Grid item xs={12} sm={6}>
-              <FormControl fullWidth>
-                <InputLabel>Calories Target</InputLabel>
-                <Select
-                  value={formData.calorieTarget}
-                  onChange={handleSelectChange('calorieTarget')}
-                  label="Calories Target"
-                >
-                  {calorieTargets.map((calories) => (
-                    <MenuItem key={calories} value={calories}>
-                      {calories} kcal
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
+        {/* Lab Values */}
+        <Accordion sx={sectionStyle}>
+          <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={sectionHeaderStyle}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <ScienceIcon />
+              <Typography variant="h6">🧪 Most Recent Lab Values (Optional)</Typography>
+            </Box>
+          </AccordionSummary>
+          <AccordionDetails sx={{ p: 3 }}>
+            <Grid container spacing={3}>
+              <Grid item xs={12} md={4}>
+                <TextField
+                  fullWidth
+                  label="A1C"
+                  value={profile.labValues?.a1c || ''}
+                  onChange={(e) => handleLabValueChange('a1c', e.target.value)}
+                  InputProps={{ endAdornment: <InputAdornment position="end">%</InputAdornment> }}
+                  variant="outlined"
+                />
+              </Grid>
+              <Grid item xs={12} md={4}>
+                <TextField
+                  fullWidth
+                  label="Fasting Glucose"
+                  value={profile.labValues?.fastingGlucose || ''}
+                  onChange={(e) => handleLabValueChange('fastingGlucose', e.target.value)}
+                  InputProps={{ endAdornment: <InputAdornment position="end">mmol/L</InputAdornment> }}
+                  variant="outlined"
+                />
+              </Grid>
+              <Grid item xs={12} md={4}>
+                <TextField
+                  fullWidth
+                  label="LDL-C"
+                  value={profile.labValues?.ldlCholesterol || ''}
+                  onChange={(e) => handleLabValueChange('ldlCholesterol', e.target.value)}
+                  InputProps={{ endAdornment: <InputAdornment position="end">mmol/L</InputAdornment> }}
+                  variant="outlined"
+                />
+              </Grid>
+              <Grid item xs={12} md={4}>
+                <TextField
+                  fullWidth
+                  label="HDL-C"
+                  value={profile.labValues?.hdlCholesterol || ''}
+                  onChange={(e) => handleLabValueChange('hdlCholesterol', e.target.value)}
+                  InputProps={{ endAdornment: <InputAdornment position="end">mmol/L</InputAdornment> }}
+                  variant="outlined"
+                />
+              </Grid>
+              <Grid item xs={12} md={4}>
+                <TextField
+                  fullWidth
+                  label="Triglycerides"
+                  value={profile.labValues?.triglycerides || ''}
+                  onChange={(e) => handleLabValueChange('triglycerides', e.target.value)}
+                  InputProps={{ endAdornment: <InputAdornment position="end">mmol/L</InputAdornment> }}
+                  variant="outlined"
+                />
+              </Grid>
+              <Grid item xs={12} md={4}>
+                <TextField
+                  fullWidth
+                  label="Total Cholesterol"
+                  value={profile.labValues?.totalCholesterol || ''}
+                  onChange={(e) => handleLabValueChange('totalCholesterol', e.target.value)}
+                  InputProps={{ endAdornment: <InputAdornment position="end">mmol/L</InputAdornment> }}
+                  variant="outlined"
+                />
+              </Grid>
+              <Grid item xs={12} md={4}>
+                <TextField
+                  fullWidth
+                  label="eGFR"
+                  value={profile.labValues?.egfr || ''}
+                  onChange={(e) => handleLabValueChange('egfr', e.target.value)}
+                  variant="outlined"
+                />
+              </Grid>
+              <Grid item xs={12} md={4}>
+                <TextField
+                  fullWidth
+                  label="Creatinine"
+                  value={profile.labValues?.creatinine || ''}
+                  onChange={(e) => handleLabValueChange('creatinine', e.target.value)}
+                  InputProps={{ endAdornment: <InputAdornment position="end">µmol/L</InputAdornment> }}
+                  variant="outlined"
+                />
+              </Grid>
+              <Grid item xs={12} md={4}>
+                <TextField
+                  fullWidth
+                  label="Potassium"
+                  value={profile.labValues?.potassium || ''}
+                  onChange={(e) => handleLabValueChange('potassium', e.target.value)}
+                  InputProps={{ endAdornment: <InputAdornment position="end">mmol/L</InputAdornment> }}
+                  variant="outlined"
+                />
+              </Grid>
+              <Grid item xs={12} md={4}>
+                <TextField
+                  fullWidth
+                  label="uACR / proteinuria"
+                  value={profile.labValues?.uacr || ''}
+                  onChange={(e) => handleLabValueChange('uacr', e.target.value)}
+                  variant="outlined"
+                />
+              </Grid>
+              <Grid item xs={12} md={4}>
+                <TextField
+                  fullWidth
+                  label="ALT / AST"
+                  value={profile.labValues?.alt || ''}
+                  onChange={(e) => handleLabValueChange('alt', e.target.value)}
+                  variant="outlined"
+                />
+              </Grid>
+              <Grid item xs={12} md={4}>
+                <TextField
+                  fullWidth
+                  label="Vitamin D"
+                  value={profile.labValues?.vitaminD || ''}
+                  onChange={(e) => handleLabValueChange('vitaminD', e.target.value)}
+                  InputProps={{ endAdornment: <InputAdornment position="end">nmol/L</InputAdornment> }}
+                  variant="outlined"
+                />
+              </Grid>
+              <Grid item xs={12} md={4}>
+                <TextField
+                  fullWidth
+                  label="B12"
+                  value={profile.labValues?.b12 || ''}
+                  onChange={(e) => handleLabValueChange('b12', e.target.value)}
+                  InputProps={{ endAdornment: <InputAdornment position="end">pmol/L</InputAdornment> }}
+                  variant="outlined"
+                />
+              </Grid>
             </Grid>
+          </AccordionDetails>
+        </Accordion>
 
-            <Grid item xs={12}>
-              <FormControl fullWidth>
-                <InputLabel>Features of Diet</InputLabel>
-                <Select
-                  multiple
-                  value={formData.dietFeatures || []}
-                  onChange={handleMultiSelectChange('dietFeatures')}
-                  input={<OutlinedInput label="Features of Diet" />}
-                  renderValue={(selected) => (
-                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                      {selected.map((value) => (
-                        <Chip key={value} label={value} />
+        {/* Dietary Information */}
+        <Accordion defaultExpanded sx={sectionStyle}>
+          <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={sectionHeaderStyle}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <RestaurantIcon />
+              <Typography variant="h6">🍽️ Dietary Information</Typography>
+            </Box>
+          </AccordionSummary>
+          <AccordionDetails sx={{ p: 3 }}>
+            <Grid container spacing={3}>
+              <Grid item xs={12}>
+                <FormControl component="fieldset" fullWidth>
+                  <FormLabel component="legend">Type of Diet (select all that apply)</FormLabel>
+                  <FormGroup>
+                    <Grid container>
+                      {dietTypeOptions.map((diet) => (
+                        <Grid item xs={12} md={6} key={diet}>
+                          <FormControlLabel
+                            control={
+                              <Checkbox
+                                checked={(profile.dietType || []).includes(diet)}
+                                onChange={(e) => handleArrayChange('dietType', diet, e.target.checked)}
+                              />
+                            }
+                            label={diet}
+                          />
+                        </Grid>
                       ))}
+                    </Grid>
+                  </FormGroup>
+                </FormControl>
+                {(profile.dietType || []).includes('Other') && (
+                  <Box sx={{ mt: 2, display: 'flex', gap: 1, alignItems: 'center' }}>
+                    <TextField
+                      size="small"
+                      label="Please specify other diet type"
+                      value={otherValues.dietType}
+                      onChange={(e) => handleOtherChange('dietType', e.target.value)}
+                      variant="outlined"
+                      sx={{ flexGrow: 1 }}
+                      onKeyPress={(e) => {
+                        if (e.key === 'Enter' && otherValues.dietType?.trim()) {
+                          addOtherOption('dietType', 'dietType');
+                        }
+                      }}
+                    />
+                    <Button
+                      variant="outlined"
+                      size="small"
+                      onClick={() => addOtherOption('dietType', 'dietType')}
+                      disabled={!otherValues.dietType?.trim()}
+                    >
+                      Add
+                    </Button>
+                  </Box>
+                )}
+                
+                {/* Show current custom diet types */}
+                {(profile.dietType || []).filter(item => item.startsWith('Other:')).length > 0 && (
+                  <Box sx={{ mt: 1 }}>
+                    <Typography variant="caption" color="textSecondary">Custom entries:</Typography>
+                    {(profile.dietType || []).filter(item => item.startsWith('Other:')).map((item, index) => (
+                      <Chip
+                        key={index}
+                        label={item.replace('Other: ', '')}
+                        size="small"
+                        onDelete={() => {
+                          const newDietTypes = (profile.dietType || []).filter(d => d !== item);
+                          handleInputChange('dietType', newDietTypes);
+                        }}
+                        sx={{ mr: 1, mt: 1 }}
+                      />
+                    ))}
+                  </Box>
+                )}
+              </Grid>
+              <Grid item xs={12}>
+                <FormControl component="fieldset" fullWidth>
+                  <FormLabel component="legend">Current Dietary Features (select all that apply)</FormLabel>
+                  <FormGroup>
+                    <Grid container>
+                      {dietaryFeaturesOptions.map((feature) => (
+                        <Grid item xs={12} md={6} key={feature}>
+                          <FormControlLabel
+                            control={
+                              <Checkbox
+                                checked={(profile.dietaryFeatures || []).includes(feature)}
+                                onChange={(e) => handleArrayChange('dietaryFeatures', feature, e.target.checked)}
+                              />
+                            }
+                            label={feature}
+                          />
+                        </Grid>
+                      ))}
+                    </Grid>
+                  </FormGroup>
+                </FormControl>
+              </Grid>
+              <Grid item xs={12} md={4}>
+                <TextField
+                  fullWidth
+                  label="Food Allergies"
+                  value={textInputs.allergies}
+                  onChange={(e) => handleTextInputChange('allergies', e.target.value)}
+                  onBlur={() => processTextInputToArray('allergies', 'allergies')}
+                  variant="outlined"
+                  multiline
+                  rows={2}
+                  helperText="Separate multiple allergies with commas (e.g., peanuts, shellfish, dairy)"
+                  placeholder="Enter allergies separated by commas..."
+                />
+              </Grid>
+              <Grid item xs={12} md={4}>
+                <TextField
+                  fullWidth
+                  label="Food Items You Avoid"
+                  value={textInputs.avoids}
+                  onChange={(e) => handleTextInputChange('avoids', e.target.value)}
+                  onBlur={() => processTextInputToArray('avoids', 'avoids')}
+                  variant="outlined"
+                  multiline
+                  rows={2}
+                  helperText="Separate multiple items with commas (e.g., spicy food, red meat, fried foods)"
+                  placeholder="Enter foods you avoid separated by commas..."
+                />
+              </Grid>
+              <Grid item xs={12} md={4}>
+                <TextField
+                  fullWidth
+                  label="Strong Dislikes"
+                  value={textInputs.strongDislikes}
+                  onChange={(e) => handleTextInputChange('strongDislikes', e.target.value)}
+                  onBlur={() => processTextInputToArray('strongDislikes', 'strongDislikes')}
+                  variant="outlined"
+                  multiline
+                  rows={2}
+                  helperText="Separate multiple dislikes with commas (e.g., mushrooms, Brussels sprouts, liver)"
+                  placeholder="Enter dislikes separated by commas..."
+                />
+              </Grid>
+            </Grid>
+          </AccordionDetails>
+        </Accordion>
+
+        {/* Physical Activity */}
+        <Accordion sx={sectionStyle}>
+          <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={sectionHeaderStyle}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <FitnessIcon />
+              <Typography variant="h6">🏃 Physical Activity Profile</Typography>
+            </Box>
+          </AccordionSummary>
+          <AccordionDetails sx={{ p: 3 }}>
+            <Grid container spacing={3}>
+              <Grid item xs={12} md={6}>
+                <FormControl fullWidth>
+                  <FormLabel>Work Activity Level</FormLabel>
+                  <RadioGroup
+                    value={profile.workActivityLevel}
+                    onChange={(e) => handleInputChange('workActivityLevel', e.target.value)}
+                  >
+                    <FormControlLabel value="Sedentary" control={<Radio />} label="Sedentary (e.g., desk work)" />
+                    <FormControlLabel value="Moderately Active" control={<Radio />} label="Moderately Active (e.g., walking, light lifting)" />
+                    <FormControlLabel value="Active" control={<Radio />} label="Active / Physical Labor" />
+                  </RadioGroup>
+                </FormControl>
+              </Grid>
+              <Grid item xs={12} md={6}>
+                <FormControl fullWidth>
+                  <FormLabel>Exercise Frequency</FormLabel>
+                  <RadioGroup
+                    value={profile.exerciseFrequency}
+                    onChange={(e) => handleInputChange('exerciseFrequency', e.target.value)}
+                  >
+                    <FormControlLabel value="None" control={<Radio />} label="None" />
+                    <FormControlLabel value="30-60 min/week" control={<Radio />} label="<30–60 min/week" />
+                    <FormControlLabel value="60-150 min/week" control={<Radio />} label="60–150 min/week" />
+                    <FormControlLabel value=">150 min/week" control={<Radio />} label=">150 min/week" />
+                  </RadioGroup>
+                </FormControl>
+              </Grid>
+              <Grid item xs={12}>
+                <FormControl component="fieldset" fullWidth>
+                  <FormLabel component="legend">Type of Exercise (select all that apply)</FormLabel>
+                  <FormGroup>
+                    <Grid container>
+                      {exerciseTypesOptions.map((exercise) => (
+                        <Grid item xs={12} md={6} key={exercise}>
+                          <FormControlLabel
+                            control={
+                              <Checkbox
+                                checked={(profile.exerciseTypes || []).includes(exercise)}
+                                onChange={(e) => handleArrayChange('exerciseTypes', exercise, e.target.checked)}
+                              />
+                            }
+                            label={exercise}
+                          />
+                        </Grid>
+                      ))}
+                    </Grid>
+                    {(profile.exerciseTypes || []).includes('Other') && (
+                      <Box sx={{ mt: 2, display: 'flex', gap: 1, alignItems: 'center' }}>
+                        <TextField
+                          size="small"
+                          label="Please specify other exercise type"
+                          value={otherValues.exerciseTypes}
+                          onChange={(e) => handleOtherChange('exerciseTypes', e.target.value)}
+                          variant="outlined"
+                          sx={{ flexGrow: 1 }}
+                          onKeyPress={(e) => {
+                            if (e.key === 'Enter' && otherValues.exerciseTypes?.trim()) {
+                              addOtherOption('exerciseTypes', 'exerciseTypes');
+                            }
+                          }}
+                        />
+                        <Button
+                          variant="outlined"
+                          size="small"
+                          onClick={() => addOtherOption('exerciseTypes', 'exerciseTypes')}
+                          disabled={!otherValues.exerciseTypes?.trim()}
+                        >
+                          Add
+                        </Button>
+                      </Box>
+                    )}
+                    
+                    {/* Show current custom exercise types */}
+                    {(profile.exerciseTypes || []).filter(item => item.startsWith('Other:')).length > 0 && (
+                      <Box sx={{ mt: 1 }}>
+                        <Typography variant="caption" color="textSecondary">Custom entries:</Typography>
+                        {(profile.exerciseTypes || []).filter(item => item.startsWith('Other:')).map((item, index) => (
+                          <Chip
+                            key={index}
+                            label={item.replace('Other: ', '')}
+                            size="small"
+                            onDelete={() => {
+                              const newExerciseTypes = (profile.exerciseTypes || []).filter(e => e !== item);
+                              handleInputChange('exerciseTypes', newExerciseTypes);
+                            }}
+                            sx={{ mr: 1, mt: 1 }}
+                          />
+                        ))}
+                      </Box>
+                    )}
+                  </FormGroup>
+                </FormControl>
+              </Grid>
+              <Grid item xs={12}>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={profile.mobilityIssues || false}
+                      onChange={(e) => handleInputChange('mobilityIssues', e.target.checked)}
+                    />
+                  }
+                  label="I have mobility or joint issues"
+                />
+              </Grid>
+            </Grid>
+          </AccordionDetails>
+        </Accordion>
+
+        {/* Lifestyle & Preferences */}
+        <Accordion sx={sectionStyle}>
+          <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={sectionHeaderStyle}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <HomeIcon />
+              <Typography variant="h6">🧭 Lifestyle & Preferences</Typography>
+            </Box>
+          </AccordionSummary>
+          <AccordionDetails sx={{ p: 3 }}>
+            <Grid container spacing={3}>
+              <Grid item xs={12} md={6}>
+                <FormControl fullWidth>
+                  <FormLabel>Meal Prep Capability</FormLabel>
+                  <RadioGroup
+                    value={profile.mealPrepCapability}
+                    onChange={(e) => handleInputChange('mealPrepCapability', e.target.value)}
+                  >
+                    <FormControlLabel value="Prepares own meals" control={<Radio />} label="Prepares own meals" />
+                    <FormControlLabel value="Cooks with assistance" control={<Radio />} label="Cooks with assistance" />
+                    <FormControlLabel value="Caregiver-prepared" control={<Radio />} label="Caregiver-prepared" />
+                    <FormControlLabel value="Uses meal delivery service" control={<Radio />} label="Uses meal delivery service" />
+                  </RadioGroup>
+                </FormControl>
+              </Grid>
+              <Grid item xs={12} md={6}>
+                <FormControl fullWidth>
+                  <FormLabel>Eating Schedule Preference</FormLabel>
+                  <RadioGroup
+                    value={profile.eatingSchedule}
+                    onChange={(e) => handleInputChange('eatingSchedule', e.target.value)}
+                  >
+                    <FormControlLabel value="3 meals/day" control={<Radio />} label="3 meals/day" />
+                    <FormControlLabel value="2 meals + 1 snack" control={<Radio />} label="2 meals + 1 snack" />
+                    <FormControlLabel value="Intermittent Fasting" control={<Radio />} label="Intermittent Fasting" />
+                    <FormControlLabel value="Night Shift" control={<Radio />} label="Night Shift (11 pm–7 am)" />
+                    <FormControlLabel value="Other" control={<Radio />} label="Other" />
+                  </RadioGroup>
+                  {profile.eatingSchedule === 'Other' && (
+                    <Box sx={{ mt: 2, display: 'flex', gap: 1, alignItems: 'center' }}>
+                      <TextField
+                        size="small"
+                        label="Please specify eating schedule"
+                        value={otherValues.eatingSchedule}
+                        onChange={(e) => handleOtherChange('eatingSchedule', e.target.value)}
+                        variant="outlined"
+                        sx={{ flexGrow: 1 }}
+                        placeholder="e.g., 5 small meals, 16:8 fasting, etc."
+                        onKeyPress={(e) => {
+                          if (e.key === 'Enter' && otherValues.eatingSchedule?.trim()) {
+                            handleInputChange('eatingSchedule', `Other: ${otherValues.eatingSchedule.trim()}`);
+                            setOtherValues(prev => ({ ...prev, eatingSchedule: '' }));
+                          }
+                        }}
+                      />
+                      <Button
+                        variant="outlined"
+                        size="small"
+                        onClick={() => {
+                          if (otherValues.eatingSchedule?.trim()) {
+                            handleInputChange('eatingSchedule', `Other: ${otherValues.eatingSchedule.trim()}`);
+                            setOtherValues(prev => ({ ...prev, eatingSchedule: '' }));
+                          }
+                        }}
+                        disabled={!otherValues.eatingSchedule?.trim()}
+                      >
+                        Set
+                      </Button>
                     </Box>
                   )}
-                >
-                  {dietFeatures.map((feature) => (
-                    <MenuItem key={feature} value={feature}>
-                      {feature}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
+                </FormControl>
+              </Grid>
+              <Grid item xs={12}>
+                <FormControl component="fieldset" fullWidth>
+                  <FormLabel component="legend">Appliances Available (uncheck those you don't have)</FormLabel>
+                  <FormGroup>
+                    <Grid container>
+                      {appliancesOptions.map((appliance) => (
+                        <Grid item xs={12} md={6} key={appliance}>
+                          <FormControlLabel
+                            control={
+                              <Checkbox
+                                checked={(profile.availableAppliances || []).includes(appliance)}
+                                onChange={(e) => handleArrayChange('availableAppliances', appliance, e.target.checked)}
+                              />
+                            }
+                            label={appliance}
+                          />
+                        </Grid>
+                      ))}
+                    </Grid>
+                    {(profile.availableAppliances || []).includes('Other') && (
+                      <Box sx={{ mt: 2, display: 'flex', gap: 1, alignItems: 'center' }}>
+                        <TextField
+                          size="small"
+                          label="Please specify other appliance"
+                          value={otherValues.appliances}
+                          onChange={(e) => handleOtherChange('appliances', e.target.value)}
+                          variant="outlined"
+                          sx={{ flexGrow: 1 }}
+                          onKeyPress={(e) => {
+                            if (e.key === 'Enter' && otherValues.appliances?.trim()) {
+                              addOtherOption('availableAppliances', 'appliances');
+                            }
+                          }}
+                        />
+                        <Button
+                          variant="outlined"
+                          size="small"
+                          onClick={() => addOtherOption('availableAppliances', 'appliances')}
+                          disabled={!otherValues.appliances?.trim()}
+                        >
+                          Add
+                        </Button>
+                      </Box>
+                    )}
+                    
+                    {/* Show current custom appliances */}
+                    {(profile.availableAppliances || []).filter(item => item.startsWith('Other:')).length > 0 && (
+                      <Box sx={{ mt: 1 }}>
+                        <Typography variant="caption" color="textSecondary">Custom entries:</Typography>
+                        {(profile.availableAppliances || []).filter(item => item.startsWith('Other:')).map((item, index) => (
+                          <Chip
+                            key={index}
+                            label={item.replace('Other: ', '')}
+                            size="small"
+                            onDelete={() => {
+                              const newAppliances = (profile.availableAppliances || []).filter(a => a !== item);
+                              handleInputChange('availableAppliances', newAppliances);
+                            }}
+                            sx={{ mr: 1, mt: 1 }}
+                          />
+                        ))}
+                      </Box>
+                    )}
+                  </FormGroup>
+                </FormControl>
+              </Grid>
             </Grid>
+          </AccordionDetails>
+        </Accordion>
 
-            <Grid item xs={12}>
-              <FormControlLabel
-                control={
-                  <Switch
-                    checked={formData.wantsWeightLoss}
-                    onChange={(e) => setFormData(prev => ({ ...prev, wantsWeightLoss: e.target.checked }))}
+        {/* Goals & Readiness */}
+        <Accordion defaultExpanded sx={sectionStyle}>
+          <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={sectionHeaderStyle}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <TrackChangesIcon />
+              <Typography variant="h6">🎯 Goals & Readiness to Change</Typography>
+            </Box>
+          </AccordionSummary>
+          <AccordionDetails sx={{ p: 3 }}>
+            <Grid container spacing={3}>
+              <Grid item xs={12}>
+                <FormControl component="fieldset" fullWidth>
+                  <FormLabel component="legend">Primary Goals (select all that apply)</FormLabel>
+                  <FormGroup>
+                    <Grid container>
+                      {primaryGoalsOptions.map((goal) => (
+                        <Grid item xs={12} md={6} key={goal}>
+                          <FormControlLabel
+                            control={
+                              <Checkbox
+                                checked={(profile.primaryGoals || []).includes(goal)}
+                                onChange={(e) => handleArrayChange('primaryGoals', goal, e.target.checked)}
+                              />
+                            }
+                            label={goal}
+                          />
+                        </Grid>
+                      ))}
+                    </Grid>
+                    {(profile.primaryGoals || []).includes('Other') && (
+                      <Box sx={{ mt: 2, display: 'flex', gap: 1, alignItems: 'center' }}>
+                        <TextField
+                          size="small"
+                          label="Please specify other goal"
+                          value={otherValues.goals}
+                          onChange={(e) => handleOtherChange('goals', e.target.value)}
+                          variant="outlined"
+                          sx={{ flexGrow: 1 }}
+                          onKeyPress={(e) => {
+                            if (e.key === 'Enter' && otherValues.goals?.trim()) {
+                              addOtherOption('primaryGoals', 'goals');
+                            }
+                          }}
+                        />
+                        <Button
+                          variant="outlined"
+                          size="small"
+                          onClick={() => addOtherOption('primaryGoals', 'goals')}
+                          disabled={!otherValues.goals?.trim()}
+                        >
+                          Add
+                        </Button>
+                      </Box>
+                    )}
+                    
+                    {/* Show current custom goals */}
+                    {(profile.primaryGoals || []).filter(item => item.startsWith('Other:')).length > 0 && (
+                      <Box sx={{ mt: 1 }}>
+                        <Typography variant="caption" color="textSecondary">Custom entries:</Typography>
+                        {(profile.primaryGoals || []).filter(item => item.startsWith('Other:')).map((item, index) => (
+                          <Chip
+                            key={index}
+                            label={item.replace('Other: ', '')}
+                            size="small"
+                            onDelete={() => {
+                              const newGoals = (profile.primaryGoals || []).filter(g => g !== item);
+                              handleInputChange('primaryGoals', newGoals);
+                            }}
+                            sx={{ mr: 1, mt: 1 }}
+                          />
+                        ))}
+                      </Box>
+                    )}
+                  </FormGroup>
+                </FormControl>
+              </Grid>
+              <Grid item xs={12} md={6}>
+                <FormControl fullWidth>
+                  <FormLabel>Readiness to Change</FormLabel>
+                  <RadioGroup
+                    value={profile.readinessToChange}
+                    onChange={(e) => handleInputChange('readinessToChange', e.target.value)}
+                  >
+                    <FormControlLabel value="Not ready" control={<Radio />} label="Not ready" />
+                    <FormControlLabel value="Thinking about it" control={<Radio />} label="Thinking about it" />
+                    <FormControlLabel value="Ready to take action" control={<Radio />} label="Ready to take action" />
+                    <FormControlLabel value="Already making changes" control={<Radio />} label="Already making changes" />
+                  </RadioGroup>
+                </FormControl>
+              </Grid>
+              <Grid item xs={12} md={6}>
+                <Box>
+                  <FormControlLabel
+                    control={
+                      <Switch
+                        checked={profile.wantsWeightLoss || false}
+                        onChange={(e) => handleInputChange('wantsWeightLoss', e.target.checked)}
+                      />
+                    }
+                    label="Patient wants weight loss"
                   />
-                }
-                label="Patient wants weight loss"
-              />
+                  <FormControl fullWidth sx={{ mt: 2 }}>
+                    <FormLabel>Suggested Calorie Target</FormLabel>
+                    <RadioGroup
+                      value={profile.calorieTarget}
+                      onChange={(e) => handleInputChange('calorieTarget', e.target.value)}
+                    >
+                      <FormControlLabel value="1500" control={<Radio />} label="1500 kcal" />
+                      <FormControlLabel value="1800" control={<Radio />} label="1800 kcal" />
+                      <FormControlLabel value="2000" control={<Radio />} label="2000 kcal" />
+                      <FormControlLabel value="2200" control={<Radio />} label="2200 kcal" />
+                      <FormControlLabel value="Other" control={<Radio />} label="Custom calorie target" />
+                    </RadioGroup>
+                    {profile.calorieTarget === 'Other' && (
+                      <Box sx={{ mt: 2, display: 'flex', gap: 1, alignItems: 'center' }}>
+                        <TextField
+                          size="small"
+                          label="Custom calorie target"
+                          value={otherValues.calorieTarget}
+                          onChange={(e) => handleOtherChange('calorieTarget', e.target.value)}
+                          variant="outlined"
+                          type="number"
+                          inputProps={{ min: 1000, max: 5000 }}
+                          sx={{ width: 200 }}
+                          placeholder="e.g., 2500"
+                          onKeyPress={(e) => {
+                            if (e.key === 'Enter' && otherValues.calorieTarget?.trim()) {
+                              handleInputChange('calorieTarget', `${otherValues.calorieTarget.trim()}`);
+                              setOtherValues(prev => ({ ...prev, calorieTarget: '' }));
+                            }
+                          }}
+                        />
+                        <Typography variant="body2" color="text.secondary">kcal/day</Typography>
+                        <Button
+                          variant="outlined"
+                          size="small"
+                          onClick={() => {
+                            if (otherValues.calorieTarget.trim()) {
+                              handleInputChange('calorieTarget', `${otherValues.calorieTarget.trim()}`);
+                              setOtherValues(prev => ({ ...prev, calorieTarget: '' }));
+                            }
+                          }}
+                          disabled={!otherValues.calorieTarget?.trim()}
+                        >
+                          Set
+                        </Button>
+                      </Box>
+                    )}
+                  </FormControl>
+                </Box>
+              </Grid>
             </Grid>
+          </AccordionDetails>
+        </Accordion>
 
-            <Grid item xs={12}>
-              <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
-                <Button
-                  type="submit"
-                  variant="contained"
-                  color="primary"
-                  size="large"
-                >
-                  Generate Meal Plan
-                </Button>
-              </Box>
-            </Grid>
-          </Grid>
+        <Box sx={{ mt: 4, textAlign: 'center' }}>
+          <Button
+            variant="contained"
+            size="large"
+            onClick={handleSubmit}
+            sx={{
+              px: 6,
+              py: 2,
+              fontSize: '1.2rem',
+              fontWeight: 'bold',
+              background: `linear-gradient(45deg, ${theme.palette.primary.main}, ${theme.palette.primary.dark})`,
+              '&:hover': {
+                background: `linear-gradient(45deg, ${theme.palette.primary.dark}, ${theme.palette.primary.main})`,
+                transform: 'translateY(-2px)',
+                boxShadow: '0 8px 20px rgba(0,0,0,0.15)',
+              },
+              transition: 'all 0.3s ease',
+            }}
+          >
+            {submitButtonText}
+          </Button>
         </Box>
       </Paper>
-    </Container>
+    </Box>
   );
 };
 

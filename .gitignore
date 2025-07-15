@@ -12,11 +12,15 @@ __pycache__/
 # Virtual environments
 env/
 venv/
+diab_env/
 .ddp_env/
 .ddp_env*/
 .ddp_env\*
 ddp_env/
 dp_env/
+denv/
+meal_env/
+backend/env.json
 
 # FastAPI/Starlette
 instance/
@@ -55,4 +59,7 @@ htmlcov/
 .ipynb_checkpoints/
 
 # System
-Thumbs.db 
+Thumbs.db
+
+# Storage for generated PDFs
+backend/storage/pdfs/ 

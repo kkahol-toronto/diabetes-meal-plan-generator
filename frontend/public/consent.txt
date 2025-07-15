@@ -1,0 +1,77 @@
+Consent to Collect, Use, and Disclose Personal Health Information
+
+By accepting this policy agreement and using this app/tool, I confirm that:
+
+Service Use
+I consent to the collection, use, and storage of my personal health information (PHI), including data about my medical conditions, diet, and lifestyle, for the purpose of receiving personalized recommendations through this platform.
+
+I understand that my information will be handled in accordance with Ontario's Personal Health Information Protection Act (PHIPA) and, where applicable, the U.S. Health Insurance Portability and Accountability Act (HIPAA).
+
+I am aware that the app uses artificial intelligence (AI) to support nutrition and lifestyle planning, and that this tool does not replace medical advice.
+
+I have read and understood the [Privacy Policy] and agree to its terms.
+
+I may withdraw my consent at any time by contacting E-mail: support@mirakalous.com or at +1 (647) 292-3991.
+
+I agree to the collection and use of my personal health information as described above. (Required)
+
+Optional Research Use
+I also consent to the de-identified use of my health and usage data for research and development purposes, including improving AI models and supporting academic or clinical studies.
+
+I understand that all identifying details will be removed, and that my data will not be used to make decisions about me personally.
+
+I may withdraw this consent at any time without affecting my use of the app.
+
+I consent to the use of my de-identified data for research purposes. (Optional)
+
+Privacy Policy – Adjusted Sections
+
+1. Our Commitment
+We are committed to protecting your personal health information (PHI) under Ontario's Personal Health Information Protection Act (PHIPA) and, where applicable, the Health Insurance Portability and Accountability Act (HIPAA). This policy explains how your data is collected, used, shared, and protected through our AI-powered lifestyle and meal planning tool.
+
+2. What We Collect
+We only collect the information needed to personalize your care, including:
+
+Name, email address
+
+Age, height, weight, sex
+
+Medical conditions, medications, allergies
+
+Dietary preferences, lifestyle habits
+
+App usage and interaction data
+
+3. How We Use Your Information
+Your data is used to:
+
+Provide personalized nutrition and lifestyle recommendations
+
+Power AI tools that support (but do not replace) medical advice
+
+Improve app features and experience
+
+With optional consent, support research using de-identified data
+
+5. Sharing & Security
+We do not sell your information.
+
+Data may be shared with secure service providers (e.g., encrypted cloud infrastructure in Canada or the U.S.) under strict confidentiality agreements.
+
+Data is stored on encrypted Canadian servers and, if applicable, with U.S. providers with HIPAA Business Associate Agreements (BAAs).
+
+All access is restricted to authorized personnel and is audited and logged for security.
+
+6. Your Rights
+You have the right to:
+
+Access or correct your health information
+
+Withdraw your consent at any time
+
+Request deletion of your data
+
+To exercise these rights, contact us at the address below.
+
+8. Retention
+We retain your PHI only as long as needed for service or legal reasons. Typically, this is up to 7 years from the last interaction unless otherwise required by law. After that, data is securely deleted or anonymized.

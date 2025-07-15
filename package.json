@@ -1,0 +1,24 @@
+{
+  "name": "diabetes-meal-plan-generator",
+  "version": "1.0.0",
+  "description": "A comprehensive web application for diabetes patients to manage their diet, track meals, and get personalized recommendations.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kkahol-toronto/diabetes-meal-plan-generator.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/kkahol-toronto/diabetes-meal-plan-generator/issues"
+  },
+  "homepage": "https://github.com/kkahol-toronto/diabetes-meal-plan-generator#readme",
+  "dependencies": {
+    "express": "^5.1.0",
+    "openai": "^5.0.1"
+  }
+}

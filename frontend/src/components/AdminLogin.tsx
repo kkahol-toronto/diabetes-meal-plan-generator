@@ -9,6 +9,7 @@ import {
   Alert,
 } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
+import config from '../config/environment';
 
 const AdminLogin: React.FC = () => {
   const navigate = useNavigate();
@@ -35,7 +36,7 @@ const AdminLogin: React.FC = () => {
       formDataToSend.append('username', formData.email);
       formDataToSend.append('password', formData.password);
 
-      const response = await fetch('http://localhost:8000/admin/login', {
+      const response = await fetch(`${config.API_URL}/admin/login`, {
         method: 'POST',
         headers: {
           'Accept': 'application/json',

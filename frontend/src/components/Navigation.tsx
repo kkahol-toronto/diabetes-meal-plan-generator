@@ -22,10 +22,14 @@ import MenuIcon from '@mui/icons-material/Menu';
 import HomeIcon from '@mui/icons-material/Home';
 import RestaurantIcon from '@mui/icons-material/Restaurant';
 import BookIcon from '@mui/icons-material/Book';
-import ShoppingCartIcon from '@mui/icons-material/ShoppingCart';
 import ChatIcon from '@mui/icons-material/Chat';
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
 import AccountCircleIcon from '@mui/icons-material/AccountCircle';
+import HistoryIcon from '@mui/icons-material/History';
+import SettingsIcon from '@mui/icons-material/Settings';
+import { isTokenExpired } from '../utils/auth';
+import { useApp } from '../contexts/AppContext';
+import ShoppingCartIcon from '@mui/icons-material/ShoppingCart';
 
 const Navigation = () => {
   const navigate = useNavigate();
@@ -35,6 +39,7 @@ const Navigation = () => {
   const [drawerOpen, setDrawerOpen] = React.useState(false);
   const [userInfo, setUserInfo] = useState<{ username: string; is_admin: boolean; name?: string } | null>(null);
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
+  const { showNotification } = useApp();
 
   useEffect(() => {
     const fetchUserInfo = async () => {
@@ -47,17 +52,17 @@ const Navigation = () => {
 
         // Validate token format and get user info from token
         try {
+          if (isTokenExpired(token)) {
+            throw new Error('Token expired');
+          }
+          
           const tokenParts = token.split('.');
           if (tokenParts.length !== 3) {
             throw new Error('Invalid token format');
           }
-          // Check if token is expired
-          const payload = JSON.parse(atob(tokenParts[1]));
-          if (payload.exp * 1000 < Date.now()) {
-            throw new Error('Token expired');
-          }
           
           // Set user info from token
+          const payload = JSON.parse(atob(tokenParts[1]));
           setUserInfo({
             username: payload.sub,
             is_admin: payload.is_admin || false,
@@ -93,9 +98,10 @@ const Navigation = () => {
   const menuItems = [
     { text: 'Home', icon: <HomeIcon />, path: '/' },
     { text: 'Meal Plan', icon: <RestaurantIcon />, path: '/meal-plan' },
-    { text: 'Recipes', icon: <BookIcon />, path: '/recipes' },
-    { text: 'Shopping List', icon: <ShoppingCartIcon />, path: '/shopping-list' },
     { text: 'Chat', icon: <ChatIcon />, path: '/chat' },
+    { text: 'Consumption History', icon: <HistoryIcon />, path: '/consumption-history' },
+    { text: 'Meal Plan History', icon: <BookIcon />, path: '/meal_plans' },
+    { text: 'Settings', icon: <SettingsIcon />, path: '/settings' },
   ];
 
   // Add admin panel link if user is admin
@@ -107,6 +113,7 @@ const Navigation = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('isAdmin');
     setUserInfo(null);
+    showNotification('You have been logged out successfully', 'info');
     navigate('/login');
   };
 
@@ -135,21 +142,41 @@ const Navigation = () => {
           button
           key={item.text}
           onClick={() => {
+            console.log(`Navigating to: ${item.path}`);
             navigate(item.path);
             setDrawerOpen(false);
           }}
           selected={location.pathname === item.path}
+          sx={{
+            color: 'white',
+            '&:hover': { backgroundColor: 'rgba(255,255,255,0.1)' },
+            '&.Mui-selected': { backgroundColor: 'rgba(255,255,255,0.2)' }
+          }}
         >
-          <ListItemIcon>{item.icon}</ListItemIcon>
+          <ListItemIcon sx={{ color: 'white' }}>{item.icon}</ListItemIcon>
           <ListItemText primary={item.text} />
         </ListItem>
       ))}
       {userInfo ? (
-        <ListItem button onClick={handleLogout}>
+        <ListItem 
+          button 
+          onClick={handleLogout}
+          sx={{
+            color: 'white',
+            '&:hover': { backgroundColor: 'rgba(255,255,255,0.1)' }
+          }}
+        >
           <ListItemText primary="Logout" />
         </ListItem>
       ) : (
-        <ListItem button onClick={() => navigate('/login')}>
+        <ListItem 
+          button 
+          onClick={() => navigate('/login')}
+          sx={{
+            color: 'white',
+            '&:hover': { backgroundColor: 'rgba(255,255,255,0.1)' }
+          }}
+        >
           <ListItemText primary="Login" />
         </ListItem>
       )}
@@ -157,7 +184,13 @@ const Navigation = () => {
   );
 
   return (
-    <AppBar position="static">
+    <AppBar 
+      position="static" 
+      sx={{ 
+        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+        boxShadow: '0 4px 20px rgba(102, 126, 234, 0.3)'
+      }}
+    >
       <Toolbar>
         {isMobile && (
           <IconButton
@@ -170,9 +203,20 @@ const Navigation = () => {
             <MenuIcon />
           </IconButton>
         )}
-        <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
-          Diabetes Diet Manager
-        </Typography>
+        <Box sx={{ display: 'flex', alignItems: 'center', flexGrow: 1 }}>
+          <img 
+            src="/dietra_logo.png" 
+            alt="Dietra Logo" 
+            style={{ 
+              height: '48px', 
+              width: 'auto', 
+              marginRight: '16px' 
+            }} 
+          />
+          <Typography variant="h6" component="div">
+            Dietra
+          </Typography>
+        </Box>
         {!isMobile && (
           <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
             {menuItems.map((item) => (
@@ -182,7 +226,12 @@ const Navigation = () => {
                 startIcon={item.icon}
                 onClick={() => navigate(item.path)}
                 sx={{
-                  backgroundColor: location.pathname === item.path ? 'rgba(255, 255, 255, 0.1)' : 'transparent',
+                  backgroundColor: location.pathname === item.path ? 'rgba(255, 255, 255, 0.2)' : 'transparent',
+                  '&:hover': { backgroundColor: 'rgba(255, 255, 255, 0.1)' },
+                  borderRadius: 2,
+                  px: 2,
+                  py: 1,
+                  transition: 'all 0.3s ease'
                 }}
               >
                 {item.text}
@@ -207,7 +256,12 @@ const Navigation = () => {
       </Toolbar>
       <Drawer anchor="left" open={drawerOpen} onClose={toggleDrawer(false)}>
         <Box
-          sx={{ width: 250 }}
+          sx={{ 
+            width: 250,
+            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+            height: '100%',
+            color: 'white'
+          }}
           role="presentation"
           onClick={toggleDrawer(false)}
           onKeyDown={toggleDrawer(false)}
