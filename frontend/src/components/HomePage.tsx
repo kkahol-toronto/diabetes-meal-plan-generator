@@ -248,8 +248,8 @@ const getProfileCompletionStatus = (userProfile: any) => {
       weight: 0.1
     },
     goals: {
-      fields: ['primaryGoals', 'calorieTarget'],
-      arrayFields: true,
+      fields: ['primaryGoals', 'calorieTarget', 'readinessToChange'],
+      arrayFields: ['primaryGoals'], // Only primaryGoals is an array
       weight: 0.1
     }
   };
@@ -266,8 +266,13 @@ const getProfileCompletionStatus = (userProfile: any) => {
     
     section.fields.forEach(field => {
       const value = userProfile[field];
-      if ('arrayFields' in section && section.arrayFields) {
+      if ('arrayFields' in section && Array.isArray(section.arrayFields) && section.arrayFields.includes(field)) {
         // For array fields, check if array exists and has items
+        if (Array.isArray(value) && value.length > 0) {
+          sectionCompletedFields++;
+        }
+      } else if ('arrayFields' in section && section.arrayFields === true) {
+        // For sections where all fields are arrays (old logic)
         if (Array.isArray(value) && value.length > 0) {
           sectionCompletedFields++;
         }
@@ -334,7 +339,6 @@ const HomePage: React.FC = () => {
   const [selectedTimeRange, setSelectedTimeRange] = useState<'daily' | 'weekly' | 'bi-weekly' | 'monthly'>('daily');
   const [consumptionAnalytics, setConsumptionAnalytics] = useState<any>(null);
   const [consumptionHistory, setConsumptionHistory] = useState<any[]>([]);
-  const [timezoneAdjustedData, setTimezoneAdjustedData] = useState<any>(null);
   
   // Adaptive Plan Dialog state
   const [showAdaptivePlanDialog, setShowAdaptivePlanDialog] = useState(false);
@@ -417,87 +421,13 @@ const HomePage: React.FC = () => {
         consumptionHistoryResponse.ok ? consumptionHistoryResponse.json() : []
       ]);
 
-      // Process consumption history with timezone filtering
+      // Store consumption history for other components that need it
       const consumptionRecords = consumptionHistoryData || [];
       setConsumptionHistory(consumptionRecords);
       
-      // Frontend-only timezone adjustment
-      let timezoneAdjustedTodayTotals = null;
-      if (consumptionRecords.length > 0) {
-        try {
-          // Get user's timezone and current local date
-          const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-          const now = new Date();
-          const localDate = new Date(now.toLocaleString('en-US', { timeZone: userTimezone }));
-          const todayLocal = localDate.toISOString().split('T')[0];
-          
-          console.log('User timezone:', userTimezone);
-          console.log('Today (local):', todayLocal);
-          console.log('Today (UTC):', now.toISOString().split('T')[0]);
-          
-          // Filter consumption records to only include today's records (user's timezone)
-          const todayRecords = consumptionRecords.filter((record: any) => {
-            if (!record.timestamp) return false;
-            
-            // Convert UTC timestamp to user's local date
-            const utcDate = new Date(record.timestamp);
-            const localRecordDate = new Date(utcDate.toLocaleString('en-US', { timeZone: userTimezone }));
-            const recordLocalDate = localRecordDate.toISOString().split('T')[0];
-            
-            return recordLocalDate === todayLocal;
-          });
-          
-          console.log('Total records:', consumptionRecords.length);
-          console.log('Today records (timezone-adjusted):', todayRecords.length);
-          
-          // Calculate totals from today's records
-          const totals = {
-            calories: 0,
-            protein: 0,
-            carbohydrates: 0,
-            fat: 0,
-            fiber: 0,
-            sugar: 0,
-            sodium: 0
-          };
-          
-          todayRecords.forEach((record: any) => {
-            const nutrition = record.nutritional_info || {};
-            totals.calories += nutrition.calories || 0;
-            totals.protein += nutrition.protein || 0;
-            totals.carbohydrates += nutrition.carbohydrates || 0;
-            totals.fat += nutrition.fat || 0;
-            totals.fiber += nutrition.fiber || 0;
-            totals.sugar += nutrition.sugar || 0;
-            totals.sodium += nutrition.sodium || 0;
-          });
-          
-          timezoneAdjustedTodayTotals = totals;
-          console.log('Timezone-adjusted today totals:', timezoneAdjustedTodayTotals);
-          
-        } catch (error) {
-          console.error('Error calculating timezone-adjusted totals:', error);
-        }
-      }
-      
-      // Update dashboard data with timezone-adjusted totals if available
-      let adjustedDailyData = dailyData;
-      if (timezoneAdjustedTodayTotals && dailyData) {
-        adjustedDailyData = {
-          ...dailyData,
-          today_totals: timezoneAdjustedTodayTotals,
-          // Recalculate adherence percentages
-          adherence: {
-            calories: Math.min(100, (timezoneAdjustedTodayTotals.calories / (dailyData.goals?.calories || 2000)) * 100),
-            protein: Math.min(100, (timezoneAdjustedTodayTotals.protein / (dailyData.goals?.protein || 100)) * 100),
-            carbohydrates: Math.min(100, (timezoneAdjustedTodayTotals.carbohydrates / (dailyData.goals?.carbohydrates || 250)) * 100),
-            fat: Math.min(100, (timezoneAdjustedTodayTotals.fat / (dailyData.goals?.fat || 70)) * 100)
-          }
-        };
-      }
-      
-      setDashboardData(adjustedDailyData);
-      setTimezoneAdjustedData(timezoneAdjustedTodayTotals);
+      // Use daily insights data as the single source of truth for today's totals
+      // This ensures consistency with the consumption history page
+      setDashboardData(dailyData);
       setAnalyticsData(analytics); // Existing analytics data, consider renaming for clarity
       setProgressData(progress);
       setNotifications(notifs);

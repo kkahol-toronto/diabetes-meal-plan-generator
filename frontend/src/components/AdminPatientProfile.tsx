@@ -275,8 +275,8 @@ const AdminPatientProfile = () => {
         weight: 0.1
       },
       goals: {
-        fields: ['primaryGoals', 'calorieTarget'],
-        arrayFields: true,
+        fields: ['primaryGoals', 'calorieTarget', 'readinessToChange'],
+        arrayFields: ['primaryGoals'], // Only primaryGoals is an array
         weight: 0.1
       }
     };
@@ -293,8 +293,13 @@ const AdminPatientProfile = () => {
       
       section.fields.forEach(field => {
         const value = userProfile[field as keyof UserProfile];
-        if ('arrayFields' in section && section.arrayFields) {
+        if ('arrayFields' in section && Array.isArray(section.arrayFields) && section.arrayFields.includes(field)) {
           // For array fields, check if array exists and has items
+          if (Array.isArray(value) && value.length > 0) {
+            sectionCompletedFields++;
+          }
+        } else if ('arrayFields' in section && section.arrayFields === true) {
+          // For sections where all fields are arrays (old logic)
           if (Array.isArray(value) && value.length > 0) {
             sectionCompletedFields++;
           }

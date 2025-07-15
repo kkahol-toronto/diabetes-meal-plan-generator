@@ -1284,7 +1284,7 @@ def enforce_dietary_restrictions(meal_plan_data: dict, user_profile: dict) -> di
     return sanitized_plan
 
 def generate_meal_plan_prompt(user_profile: UserProfile) -> str:
-    """Legacy function - now redirects to comprehensive profile handling"""
+    """Legacy function - now redirects to comprehensive profiling"""
     # This function is deprecated - the main endpoint now uses comprehensive profiling
     return "This function has been replaced with comprehensive profile analysis"
 
@@ -4836,13 +4836,35 @@ async def get_daily_coaching_insights(current_user: User = Depends(get_current_u
             print(f"Error fetching consumption history for coaching insights: {e}")
             recent_consumption = []
         
-        # Get today's consumption
-        today = datetime.utcnow().date()
-        tomorrow = today + timedelta(days=1)
-        today_consumption = [
-            record for record in recent_consumption
-            if today <= datetime.fromisoformat(record.get("timestamp", "").replace("Z", "+00:00")).date() < tomorrow
-        ]
+        # Get today's consumption with proper timezone-aware filtering
+        from datetime import datetime, timedelta
+        import pytz
+        
+        # Use timezone-aware filtering to get today's records
+        # This matches the frontend logic in timezone.ts
+        now_utc = datetime.utcnow()
+        today_utc = now_utc.date()
+        
+        # For now, we'll use a simple approach - get records from today UTC
+        # In a production system, we should get the user's timezone from their profile
+        today_consumption = []
+        for record in recent_consumption:
+            try:
+                record_timestamp = datetime.fromisoformat(record.get("timestamp", "").replace("Z", "+00:00"))
+                record_date = record_timestamp.date()
+                
+                # For consistency with frontend, include records from today UTC
+                # and recent records (last 24 hours) to handle timezone differences
+                if record_date == today_utc or (now_utc - record_timestamp).total_seconds() <= 86400:  # 24 hours
+                    today_consumption.append(record)
+            except Exception as e:
+                print(f"Error parsing timestamp for record: {e}")
+                continue
+        
+        # Debug the filtering
+        print(f"[DEBUG] Today's consumption filter: Found {len(today_consumption)} records for today")
+        print(f"[DEBUG] UTC date: {today_utc}")
+        print(f"[DEBUG] Records from last 24 hours included for timezone consistency")
         
         # Calculate today's totals - USING CONSISTENT FIELD NAMES
         today_totals = {"calories": 0, "protein": 0, "carbohydrates": 0, "fat": 0, "fiber": 0, "sugar": 0, "sodium": 0}
@@ -4962,46 +4984,86 @@ async def get_daily_coaching_insights(current_user: User = Depends(get_current_u
             # Default score for new users - show 0 until they have data
             health_adherence = 0
         
-        # Generate coaching recommendations
+        # Generate coaching recommendations with better logic
         recommendations = []
         
-        # Calorie recommendations
-        if adherence["calories"] < 70:
-            remaining_calories = calorie_goal - today_totals["calories"]
-            recommendations.append({
-                "type": "calorie_low",
-                "priority": "medium",
-                "message": f"You're {remaining_calories:.0f} calories below your goal. Consider adding a healthy snack or slightly larger portions.",
-                "action": "increase_intake"
-            })
-        elif adherence["calories"] > 110:
+        # Debug logging
+        print(f"[DEBUG] today_totals: {today_totals}")
+        print(f"[DEBUG] adherence: {adherence}")
+        print(f"[DEBUG] calorie_goal: {calorie_goal}, macro_goals: {macro_goals}")
+        
+        # Enhanced Debug logging for troubleshooting
+        print(f"[DEBUG] Raw today_totals: {today_totals}")
+        print(f"[DEBUG] Raw adherence: {adherence}")
+        print(f"[DEBUG] Raw calorie_goal: {calorie_goal}")
+        print(f"[DEBUG] Raw macro_goals: {macro_goals}")
+        print(f"[DEBUG] Today consumption records count: {len(today_consumption)}")
+        print(f"[DEBUG] Recent consumption records count: {len(recent_consumption)}")
+        
+        # Additional debugging for consumption data
+        if today_consumption:
+            print(f"[DEBUG] Sample today consumption record: {today_consumption[0]}")
+        
+        # Calorie recommendations - fix logic
+        calorie_adherence_pct = adherence["calories"]
+        remaining_calories = calorie_goal - today_totals["calories"]
+        
+        # Debug the calculation
+        print(f"[DEBUG] Calorie calculation: {calorie_goal} - {today_totals['calories']} = {remaining_calories}")
+        print(f"[DEBUG] Calorie adherence: {calorie_adherence_pct}%")
+        
+        if calorie_adherence_pct < 70:  # Less than 70% of goal
+            if remaining_calories > 0:  # Only show if actually below goal
+                recommendations.append({
+                    "type": "calorie_low",
+                    "priority": "medium",
+                    "message": f"You're {remaining_calories:.0f} calories below your goal. Consider adding a healthy snack or slightly larger portions.",
+                    "action": "increase_intake"
+                })
+        elif calorie_adherence_pct > 110:  # More than 110% of goal
             excess_calories = today_totals["calories"] - calorie_goal
-            recommendations.append({
-                "type": "calorie_high",
-                "priority": "medium",
-                "message": f"You're {excess_calories:.0f} calories over your goal. Consider lighter options for remaining meals.",
-                "action": "reduce_intake"
-            })
-        else:
+            if excess_calories > 0:  # Only show if actually over goal
+                recommendations.append({
+                    "type": "calorie_high",
+                    "priority": "medium", 
+                    "message": f"You're {excess_calories:.0f} calories over your goal. Consider lighter options for remaining meals.",
+                    "action": "reduce_intake"
+                })
+        elif calorie_adherence_pct >= 85:  # Good adherence
             recommendations.append({
                 "type": "calorie_good",
                 "priority": "low",
-                "message": "Great job staying within your calorie target! 🎯",
+                "message": "Great job staying within your calorie target!",
                 "action": "maintain"
             })
         
-        # Protein recommendations
-        if adherence["protein"] < 80:
-            protein_needed = macro_goals["protein"] - today_totals["protein"]
+        # Protein recommendations - fix logic
+        protein_adherence_pct = adherence["protein"]
+        protein_needed = macro_goals["protein"] - today_totals["protein"]
+        
+        # Debug the protein calculation
+        print(f"[DEBUG] Protein calculation: {macro_goals['protein']} - {today_totals['protein']} = {protein_needed}")
+        print(f"[DEBUG] Protein adherence: {protein_adherence_pct}%")
+        
+        if protein_adherence_pct < 80:  # Less than 80% of goal
+            if protein_needed > 0:  # Only show if actually need more protein
+                recommendations.append({
+                    "type": "protein_low",
+                    "priority": "medium",
+                    "message": f"You need {protein_needed:.0f}g more protein today. Try adding lean meats, eggs, or Greek yogurt.",
+                    "action": "add_protein"
+                })
+        elif protein_adherence_pct >= 100:  # Met or exceeded goal
             recommendations.append({
-                "type": "protein_low",
-                "priority": "medium",
-                "message": f"You need {protein_needed:.0f}g more protein today. Try adding lean meats, eggs, or Greek yogurt.",
-                "action": "add_protein"
+                "type": "protein_good",
+                "priority": "low",
+                "message": f"Excellent protein intake! You've consumed {today_totals['protein']:.0f}g of your {macro_goals['protein']}g goal.",
+                "action": "maintain"
             })
         
-        # Carb recommendations
-        if adherence["carbohydrates"] > 120:
+        # Carb recommendations 
+        carb_adherence_pct = adherence["carbohydrates"]
+        if carb_adherence_pct > 120:  # More than 120% of goal
             recommendations.append({
                 "type": "carb_high",
                 "priority": "high",
@@ -5009,7 +5071,20 @@ async def get_daily_coaching_insights(current_user: User = Depends(get_current_u
                 "action": "reduce_carbs"
             })
         
-        # Weekly performance feedback
+        # Check for breakfast - only if it's past 10 AM and no breakfast logged
+        current_hour = datetime.utcnow().hour
+        has_breakfast = any(record.get("meal_type", "").lower() == "breakfast" for record in today_consumption)
+        
+        if current_hour >= 10 and not has_breakfast and len(today_consumption) > 0:
+            # Only show if they have other meals but no breakfast
+            recommendations.append({
+                "type": "breakfast_reminder",
+                "priority": "medium",
+                "message": "Don't forget breakfast! It's important for blood sugar stability throughout the day.",
+                "action": "log_breakfast"
+            })
+        
+        # Weekly performance feedback - fix threshold logic
         if health_adherence >= 80:
             recommendations.append({
                 "type": "weekly_excellent",
@@ -5032,18 +5107,21 @@ async def get_daily_coaching_insights(current_user: User = Depends(get_current_u
                 "action": "focus_improvement"
             })
         
-        # Meal timing recommendations
-        current_hour = datetime.utcnow().hour
-        if current_hour < 10 and len([r for r in today_consumption if "breakfast" in r.get("food_name", "").lower()]) == 0:
-            recommendations.append({
-                "type": "breakfast_reminder",
-                "priority": "medium",
-                "message": "Don't forget breakfast! It's important for blood sugar stability throughout the day.",
-                "action": "eat_breakfast"
-            })
+        # Remove duplicate breakfast recommendations and keep only the most relevant ones
+        unique_recommendations = []
+        seen_types = set()
+        
+        # Prioritize recommendations by importance
+        for rec in recommendations:
+            if rec["type"] not in seen_types:
+                unique_recommendations.append(rec)
+                seen_types.add(rec["type"])
+        
+        # Limit to top 4 most relevant recommendations
+        recommendations = unique_recommendations[:4]
         
         insights = {
-            "date": today.isoformat(),
+            "date": today_utc.isoformat(),
             "goals": {
                 "calories": calorie_goal,
                 "protein": macro_goals["protein"],

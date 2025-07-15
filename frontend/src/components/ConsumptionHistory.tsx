@@ -33,6 +33,17 @@ import {
   Stack,
   Container
 } from '@mui/material';
+import { 
+  filterRecordsByDateRange,
+  filterTodayRecords,
+  groupRecordsByLocalDate,
+  calculateDailyTotalsFromRecords,
+  getUserTimezone,
+  debugTimezone,
+  convertUTCToLocalDate,
+  getUserLocalDate
+} from '../utils/timezone';
+import { formatUTCToLocal } from '../utils/dateUtils';
 import {
   Refresh as RefreshIcon,
   CalendarToday as CalendarIcon,
@@ -253,6 +264,8 @@ const ConsumptionHistory: React.FC = () => {
   const [selectedChartType, setSelectedChartType] = useState<'bar' | 'line' | 'pie' | 'doughnut'>('bar');
   const [selectedMetric, setSelectedMetric] = useState<keyof NutritionalInfo>('calories');
   const [comparisonMode, setComparisonMode] = useState(false);
+  const [comparisonTimeRange, setComparisonTimeRange] = useState('14'); // For comparison mode
+  const [comparisonAnalytics, setComparisonAnalytics] = useState<ConsumptionAnalytics | null>(null);
   const [expandedSections, setExpandedSections] = useState<string[]>(['overview']);
 
   // Time range options
@@ -281,13 +294,206 @@ const ConsumptionHistory: React.FC = () => {
     loadConsumptionData();
   }, [selectedTimeRange]);
 
+  useEffect(() => {
+    if (comparisonMode) {
+      loadComparisonData();
+    }
+  }, [comparisonMode, comparisonTimeRange]);
+
+  // Helper function to generate analytics from filtered records
+  const generateAnalyticsFromRecords = (records: any[], days: number) => {
+    if (!records || records.length === 0) {
+      const today = new Date().toISOString().split('T')[0];
+      return {
+        total_meals: 0,
+        daily_averages: {
+          calories: 0,
+          protein: 0,
+          carbohydrates: 0,
+          fat: 0,
+          fiber: 0,
+          sugar: 0,
+          sodium: 0
+        },
+        daily_nutrition_history: [],
+        meal_distribution: {
+          breakfast: 0,
+          lunch: 0,
+          dinner: 0,
+          snack: 0
+        },
+        weekly_trends: {
+          calories: [],
+          protein: [],
+          carbohydrates: [],
+          fat: []
+        },
+        adherence_stats: {
+          diabetes_suitable_percentage: 0,
+          calorie_goal_adherence: 0,
+          protein_goal_adherence: 0,
+          carb_goal_adherence: 0
+        },
+        top_foods: [],
+        date_range: {
+          start_date: today,
+          end_date: today
+        }
+      };
+    }
+
+    // Group records by local date
+    const groupedByDate = groupRecordsByLocalDate(records);
+    
+    // Calculate daily nutrition history
+    const dailyNutritionHistory = Object.keys(groupedByDate)
+      .sort()
+      .map(date => {
+        const dayRecords = groupedByDate[date];
+        const totals = {
+          calories: 0,
+          protein: 0,
+          carbohydrates: 0,
+          fat: 0,
+          fiber: 0,
+          sugar: 0,
+          sodium: 0
+        };
+
+        dayRecords.forEach(record => {
+          const nutrition = record.nutritional_info || {};
+          totals.calories += nutrition.calories || 0;
+          totals.protein += nutrition.protein || 0;
+          totals.carbohydrates += nutrition.carbohydrates || 0;
+          totals.fat += nutrition.fat || 0;
+          totals.fiber += nutrition.fiber || 0;
+          totals.sugar += nutrition.sugar || 0;
+          totals.sodium += nutrition.sodium || 0;
+        });
+
+        return {
+          date,
+          ...totals,
+          meals_count: dayRecords.length
+        };
+      });
+
+    // Calculate overall totals
+    const totalCalories = dailyNutritionHistory.reduce((sum, day) => sum + day.calories, 0);
+    const totalProtein = dailyNutritionHistory.reduce((sum, day) => sum + day.protein, 0);
+    const totalCarbs = dailyNutritionHistory.reduce((sum, day) => sum + day.carbohydrates, 0);
+    const totalFat = dailyNutritionHistory.reduce((sum, day) => sum + day.fat, 0);
+    const totalFiber = dailyNutritionHistory.reduce((sum, day) => sum + day.fiber, 0);
+    const totalSugar = dailyNutritionHistory.reduce((sum, day) => sum + day.sugar, 0);
+    const totalSodium = dailyNutritionHistory.reduce((sum, day) => sum + day.sodium, 0);
+
+    // Calculate daily averages
+    const actualDays = Math.max(1, dailyNutritionHistory.length);
+    const dailyAverages = {
+      calories: totalCalories / actualDays,
+      protein: totalProtein / actualDays,
+      carbohydrates: totalCarbs / actualDays,
+      fat: totalFat / actualDays,
+      fiber: totalFiber / actualDays,
+      sugar: totalSugar / actualDays,
+      sodium: totalSodium / actualDays
+    };
+
+    // Calculate meal distribution with expected structure
+    const mealDistribution = {
+      breakfast: 0,
+      lunch: 0,
+      dinner: 0,
+      snack: 0
+    };
+    
+    records.forEach(record => {
+      const mealType = record.meal_type || 'snack';
+      if (mealType in mealDistribution) {
+        mealDistribution[mealType as keyof typeof mealDistribution]++;
+      } else {
+        mealDistribution.snack++; // Default to snack for unknown meal types
+      }
+    });
+
+    // Calculate weekly trends (last 7 days of data)
+    const last7Days = dailyNutritionHistory.slice(-7);
+    const weeklyTrends = {
+      calories: last7Days.map(day => day.calories),
+      protein: last7Days.map(day => day.protein),
+      carbohydrates: last7Days.map(day => day.carbohydrates),
+      fat: last7Days.map(day => day.fat)
+    };
+
+    // Calculate adherence stats (simplified)
+    const diabetesSuitableCount = records.filter(record => {
+      const medical = record.medical_rating || {};
+      return medical.diabetes_suitability === 'suitable';
+    }).length;
+
+    const adherenceStats = {
+      diabetes_suitable_percentage: records.length > 0 ? (diabetesSuitableCount / records.length) * 100 : 0,
+      calorie_goal_adherence: Math.min(100, (dailyAverages.calories / 2000) * 100),
+      protein_goal_adherence: Math.min(100, (dailyAverages.protein / 100) * 100),
+      carb_goal_adherence: Math.min(100, (dailyAverages.carbohydrates / 250) * 100)
+    };
+
+    // Calculate top foods with calories
+    const foodData: Record<string, { frequency: number; total_calories: number }> = {};
+    records.forEach(record => {
+      const foodName = record.food_name || 'Unknown Food';
+      const calories = record.nutritional_info?.calories || 0;
+      
+      if (!foodData[foodName]) {
+        foodData[foodName] = { frequency: 0, total_calories: 0 };
+      }
+      
+      foodData[foodName].frequency++;
+      foodData[foodName].total_calories += calories;
+    });
+
+    const topFoods = Object.entries(foodData)
+      .sort(([,a], [,b]) => b.frequency - a.frequency)
+      .slice(0, 10)
+      .map(([food, data]) => ({ 
+        food, 
+        frequency: data.frequency, 
+        total_calories: data.total_calories 
+      }));
+
+    // Calculate date range
+    const sortedDates = dailyNutritionHistory.map(d => d.date).sort();
+    const startDate = sortedDates[0] || new Date().toISOString();
+    const endDate = sortedDates[sortedDates.length - 1] || new Date().toISOString();
+
+    return {
+      total_meals: records.length,
+      daily_averages: dailyAverages,
+      daily_nutrition_history: dailyNutritionHistory,
+      meal_distribution: mealDistribution,
+      weekly_trends: weeklyTrends,
+      adherence_stats: adherenceStats,
+      top_foods: topFoods,
+      date_range: {
+        start_date: startDate,
+        end_date: endDate
+      }
+    };
+  };
+
   const loadConsumptionData = async () => {
     try {
       setLoading(true);
       setError(null);
 
+      // Debug timezone information
+      debugTimezone();
+
       const selectedDays = parseInt(selectedTimeRange);
-      const historyLimit = selectedDays === 1 ? 20 : selectedDays * 5; // More data for longer periods
+      
+      // Fetch more data to ensure we have enough records across timezones
+      // For "Today", we'll fetch last 3 days to handle timezone differences
+      const fetchLimit = selectedDays === 1 ? 50 : selectedDays * 10;
 
       // Get the auth token
       const token = localStorage.getItem('token');
@@ -300,31 +506,107 @@ const ConsumptionHistory: React.FC = () => {
         'Content-Type': 'application/json'
       };
 
-      // Load all data in parallel with dynamic time range (using authenticated endpoints)
-      const [historyResponse, analyticsResponse, insightsResponse] = await Promise.all([
-        fetch(`${config.API_URL}/consumption/history?limit=${historyLimit}`, { headers }),
-        fetch(`${config.API_URL}/consumption/analytics?days=${selectedDays}`, { headers }),
+      // Load raw data (we'll filter client-side for timezone accuracy)
+      const [historyResponse, insightsResponse] = await Promise.all([
+        fetch(`${config.API_URL}/consumption/history?limit=${fetchLimit}`, { headers }),
         fetch(`${config.API_URL}/coach/daily-insights`, { headers })
       ]);
 
       if (!historyResponse.ok) {
         throw new Error(`Failed to load consumption history: ${historyResponse.statusText}`);
       }
-      if (!analyticsResponse.ok) {
-        throw new Error(`Failed to load analytics: ${analyticsResponse.statusText}`);
-      }
       if (!insightsResponse.ok) {
         throw new Error(`Failed to load daily insights: ${insightsResponse.statusText}`);
       }
 
-      const historyData = await historyResponse.json();
-      const analyticsData = await analyticsResponse.json();
+      const allHistoryData = await historyResponse.json();
       const insightsData = await insightsResponse.json();
 
-      console.log('Loaded consumption data:', { historyData, analyticsData, insightsData });
+      console.log('Loaded raw consumption data:', { 
+        totalRecords: allHistoryData.length, 
+        selectedDays, 
+        timezone: getUserTimezone()
+      });
 
-      setConsumptionHistory(historyData);
-      setAnalytics(analyticsData);
+      // Client-side timezone-aware filtering with debugging
+      let filteredHistory: any[] = [];
+      
+      console.log('=== FILTERING DEBUG ===');
+      console.log('All records timestamps:', allHistoryData.map((r: any) => ({
+        id: r.id, 
+        food: r.food_name, 
+        timestamp: r.timestamp,
+        local_date: r.timestamp ? convertUTCToLocalDate(r.timestamp) : 'no timestamp'
+      })));
+      
+      if (selectedDays === 1) {
+        // For "Today", use strict filtering - only include records from today
+        const today = getUserLocalDate();
+        
+        console.log('Today (local):', today);
+        
+        filteredHistory = allHistoryData.filter((record: any) => {
+          if (!record.timestamp) return false;
+          
+          const recordLocalDate = convertUTCToLocalDate(record.timestamp);
+          const isToday = recordLocalDate === today;
+          
+          console.log(`Record ${record.food_name}: ${record.timestamp} -> ${recordLocalDate} (Today: ${isToday})`);
+          
+          // For "Today" filter, only include today's records (no yesterday records)
+          // This matches the homepage logic for consistency
+          return isToday;
+        });
+        
+        console.log('Filtered for today (lenient):', filteredHistory.length, 'records');
+      } else {
+        // For other ranges, use the original filtering logic
+        filteredHistory = filterRecordsByDateRange(allHistoryData, selectedDays);
+        console.log(`Filtered for last ${selectedDays} days:`, filteredHistory.length, 'records');
+      }
+      
+      console.log('Final filtered records:', filteredHistory.map((r: any) => ({
+        id: r.id,
+        food: r.food_name,
+        timestamp: r.timestamp
+      })));
+      
+      // Fallback mechanism: If we have no filtered records but we have raw data, 
+      // and the user is looking at "Today", show the most recent records as fallback
+      if (filteredHistory.length === 0 && allHistoryData.length > 0 && selectedDays === 1) {
+        console.log('⚠️  No records found with timezone filtering, using fallback...');
+        // Show the most recent 10 records as fallback
+        const sortedRecords = allHistoryData.sort((a: any, b: any) => 
+          new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+        );
+        filteredHistory = sortedRecords.slice(0, 10);
+        console.log('Fallback: Using most recent', filteredHistory.length, 'records');
+      }
+      
+      console.log('=== END FILTERING DEBUG ===');
+
+      // Generate analytics from filtered data
+      let analytics = generateAnalyticsFromRecords(filteredHistory, selectedDays);
+
+      // For "Today" view, use the backend daily insights data to ensure consistency with homepage
+      if (selectedDays === 1 && insightsData && insightsData.today_totals) {
+        console.log('Using backend daily insights for Today view to ensure consistency with homepage');
+        analytics = {
+          ...analytics,
+          daily_averages: {
+            calories: insightsData.today_totals.calories || 0,
+            protein: insightsData.today_totals.protein || 0,
+            carbohydrates: insightsData.today_totals.carbohydrates || 0,
+            fat: insightsData.today_totals.fat || 0,
+            fiber: insightsData.today_totals.fiber || 0,
+            sugar: insightsData.today_totals.sugar || 0,
+            sodium: insightsData.today_totals.sodium || 0
+          }
+        };
+      }
+
+      setConsumptionHistory(filteredHistory);
+      setAnalytics(analytics);
       setDailyInsights(insightsData);
 
     } catch (err) {
@@ -332,6 +614,35 @@ const ConsumptionHistory: React.FC = () => {
       setError(err instanceof Error ? err.message : 'Failed to load consumption data');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadComparisonData = async () => {
+    try {
+      const selectedDays = parseInt(comparisonTimeRange);
+      const token = localStorage.getItem('token');
+      if (!token) {
+        throw new Error('No authentication token found. Please log in again.');
+      }
+
+      const headers = {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      };
+
+      // Load comparison analytics data
+      const analyticsResponse = await fetch(`${config.API_URL}/consumption/analytics?days=${selectedDays}`, { headers });
+      
+      if (!analyticsResponse.ok) {
+        throw new Error(`Failed to load comparison analytics: ${analyticsResponse.statusText}`);
+      }
+
+      const analyticsData = await analyticsResponse.json();
+      setComparisonAnalytics(analyticsData);
+
+    } catch (err) {
+      console.error('Error loading comparison data:', err);
+      // Don't show error for comparison data, just log it
     }
   };
 
@@ -372,22 +683,50 @@ const ConsumptionHistory: React.FC = () => {
     const labels = sortedData.map(day => formatDate(day.date));
     const values = sortedData.map(day => (day as any)[metric] || 0);
 
-    return {
-      labels,
-      datasets: [{
-        label: chartConfig?.title || metric,
-        data: values,
-        backgroundColor: selectedChartType === 'line' ? 'rgba(0,0,0,0.05)' : color,
-        borderColor: color,
+    const datasets = [{
+      label: `Current Period (${timeRanges.find(r => r.value === selectedTimeRange)?.label})`,
+      data: values,
+      backgroundColor: selectedChartType === 'line' ? 'rgba(0,0,0,0.05)' : color,
+      borderColor: color,
+      borderWidth: 2,
+      fill: selectedChartType === 'line',
+      tension: 0.4,
+      pointBackgroundColor: color,
+      pointBorderColor: '#fff',
+      pointBorderWidth: 2,
+      pointRadius: 4,
+      pointHoverRadius: 6
+    }];
+
+    // Add comparison data if in comparison mode
+    if (comparisonMode && comparisonAnalytics?.daily_nutrition_history) {
+      const comparisonData = comparisonAnalytics.daily_nutrition_history;
+      const comparisonSortedData = [...comparisonData].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+      const comparisonValues = comparisonSortedData.map(day => (day as any)[metric] || 0);
+      
+      // Use a slightly different color for comparison
+      const comparisonColor = color.replace(')', ', 0.7)').replace('rgb', 'rgba').replace('#', 'rgba(');
+      
+      datasets.push({
+        label: `Comparison Period (${timeRanges.find(r => r.value === comparisonTimeRange)?.label})`,
+        data: comparisonValues,
+        backgroundColor: selectedChartType === 'line' ? 'rgba(0,0,0,0.03)' : comparisonColor,
+        borderColor: comparisonColor,
         borderWidth: 2,
         fill: selectedChartType === 'line',
         tension: 0.4,
-        pointBackgroundColor: color,
+        pointBackgroundColor: comparisonColor,
         pointBorderColor: '#fff',
         pointBorderWidth: 2,
         pointRadius: 4,
-        pointHoverRadius: 6
-      }]
+        pointHoverRadius: 6,
+        ...(selectedChartType === 'line' && { borderDash: [5, 5] }) // Dashed line for comparison
+      } as any);
+    }
+
+    return {
+      labels,
+      datasets
     };
   };
 
@@ -415,7 +754,7 @@ const ConsumptionHistory: React.FC = () => {
         },
         title: {
           display: true,
-          text: `${chartConfig?.title || metric} - ${selectedTimeRangeLabel}`,
+          text: `${chartConfig?.title || metric} - ${selectedTimeRangeLabel}${comparisonMode ? ' (Comparison Mode)' : ''}`,
           font: {
             size: 16,
             weight: 'bold' as const
@@ -527,33 +866,56 @@ const ConsumptionHistory: React.FC = () => {
 
   const formatDate = (dateString: string) => {
     try {
-      const date = new Date(dateString);
       const selectedDays = parseInt(selectedTimeRange);
       
-      // Use different formats based on time range
+      // Use timezone-aware formatting based on time range
       if (selectedDays === 1) {
-        return date.toLocaleDateString('en-US', {
-          hour: '2-digit',
-          minute: '2-digit'
+        // For "Today" view, show relative dates with time
+        return formatUTCToLocal(dateString, {
+          includeDate: true,
+          includeTime: true,
+          relative: true,
+          format: 'short'
         });
       } else if (selectedDays <= 7) {
-        return date.toLocaleDateString('en-US', {
-          weekday: 'short',
-          month: 'short',
-          day: 'numeric'
+        // For weekly view, show day and date
+        return formatUTCToLocal(dateString, {
+          includeDate: true,
+          includeTime: false,
+          relative: false,
+          format: 'short'
         });
       } else if (selectedDays <= 30) {
-        return date.toLocaleDateString('en-US', {
-          month: 'short',
-          day: 'numeric'
+        // For monthly view, show month and day
+        return formatUTCToLocal(dateString, {
+          includeDate: true,
+          includeTime: false,
+          relative: false,
+          format: 'short'
         });
       } else {
-        return date.toLocaleDateString('en-US', {
-          month: 'short',
-          day: 'numeric',
-          year: '2-digit'
+        // For longer periods, show full date
+        return formatUTCToLocal(dateString, {
+          includeDate: true,
+          includeTime: false,
+          relative: false,
+          format: 'numeric'
         });
       }
+    } catch {
+      return 'Invalid Date';
+    }
+  };
+
+  // Separate function for formatting consumption record timestamps (always show time)
+  const formatConsumptionTimestamp = (dateString: string) => {
+    try {
+      return formatUTCToLocal(dateString, {
+        includeDate: true,
+        includeTime: true,
+        relative: true,
+        format: 'short'
+      });
     } catch {
       return 'Invalid Date';
     }
@@ -719,6 +1081,27 @@ const ConsumptionHistory: React.FC = () => {
               </ToggleButton>
             </ToggleButtonGroup>
           </Grid>
+
+          {/* Comparison Time Range - only show when comparison mode is enabled */}
+          {comparisonMode && (
+            <Grid item xs={12} sm={6} md={3}>
+              <FormControl fullWidth>
+                <InputLabel>Compare With</InputLabel>
+                <Select
+                  value={comparisonTimeRange}
+                  label="Compare With"
+                  onChange={(e) => setComparisonTimeRange(e.target.value)}
+                  startAdornment={<TimeIcon sx={{ mr: 1, color: 'action.active' }} />}
+                >
+                  {timeRanges.map((range) => (
+                    <MenuItem key={range.value} value={range.value}>
+                      {range.label}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Grid>
+          )}
         </Grid>
       </Paper>
 
@@ -878,7 +1261,7 @@ const ConsumptionHistory: React.FC = () => {
                     </Box>
                     
                     <Typography variant="body2" color="textSecondary" gutterBottom>
-                      {record.estimated_portion} • {formatDate(record.timestamp)}
+                      {record.estimated_portion} • {formatConsumptionTimestamp(record.timestamp)}
                     </Typography>
 
                     <Grid container spacing={2} sx={{ mb: 2 }}>
@@ -968,17 +1351,19 @@ const ConsumptionHistory: React.FC = () => {
                         <Box sx={{ color: config.color, mb: 1 }}>
                           {config.icon}
                         </Box>
-                        <Typography variant="h4" sx={{ color: config.color, fontWeight: 'bold' }}>
-                          {analytics.daily_averages[config.metric] 
-                            ? Math.round(analytics.daily_averages[config.metric] as number)
-                            : 0}
-                  </Typography>
+                                                <Typography variant="h4" sx={{ color: config.color, fontWeight: 'bold' }}>
+                          {selectedTimeRange === '1' && dailyInsights?.today_totals ? 
+                            Math.round((dailyInsights.today_totals[config.metric] || 0) as number) :
+                            (analytics.daily_averages[config.metric] 
+                              ? Math.round(analytics.daily_averages[config.metric] as number)
+                              : 0)}
+                        </Typography>
                   <Typography variant="body2" color="textSecondary">
                           {config.title}
                         </Typography>
-                        <Typography variant="caption" color="textSecondary">
-                          Daily Average
-                  </Typography>
+                                                <Typography variant="caption" color="textSecondary">
+                          {selectedTimeRange === '1' ? 'Daily Total' : 'Daily Average'}
+                        </Typography>
                 </CardContent>
               </Card>
             </Grid>
@@ -1001,7 +1386,7 @@ const ConsumptionHistory: React.FC = () => {
                 </AccordionSummary>
                 <AccordionDetails>
                   <Grid container spacing={3}>
-            <Grid item xs={12} sm={6} md={3}>
+            <Grid item xs={12} sm={6} md={comparisonMode ? 6 : 3}>
                       <Paper sx={{ p: 3, textAlign: 'center', bgcolor: 'primary.light', color: 'primary.contrastText' }}>
                         <Typography variant="h3" fontWeight="bold">
                           {analytics.total_meals}
@@ -1010,9 +1395,14 @@ const ConsumptionHistory: React.FC = () => {
                         <Typography variant="body2" sx={{ opacity: 0.8 }}>
                           {timeRanges.find(r => r.value === selectedTimeRange)?.label}
                   </Typography>
+                        {comparisonMode && comparisonAnalytics && (
+                          <Typography variant="h4" sx={{ mt: 1, opacity: 0.8 }}>
+                            vs {comparisonAnalytics.total_meals}
+                          </Typography>
+                        )}
                       </Paper>
             </Grid>
-            <Grid item xs={12} sm={6} md={3}>
+            <Grid item xs={12} sm={6} md={comparisonMode ? 6 : 3}>
                       <Paper sx={{ p: 3, textAlign: 'center', bgcolor: 'success.light', color: 'success.contrastText' }}>
                         <Typography variant="h3" fontWeight="bold">
                           {Math.round(analytics.adherence_stats.diabetes_suitable_percentage)}%
@@ -1021,31 +1411,111 @@ const ConsumptionHistory: React.FC = () => {
                         <Typography variant="body2" sx={{ opacity: 0.8 }}>
                           Meal Quality Score
                     </Typography>
+                        {comparisonMode && comparisonAnalytics && (
+                          <Typography variant="h4" sx={{ mt: 1, opacity: 0.8 }}>
+                            vs {Math.round(comparisonAnalytics.adherence_stats.diabetes_suitable_percentage)}%
+                          </Typography>
+                        )}
                       </Paper>
                     </Grid>
-                    <Grid item xs={12} sm={6} md={3}>
-                      <Paper sx={{ p: 3, textAlign: 'center', bgcolor: 'warning.light', color: 'warning.contrastText' }}>
-                        <Typography variant="h3" fontWeight="bold">
-                          {Math.round(analytics.daily_averages.calories)}
-                    </Typography>
-                        <Typography variant="h6">Avg Calories</Typography>
-                        <Typography variant="body2" sx={{ opacity: 0.8 }}>
-                          Per Day
-                    </Typography>
-                      </Paper>
-            </Grid>
-                    <Grid item xs={12} sm={6} md={3}>
-                      <Paper sx={{ p: 3, textAlign: 'center', bgcolor: 'secondary.light', color: 'secondary.contrastText' }}>
-                        <Typography variant="h3" fontWeight="bold">
-                          {Math.round(analytics.daily_averages.protein)}g
-                        </Typography>
-                        <Typography variant="h6">Avg Protein</Typography>
-                        <Typography variant="body2" sx={{ opacity: 0.8 }}>
-                          Per Day
-                        </Typography>
-            </Paper>
-                    </Grid>
+                    {!comparisonMode && (
+                      <>
+                        <Grid item xs={12} sm={6} md={3}>
+                          <Paper sx={{ p: 3, textAlign: 'center', bgcolor: 'warning.light', color: 'warning.contrastText' }}>
+                            <Typography variant="h3" fontWeight="bold">
+                              {selectedTimeRange === '1' && dailyInsights?.today_totals ? 
+                                Math.round(dailyInsights.today_totals.calories) : 
+                                Math.round(analytics.daily_averages.calories)}
+                            </Typography>
+                            <Typography variant="h6">{selectedTimeRange === '1' ? 'Total Calories' : 'Avg Calories'}</Typography>
+                            <Typography variant="body2" sx={{ opacity: 0.8 }}>
+                              Per Day
+                            </Typography>
+                          </Paper>
+                        </Grid>
+                        <Grid item xs={12} sm={6} md={3}>
+                          <Paper sx={{ p: 3, textAlign: 'center', bgcolor: 'secondary.light', color: 'secondary.contrastText' }}>
+                            <Typography variant="h3" fontWeight="bold">
+                              {selectedTimeRange === '1' && dailyInsights?.today_totals ? 
+                                Math.round(dailyInsights.today_totals.protein) : 
+                                Math.round(analytics.daily_averages.protein)}g
+                            </Typography>
+                            <Typography variant="h6">{selectedTimeRange === '1' ? 'Total Protein' : 'Avg Protein'}</Typography>
+                            <Typography variant="body2" sx={{ opacity: 0.8 }}>
+                              Per Day
+                            </Typography>
+                          </Paper>
+                        </Grid>
+                      </>
+                    )}
                   </Grid>
+
+                  {/* Comparison Details - only show when comparison mode is enabled */}
+                  {comparisonMode && comparisonAnalytics && (
+                    <Box sx={{ mt: 3 }}>
+                      <Typography variant="h6" gutterBottom>
+                        📊 Detailed Comparison
+                      </Typography>
+                      <Grid container spacing={2}>
+                        <Grid item xs={12} sm={6} md={3}>
+                          <Paper sx={{ p: 2, textAlign: 'center', bgcolor: 'grey.100' }}>
+                            <Typography variant="h6" fontWeight="bold">
+                              {Math.round(analytics.daily_averages.calories)} vs {Math.round(comparisonAnalytics.daily_averages.calories)}
+                            </Typography>
+                            <Typography variant="body2" color="textSecondary">
+                              Avg Calories/Day
+                            </Typography>
+                            <Typography variant="body2" color={analytics.daily_averages.calories > comparisonAnalytics.daily_averages.calories ? 'error' : 'success'}>
+                              {analytics.daily_averages.calories > comparisonAnalytics.daily_averages.calories ? '↑' : '↓'} 
+                              {Math.abs(Math.round(analytics.daily_averages.calories - comparisonAnalytics.daily_averages.calories))} cal
+                            </Typography>
+                          </Paper>
+                        </Grid>
+                        <Grid item xs={12} sm={6} md={3}>
+                          <Paper sx={{ p: 2, textAlign: 'center', bgcolor: 'grey.100' }}>
+                            <Typography variant="h6" fontWeight="bold">
+                              {Math.round(analytics.daily_averages.protein)}g vs {Math.round(comparisonAnalytics.daily_averages.protein)}g
+                            </Typography>
+                            <Typography variant="body2" color="textSecondary">
+                              Avg Protein/Day
+                            </Typography>
+                            <Typography variant="body2" color={analytics.daily_averages.protein > comparisonAnalytics.daily_averages.protein ? 'success' : 'error'}>
+                              {analytics.daily_averages.protein > comparisonAnalytics.daily_averages.protein ? '↑' : '↓'} 
+                              {Math.abs(Math.round(analytics.daily_averages.protein - comparisonAnalytics.daily_averages.protein))}g
+                            </Typography>
+                          </Paper>
+                        </Grid>
+                        <Grid item xs={12} sm={6} md={3}>
+                          <Paper sx={{ p: 2, textAlign: 'center', bgcolor: 'grey.100' }}>
+                            <Typography variant="h6" fontWeight="bold">
+                              {Math.round(analytics.daily_averages.carbohydrates)}g vs {Math.round(comparisonAnalytics.daily_averages.carbohydrates)}g
+                            </Typography>
+                            <Typography variant="body2" color="textSecondary">
+                              Avg Carbs/Day
+                            </Typography>
+                            <Typography variant="body2" color={analytics.daily_averages.carbohydrates > comparisonAnalytics.daily_averages.carbohydrates ? 'error' : 'success'}>
+                              {analytics.daily_averages.carbohydrates > comparisonAnalytics.daily_averages.carbohydrates ? '↑' : '↓'} 
+                              {Math.abs(Math.round(analytics.daily_averages.carbohydrates - comparisonAnalytics.daily_averages.carbohydrates))}g
+                            </Typography>
+                          </Paper>
+                        </Grid>
+                        <Grid item xs={12} sm={6} md={3}>
+                          <Paper sx={{ p: 2, textAlign: 'center', bgcolor: 'grey.100' }}>
+                            <Typography variant="h6" fontWeight="bold">
+                              {Math.round(analytics.daily_averages.fat)}g vs {Math.round(comparisonAnalytics.daily_averages.fat)}g
+                            </Typography>
+                            <Typography variant="body2" color="textSecondary">
+                              Avg Fat/Day
+                            </Typography>
+                            <Typography variant="body2" color={analytics.daily_averages.fat > comparisonAnalytics.daily_averages.fat ? 'error' : 'success'}>
+                              {analytics.daily_averages.fat > comparisonAnalytics.daily_averages.fat ? '↑' : '↓'} 
+                              {Math.abs(Math.round(analytics.daily_averages.fat - comparisonAnalytics.daily_averages.fat))}g
+                            </Typography>
+                          </Paper>
+                        </Grid>
+                      </Grid>
+                    </Box>
+                  )}
                 </AccordionDetails>
               </Accordion>
 
@@ -1205,18 +1675,30 @@ const ConsumptionHistory: React.FC = () => {
                         🌿 Micronutrients Overview
                             </Typography>
                       <Stack spacing={2}>
-                        <Box display="flex" justifyContent="space-between" alignItems="center">
+                                                <Box display="flex" justifyContent="space-between" alignItems="center">
                           <Typography>Fiber</Typography>
-                          <Typography fontWeight="bold">{Math.round(analytics.daily_averages.fiber || 0)}g/day</Typography>
-                          </Box>
+                          <Typography fontWeight="bold">
+                            {selectedTimeRange === '1' && dailyInsights?.today_totals ? 
+                              Math.round(dailyInsights.today_totals.fiber || 0) : 
+                              Math.round(analytics.daily_averages.fiber || 0)}g{selectedTimeRange === '1' ? '' : '/day'}
+                          </Typography>
+                        </Box>
                         <Box display="flex" justifyContent="space-between" alignItems="center">
                           <Typography>Sugar</Typography>
-                          <Typography fontWeight="bold">{Math.round(analytics.daily_averages.sugar || 0)}g/day</Typography>
-                          </Box>
+                          <Typography fontWeight="bold">
+                            {selectedTimeRange === '1' && dailyInsights?.today_totals ? 
+                              Math.round(dailyInsights.today_totals.sugar || 0) : 
+                              Math.round(analytics.daily_averages.sugar || 0)}g{selectedTimeRange === '1' ? '' : '/day'}
+                          </Typography>
+                        </Box>
                         <Box display="flex" justifyContent="space-between" alignItems="center">
                           <Typography>Sodium</Typography>
-                          <Typography fontWeight="bold">{Math.round(analytics.daily_averages.sodium || 0)}mg/day</Typography>
-                            </Box>
+                          <Typography fontWeight="bold">
+                            {selectedTimeRange === '1' && dailyInsights?.today_totals ? 
+                              Math.round(dailyInsights.today_totals.sodium || 0) : 
+                              Math.round(analytics.daily_averages.sodium || 0)}mg{selectedTimeRange === '1' ? '' : '/day'}
+                          </Typography>
+                        </Box>
                       </Stack>
                     </CardContent>
                   </Card>
