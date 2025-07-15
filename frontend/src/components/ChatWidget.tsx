@@ -5,6 +5,7 @@ import SendIcon from '@mui/icons-material/Send';
 import CircularProgress from '@mui/material/CircularProgress';
 import CameraAltIcon from '@mui/icons-material/CameraAlt';
 import MinimizeIcon from '@mui/icons-material/Minimize';
+import { useApp } from '../contexts/AppContext';
 import config from '../config/environment';
 
 interface Message {
@@ -20,6 +21,7 @@ interface ChatWidgetProps {
 }
 
 const ChatWidget: React.FC<ChatWidgetProps> = ({ userToken }) => {
+  const { triggerFoodLogged } = useApp();
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([
     {
@@ -110,6 +112,11 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ userToken }) => {
       };
 
       setMessages(prev => [...prev, aiMessage]);
+      
+      // Trigger homepage refresh if this was a food logging operation
+      if (inputMessage.toLowerCase().includes('log') && (inputMessage.toLowerCase().includes('food') || inputMessage.toLowerCase().includes('meal'))) {
+        triggerFoodLogged();
+      }
     } catch (error) {
       console.error('Error sending message:', error);
       const errorMessage: Message = {

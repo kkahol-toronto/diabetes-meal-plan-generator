@@ -313,7 +313,7 @@ const getProfileCompletionStatus = (userProfile: any) => {
 const HomePage: React.FC = () => {
   const navigate = useNavigate();
   const theme = useTheme();
-  const { showNotification, setLoading } = useApp();
+  const { showNotification, setLoading, state } = useApp();
   const [loading, setLocalLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [dashboardData, setDashboardData] = useState<any>(null);
@@ -360,6 +360,8 @@ const HomePage: React.FC = () => {
   const token = localStorage.getItem('token');
   const isLoggedIn = !!token;
 
+
+
   const fetchAllData = useCallback(async () => {
     if (!isLoggedIn) {
       setLocalLoading(false);
@@ -369,6 +371,8 @@ const HomePage: React.FC = () => {
     try {
       setLocalLoading(true);
       setError(null);
+
+
 
       const headers = {
         'Authorization': `Bearer ${token}`,
@@ -550,6 +554,16 @@ const HomePage: React.FC = () => {
     return () => clearInterval(interval);
   }, [fetchAllData, fetchConsumptionAnalytics, selectedTimeRange, fetchMacroConsumptionAnalytics, macroTimeRange]);
 
+  // Listen for food logging events and refresh data
+  useEffect(() => {
+    if (state.foodLoggedTrigger > 0) {
+      console.log('Food logged event detected, refreshing homepage data...');
+      fetchAllData();
+      fetchConsumptionAnalytics(selectedTimeRange);
+      fetchMacroConsumptionAnalytics(macroTimeRange);
+    }
+  }, [state.foodLoggedTrigger, fetchAllData, fetchConsumptionAnalytics, selectedTimeRange, fetchMacroConsumptionAnalytics, macroTimeRange]);
+
   // Carousel auto-cycling effect
   useEffect(() => {
     const carouselInterval = setInterval(() => {
@@ -594,8 +608,17 @@ const HomePage: React.FC = () => {
       });
 
       if (response.ok) {
-        await response.json();
+        const result = await response.json();
         showNotification(`✅ Successfully logged: ${quickLogFood} (${mealType})`, 'success');
+        
+        // Show meal plan update notification if the meal plan was updated
+        if (result.meal_plan_updated && result.remaining_calories !== undefined) {
+          showNotification(
+            `🍽️ Your meal plan has been updated! You have ${result.remaining_calories} calories remaining for today.`,
+            'info'
+          );
+        }
+        
         setQuickLogFood('');
         setQuickLogMealType('');
         setShowQuickLogDialog(false);

@@ -267,11 +267,11 @@ const ConsumptionHistory: React.FC = () => {
   const [comparisonTimeRange, setComparisonTimeRange] = useState('14'); // For comparison mode
   const [comparisonAnalytics, setComparisonAnalytics] = useState<ConsumptionAnalytics | null>(null);
   const [expandedSections, setExpandedSections] = useState<string[]>(['overview']);
+  const [fixingMealTypes, setFixingMealTypes] = useState(false);
 
   // Time range options
   const timeRanges: TimeRange[] = [
     { value: '1', label: 'Today', days: 1 },
-    { value: '2', label: 'Yesterday vs Today', days: 2 },
     { value: '7', label: 'This Week', days: 7 },
     { value: '14', label: 'Last 2 Weeks', days: 14 },
     { value: '30', label: 'This Month', days: 30 },
@@ -591,6 +591,22 @@ const ConsumptionHistory: React.FC = () => {
       // For "Today" view, use the backend daily insights data to ensure consistency with homepage
       if (selectedDays === 1 && insightsData && insightsData.today_totals) {
         console.log('Using backend daily insights for Today view to ensure consistency with homepage');
+        console.log('Backend today_totals:', insightsData.today_totals);
+        console.log('Frontend filtered records:', filteredHistory.length);
+        
+        // DEBUG: If backend shows calories but frontend shows no records, there's an issue
+        if (insightsData.today_totals.calories > 0 && filteredHistory.length === 0) {
+          console.error('❌ INCONSISTENCY: Backend shows calories but frontend shows no records!');
+          console.error('Backend calories:', insightsData.today_totals.calories);
+          console.error('Frontend filtered records:', filteredHistory.length);
+        } else if (insightsData.today_totals.calories === 0 && filteredHistory.length > 0) {
+          console.error('❌ INCONSISTENCY: Backend shows no calories but frontend shows records!');
+          console.error('Backend calories:', insightsData.today_totals.calories);
+          console.error('Frontend filtered records:', filteredHistory.length);
+        } else {
+          console.log('✅ Backend and frontend data are consistent');
+        }
+        
         analytics = {
           ...analytics,
           daily_averages: {
@@ -643,6 +659,48 @@ const ConsumptionHistory: React.FC = () => {
     } catch (err) {
       console.error('Error loading comparison data:', err);
       // Don't show error for comparison data, just log it
+    }
+  };
+
+  const handleFixMealTypes = async () => {
+    try {
+      setFixingMealTypes(true);
+      const token = localStorage.getItem('token');
+      if (!token) {
+        throw new Error('No authentication token found. Please log in again.');
+      }
+
+      const headers = {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      };
+
+      const response = await fetch(`${config.API_URL}/consumption/fix-meal-types`, {
+        method: 'POST',
+        headers
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to fix meal types: ${response.statusText}`);
+      }
+
+      const result = await response.json();
+      
+      // Show success message
+      if (result.success) {
+        alert(`Successfully fixed meal types for ${result.updated_records} out of ${result.total_records} records!`);
+        
+        // Reload the data to reflect the changes
+        loadConsumptionData();
+      } else {
+        throw new Error(result.error || 'Failed to fix meal types');
+      }
+
+    } catch (err) {
+      console.error('Error fixing meal types:', err);
+      setError(err instanceof Error ? err.message : 'Failed to fix meal types');
+    } finally {
+      setFixingMealTypes(false);
     }
   };
 
@@ -1534,6 +1592,21 @@ const ConsumptionHistory: React.FC = () => {
                   <Typography variant="h6">🍽️ Meal Distribution Analysis</Typography>
                 </AccordionSummary>
                 <AccordionDetails>
+                  <Box sx={{ mb: 3 }}>
+                    <Button 
+                      variant="outlined" 
+                      color="primary" 
+                      onClick={handleFixMealTypes}
+                      disabled={fixingMealTypes}
+                      startIcon={fixingMealTypes ? <CircularProgress size={20} /> : <RefreshIcon />}
+                      sx={{ mr: 2 }}
+                    >
+                      {fixingMealTypes ? 'Fixing...' : 'Fix Meal Categories'}
+                    </Button>
+                    <Typography variant="body2" color="textSecondary" sx={{ mt: 1 }}>
+                      If your meals are incorrectly categorized (e.g., all showing as snacks), click this button to fix them based on the time they were logged.
+                    </Typography>
+                  </Box>
                   <Grid container spacing={3}>
                     {Object.entries(analytics.meal_distribution).map(([meal, count]) => (
                       <Grid item xs={6} sm={3} key={meal}>

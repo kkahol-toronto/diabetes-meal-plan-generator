@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useApp } from '../contexts/AppContext';
 import {
   Container,
   Paper,
@@ -133,6 +134,7 @@ interface ImageAnalysisOption {
 const Chat = () => {
   const theme = useTheme();
   const [loaded, setLoaded] = useState(false);
+  const { triggerFoodLogged } = useApp();
   const [messages, setMessages] = useState<Message[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [currentSession, setCurrentSession] = useState<string>('');
@@ -592,6 +594,12 @@ const Chat = () => {
                   : msg
               )
             );
+          }
+          
+          // Trigger homepage refresh if this was a food logging operation
+          if (selectedAnalysisMode === 'logging' || (showMealTypeSelector && checkForFoodLogging(userMessage.message))) {
+            triggerFoodLogged();
+            // Note: Meal plan update notifications are handled by the AI response message
           }
         }
       } else if (response.status === 401) {

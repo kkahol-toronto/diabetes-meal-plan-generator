@@ -217,7 +217,17 @@ class ConsumptionTracker:
     
     def _determine_meal_type(self, timestamp: datetime) -> str:
         """Determine meal type based on time"""
-        hour = timestamp.hour
+        try:
+            # Use local time for meal type determination
+            # Default to US Eastern timezone as a reasonable assumption
+            import pytz
+            eastern = pytz.timezone('America/New_York')
+            utc_time = timestamp.replace(tzinfo=pytz.utc)
+            local_time = utc_time.astimezone(eastern)
+            hour = local_time.hour
+        except:
+            # Fallback to UTC if timezone conversion fails
+            hour = timestamp.hour
         
         if 5 <= hour < 11:
             return "breakfast"

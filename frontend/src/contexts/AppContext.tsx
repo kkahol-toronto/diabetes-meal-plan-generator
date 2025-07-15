@@ -21,6 +21,7 @@ interface AppState {
   loadingMessage?: string;
   user: User | null;
   notifications: Notification[];
+  foodLoggedTrigger: number; // Timestamp to trigger data refresh
 }
 
 type AppAction =
@@ -28,12 +29,14 @@ type AppAction =
   | { type: 'SET_USER'; payload: User | null }
   | { type: 'ADD_NOTIFICATION'; payload: Omit<Notification, 'id'> }
   | { type: 'REMOVE_NOTIFICATION'; payload: string }
-  | { type: 'CLEAR_NOTIFICATIONS' };
+  | { type: 'CLEAR_NOTIFICATIONS' }
+  | { type: 'TRIGGER_FOOD_LOGGED' };
 
 const initialState: AppState = {
   isLoading: false,
   user: null,
   notifications: [],
+  foodLoggedTrigger: 0,
 };
 
 const AppContext = createContext<{
@@ -42,6 +45,7 @@ const AppContext = createContext<{
   setUser: (user: User | null) => void;
   showNotification: (message: string, severity?: Notification['severity'], autoHideDuration?: number) => void;
   clearNotifications: () => void;
+  triggerFoodLogged: () => void;
 } | null>(null);
 
 const appReducer = (state: AppState, action: AppAction): AppState => {
@@ -75,6 +79,11 @@ const appReducer = (state: AppState, action: AppAction): AppState => {
         ...state,
         notifications: [],
       };
+    case 'TRIGGER_FOOD_LOGGED':
+      return {
+        ...state,
+        foodLoggedTrigger: Date.now(),
+      };
     default:
       return state;
   }
@@ -106,6 +115,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     dispatch({ type: 'CLEAR_NOTIFICATIONS' });
   };
 
+  const triggerFoodLogged = () => {
+    dispatch({ type: 'TRIGGER_FOOD_LOGGED' });
+  };
+
   const removeNotification = (id: string) => {
     dispatch({ type: 'REMOVE_NOTIFICATION', payload: id });
   };
@@ -118,6 +131,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         setUser,
         showNotification,
         clearNotifications,
+        triggerFoodLogged,
       }}
     >
       {children}

@@ -69,6 +69,9 @@ export interface UserProfile {
   
   // Legacy fields for backward compatibility
   dietFeatures?: string[];
+  
+  // Timezone for proper date filtering
+  timezone?: string;
 }
 
 export interface MealPlanData {
