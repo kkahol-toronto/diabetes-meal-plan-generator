@@ -4267,6 +4267,7 @@ async def chat_message_with_image(
     image: UploadFile = File(None),
     session_id: str = Form(None),
     analysis_mode: str = Form("analysis"),  # New parameter for analysis mode
+    meal_type: str = Form(None),  # Accept meal type from frontend
     current_user: User = Depends(get_current_user)
 ):
     """
@@ -4277,21 +4278,26 @@ async def chat_message_with_image(
     img_str = None
     analysis_data = None
 
-    # --- Determine meal type from the user's message, if mentioned ---
-    meal_type_match = re.search(r"\b(breakfast|lunch|dinner|snack)s?\b", message.lower())
-    if meal_type_match:
-        meal_type = meal_type_match.group(1)
+    # --- Determine meal type: use provided meal_type first, then try to parse from message, then auto-detect ---
+    if meal_type and meal_type.strip():
+        # Use the meal type provided by the frontend (from dropdown selection)
+        meal_type = meal_type.strip().lower()
     else:
-        # Auto-determine based on current time when not explicitly mentioned
-        current_hour = datetime.utcnow().hour
-        if 5 <= current_hour < 11:
-            meal_type = "breakfast"
-        elif 11 <= current_hour < 16:
-            meal_type = "lunch"
-        elif 16 <= current_hour < 22:
-            meal_type = "dinner"
+        # Fall back to parsing from message text
+        meal_type_match = re.search(r"\b(breakfast|lunch|dinner|snack)s?\b", message.lower())
+        if meal_type_match:
+            meal_type = meal_type_match.group(1)
         else:
-            meal_type = "snack"
+            # Auto-determine based on current time when not explicitly mentioned
+            current_hour = datetime.utcnow().hour
+            if 5 <= current_hour < 11:
+                meal_type = "breakfast"
+            elif 11 <= current_hour < 16:
+                meal_type = "lunch"
+            elif 16 <= current_hour < 22:
+                meal_type = "dinner"
+            else:
+                meal_type = "snack"
 
     # 🧠 GET COMPREHENSIVE USER CONTEXT - This is the key integration!
     try:
@@ -5519,23 +5525,58 @@ async def quick_log_food(
             import traceback
             print(traceback.format_exc())
         
-        # Return success response with meal plan update status
-        return {
-            "success": True,
-            "message": f"Successfully logged {analysis_data.get('food_name', food_name)}",
-            "consumption_record_id": consumption_record["id"],
-            "analysis": analysis_data,
-            "food_name": analysis_data.get("food_name", food_name),
-            "nutritional_summary": {
-                "calories": analysis_data.get("nutritional_info", {}).get("calories", 0),
-                "carbohydrates": analysis_data.get("nutritional_info", {}).get("carbohydrates", 0),
-                "protein": analysis_data.get("nutritional_info", {}).get("protein", 0),
-                "fat": analysis_data.get("nutritional_info", {}).get("fat", 0)
-            },
-            "diabetes_rating": analysis_data.get("medical_rating", {}).get("diabetes_suitability", "medium"),
-            "meal_plan_updated": True,
-            "remaining_calories": remaining_calories
-        }
+        # ------------------------------
+        # FORCE MEAL PLAN REFRESH FOR IMMEDIATE FRONTEND UPDATE
+        # ------------------------------
+        try:
+            print("[quick_log_food] Triggering immediate meal plan refresh for frontend...")
+            
+            # Get the updated meal plan using the new calibration system
+            refreshed_plan = await get_todays_meal_plan(current_user)
+            
+            print(f"[quick_log_food] Successfully refreshed meal plan: {refreshed_plan.get('id', 'N/A')}")
+            
+            # Return success response with meal plan update status and refreshed plan
+            return {
+                "success": True,
+                "message": f"Successfully logged {analysis_data.get('food_name', food_name)}",
+                "consumption_record_id": consumption_record["id"],
+                "analysis": analysis_data,
+                "food_name": analysis_data.get("food_name", food_name),
+                "nutritional_summary": {
+                    "calories": analysis_data.get("nutritional_info", {}).get("calories", 0),
+                    "carbohydrates": analysis_data.get("nutritional_info", {}).get("carbohydrates", 0),
+                    "protein": analysis_data.get("nutritional_info", {}).get("protein", 0),
+                    "fat": analysis_data.get("nutritional_info", {}).get("fat", 0)
+                },
+                "diabetes_rating": analysis_data.get("medical_rating", {}).get("diabetes_suitability", "medium"),
+                "meal_plan_updated": True,
+                "remaining_calories": remaining_calories,
+                "refreshed_meal_plan": refreshed_plan,  # Include the refreshed plan
+                "calibration_applied": True
+            }
+            
+        except Exception as refresh_error:
+            print(f"[quick_log_food] Error refreshing meal plan: {refresh_error}")
+            # Still return success for the food log, but indicate meal plan refresh failed
+            return {
+                "success": True,
+                "message": f"Successfully logged {analysis_data.get('food_name', food_name)}",
+                "consumption_record_id": consumption_record["id"],
+                "analysis": analysis_data,
+                "food_name": analysis_data.get("food_name", food_name),
+                "nutritional_summary": {
+                    "calories": analysis_data.get("nutritional_info", {}).get("calories", 0),
+                    "carbohydrates": analysis_data.get("nutritional_info", {}).get("carbohydrates", 0),
+                    "protein": analysis_data.get("nutritional_info", {}).get("protein", 0),
+                    "fat": analysis_data.get("nutritional_info", {}).get("fat", 0)
+                },
+                "diabetes_rating": analysis_data.get("medical_rating", {}).get("diabetes_suitability", "medium"),
+                "meal_plan_updated": False,
+                "remaining_calories": remaining_calories,
+                "calibration_applied": False,
+                "refresh_error": str(refresh_error)
+            }
         
     except HTTPException:
         # Re-raise HTTP exceptions as-is
@@ -5544,6 +5585,306 @@ async def quick_log_food(
         print(f"[quick_log_food] Unexpected error: {str(e)}")
         print(f"[quick_log_food] Full error details:", traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Failed to log food item: {str(e)}")
+
+async def analyze_consumption_vs_plan(consumption_records: list, meal_plan: dict) -> dict:
+    """
+    Analyze what was actually consumed vs. what was planned.
+    Returns detailed analysis for intelligent meal plan adaptation.
+    """
+    try:
+        # Initialize analysis structure
+        analysis = {
+            "total_calories_consumed": 0,
+            "total_calories_planned": meal_plan.get("dailyCalories", 2000),
+            "meals_consumed": {
+                "breakfast": [],
+                "lunch": [],
+                "dinner": [],
+                "snack": []
+            },
+            "meals_planned": meal_plan.get("meals", {}),
+            "nutritional_totals": {
+                "calories": 0,
+                "protein": 0,
+                "carbohydrates": 0,
+                "fat": 0,
+                "fiber": 0,
+                "sugar": 0
+            },
+            "adherence_by_meal": {},
+            "diabetes_suitability_score": 0,
+            "recommendations": []
+        }
+        
+        # Process each consumption record
+        diabetes_suitable_count = 0
+        total_records = len(consumption_records)
+        
+        for record in consumption_records:
+            meal_type = record.get("meal_type", "snack")
+            food_name = record.get("food_name", "Unknown food")
+            nutritional_info = record.get("nutritional_info", {})
+            medical_rating = record.get("medical_rating", {})
+            
+            # Add to consumed meals
+            analysis["meals_consumed"][meal_type].append({
+                "food_name": food_name,
+                "nutritional_info": nutritional_info,
+                "medical_rating": medical_rating,
+                "timestamp": record.get("timestamp")
+            })
+            
+            # Add to nutritional totals
+            analysis["nutritional_totals"]["calories"] += nutritional_info.get("calories", 0)
+            analysis["nutritional_totals"]["protein"] += nutritional_info.get("protein", 0)
+            analysis["nutritional_totals"]["carbohydrates"] += nutritional_info.get("carbohydrates", 0)
+            analysis["nutritional_totals"]["fat"] += nutritional_info.get("fat", 0)
+            analysis["nutritional_totals"]["fiber"] += nutritional_info.get("fiber", 0)
+            analysis["nutritional_totals"]["sugar"] += nutritional_info.get("sugar", 0)
+            
+            # Check diabetes suitability
+            diabetes_suitability = medical_rating.get("diabetes_suitability", "").lower()
+            if diabetes_suitability in ["high", "good", "suitable"]:
+                diabetes_suitable_count += 1
+        
+        # Calculate overall metrics
+        analysis["total_calories_consumed"] = analysis["nutritional_totals"]["calories"]
+        analysis["diabetes_suitability_score"] = (diabetes_suitable_count / total_records * 100) if total_records > 0 else 0
+        
+        # Analyze adherence by meal type
+        for meal_type, consumed_meals in analysis["meals_consumed"].items():
+            planned_meal = analysis["meals_planned"].get(meal_type, "")
+            if consumed_meals:
+                # Check if consumed meals match planned meals (basic text matching)
+                consumed_names = [meal["food_name"].lower() for meal in consumed_meals]
+                planned_lower = planned_meal.lower()
+                
+                # Simple matching logic - can be enhanced
+                adherence = "followed" if any(name in planned_lower or planned_lower in name for name in consumed_names) else "deviated"
+                analysis["adherence_by_meal"][meal_type] = {
+                    "status": adherence,
+                    "consumed": consumed_names,
+                    "planned": planned_meal,
+                    "calories_consumed": sum(meal["nutritional_info"].get("calories", 0) for meal in consumed_meals)
+                }
+        
+        return analysis
+        
+    except Exception as e:
+        print(f"[analyze_consumption_vs_plan] Error: {e}")
+        return {
+            "total_calories_consumed": 0,
+            "total_calories_planned": 2000,
+            "meals_consumed": {"breakfast": [], "lunch": [], "dinner": [], "snack": []},
+            "meals_planned": {},
+            "nutritional_totals": {"calories": 0, "protein": 0, "carbohydrates": 0, "fat": 0, "fiber": 0, "sugar": 0},
+            "adherence_by_meal": {},
+            "diabetes_suitability_score": 0,
+            "recommendations": []
+        }
+
+
+def get_remaining_meals_by_time(current_hour: int) -> list:
+    """
+    Determine which meals are remaining based on current time.
+    """
+    remaining_meals = []
+    
+    # Breakfast: 5 AM - 11 AM
+    if current_hour < 11:
+        remaining_meals.append("breakfast")
+    
+    # Lunch: 11 AM - 4 PM
+    if current_hour < 16:
+        remaining_meals.append("lunch")
+    
+    # Dinner: 4 PM - 10 PM
+    if current_hour < 22:
+        remaining_meals.append("dinner")
+    
+    # Snack: Always available
+    remaining_meals.append("snack")
+    
+    return remaining_meals
+
+
+async def apply_intelligent_adaptations(meal_plan: dict, consumption_analysis: dict, remaining_meals: list, user_profile: dict) -> dict:
+    """
+    Apply intelligent adaptations to the meal plan based on consumption analysis.
+    This is the core of the advanced calibration system.
+    """
+    try:
+        print(f"[apply_intelligent_adaptations] Starting adaptations for remaining meals: {remaining_meals}")
+        
+        adapted_plan = meal_plan.copy()
+        adaptations_made = []
+        
+        # Get key metrics
+        calories_consumed = consumption_analysis["total_calories_consumed"]
+        calories_planned = consumption_analysis["total_calories_planned"]
+        remaining_calories = calories_planned - calories_consumed
+        adherence_by_meal = consumption_analysis["adherence_by_meal"]
+        diabetes_score = consumption_analysis["diabetes_suitability_score"]
+        
+        print(f"[adaptations] Calories consumed: {calories_consumed}, Planned: {calories_planned}, Remaining: {remaining_calories}")
+        print(f"[adaptations] Diabetes suitability score: {diabetes_score}%")
+        
+        # 1. SNACK ADAPTATION - Critical for the user's issue
+        if "snack" in remaining_meals:
+            snack_adherence = adherence_by_meal.get("snack", {})
+            if snack_adherence.get("status") == "deviated":
+                # User ate a different snack than planned
+                consumed_snacks = snack_adherence.get("consumed", [])
+                snack_calories = snack_adherence.get("calories_consumed", 0)
+                
+                print(f"[adaptations] Snack deviation detected. Consumed: {consumed_snacks}, Calories: {snack_calories}")
+                
+                # Adapt snack recommendation based on what was consumed
+                if snack_calories > 200:  # High calorie snack consumed
+                    adapted_plan["meals"]["snack"] = "Light vegetable sticks with hummus (if still hungry)"
+                    adaptations_made.append("Adjusted snack to lighter option due to higher calorie snack consumed")
+                elif snack_calories > 0:  # Normal snack consumed
+                    adapted_plan["meals"]["snack"] = "Optional: Small portion of nuts or Greek yogurt"
+                    adaptations_made.append("Made snack optional since you already had a snack")
+                
+                # Also adapt other meals based on snack consumption
+                if remaining_calories < 300:  # Low remaining calories
+                    if "dinner" in remaining_meals:
+                        adapted_plan["meals"]["dinner"] = f"{adapted_plan['meals']['dinner']} (lighter portion)"
+                        adaptations_made.append("Reduced dinner portion to account for snack calories")
+        
+        # 2. CALORIE BALANCE ADAPTATION
+        if remaining_calories < 200:  # Low remaining calories
+            for meal_type in remaining_meals:
+                if meal_type != "snack":  # Don't modify snack here as it's handled above
+                    current_meal = adapted_plan["meals"].get(meal_type, "")
+                    if current_meal and "lighter" not in current_meal.lower():
+                        adapted_plan["meals"][meal_type] = f"{current_meal} (lighter portion)"
+                        adaptations_made.append(f"Reduced {meal_type} portion to balance daily calories")
+        
+        elif remaining_calories > 600:  # High remaining calories
+            for meal_type in remaining_meals:
+                if meal_type != "snack":
+                    current_meal = adapted_plan["meals"].get(meal_type, "")
+                    if current_meal and "larger" not in current_meal.lower():
+                        adapted_plan["meals"][meal_type] = f"{current_meal} (slightly larger portion)"
+                        adaptations_made.append(f"Increased {meal_type} portion to meet calorie goals")
+        
+        # 3. DIABETES SUITABILITY ADAPTATION
+        if diabetes_score < 70:  # Poor diabetes adherence
+            for meal_type in remaining_meals:
+                current_meal = adapted_plan["meals"].get(meal_type, "")
+                if current_meal:
+                    # Generate diabetes-friendly alternative
+                    diabetes_friendly_meal = await generate_diabetes_friendly_alternative(current_meal, meal_type, user_profile)
+                    if diabetes_friendly_meal:
+                        adapted_plan["meals"][meal_type] = diabetes_friendly_meal
+                        adaptations_made.append(f"Adjusted {meal_type} to be more diabetes-friendly")
+        
+        # 4. MEAL-SPECIFIC ADAPTATIONS
+        for meal_type in remaining_meals:
+            meal_adherence = adherence_by_meal.get(meal_type, {})
+            if meal_adherence.get("status") == "deviated":
+                consumed_calories = meal_adherence.get("calories_consumed", 0)
+                
+                # If user consumed much more calories than typical for this meal
+                if consumed_calories > 500 and meal_type in ["breakfast", "lunch"]:
+                    # Adjust later meals
+                    later_meals = ["lunch", "dinner", "snack"] if meal_type == "breakfast" else ["dinner", "snack"]
+                    for later_meal in later_meals:
+                        if later_meal in remaining_meals:
+                            current_meal = adapted_plan["meals"].get(later_meal, "")
+                            if current_meal and "lighter" not in current_meal.lower():
+                                adapted_plan["meals"][later_meal] = f"{current_meal} (lighter portion)"
+                                adaptations_made.append(f"Reduced {later_meal} to compensate for heavy {meal_type}")
+        
+        # 5. TIME-BASED ADAPTATIONS
+        current_hour = datetime.utcnow().hour
+        if current_hour > 20:  # Late evening
+            if "dinner" in remaining_meals:
+                current_dinner = adapted_plan["meals"].get("dinner", "")
+                if current_dinner and "light" not in current_dinner.lower():
+                    adapted_plan["meals"]["dinner"] = f"Light {current_dinner.lower()}"
+                    adaptations_made.append("Made dinner lighter due to late timing")
+        
+        # Update plan notes
+        if adaptations_made:
+            current_notes = adapted_plan.get("notes", "")
+            adaptation_summary = "Auto-adapted: " + "; ".join(adaptations_made)
+            adapted_plan["notes"] = f"{current_notes} {adaptation_summary}".strip()
+            adapted_plan["adaptations_applied"] = adaptations_made
+            adapted_plan["adaptation_timestamp"] = datetime.utcnow().isoformat()
+        
+        print(f"[adaptations] Applied {len(adaptations_made)} adaptations: {adaptations_made}")
+        
+        return adapted_plan
+        
+    except Exception as e:
+        print(f"[apply_intelligent_adaptations] Error: {e}")
+        import traceback
+        print(traceback.format_exc())
+        return meal_plan
+
+
+async def generate_diabetes_friendly_alternative(current_meal: str, meal_type: str, user_profile: dict) -> str:
+    """
+    Generate a diabetes-friendly alternative to the current meal.
+    """
+    try:
+        # Get user dietary restrictions
+        dietary_restrictions = user_profile.get('dietaryRestrictions', [])
+        allergies = user_profile.get('allergies', [])
+        
+        # Simple diabetes-friendly alternatives
+        diabetes_friendly_options = {
+            "breakfast": [
+                "Steel-cut oats with almond milk and fresh berries",
+                "Vegetable omelet with spinach and bell peppers",
+                "Greek yogurt with chia seeds and nuts",
+                "Whole grain toast with avocado"
+            ],
+            "lunch": [
+                "Quinoa Buddha bowl with roasted vegetables",
+                "Lentil soup with mixed greens salad",
+                "Grilled chicken salad with olive oil dressing",
+                "Vegetable stir-fry with brown rice"
+            ],
+            "dinner": [
+                "Baked salmon with steamed broccoli and quinoa",
+                "Lentil curry with cauliflower rice",
+                "Grilled chicken with roasted vegetables",
+                "Vegetable curry with chickpeas"
+            ],
+            "snack": [
+                "Apple slices with almond butter",
+                "Cucumber slices with hummus",
+                "Handful of mixed nuts",
+                "Greek yogurt with cinnamon"
+            ]
+        }
+        
+        # Filter options based on dietary restrictions
+        options = diabetes_friendly_options.get(meal_type, [])
+        
+        # Simple filtering for vegetarian
+        if 'vegetarian' in [r.lower() for r in dietary_restrictions]:
+            options = [opt for opt in options if not any(meat in opt.lower() for meat in ['chicken', 'salmon', 'fish', 'meat'])]
+        
+        # Filter for allergies
+        if allergies:
+            for allergy in allergies:
+                if 'nut' in allergy.lower():
+                    options = [opt for opt in options if 'nut' not in opt.lower() and 'almond' not in opt.lower()]
+                if 'egg' in allergy.lower():
+                    options = [opt for opt in options if 'omelet' not in opt.lower() and 'egg' not in opt.lower()]
+        
+        # Return first suitable option
+        return options[0] if options else current_meal
+        
+    except Exception as e:
+        print(f"[generate_diabetes_friendly_alternative] Error: {e}")
+        return current_meal
+
 
 @app.get("/coach/todays-meal-plan")
 async def get_todays_meal_plan(current_user: User = Depends(get_current_user)):
@@ -5803,70 +6144,56 @@ Ensure ALL dishes are completely vegetarian and egg-free. Do not include any mea
                     print(traceback.format_exc())
 
         # ------------------
-        # REAL-TIME CALIBRATION (same-day)
+        # ADVANCED REAL-TIME CALIBRATION SYSTEM
         # ------------------
         try:
-            # Use the new timezone-aware filtering function that resets at midnight
+            # Get today's consumption with detailed analysis
             today_consumption_full = await get_today_consumption_records_async(current_user["email"], user_timezone="UTC")
-
-            # Sum calories eaten so far
-            calories_so_far = sum(r.get("nutritional_info", {}).get("calories", 0) for r in today_consumption_full)
-
-            calorie_goal_day = todays_plan.get("dailyCalories") or 0
-            if calorie_goal_day > 0:
-                remaining = calorie_goal_day - calories_so_far
-
-                # If the user already exceeded the daily goal, lighten upcoming meals
-                if remaining < -100:
-                    if "lunch" in todays_plan.get("meals", {}):
-                        todays_plan["meals"]["lunch"] += " (lighter portion recommended)"
-                    if "dinner" in todays_plan.get("meals", {}):
-                        todays_plan["meals"]["dinner"] += " (lighter portion recommended)"
-                    if "snack" in todays_plan.get("meals", {}):
-                        todays_plan["meals"]["snack"] += " (optional if still hungry)"
-
-                    note = "Adjusted lunch/dinner due to higher calories consumed earlier today."
-                    todays_plan["notes"] = f"{todays_plan.get('notes', '')} {note}".strip()
-
-                # Positive reinforcement when following plan (within ±10% at mealtime)
-                elif 0 <= remaining <= calorie_goal_day * 0.1:
-                    note = "Great job sticking close to the plan so far! Keep it up."
-                    todays_plan["notes"] = f"{todays_plan.get('notes', '')} {note}".strip()
-
-                # If user is significantly below target, suggest a slightly larger upcoming meal or an extra snack
-                elif remaining > calorie_goal_day * 0.2:
-                    if "snack" in todays_plan.get("meals", {}):
-                        if "optional" in todays_plan["meals"]["snack"].lower(): # Remove optional note if previously added
-                             todays_plan["meals"]["snack"] = todays_plan["meals"]["snack"].replace(" (optional if still hungry)", "").strip()
-
-                        todays_plan["meals"]["snack"] += " (recommended)"
-                    elif "dinner" in todays_plan.get("meals", {}):
-                        todays_plan["meals"]["dinner"] += " (slightly larger portion recommended)"
-                    
-                    note = "Consider a slightly larger portion or an extra snack to meet your calorie goals."
-                    todays_plan["notes"] = f"{todays_plan.get('notes', '')} {note}".strip()
-
-            # If plan has a 'type' of 'ai_generated_today' or 'ai_generated_concrete', it means it was just generated or refined
-            # In this case, we don't need to explicitly save it again here if it was already saved during generation.
-            # But if it was a derived/fallback plan that just got calibrated, save it.
-            if todays_plan.get("type") not in ["ai_generated_today", "ai_generated_concrete"] and calories_so_far > 0: # Only save if consumption has happened and it's not a fresh AI gen
-                 # Generate a unique ID for this calibrated plan if it's not already saved
-                if "id" not in todays_plan or todays_plan["id"].startswith("derived_") or todays_plan["id"].startswith("fallback_"):
-                    todays_plan["id"] = f"calibrated_{current_user['email']}_{today.isoformat()}_{int(datetime.utcnow().timestamp())}"
-                    todays_plan["created_at"] = datetime.utcnow().isoformat()
+            
+            print(f"[CALIBRATION] Starting advanced calibration with {len(today_consumption_full)} consumption records")
+            
+            # Analyze what was actually consumed vs. planned
+            consumption_analysis = await analyze_consumption_vs_plan(today_consumption_full, todays_plan)
+            
+            # Get current time to determine what meals are remaining
+            now = datetime.utcnow()
+            current_hour = now.hour
+            
+            # Determine remaining meal types based on time of day
+            remaining_meals = get_remaining_meals_by_time(current_hour)
+            
+            print(f"[CALIBRATION] Current hour: {current_hour}, Remaining meals: {remaining_meals}")
+            print(f"[CALIBRATION] Consumption analysis: {consumption_analysis}")
+            
+            # Apply intelligent adaptations based on consumption analysis
+            todays_plan = await apply_intelligent_adaptations(
+                todays_plan, 
+                consumption_analysis, 
+                remaining_meals,
+                current_user.get("profile", {})
+            )
+            
+            # Mark plan as calibrated if any consumption has occurred
+            if len(today_consumption_full) > 0:
+                todays_plan["type"] = "real_time_calibrated"
+                todays_plan["last_calibrated"] = datetime.utcnow().isoformat()
+                todays_plan["calibration_trigger"] = "consumption_logged"
                 
-                todays_plan["type"] = "calibrated_daily"
+                # Save calibrated plan
                 try:
+                    if "id" not in todays_plan or todays_plan["id"].startswith("derived_") or todays_plan["id"].startswith("fallback_"):
+                        todays_plan["id"] = f"calibrated_{current_user['email']}_{today.isoformat()}_{int(datetime.utcnow().timestamp())}"
+                        todays_plan["created_at"] = datetime.utcnow().isoformat()
+                    
                     await save_meal_plan(current_user["email"], todays_plan)
-                    print("[get_todays_meal_plan] Saved calibrated meal plan for today.")
-                except ValueError as validation_err:
-                    print(f"[get_todays_meal_plan] Validation error saving calibrated plan: {validation_err}")
-                    # Don't save invalid/empty meal plans
+                    print("[CALIBRATION] Saved real-time calibrated meal plan")
                 except Exception as save_err:
-                    print(f"[get_todays_meal_plan] Error saving calibrated plan: {save_err}")
+                    print(f"[CALIBRATION] Error saving calibrated plan: {save_err}")
 
         except Exception as e:
-            print(f"[get_todays_meal_plan] Calibration error: {e}")
+            print(f"[CALIBRATION] Advanced calibration error: {e}")
+            import traceback
+            print(traceback.format_exc())
 
         # FORCE VEGETARIAN MEAL GENERATION - Don't use old plans that may contain non-vegetarian dishes
         profile = current_user.get("profile", {})
