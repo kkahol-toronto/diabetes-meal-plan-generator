@@ -2118,25 +2118,81 @@ const HomePage: React.FC = () => {
                       )}
                       
                       <Grid container spacing={2}>
-                        {Object.entries(planData.meals || {}).map(([mealType, mealDesc]: [string, any]) => (
-                          <Grid item xs={12} sm={6} md={3} key={mealType}>
-                            <Card sx={{ bgcolor: 'rgba(255,255,255,0.1)', backdropFilter: 'blur(10px)' }}>
-                              <CardContent sx={{ p: 2 }}>
-                                <Typography variant="subtitle2" sx={{ 
-                                  fontWeight: 'bold', 
-                                  textTransform: 'capitalize',
-                                  color: 'white',
-                                  mb: 1
-                                }}>
-                                  {mealType}
-                                </Typography>
-                                <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.9)' }}>
-                                  {typeof mealDesc === 'string' ? mealDesc : mealDesc?.description || 'No meal planned'}
-                                </Typography>
-                              </CardContent>
-                            </Card>
-                          </Grid>
-                        ))}
+                        {Object.entries(planData.meals || {}).map(([mealType, mealDesc]: [string, any]) => {
+                          // Extract just the recipe name from the meal description
+                          const extractRecipeName = (desc: string): string => {
+                            if (!desc || typeof desc !== 'string') return 'No meal planned';
+                            
+                            // Remove "Day X:" prefix
+                            let cleaned = desc.replace(/^Day\s+\d+:\s*/, '');
+                            
+                            // Extract recipe name before any parentheses (which contain ingredients)
+                            const parenIndex = cleaned.indexOf('(');
+                            if (parenIndex !== -1) {
+                              cleaned = cleaned.substring(0, parenIndex).trim();
+                            }
+                            
+                            // Remove any extra descriptive text after the recipe name
+                            const patterns = [
+                              /\s*\(.*?\)/g,  // Remove parentheses and content
+                              /\s*\d+\s*(cups?|tbsp|tsp|oz|g|ml|cloves?|slices?|pieces?)\s.*$/i,  // Remove quantities and ingredients
+                              /\s*with\s+.*$/i,  // Remove "with ..." descriptions
+                              /\s*\+\s+.*$/i,    // Remove "+ ..." additions
+                              /\s*-\s+.*$/i,     // Remove "- ..." descriptions
+                              /\s*,\s*.*$/i,     // Remove comma-separated additions
+                              /\s*served\s+with.*$/i, // Remove "served with..." descriptions
+                              /\s*\(.*$/i,       // Remove unclosed parentheses
+                              /\s*\bserved\b.*$/i, // Remove "served..." descriptions
+                              /\s*\band\b.*$/i,    // Remove "and..." descriptions
+                              /\s*\bincluding\b.*$/i // Remove "including..." descriptions
+                            ];
+                            
+                            patterns.forEach(pattern => {
+                              cleaned = cleaned.replace(pattern, '');
+                            });
+                            
+                            // Clean up any remaining artifacts
+                            cleaned = cleaned.trim();
+                            
+                            // If the cleaned name is too short or empty, try to extract from original
+                            if (cleaned.length < 3) {
+                              // Try to extract a reasonable recipe name
+                              const words = desc.replace(/^Day\s+\d+:\s*/, '').split(/\s+/);
+                              const meaningfulWords = words.filter(word => 
+                                word.length > 2 && 
+                                !word.match(/^\d+$/) && 
+                                !word.match(/^(with|and|or|the|a|an|in|on|at|to|from|for|of|by)$/i)
+                              );
+                              cleaned = meaningfulWords.slice(0, 4).join(' ');
+                            }
+                            
+                            return cleaned || 'Recipe';
+                          };
+                          
+                          const recipeName = extractRecipeName(
+                            typeof mealDesc === 'string' ? mealDesc : mealDesc?.description || ''
+                          );
+                          
+                          return (
+                            <Grid item xs={12} sm={6} md={3} key={mealType}>
+                              <Card sx={{ bgcolor: 'rgba(255,255,255,0.1)', backdropFilter: 'blur(10px)' }}>
+                                <CardContent sx={{ p: 2 }}>
+                                  <Typography variant="subtitle2" sx={{ 
+                                    fontWeight: 'bold', 
+                                    textTransform: 'capitalize',
+                                    color: 'white',
+                                    mb: 1
+                                  }}>
+                                    {mealType}
+                                  </Typography>
+                                  <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.9)' }}>
+                                    {recipeName}
+                                  </Typography>
+                                </CardContent>
+                              </Card>
+                            </Grid>
+                          );
+                        })}
                       </Grid>
                       
                       {/* Removed automatic display of extra plan "notes" to keep UI succinct */}

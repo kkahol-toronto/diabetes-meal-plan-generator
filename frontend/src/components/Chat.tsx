@@ -457,6 +457,11 @@ const Chat = () => {
       return;
     }
 
+    // Capture meal type before clearing state
+    const currentMealType = selectedMealType || autoDetectMealType();
+    const currentAnalysisMode = selectedAnalysisMode;
+    const currentShowMealTypeSelector = showMealTypeSelector;
+
     const messageId = uuidv4();
     const userMessage: Message = {
       id: messageId,
@@ -496,12 +501,11 @@ const Chat = () => {
         formData.append('message', input);
         formData.append('image', selectedImage);
         formData.append('session_id', currentSession);
-        formData.append('analysis_mode', selectedAnalysisMode || 'analysis');
+        formData.append('analysis_mode', currentAnalysisMode || 'analysis');
         
         // Add meal type if in logging mode
-        if (selectedAnalysisMode === 'logging') {
-          const mealType = selectedMealType || autoDetectMealType();
-          formData.append('meal_type', mealType);
+        if (currentAnalysisMode === 'logging') {
+          formData.append('meal_type', currentMealType);
         }
 
         response = await fetch(`${config.API_URL}/chat/message-with-image`, {
@@ -519,8 +523,8 @@ const Chat = () => {
         };
         
         // Add meal type if food logging is detected
-        if (showMealTypeSelector && checkForFoodLogging(input)) {
-          messageBody.meal_type = selectedMealType || autoDetectMealType();
+        if (currentShowMealTypeSelector && checkForFoodLogging(input)) {
+          messageBody.meal_type = currentMealType;
         }
         
         response = await fetch(`${config.API_URL}/chat/message`, {
