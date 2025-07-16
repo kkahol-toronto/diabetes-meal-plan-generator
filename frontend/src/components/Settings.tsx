@@ -169,14 +169,8 @@ const Settings: React.FC = () => {
 
     setIsExporting(true);
     try {
-      const response = await api.post('https://Dietra-backend.azurewebsites.net/privacy/export-data', {
-        data_types: selectedDataTypes,
-        format_type: exportFormat,
-      });
-
-      // Since api.post() automatically handles the response, we need to handle the download differently
-      // Let's make a direct fetch call for file downloads but with proper error handling
-              const downloadResponse = await fetch(`${config.API_URL}/privacy/export-data`, {
+      // Make a direct fetch call for file downloads with proper error handling
+      const downloadResponse = await fetch(`${config.API_URL}/privacy/export-data`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`,

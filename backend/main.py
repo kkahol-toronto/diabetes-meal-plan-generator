@@ -738,6 +738,469 @@ def filter_today_records(records: List[Dict[str, Any]], user_timezone: str = "UT
     
     return today_records
 
+async def generate_consumption_aware_meal_plan(base_meal_plan: dict, consumption_analysis: dict, remaining_meals: list, user_profile: dict) -> dict:
+    """
+    Generate a consumption-aware meal plan that properly shows consumed meals vs recommendations.
+    This replaces the flawed adaptation logic that was removing consumed meals from display.
+    """
+    try:
+        print(f"[generate_consumption_aware_meal_plan] Creating consumption-aware meal plan")
+        
+        # Create a new meal plan based on the original
+        consumption_aware_plan = base_meal_plan.copy()
+        warnings = []
+        
+        # Get key metrics
+        calories_consumed = consumption_analysis["total_calories_consumed"]
+        calories_planned = consumption_analysis["total_calories_planned"]
+        remaining_calories = max(0, calories_planned - calories_consumed)
+        adherence_by_meal = consumption_analysis["adherence_by_meal"]
+        meals_consumed = consumption_analysis["meals_consumed"]
+        
+        print(f"[consumption_aware] Calories consumed: {calories_consumed}, Planned: {calories_planned}, Remaining: {remaining_calories}")
+        
+        # Process each meal type
+        for meal_type in ["breakfast", "lunch", "dinner", "snack"]:
+            consumed_meals = meals_consumed.get(meal_type, [])
+            
+            if consumed_meals:
+                # User has consumed this meal type - show what was actually consumed
+                consumed_names = [meal["food_name"] for meal in consumed_meals]
+                consumed_calories = sum(meal["nutritional_info"].get("calories", 0) for meal in consumed_meals)
+                
+                # Show the consumed meal(s) with clear labeling to distinguish from recommendations
+                if len(consumed_names) == 1:
+                    consumption_aware_plan["meals"][meal_type] = f"You ate: {consumed_names[0]} ✓ ({consumed_calories} cal)"
+                else:
+                    consumption_aware_plan["meals"][meal_type] = f"You ate: {', '.join(consumed_names)} ✓ ({consumed_calories} cal)"
+                
+                # Check if consumption was excessive for this meal type
+                if meal_type == "snack" and consumed_calories > 200:
+                    warnings.append(f"🍪 Snack calories ({consumed_calories}) exceeded recommended portion. This was quite heavy - consider compensating with lighter meals tomorrow.")
+                elif meal_type in ["breakfast", "lunch", "dinner"] and consumed_calories > 600:
+                    warnings.append(f"🍽️ {meal_type.title()} calories ({consumed_calories}) were quite high. This was heavy - balance it out with lighter portions for remaining meals today and tomorrow.")
+                
+                # Check diabetes suitability
+                for meal in consumed_meals:
+                    diabetes_rating = meal.get("medical_rating", {}).get("diabetes_suitability", "").lower()
+                    if diabetes_rating in ["low", "poor", "not suitable"]:
+                        warnings.append(f"⚠️ {meal['food_name']} may not be ideal for diabetes management. Try to choose more diabetes-friendly options for your remaining meals.")
+                        
+            elif meal_type in remaining_meals:
+                # User hasn't consumed this meal type yet - show recommendation
+                original_meal = base_meal_plan.get("meals", {}).get(meal_type, "")
+                
+                # Adjust recommendation based on remaining calories
+                if remaining_calories < 200:
+                    if meal_type == "snack":
+                        consumption_aware_plan["meals"][meal_type] = "Recommended: No additional snacks needed - you've reached your daily calorie goal"
+                    else:
+                        consumption_aware_plan["meals"][meal_type] = f"Recommended: Light {original_meal.lower()}" if original_meal else "Recommended: Light, low-calorie option"
+                elif remaining_calories < 300:
+                    if meal_type == "snack":
+                        consumption_aware_plan["meals"][meal_type] = "Recommended: Optional small piece of fruit or vegetables if genuinely hungry"
+                    else:
+                        consumption_aware_plan["meals"][meal_type] = f"Recommended: {original_meal} (lighter portion)" if original_meal else "Recommended: Balanced, moderate portion"
+                else:
+                    # Normal recommendation
+                    consumption_aware_plan["meals"][meal_type] = f"Recommended: {original_meal}" if original_meal else f"Recommended: Healthy {meal_type} option"
+                    
+            else:
+                # Meal time has passed and user didn't consume - just show what was planned
+                original_meal = base_meal_plan.get("meals", {}).get(meal_type, "")
+                consumption_aware_plan["meals"][meal_type] = original_meal or f"No {meal_type} logged"
+        
+        # Generate appropriate warnings and comprehensive guidance
+        if remaining_calories <= 0:
+            if remaining_calories < -300:
+                warnings.append("🚨 You've significantly exceeded your daily calorie goal. You shouldn't strictly eat anything more today.")
+                warnings.append("💡 Tomorrow, focus on much lighter portions, more vegetables, and perhaps skip snacks to compensate.")
+                warnings.append("🏃‍♂️ Consider adding extra physical activity if possible to help balance today's intake.")
+            else:
+                warnings.append("🚨 You've reached or exceeded your daily calorie goal. You shouldn't strictly eat anything more today.")
+                warnings.append("💡 Tomorrow, focus on lighter portions and more vegetables to compensate for today's intake.")
+        elif remaining_calories < 200:
+            warnings.append("⚠️ You're very close to your daily calorie goal. Only eat if genuinely hungry and choose very light options.")
+            warnings.append("💭 Consider having just water, herbal tea, or a small piece of fruit if needed.")
+        elif remaining_calories < 400:
+            warnings.append("📊 You have limited calories remaining. Choose nutrient-dense, low-calorie foods for the rest of the day.")
+        
+        # Add warnings to the plan
+        if warnings:
+            consumption_aware_plan["consumption_warnings"] = warnings
+            consumption_aware_plan["notes"] = (consumption_aware_plan.get("notes", "") + " " + " ".join(warnings)).strip()
+        
+        # Update metadata
+        consumption_aware_plan["type"] = "consumption_aware"
+        consumption_aware_plan["remaining_calories"] = remaining_calories
+        consumption_aware_plan["total_consumed_calories"] = calories_consumed
+        consumption_aware_plan["last_updated"] = datetime.utcnow().isoformat()
+        
+        print(f"[consumption_aware] Generated consumption-aware meal plan with {len(warnings)} warnings")
+        
+        return consumption_aware_plan
+        
+    except Exception as e:
+        print(f"[generate_consumption_aware_meal_plan] Error: {e}")
+        import traceback
+        print(traceback.format_exc())
+        return base_meal_plan
+
+
+async def trigger_meal_plan_recalibration(user_email: str, user_profile: dict):
+    """
+    Comprehensive meal plan recalibration system that triggers after every food log.
+    Ensures dietary restrictions are respected and meal plan is updated immediately.
+    """
+    try:
+        print(f"[RECALIBRATION] Starting meal plan recalibration for user {user_email}")
+        
+        # Get today's consumption including the new log
+        today_consumption = await get_today_consumption_records_async(user_email, user_timezone="UTC")
+        
+        # Calculate calories consumed so far
+        calories_consumed = sum(r.get("nutritional_info", {}).get("calories", 0) for r in today_consumption)
+        
+        # Get user's dietary restrictions and preferences
+        dietary_restrictions = user_profile.get('dietaryRestrictions', [])
+        allergies = user_profile.get('allergies', [])
+        diet_type = user_profile.get('dietType', [])
+        food_preferences = user_profile.get('foodPreferences', [])
+        strong_dislikes = user_profile.get('strongDislikes', [])
+        target_calories = int(user_profile.get('calorieTarget', '2000'))
+        remaining_calories = max(0, target_calories - calories_consumed)
+        
+        # Check if user is vegetarian or has restrictions
+        is_vegetarian = 'vegetarian' in [r.lower() for r in dietary_restrictions] or 'vegetarian' in [d.lower() for d in diet_type]
+        no_eggs = any('egg' in r.lower() for r in dietary_restrictions) or any('egg' in a.lower() for a in allergies)
+        
+        print(f"[RECALIBRATION] User dietary profile: vegetarian={is_vegetarian}, no_eggs={no_eggs}")
+        print(f"[RECALIBRATION] Cuisine preferences: {diet_type}")
+        print(f"[RECALIBRATION] Calories consumed: {calories_consumed}, remaining: {remaining_calories}")
+        
+        # Get current meal plan to use as base
+        try:
+            meal_plans = await get_user_meal_plans(user_email)
+            base_meal_plan = meal_plans[0] if meal_plans else None
+            
+            if not base_meal_plan:
+                # Create a basic meal plan if none exists
+                base_meal_plan = {
+                    "id": f"base_{user_email}_{datetime.utcnow().date().isoformat()}",
+                    "date": datetime.utcnow().date().isoformat(),
+                    "type": "basic",
+                    "meals": {
+                        "breakfast": "Healthy breakfast option",
+                        "lunch": "Balanced lunch option", 
+                        "dinner": "Nutritious dinner option",
+                        "snack": "Healthy snack option"
+                    },
+                    "dailyCalories": target_calories,
+                    "created_at": datetime.utcnow().isoformat(),
+                    "notes": "Basic meal plan for recalibration"
+                }
+        except Exception as e:
+            print(f"[RECALIBRATION] Error getting meal plans: {e}")
+            base_meal_plan = {
+                "id": f"fallback_{user_email}_{datetime.utcnow().date().isoformat()}",
+                "date": datetime.utcnow().date().isoformat(),
+                "type": "fallback",
+                "meals": {
+                    "breakfast": "Healthy breakfast option",
+                    "lunch": "Balanced lunch option", 
+                    "dinner": "Nutritious dinner option",
+                    "snack": "Healthy snack option"
+                },
+                "dailyCalories": target_calories,
+                "created_at": datetime.utcnow().isoformat(),
+                "notes": "Fallback meal plan for recalibration"
+            }
+        
+        # Analyze consumption vs plan
+        consumption_analysis = await analyze_consumption_vs_plan(today_consumption, base_meal_plan)
+        
+        # Determine remaining meals
+        current_hour = datetime.utcnow().hour
+        remaining_meals = get_remaining_meals_by_time(current_hour)
+        
+        # Generate consumption-aware meal plan
+        fresh_meal_plan = await generate_consumption_aware_meal_plan(
+            base_meal_plan,
+            consumption_analysis,
+            remaining_meals,
+            user_profile
+        )
+        
+        # Save the updated meal plan
+        if fresh_meal_plan:
+            await save_meal_plan(user_email, fresh_meal_plan)
+            print(f"[RECALIBRATION] Successfully updated consumption-aware meal plan for user {user_email}")
+        
+        return fresh_meal_plan
+        
+    except Exception as e:
+        print(f"[RECALIBRATION] Error in meal plan recalibration: {e}")
+        import traceback
+        print(traceback.format_exc())
+        return None
+
+async def generate_fresh_adaptive_meal_plan(user_email: str, today_consumption: list, remaining_calories: int, 
+                                          is_vegetarian: bool, no_eggs: bool, dietary_restrictions: list, allergies: list,
+                                          diet_type: list = None, food_preferences: list = None, strong_dislikes: list = None):
+    """
+    Generate a fresh, adaptive meal plan that respects dietary restrictions and current consumption.
+    """
+    try:
+        # Set default values if None
+        if diet_type is None:
+            diet_type = []
+        if food_preferences is None:
+            food_preferences = []
+        if strong_dislikes is None:
+            strong_dislikes = []
+        
+        today = datetime.utcnow().date()
+        current_hour = datetime.utcnow().hour
+        
+        # Determine what meals are still needed today
+        remaining_meals = get_remaining_meals_by_time(current_hour)
+        
+        # Build restriction warnings for AI
+        restriction_warnings = []
+        if is_vegetarian:
+            restriction_warnings.append("STRICTLY VEGETARIAN - NO MEAT, POULTRY, FISH, OR SEAFOOD")
+        if no_eggs:
+            restriction_warnings.append("NO EGGS - Avoid all egg-based dishes and ingredients")
+        if any('nut' in a.lower() for a in allergies):
+            restriction_warnings.append("NUT ALLERGY - Avoid all nuts and nut-based products")
+        
+        restriction_text = "\n".join([f"⚠️ {warning}" for warning in restriction_warnings])
+        
+        # Analyze what's been consumed today
+        meals_consumed_today = {}
+        for record in today_consumption:
+            meal_type = record.get("meal_type", "snack")
+            food_name = record.get("food_name", "")
+            if meal_type not in meals_consumed_today:
+                meals_consumed_today[meal_type] = []
+            meals_consumed_today[meal_type].append(food_name)
+        
+        consumed_summary = ""
+        for meal_type, foods in meals_consumed_today.items():
+            consumed_summary += f"{meal_type.title()}: {', '.join(foods)}\n"
+        
+        # Build cuisine preference text
+        cuisine_text = f"PREFERRED CUISINE TYPE: {', '.join(diet_type) if diet_type else 'Mixed international'}"
+        
+        # Build additional preferences
+        food_preferences_text = f"Food Preferences: {', '.join(food_preferences) if food_preferences else 'None specified'}"
+        strong_dislikes_text = f"Strong Dislikes: {', '.join(strong_dislikes) if strong_dislikes else 'None specified'}"
+        
+        # Calculate total calories already consumed
+        calories_consumed = sum(r.get("nutritional_info", {}).get("calories", 0) for r in today_consumption)
+        
+        # Build intelligent snack recommendation based on remaining calories
+        snack_recommendation = ""
+        if remaining_calories <= 100:
+            snack_recommendation = "No additional snacks needed - you've reached your calorie goal for today"
+        elif remaining_calories <= 200:
+            snack_recommendation = "Optional light snack only if genuinely hungry (e.g., cucumber slices, herbal tea)"
+        elif remaining_calories <= 300:
+            snack_recommendation = "Light snack if needed (e.g., 1 small apple, handful of berries)"
+        else:
+            snack_recommendation = "<specific diverse snack from preferred cuisine>"
+        
+        # Generate diverse meal options using AI
+        prompt = f"""You are a registered dietitian AI creating a fresh, adaptive meal plan for TODAY that respects dietary restrictions and avoids repetition.
+
+USER DIETARY RESTRICTIONS:
+{restriction_text if restriction_warnings else "No specific restrictions"}
+
+CUISINE PREFERENCES:
+{cuisine_text}
+{food_preferences_text}
+{strong_dislikes_text}
+
+CURRENT CONSUMPTION TODAY:
+{consumed_summary if consumed_summary else "No meals logged yet today"}
+
+REMAINING CALORIES: {remaining_calories} kcal
+REMAINING MEALS NEEDED: {', '.join(remaining_meals)}
+
+CRITICAL REQUIREMENTS:
+1. ALL dishes must be diabetes-friendly (low glycemic index)
+2. ALL dishes must be completely vegetarian and egg-free if restricted
+3. STRICTLY FOLLOW THE CUISINE TYPE: {', '.join(diet_type) if diet_type else 'Mixed international'}
+4. Provide DIVERSE, SPECIFIC dish names - avoid repetition
+5. Consider what user already ate today to suggest complementary meals
+6. Adapt portion sizes based on remaining calories
+7. Focus on variety - no similar dishes
+8. Avoid foods listed in strong dislikes
+9. Incorporate food preferences where appropriate
+10. **INTELLIGENT SNACK RECOMMENDATIONS** - Be smart about snack needs:
+    - If remaining calories ≤ 100: "No additional snacks needed - you've reached your calorie goal"
+    - If remaining calories ≤ 200: "Optional light snack only if genuinely hungry"
+    - If remaining calories ≤ 300: "Light snack if needed (small portion)"
+    - Only recommend full snacks if remaining calories > 300
+
+CUISINE-SPECIFIC MEAL EXAMPLES:
+- If Western: "Grilled chicken salad with vinaigrette", "Turkey sandwich with whole grain bread", "Baked salmon with roasted vegetables"
+- If Chinese/East Asian: "Steamed fish with vegetables", "Tofu stir-fry with brown rice", "Chicken and vegetable soup"
+- If South Asian: "Dal curry with roti", "Vegetable curry with quinoa", "Chicken tikka with cucumber salad"
+- If Mediterranean: "Greek salad with grilled chicken", "Hummus with vegetable sticks", "Grilled fish with olive oil"
+
+Generate a complete meal plan for the remaining meals today:
+
+{{
+  "meals": {{
+    "breakfast": "<specific diverse dish from preferred cuisine>",
+    "lunch": "<specific diverse dish from preferred cuisine>",
+    "dinner": "<specific diverse dish from preferred cuisine>",
+    "snack": "{snack_recommendation}"
+  }}
+}}
+
+SNACK LOGIC:
+- Current remaining calories: {remaining_calories}
+- Snack recommendation: {snack_recommendation}
+- Use this EXACT snack recommendation if it's a message, otherwise generate a specific snack dish
+
+Ensure maximum variety within the specified cuisine type and completely avoid any meat, poultry, fish, seafood, or egg-based ingredients if restricted."""
+
+        try:
+            model_name = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME")
+            if not model_name:
+                raise Exception("AZURE_OPENAI_DEPLOYMENT_NAME not configured")
+                
+            response = client.chat.completions.create(
+                model=model_name,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.8,  # Higher temperature for more creativity/variety
+                max_tokens=600
+            )
+
+            ai_content = response.choices[0].message.content
+            if not ai_content:
+                raise Exception("No content in AI response")
+                
+            start_idx = ai_content.find('{')
+            end_idx = ai_content.rfind('}') + 1
+            
+            if start_idx != -1 and end_idx != -1:
+                import json
+                ai_json = json.loads(ai_content[start_idx:end_idx])
+                
+                # Apply safety filter to ensure dietary compliance
+                safe_meals = {}
+                for meal_type, dish in ai_json.get("meals", {}).items():
+                    safe_meals[meal_type] = sanitize_vegetarian_meal(dish, is_vegetarian, no_eggs)
+                
+                # Create the meal plan
+                meal_plan = {
+                    "id": f"adaptive_{user_email}_{today.isoformat()}_{int(datetime.utcnow().timestamp())}",
+                    "date": today.isoformat(),
+                    "type": "adaptive_recalibrated",
+                    "meals": safe_meals,
+                    "dailyCalories": int(remaining_calories) + sum(r.get("nutritional_info", {}).get("calories", 0) for r in today_consumption),
+                    "remaining_calories": remaining_calories,
+                    "created_at": datetime.utcnow().isoformat(),
+                    "consumption_triggered": True,
+                    "notes": f"Adaptive meal plan updated after food logging. Remaining calories: {remaining_calories}"
+                }
+                
+                return meal_plan
+                
+        except Exception as ai_error:
+            print(f"[generate_fresh_adaptive_meal_plan] AI error: {ai_error}")
+            # Fall back to safe vegetarian options
+            return generate_safe_vegetarian_fallback(user_email, remaining_calories, is_vegetarian, no_eggs)
+            
+    except Exception as e:
+        print(f"[generate_fresh_adaptive_meal_plan] Error: {e}")
+        return None
+
+def sanitize_vegetarian_meal(meal_text: str, is_vegetarian: bool, no_eggs: bool) -> str:
+    """
+    Ensure meal is vegetarian and egg-free with strong enforcement.
+    """
+    if not meal_text:
+        return "Vegetarian meal option"
+    
+    meal_lower = meal_text.lower()
+    
+    # Check for non-vegetarian ingredients
+    non_veg_keywords = ['chicken', 'beef', 'pork', 'fish', 'salmon', 'tuna', 'turkey', 'lamb', 'meat', 'seafood', 'shrimp', 'bacon', 'ham', 'duck', 'goose']
+    egg_keywords = ['egg', 'eggs', 'omelet', 'omelette', 'scrambled', 'poached', 'fried egg', 'boiled egg']
+    
+    if is_vegetarian and any(keyword in meal_lower for keyword in non_veg_keywords):
+        return "Vegetarian lentil curry with brown rice and steamed vegetables"
+    if no_eggs and any(keyword in meal_lower for keyword in egg_keywords):
+        return "Overnight oats with almond milk, chia seeds, and fresh berries"
+    
+    return meal_text
+
+def generate_safe_vegetarian_fallback(user_email: str, remaining_calories: int, is_vegetarian: bool, no_eggs: bool):
+    """
+    Generate safe vegetarian fallback meal plan with intelligent snack recommendations.
+    """
+    today = datetime.utcnow().date()
+    
+    # Diverse vegetarian options
+    vegetarian_options = {
+        "breakfast": [
+            "Steel-cut oats with almond milk and fresh berries",
+            "Quinoa breakfast bowl with coconut yogurt and mango",
+            "Chia seed pudding with vanilla and strawberries",
+            "Smoothie bowl with spinach, banana, and granola"
+        ],
+        "lunch": [
+            "Mediterranean chickpea salad with cucumber and herbs",
+            "Quinoa Buddha bowl with roasted vegetables and tahini",
+            "Lentil soup with whole grain bread and mixed greens",
+            "Vegetable curry with brown rice and cilantro"
+        ],
+        "dinner": [
+            "Thai-inspired tofu curry with jasmine rice",
+            "Stuffed bell peppers with quinoa and vegetables",
+            "Lentil dal with naan bread and steamed broccoli",
+            "Vegetable stir-fry with tofu and brown rice"
+        ],
+        "snack": [
+            "Apple slices with almond butter",
+            "Roasted chickpeas with paprika and lime",
+            "Hummus with cucumber slices and whole grain crackers",
+            "Mixed nuts and dried fruit (if no nut allergy)"
+        ]
+    }
+    
+    # Select diverse options
+    import random
+    selected_meals = {}
+    for meal_type, options in vegetarian_options.items():
+        if meal_type == "snack":
+            # Apply intelligent snack logic based on remaining calories
+            if remaining_calories <= 100:
+                selected_meals[meal_type] = "No additional snacks needed - you've reached your calorie goal for today"
+            elif remaining_calories <= 200:
+                selected_meals[meal_type] = "Optional light snack only if genuinely hungry (e.g., cucumber slices, herbal tea)"
+            elif remaining_calories <= 300:
+                selected_meals[meal_type] = "Light snack if needed (e.g., 1 small apple, handful of berries)"
+            else:
+                selected_meals[meal_type] = random.choice(options)
+        else:
+            selected_meals[meal_type] = random.choice(options)
+    
+    return {
+        "id": f"safe_vegetarian_{user_email}_{today.isoformat()}",
+        "date": today.isoformat(),
+        "type": "safe_vegetarian_fallback",
+        "meals": selected_meals,
+        "dailyCalories": 2000,
+        "remaining_calories": remaining_calories,
+        "created_at": datetime.utcnow().isoformat(),
+        "notes": f"Safe vegetarian fallback meal plan. Remaining calories: {remaining_calories}"
+    }
+
 async def get_today_consumption_records_async(user_email: str, user_timezone: str = "UTC") -> List[Dict[str, Any]]:
     """
     Get today's consumption records for a user using proper timezone boundaries.
@@ -3000,6 +3463,235 @@ async def export_document(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/privacy/export-data")
+async def export_privacy_data(
+    request: FastAPIRequest,
+    current_user: User = Depends(get_current_user)
+):
+    """Export user's privacy data in specified format (PDF, JSON, or DOCX)"""
+    try:
+        data = await request.json()
+        data_types = data.get("data_types", [])
+        format_type = data.get("format_type", "pdf")
+        
+        if not data_types:
+            raise HTTPException(status_code=400, detail="Please specify data types to export")
+        
+        if format_type not in ["pdf", "json", "docx"]:
+            raise HTTPException(status_code=400, detail="Invalid format type. Use pdf, json, or docx")
+        
+        print(f"[PRIVACY_EXPORT] Exporting data for user {current_user['email']}")
+        print(f"[PRIVACY_EXPORT] Data types: {data_types}")
+        print(f"[PRIVACY_EXPORT] Format: {format_type}")
+        
+        # Collect user data based on requested types
+        export_data = {}
+        
+        # Get user profile
+        if "profile" in data_types:
+            try:
+                user_doc = await get_user_by_email(current_user["email"])
+                if user_doc:
+                    export_data["profile"] = user_doc.get("profile", {})
+            except Exception as e:
+                print(f"[PRIVACY_EXPORT] Error getting profile: {e}")
+                export_data["profile"] = {}
+        
+        # Get meal plans
+        if "meal_plans" in data_types:
+            try:
+                meal_plans = await get_user_meal_plans(current_user["email"])
+                export_data["meal_plans"] = meal_plans
+            except Exception as e:
+                print(f"[PRIVACY_EXPORT] Error getting meal plans: {e}")
+                export_data["meal_plans"] = []
+        
+        # Get consumption history
+        if "consumption_history" in data_types:
+            try:
+                consumption_history = await get_user_consumption_history(current_user["email"], limit=100)
+                export_data["consumption_history"] = consumption_history
+            except Exception as e:
+                print(f"[PRIVACY_EXPORT] Error getting consumption history: {e}")
+                export_data["consumption_history"] = []
+        
+        # Get chat history
+        if "chat_history" in data_types:
+            try:
+                chat_history = await get_recent_chat_history(current_user["email"], limit=100)
+                export_data["chat_history"] = chat_history
+            except Exception as e:
+                print(f"[PRIVACY_EXPORT] Error getting chat history: {e}")
+                export_data["chat_history"] = []
+        
+        # Get recipes
+        if "recipes" in data_types:
+            try:
+                recipes = await get_user_recipes(current_user["email"])
+                export_data["recipes"] = recipes
+            except Exception as e:
+                print(f"[PRIVACY_EXPORT] Error getting recipes: {e}")
+                export_data["recipes"] = []
+        
+        # Get shopping lists
+        if "shopping_lists" in data_types:
+            try:
+                shopping_lists = await get_user_shopping_lists(current_user["email"])
+                export_data["shopping_lists"] = shopping_lists
+            except Exception as e:
+                print(f"[PRIVACY_EXPORT] Error getting shopping lists: {e}")
+                export_data["shopping_lists"] = []
+        
+        # Prepare user info for export
+        user_info = {
+            "email": current_user["email"],
+            "consent_given": current_user.get("consent_given", False),
+            "marketing_consent": current_user.get("marketing_consent", False),
+            "analytics_consent": current_user.get("analytics_consent", False),
+            "data_retention_preference": current_user.get("data_retention_preference", "standard"),
+            "policy_version": current_user.get("policy_version", "1.0")
+        }
+        
+        print(f"[PRIVACY_EXPORT] Collected data for {len(data_types)} data types")
+        
+        # Generate export based on format
+        if format_type == "pdf":
+            return await generate_data_export_pdf(export_data, user_info)
+        elif format_type == "docx":
+            return await generate_data_export_docx(export_data, user_info)
+        else:  # json
+            filename = f"health_data_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+            return JSONResponse(
+                content={
+                    "export_data": export_data,
+                    "user_info": user_info,
+                    "export_timestamp": datetime.now().isoformat(),
+                    "format": "json"
+                },
+                headers={"Content-Disposition": f"attachment; filename={filename}"}
+            )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[PRIVACY_EXPORT] Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Export failed: {str(e)}")
+
+@app.delete("/privacy/delete-account")
+async def delete_account(
+    request: FastAPIRequest,
+    current_user: User = Depends(get_current_user)
+):
+    """Delete user account and all associated data"""
+    try:
+        data = await request.json()
+        deletion_type = data.get("deletion_type", "complete")
+        confirmation = data.get("confirmation", "")
+        
+        if confirmation.upper() != "DELETE":
+            raise HTTPException(status_code=400, detail="Invalid confirmation. Type DELETE to confirm.")
+        
+        print(f"[PRIVACY_DELETE] Deleting account for user {current_user['email']}")
+        print(f"[PRIVACY_DELETE] Deletion type: {deletion_type}")
+        
+        user_email = current_user["email"]
+        
+        # Delete user data from various containers
+        try:
+            # Delete user profile and main record from user_container
+            try:
+                user_doc = await get_user_by_email(user_email)
+                if user_doc:
+                    user_container.delete_item(item=user_doc, partition_key=user_email)
+            except Exception as e:
+                print(f"[PRIVACY_DELETE] Error deleting user document: {str(e)}")
+            
+            # Delete meal plans
+            await delete_all_user_meal_plans(user_email)
+            
+            # Delete consumption history
+            query = f"SELECT * FROM c WHERE c.user_id = '{user_email}' AND c.type = 'consumption_record'"
+            consumption_records = list(interactions_container.query_items(query=query, enable_cross_partition_query=True))
+            for record in consumption_records:
+                interactions_container.delete_item(item=record, partition_key=record.get("session_id", user_email))
+            
+            # Delete chat history
+            query = f"SELECT * FROM c WHERE c.user_id = '{user_email}' AND c.type = 'chat_message'"
+            chat_messages = list(interactions_container.query_items(query=query, enable_cross_partition_query=True))
+            for message in chat_messages:
+                interactions_container.delete_item(item=message, partition_key=message.get("session_id", user_email))
+            
+            # Delete recipes
+            query = f"SELECT * FROM c WHERE c.user_id = '{user_email}' AND c.type = 'recipes'"
+            recipes = list(interactions_container.query_items(query=query, enable_cross_partition_query=True))
+            for recipe in recipes:
+                interactions_container.delete_item(item=recipe, partition_key=recipe.get("session_id", user_email))
+            
+            # Delete shopping lists
+            query = f"SELECT * FROM c WHERE c.user_id = '{user_email}' AND c.type = 'shopping_list'"
+            shopping_lists = list(interactions_container.query_items(query=query, enable_cross_partition_query=True))
+            for shopping_list in shopping_lists:
+                interactions_container.delete_item(item=shopping_list, partition_key=shopping_list.get("session_id", user_email))
+            
+            print(f"[PRIVACY_DELETE] Successfully deleted all data for user {user_email}")
+            
+        except Exception as e:
+            print(f"[PRIVACY_DELETE] Error during data deletion: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Failed to delete user data: {str(e)}")
+        
+        return {"message": "Account deleted successfully"}
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[PRIVACY_DELETE] Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Account deletion failed: {str(e)}")
+
+@app.put("/privacy/update-consent")
+async def update_consent(
+    request: FastAPIRequest,
+    current_user: User = Depends(get_current_user)
+):
+    """Update user consent preferences"""
+    try:
+        data = await request.json()
+        
+        print(f"[PRIVACY_CONSENT] Updating consent for user {current_user['email']}")
+        print(f"[PRIVACY_CONSENT] New consent settings: {data}")
+        
+        # Update user record with new consent settings
+        user_email = current_user["email"]
+        
+        try:
+            # Get current user document
+            user_doc = await get_user_by_email(user_email)
+            if not user_doc:
+                raise HTTPException(status_code=404, detail="User not found")
+            
+            # Update consent fields
+            user_doc["consent_given"] = data.get("consent_given", user_doc.get("consent_given", False))
+            user_doc["marketing_consent"] = data.get("marketing_consent", user_doc.get("marketing_consent", False))
+            user_doc["analytics_consent"] = data.get("analytics_consent", user_doc.get("analytics_consent", False))
+            user_doc["data_retention_preference"] = data.get("data_retention_preference", user_doc.get("data_retention_preference", "standard"))
+            user_doc["last_consent_update"] = datetime.utcnow().isoformat()
+            
+            # Update the user document
+            user_container.upsert_item(body=user_doc)
+            
+            print(f"[PRIVACY_CONSENT] Successfully updated consent for user {user_email}")
+            
+        except Exception as e:
+            print(f"[PRIVACY_CONSENT] Error updating consent: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Failed to update consent: {str(e)}")
+        
+        return {"message": "Consent preferences updated successfully"}
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[PRIVACY_CONSENT] Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Consent update failed: {str(e)}")
+
 @app.post("/chat/message")
 async def send_chat_message(
     message: ChatMessage,
@@ -4535,6 +5227,14 @@ Would you like me to create a detailed recipe for any of these meal suggestions?
         }
         await save_consumption_record(current_user["email"], consumption_data, meal_type=meal_type)
 
+        # Trigger meal plan recalibration after logging food
+        try:
+            profile = current_user.get("profile", {})
+            await trigger_meal_plan_recalibration(current_user["email"], profile)
+            print(f"[chat_message_with_image] Meal plan recalibrated after food logging")
+        except Exception as recal_error:
+            print(f"[chat_message_with_image] Error in meal plan recalibration: {recal_error}")
+
         meal_type_text = f" as your **{meal_type}**" if meal_type else ""
         
         assistant_message = f"""🍽️ **Food Logged{meal_type_text}: {food_data.get('food_name')}**
@@ -4612,6 +5312,14 @@ Would you like me to log this to your consumption history? Just say "log this as
             "image_url": img_str if analysis_data else None
         }
         await save_consumption_record(current_user["email"], consumption_data, meal_type=meal_type)
+
+        # Trigger meal plan recalibration after logging food
+        try:
+            profile = current_user.get("profile", {})
+            await trigger_meal_plan_recalibration(current_user["email"], profile)
+            print(f"[chat_message_with_image] Meal plan recalibrated after legacy food logging")
+        except Exception as recal_error:
+            print(f"[chat_message_with_image] Error in meal plan recalibration: {recal_error}")
 
         context_note = " (from previous analysis)" if recent_context and not analysis_data else ""
         meal_type_text = f" as your **{meal_type}**" if meal_type else ""
@@ -5175,7 +5883,7 @@ async def get_daily_coaching_insights(current_user: User = Depends(get_current_u
             recommendations.append({
                 "type": "weekly_good",
                 "priority": "low",
-                "message": f"Good progress! {health_adherence:.0f}% health-suitable meals. Let's aim for 80%+ this week.",
+                "message": f"Good progress! {health_adherence:.0f} health-suitable meals. Let's aim for 80%+ this week.",
                 "action": "improve"
             })
         else:
@@ -5526,57 +6234,64 @@ async def quick_log_food(
             print(traceback.format_exc())
         
         # ------------------------------
-        # FORCE MEAL PLAN REFRESH FOR IMMEDIATE FRONTEND UPDATE
+        # TRIGGER COMPREHENSIVE MEAL PLAN RECALIBRATION
         # ------------------------------
         try:
-            print("[quick_log_food] Triggering immediate meal plan refresh for frontend...")
+            print("[quick_log_food] Triggering comprehensive meal plan recalibration...")
             
-            # Get the updated meal plan using the new calibration system
-            refreshed_plan = await get_todays_meal_plan(current_user)
+            # Use the new recalibration system
+            profile = current_user.get("profile", {})
+            updated_plan = await trigger_meal_plan_recalibration(current_user["email"], profile)
             
-            print(f"[quick_log_food] Successfully refreshed meal plan: {refreshed_plan.get('id', 'N/A')}")
+            if updated_plan:
+                print(f"[quick_log_food] Meal plan recalibration completed successfully")
+                remaining_calories = updated_plan.get("remaining_calories", 0)
+                
+                # Return success response with meal plan update status
+                return {
+                    "success": True,
+                    "message": f"Successfully logged {analysis_data.get('food_name', food_name)}",
+                    "consumption_record_id": consumption_record["id"],
+                    "analysis": analysis_data,
+                    "food_name": analysis_data.get("food_name", food_name),
+                    "nutritional_summary": {
+                        "calories": analysis_data.get("nutritional_info", {}).get("calories", 0),
+                        "carbohydrates": analysis_data.get("nutritional_info", {}).get("carbohydrates", 0),
+                        "protein": analysis_data.get("nutritional_info", {}).get("protein", 0),
+                        "fat": analysis_data.get("nutritional_info", {}).get("fat", 0)
+                    },
+                    "diabetes_rating": analysis_data.get("medical_rating", {}).get("diabetes_suitability", "medium"),
+                    "meal_plan_updated": True,
+                    "remaining_calories": remaining_calories,
+                    "updated_meal_plan": updated_plan,
+                    "calibration_applied": True
+                }
+            else:
+                print(f"[quick_log_food] Meal plan recalibration failed, but continuing...")
+                
+        except Exception as e:
+            print(f"[quick_log_food] Error in meal plan recalibration: {str(e)}")
+            import traceback
+            print(traceback.format_exc())
             
-            # Return success response with meal plan update status and refreshed plan
-            return {
-                "success": True,
-                "message": f"Successfully logged {analysis_data.get('food_name', food_name)}",
-                "consumption_record_id": consumption_record["id"],
-                "analysis": analysis_data,
-                "food_name": analysis_data.get("food_name", food_name),
-                "nutritional_summary": {
-                    "calories": analysis_data.get("nutritional_info", {}).get("calories", 0),
-                    "carbohydrates": analysis_data.get("nutritional_info", {}).get("carbohydrates", 0),
-                    "protein": analysis_data.get("nutritional_info", {}).get("protein", 0),
-                    "fat": analysis_data.get("nutritional_info", {}).get("fat", 0)
-                },
-                "diabetes_rating": analysis_data.get("medical_rating", {}).get("diabetes_suitability", "medium"),
-                "meal_plan_updated": True,
-                "remaining_calories": remaining_calories,
-                "refreshed_meal_plan": refreshed_plan,  # Include the refreshed plan
-                "calibration_applied": True
-            }
-            
-        except Exception as refresh_error:
-            print(f"[quick_log_food] Error refreshing meal plan: {refresh_error}")
-            # Still return success for the food log, but indicate meal plan refresh failed
-            return {
-                "success": True,
-                "message": f"Successfully logged {analysis_data.get('food_name', food_name)}",
-                "consumption_record_id": consumption_record["id"],
-                "analysis": analysis_data,
-                "food_name": analysis_data.get("food_name", food_name),
-                "nutritional_summary": {
-                    "calories": analysis_data.get("nutritional_info", {}).get("calories", 0),
-                    "carbohydrates": analysis_data.get("nutritional_info", {}).get("carbohydrates", 0),
-                    "protein": analysis_data.get("nutritional_info", {}).get("protein", 0),
-                    "fat": analysis_data.get("nutritional_info", {}).get("fat", 0)
-                },
-                "diabetes_rating": analysis_data.get("medical_rating", {}).get("diabetes_suitability", "medium"),
-                "meal_plan_updated": False,
-                "remaining_calories": remaining_calories,
-                "calibration_applied": False,
-                "refresh_error": str(refresh_error)
-            }
+        # Fallback response if recalibration fails
+        return {
+            "success": True,
+            "message": f"Successfully logged {analysis_data.get('food_name', food_name)}",
+            "consumption_record_id": consumption_record["id"],
+            "analysis": analysis_data,
+            "food_name": analysis_data.get("food_name", food_name),
+            "nutritional_summary": {
+                "calories": analysis_data.get("nutritional_info", {}).get("calories", 0),
+                "carbohydrates": analysis_data.get("nutritional_info", {}).get("carbohydrates", 0),
+                "protein": analysis_data.get("nutritional_info", {}).get("protein", 0),
+                "fat": analysis_data.get("nutritional_info", {}).get("fat", 0)
+            },
+            "diabetes_rating": analysis_data.get("medical_rating", {}).get("diabetes_suitability", "medium"),
+            "meal_plan_updated": False,
+            "calibration_applied": False,
+            "note": "Food logged successfully but meal plan update failed"
+        }
         
     except HTTPException:
         # Re-raise HTTP exceptions as-is
@@ -5710,120 +6425,11 @@ def get_remaining_meals_by_time(current_hour: int) -> list:
 
 async def apply_intelligent_adaptations(meal_plan: dict, consumption_analysis: dict, remaining_meals: list, user_profile: dict) -> dict:
     """
-    Apply intelligent adaptations to the meal plan based on consumption analysis.
-    This is the core of the advanced calibration system.
+    Simplified adaptation function - now replaced by generate_consumption_aware_meal_plan.
+    This function is kept for backward compatibility but simply returns the meal plan.
     """
-    try:
-        print(f"[apply_intelligent_adaptations] Starting adaptations for remaining meals: {remaining_meals}")
-        
-        adapted_plan = meal_plan.copy()
-        adaptations_made = []
-        
-        # Get key metrics
-        calories_consumed = consumption_analysis["total_calories_consumed"]
-        calories_planned = consumption_analysis["total_calories_planned"]
-        remaining_calories = calories_planned - calories_consumed
-        adherence_by_meal = consumption_analysis["adherence_by_meal"]
-        diabetes_score = consumption_analysis["diabetes_suitability_score"]
-        
-        print(f"[adaptations] Calories consumed: {calories_consumed}, Planned: {calories_planned}, Remaining: {remaining_calories}")
-        print(f"[adaptations] Diabetes suitability score: {diabetes_score}%")
-        
-        # 1. SNACK ADAPTATION - Critical for the user's issue
-        if "snack" in remaining_meals:
-            snack_adherence = adherence_by_meal.get("snack", {})
-            if snack_adherence.get("status") == "deviated":
-                # User ate a different snack than planned
-                consumed_snacks = snack_adherence.get("consumed", [])
-                snack_calories = snack_adherence.get("calories_consumed", 0)
-                
-                print(f"[adaptations] Snack deviation detected. Consumed: {consumed_snacks}, Calories: {snack_calories}")
-                
-                # Adapt snack recommendation based on what was consumed
-                if snack_calories > 200:  # High calorie snack consumed
-                    adapted_plan["meals"]["snack"] = "Light vegetable sticks with hummus (if still hungry)"
-                    adaptations_made.append("Adjusted snack to lighter option due to higher calorie snack consumed")
-                elif snack_calories > 0:  # Normal snack consumed
-                    adapted_plan["meals"]["snack"] = "Optional: Small portion of nuts or Greek yogurt"
-                    adaptations_made.append("Made snack optional since you already had a snack")
-                
-                # Also adapt other meals based on snack consumption
-                if remaining_calories < 300:  # Low remaining calories
-                    if "dinner" in remaining_meals:
-                        adapted_plan["meals"]["dinner"] = f"{adapted_plan['meals']['dinner']} (lighter portion)"
-                        adaptations_made.append("Reduced dinner portion to account for snack calories")
-        
-        # 2. CALORIE BALANCE ADAPTATION
-        if remaining_calories < 200:  # Low remaining calories
-            for meal_type in remaining_meals:
-                if meal_type != "snack":  # Don't modify snack here as it's handled above
-                    current_meal = adapted_plan["meals"].get(meal_type, "")
-                    if current_meal and "lighter" not in current_meal.lower():
-                        adapted_plan["meals"][meal_type] = f"{current_meal} (lighter portion)"
-                        adaptations_made.append(f"Reduced {meal_type} portion to balance daily calories")
-        
-        elif remaining_calories > 600:  # High remaining calories
-            for meal_type in remaining_meals:
-                if meal_type != "snack":
-                    current_meal = adapted_plan["meals"].get(meal_type, "")
-                    if current_meal and "larger" not in current_meal.lower():
-                        adapted_plan["meals"][meal_type] = f"{current_meal} (slightly larger portion)"
-                        adaptations_made.append(f"Increased {meal_type} portion to meet calorie goals")
-        
-        # 3. DIABETES SUITABILITY ADAPTATION
-        if diabetes_score < 70:  # Poor diabetes adherence
-            for meal_type in remaining_meals:
-                current_meal = adapted_plan["meals"].get(meal_type, "")
-                if current_meal:
-                    # Generate diabetes-friendly alternative
-                    diabetes_friendly_meal = await generate_diabetes_friendly_alternative(current_meal, meal_type, user_profile)
-                    if diabetes_friendly_meal:
-                        adapted_plan["meals"][meal_type] = diabetes_friendly_meal
-                        adaptations_made.append(f"Adjusted {meal_type} to be more diabetes-friendly")
-        
-        # 4. MEAL-SPECIFIC ADAPTATIONS
-        for meal_type in remaining_meals:
-            meal_adherence = adherence_by_meal.get(meal_type, {})
-            if meal_adherence.get("status") == "deviated":
-                consumed_calories = meal_adherence.get("calories_consumed", 0)
-                
-                # If user consumed much more calories than typical for this meal
-                if consumed_calories > 500 and meal_type in ["breakfast", "lunch"]:
-                    # Adjust later meals
-                    later_meals = ["lunch", "dinner", "snack"] if meal_type == "breakfast" else ["dinner", "snack"]
-                    for later_meal in later_meals:
-                        if later_meal in remaining_meals:
-                            current_meal = adapted_plan["meals"].get(later_meal, "")
-                            if current_meal and "lighter" not in current_meal.lower():
-                                adapted_plan["meals"][later_meal] = f"{current_meal} (lighter portion)"
-                                adaptations_made.append(f"Reduced {later_meal} to compensate for heavy {meal_type}")
-        
-        # 5. TIME-BASED ADAPTATIONS
-        current_hour = datetime.utcnow().hour
-        if current_hour > 20:  # Late evening
-            if "dinner" in remaining_meals:
-                current_dinner = adapted_plan["meals"].get("dinner", "")
-                if current_dinner and "light" not in current_dinner.lower():
-                    adapted_plan["meals"]["dinner"] = f"Light {current_dinner.lower()}"
-                    adaptations_made.append("Made dinner lighter due to late timing")
-        
-        # Update plan notes
-        if adaptations_made:
-            current_notes = adapted_plan.get("notes", "")
-            adaptation_summary = "Auto-adapted: " + "; ".join(adaptations_made)
-            adapted_plan["notes"] = f"{current_notes} {adaptation_summary}".strip()
-            adapted_plan["adaptations_applied"] = adaptations_made
-            adapted_plan["adaptation_timestamp"] = datetime.utcnow().isoformat()
-        
-        print(f"[adaptations] Applied {len(adaptations_made)} adaptations: {adaptations_made}")
-        
-        return adapted_plan
-        
-    except Exception as e:
-        print(f"[apply_intelligent_adaptations] Error: {e}")
-        import traceback
-        print(traceback.format_exc())
-        return meal_plan
+    print(f"[apply_intelligent_adaptations] Legacy function called - use generate_consumption_aware_meal_plan instead")
+    return meal_plan
 
 
 async def generate_diabetes_friendly_alternative(current_meal: str, meal_type: str, user_profile: dict) -> str:
@@ -6165,8 +6771,8 @@ Ensure ALL dishes are completely vegetarian and egg-free. Do not include any mea
             print(f"[CALIBRATION] Current hour: {current_hour}, Remaining meals: {remaining_meals}")
             print(f"[CALIBRATION] Consumption analysis: {consumption_analysis}")
             
-            # Apply intelligent adaptations based on consumption analysis
-            todays_plan = await apply_intelligent_adaptations(
+            # Apply consumption-aware meal plan generation
+            todays_plan = await generate_consumption_aware_meal_plan(
                 todays_plan, 
                 consumption_analysis, 
                 remaining_meals,
@@ -6195,7 +6801,7 @@ Ensure ALL dishes are completely vegetarian and egg-free. Do not include any mea
             import traceback
             print(traceback.format_exc())
 
-        # FORCE VEGETARIAN MEAL GENERATION - Don't use old plans that may contain non-vegetarian dishes
+        # ALWAYS GENERATE FRESH VEGETARIAN MEAL PLANS - Don't use old plans that may contain non-vegetarian dishes
         profile = current_user.get("profile", {})
         dietary_restrictions = profile.get('dietaryRestrictions', [])
         allergies = profile.get('allergies', [])
@@ -6205,128 +6811,57 @@ Ensure ALL dishes are completely vegetarian and egg-free. Do not include any mea
         is_vegetarian = 'vegetarian' in [r.lower() for r in dietary_restrictions] or 'vegetarian' in [d.lower() for d in diet_type]
         no_eggs = any('egg' in r.lower() for r in dietary_restrictions) or any('egg' in a.lower() for a in allergies)
         
-        # Always generate fresh vegetarian meals for users with dietary restrictions
+        # Always generate fresh diverse meals for users with dietary restrictions
         if is_vegetarian or no_eggs:
-            print(f"[get_todays_meal_plan] User has dietary restrictions - generating fresh vegetarian meal plan")
+            print(f"[get_todays_meal_plan] User has dietary restrictions - generating fresh diverse vegetarian meal plan")
             
-            # Generate completely fresh vegetarian meal plan
-            restriction_warnings = []
-            if is_vegetarian:
-                restriction_warnings.append("STRICTLY VEGETARIAN - NO MEAT, POULTRY, FISH, OR SEAFOOD")
-            if no_eggs:
-                restriction_warnings.append("NO EGGS - Avoid all egg-based dishes and ingredients")
-            if any('nut' in a.lower() for a in allergies):
-                restriction_warnings.append("NUT ALLERGY - Avoid all nuts and nut-based products")
+            # Use the new comprehensive recalibration system
+            today_consumption = await get_today_consumption_records_async(current_user["email"], user_timezone="UTC")
+            calories_consumed = sum(r.get("nutritional_info", {}).get("calories", 0) for r in today_consumption)
+            target_calories = int(profile.get('calorieTarget', '2000'))
+            remaining_calories = max(0, target_calories - calories_consumed)
             
-            restriction_text = "\n".join([f"⚠️ {warning}" for warning in restriction_warnings])
+            # Generate fresh adaptive meal plan
+            fresh_plan = await generate_fresh_adaptive_meal_plan(
+                current_user["email"],
+                today_consumption,
+                remaining_calories,
+                is_vegetarian,
+                no_eggs,
+                dietary_restrictions,
+                allergies,
+                profile.get('dietType', []),
+                profile.get('foodPreferences', []),
+                profile.get('strongDislikes', [])
+            )
             
-            prompt = f"""You are a registered dietitian AI. Generate a complete daily meal plan for TODAY that is diabetes-friendly and strictly adheres to dietary restrictions.
-
-USER PROFILE:
-Diet Type: {', '.join(diet_type) or 'Standard'}
-Dietary Restrictions: {', '.join(dietary_restrictions) or 'None'}
-Allergies: {', '.join(allergies) or 'None'}
-
-{restriction_text if restriction_warnings else ""}
-
-CRITICAL REQUIREMENTS:
-- ALL dishes must be diabetes-friendly (low glycemic index)
-- ALL dishes must be completely vegetarian and egg-free
-- Provide SPECIFIC dish names, not generic descriptions
-- Each meal should be balanced and nutritious
-
-Generate a complete meal plan for today:
-
-{{
-  "meals": {{
-    "breakfast": "<specific vegetarian dish without eggs>",
-    "lunch": "<specific vegetarian dish without eggs>",
-    "dinner": "<specific vegetarian dish without eggs>",
-    "snack": "<specific vegetarian snack without eggs>"
-  }}
-}}
-
-Examples of appropriate dishes:
-- Breakfast: "Steel-cut oats with almond milk and fresh berries"
-- Lunch: "Quinoa Buddha bowl with roasted vegetables and tahini"
-- Dinner: "Lentil curry with brown rice and steamed broccoli"
-- Snack: "Apple slices with almond butter"
-
-Ensure ALL dishes are completely vegetarian and egg-free."""
-
-            try:
-                ai_resp = client.chat.completions.create(
-                    model=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
-                    messages=[{"role": "user", "content": prompt}],
-                    temperature=0.7,
-                    max_tokens=500
-                )
-
-                import json as _json
-                ai_content = ai_resp.choices[0].message.content
-                start_idx = ai_content.find('{')
-                end_idx = ai_content.rfind('}') + 1
-                ai_json = _json.loads(ai_content[start_idx:end_idx])
-                
-                # Apply safety filter to ensure compliance
-                def sanitize_meal(meal_text: str) -> str:
-                    """Ensure meal is vegetarian and egg-free"""
-                    meal_lower = meal_text.lower()
-                    
-                    # Check for non-vegetarian ingredients
-                    non_veg_keywords = ['chicken', 'beef', 'pork', 'fish', 'salmon', 'tuna', 'turkey', 'lamb', 'meat', 'seafood', 'shrimp']
-                    egg_keywords = ['egg', 'eggs', 'omelet', 'omelette', 'scrambled', 'poached', 'fried egg']
-                    
-                    if any(keyword in meal_lower for keyword in non_veg_keywords):
-                        return "Vegetarian lentil and vegetable curry with quinoa"
-                    if any(keyword in meal_lower for keyword in egg_keywords):
-                        return "Overnight oats with almond milk, chia seeds, and fresh berries"
-                    
-                    return meal_text
-                
-                # Apply safety filter to all meals
-                safe_meals = {}
-                for meal_type, dish in ai_json.get("meals", {}).items():
-                    safe_meals[meal_type] = sanitize_meal(dish)
-                
-                # Clean up any repetitive notes in meal names
-                for meal_type in safe_meals:
-                    meal_text = safe_meals[meal_type]
-                    # Remove repetitive "(recommended)" text
-                    meal_text = meal_text.replace(" (recommended) (recommended)", " (recommended)")
-                    meal_text = meal_text.replace(" (recommended) (recommended) (recommended)", " (recommended)")
-                    meal_text = meal_text.replace(" (recommended) (recommended) (recommended) (recommended)", " (recommended)")
-                    safe_meals[meal_type] = meal_text
-                
-                todays_plan = {
-                    "id": f"fresh_vegetarian_{current_user['email']}_{today.isoformat()}",
-                    "date": today.isoformat(),
-                    "type": "fresh_vegetarian_generated",
-                    "meals": safe_meals,
-                    "dailyCalories": int(profile.get('calorieTarget', '2000')),
-                    "created_at": datetime.utcnow().isoformat(),
-                    "notes": ""  # Clean notes - no repetitive text
-                }
-                
-                print(f"[get_todays_meal_plan] Generated fresh vegetarian meal plan: {safe_meals}")
-                
-            except Exception as gen_err:
-                print(f"[get_todays_meal_plan] Error generating fresh vegetarian plan: {gen_err}")
+            if fresh_plan:
+                todays_plan = fresh_plan
+                print(f"[get_todays_meal_plan] Generated fresh adaptive vegetarian meal plan")
+            else:
                 # Fallback to safe vegetarian meals
-                todays_plan = {
-                    "id": f"fallback_vegetarian_{current_user['email']}_{today.isoformat()}",
-                    "date": today.isoformat(),
-                    "type": "fallback_vegetarian",
-                    "meals": {
-                        "breakfast": "Steel-cut oats with almond milk and fresh berries",
-                        "lunch": "Quinoa Buddha bowl with roasted vegetables and tahini",
-                        "dinner": "Lentil curry with brown rice and steamed broccoli",
-                        "snack": "Apple slices with almond butter"
-                    },
-                    "dailyCalories": int(profile.get('calorieTarget', '2000')),
-                    "created_at": datetime.utcnow().isoformat(),
-                    "notes": ""  # Clean notes
-                }
+                todays_plan = generate_safe_vegetarian_fallback(
+                    current_user["email"],
+                    remaining_calories,
+                    is_vegetarian,
+                    no_eggs
+                )
+                print(f"[get_todays_meal_plan] Used safe vegetarian fallback")
+                
+        # Even for non-vegetarian users, ensure we use the recalibration system if consumption has occurred
+        elif todays_plan:
+            # Check if we have consumption today and need to recalibrate
+            today_consumption = await get_today_consumption_records_async(current_user["email"], user_timezone="UTC")
+            if today_consumption:
+                print(f"[get_todays_meal_plan] User has consumption today - triggering recalibration")
+                try:
+                    updated_plan = await trigger_meal_plan_recalibration(current_user["email"], profile)
+                    if updated_plan:
+                        todays_plan = updated_plan
+                        print(f"[get_todays_meal_plan] Successfully recalibrated meal plan")
+                except Exception as recal_err:
+                    print(f"[get_todays_meal_plan] Error in recalibration: {recal_err}")
+                    # Continue with existing plan
         
         # If no plan generated yet, use fallback
         if not todays_plan:
@@ -7168,6 +7703,11 @@ async def test_quick_log_food(food_data: dict):
         print(f"[test_quick_log_food] Saving consumption record for test user")
         consumption_record = await save_consumption_record("test@example.com", consumption_data)
         print(f"[test_quick_log_food] Successfully saved consumption record with ID: {consumption_record['id']}")
+        
+        # Trigger meal plan recalibration
+        print(f"[test_quick_log_food] Triggering meal plan recalibration")
+        user_profile = await get_user_profile("test@example.com")
+        await trigger_meal_plan_recalibration("test@example.com", user_profile)
         
         # Return success response in the SAME FORMAT as before
         return {
@@ -8033,335 +8573,6 @@ async def fix_meal_types(current_user: User = Depends(get_current_user)):
         print(f"[fix_meal_types] Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Failed to fix meal types: {str(e)}")
 
-# --- Update meal type for existing record ---
-@app.patch("/consumption/{record_id}/meal-type")
-async def update_meal_type(record_id: str, payload: dict = Body(...), current_user: User = Depends(get_current_user)):
-    meal_type = payload.get("meal_type", "").lower()
-    if meal_type not in ["breakfast", "lunch", "dinner", "snack"]:
-        raise HTTPException(status_code=400, detail="Invalid meal_type")
-
-    try:
-        await update_consumption_meal_type(current_user["email"], record_id, meal_type)
-        return {"success": True}
-    except PermissionError:
-        raise HTTPException(status_code=403, detail="Not allowed")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-# ============================================================================
-# PRIVACY & GDPR COMPLIANCE ENDPOINTS
-# ============================================================================
-
-class DataExportRequest(BaseModel):
-    data_types: List[str]  # ["profile", "meal_plans", "consumption_history", "chat_history", "recipes", "shopping_lists"]
-    format_type: str = "pdf"  # "pdf", "json", "docx"
-
-class AccountDeletionRequest(BaseModel):
-    deletion_type: str = "complete"  # "complete" or "anonymize"
-    confirmation: str  # User must type "DELETE" to confirm
-
-class ConsentUpdateRequest(BaseModel):
-    consent_given: Optional[bool] = None
-    marketing_consent: Optional[bool] = None
-    analytics_consent: Optional[bool] = None
-    data_retention_preference: Optional[str] = None
-    policy_version: Optional[str] = None
-
-@app.post("/privacy/export-data")
-async def export_user_data(
-    export_request: DataExportRequest,
-    current_user: User = Depends(get_current_user)
-):
-    """Export user data in specified format with user-selected data types"""
-    try:
-        user_email = current_user["email"]
-        data_types = export_request.data_types
-        format_type = export_request.format_type
-        
-        print(f"[PRIVACY] Exporting data for user {user_email}, types: {data_types}, format: {format_type}")
-        
-        # Collect requested data
-        export_data = {}
-        
-        if "profile" in data_types:
-            export_data["profile"] = current_user.get("profile", {})
-            export_data["user_info"] = {
-                "email": current_user.get("email"),
-                "username": current_user.get("username"),
-                "consent_given": current_user.get("consent_given"),
-                "consent_timestamp": current_user.get("consent_timestamp"),
-                "policy_version": current_user.get("policy_version"),
-                "data_retention_preference": current_user.get("data_retention_preference"),
-                "marketing_consent": current_user.get("marketing_consent"),
-                "analytics_consent": current_user.get("analytics_consent")
-            }
-        
-        if "meal_plans" in data_types:
-            export_data["meal_plans"] = await get_user_meal_plans(user_email, limit=10)
-        
-        if "consumption_history" in data_types:
-            export_data["consumption_history"] = await get_user_consumption_history(user_email, limit=10)
-        
-        if "chat_history" in data_types:
-            export_data["chat_history"] = await get_all_user_chat_history(user_email, limit=10)
-        
-        if "recipes" in data_types:
-            export_data["recipes"] = await get_user_recipes(user_email, limit=10)
-        
-        if "shopping_lists" in data_types:
-            export_data["shopping_lists"] = await get_user_shopping_lists(user_email, limit=10)
-        
-        # Generate document based on format
-        if format_type == "pdf":
-            return await generate_data_export_pdf(export_data, current_user)
-        elif format_type == "json":
-            # Limit data to last 10 items for consistency
-            limited_export_data = {}
-            for key, value in export_data.items():
-                if isinstance(value, list) and len(value) > 10:
-                    limited_export_data[key] = value[-10:]  # Last 10 items
-                else:
-                    limited_export_data[key] = value
-            
-            # Add comprehensive metadata
-            limited_export_data["metadata"] = {
-                "export_date": datetime.utcnow().isoformat(),
-                "export_date_formatted": datetime.now().strftime("%B %d, %Y at %I:%M %p"),
-                "user_email": user_email,
-                "patient_name": limited_export_data.get("profile", {}).get("name", "Not specified"),
-                "data_types_included": data_types,
-                "policy_version": current_user.get("policy_version", "1.0"),
-                "consent_status": "granted" if current_user.get("consent_given") else "not_granted",
-                "marketing_consent": current_user.get("marketing_consent", False),
-                "analytics_consent": current_user.get("analytics_consent", False),
-                "data_retention_preference": current_user.get("data_retention_preference", "standard"),
-                "total_records": sum(len(v) if isinstance(v, list) else 1 for v in limited_export_data.values() if key != "metadata"),
-                "export_format": "json",
-                "gdpr_compliance": "Article 20 - Right to Data Portability"
-            }
-            
-            filename = f"health_data_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-            return JSONResponse(
-                content=limited_export_data,
-                headers={"Content-Disposition": f"attachment; filename={filename}"}
-            )
-        elif format_type == "docx":
-            return await generate_data_export_docx(export_data, current_user)
-        else:
-            raise HTTPException(status_code=400, detail="Unsupported format type")
-            
-    except Exception as e:
-        print(f"[PRIVACY] Error exporting data: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Data export failed: {str(e)}")
-
-@app.delete("/privacy/delete-account")
-async def delete_user_account(
-    deletion_request: AccountDeletionRequest,
-    current_user: User = Depends(get_current_user)
-):
-    """Delete user account and all associated data"""
-    try:
-        # Validate confirmation
-        if deletion_request.confirmation.upper() != "DELETE":
-            raise HTTPException(status_code=400, detail="Invalid confirmation. Please type 'DELETE' to confirm.")
-        
-        user_email = current_user["email"]
-        deletion_type = deletion_request.deletion_type
-        
-        print(f"[PRIVACY] Account deletion requested for {user_email}, type: {deletion_type}")
-        
-        if deletion_type == "complete":
-            # Delete all user data
-            await delete_all_user_data(user_email)
-        else:
-            # Anonymize user data
-            await anonymize_user_data(user_email)
-        
-        # Log deletion for compliance
-        await log_data_deletion(user_email, deletion_type)
-        
-        return {"message": "Account deletion completed successfully", "deletion_type": deletion_type}
-    
-    except Exception as e:
-        print(f"[PRIVACY] Error deleting account: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Account deletion failed: {str(e)}")
-
-@app.put("/privacy/update-consent")
-async def update_user_consent(
-    consent_data: ConsentUpdateRequest,
-    current_user: User = Depends(get_current_user)
-):
-    """Update user consent preferences"""
-    try:
-        user_email = current_user["email"]
-        
-        # Update consent in database
-        await update_user_consent_preferences(user_email, consent_data.dict(exclude_unset=True))
-        
-        return {"message": "Consent preferences updated successfully"}
-    
-    except Exception as e:
-        print(f"[PRIVACY] Error updating consent: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Consent update failed: {str(e)}")
-
-# ============================================================================
-# PRIVACY HELPER FUNCTIONS
-# ============================================================================
-
-async def get_all_user_chat_history(user_email: str, limit: int = None):
-    """Get chat history for a user with optional limit"""
-    try:
-        # Build query with optional TOP clause for database-level limiting
-        if limit:
-            query = f"""
-            SELECT TOP {limit} *
-            FROM c
-            WHERE c.type = 'chat_message'
-            AND c.user_id = '{user_email}'
-            ORDER BY c.timestamp DESC
-            """
-        else:
-            query = f"""
-            SELECT *
-            FROM c
-            WHERE c.type = 'chat_message'
-            AND c.user_id = '{user_email}'
-            ORDER BY c.timestamp ASC
-            """
-        
-        chat_messages = list(interactions_container.query_items(
-            query=query,
-            enable_cross_partition_query=True
-        ))
-        
-        return chat_messages
-    except Exception as e:
-        print(f"Error getting chat history: {str(e)}")
-        return []
-
-async def delete_all_user_data(user_email: str):
-    """Completely delete all user data"""
-    try:
-        print(f"[PRIVACY] Starting complete data deletion for {user_email}")
-        
-        # Delete from interactions container (meal plans, consumption, chat, etc.)
-        collections_to_clean = [
-            "meal_plan",
-            "consumption_record", 
-            "chat_message",
-            "shopping_list",
-            "recipe"
-        ]
-        
-        total_deleted = 0
-        for doc_type in collections_to_clean:
-            query = f"SELECT * FROM c WHERE c.type = '{doc_type}' AND c.user_id = '{user_email}'"
-            items = list(interactions_container.query_items(query=query, enable_cross_partition_query=True))
-            
-            for item in items:
-                try:
-                    interactions_container.delete_item(
-                        item=item["id"], 
-                        partition_key=item.get("session_id", user_email)
-                    )
-                    total_deleted += 1
-                except Exception as e:
-                    print(f"Error deleting item {item.get('id')}: {str(e)}")
-        
-        # Delete user account from user container
-        try:
-            user_container.delete_item(item=user_email, partition_key=user_email)
-            total_deleted += 1
-        except Exception as e:
-            print(f"Error deleting user account: {str(e)}")
-        
-        print(f"[PRIVACY] Deleted {total_deleted} records for user {user_email}")
-        
-    except Exception as e:
-        print(f"[PRIVACY] Error in complete data deletion: {str(e)}")
-        raise Exception(f"Failed to delete user data: {str(e)}")
-
-async def anonymize_user_data(user_email: str):
-    """Anonymize user data while preserving analytics value"""
-    try:
-        print(f"[PRIVACY] Starting data anonymization for {user_email}")
-        
-        # Generate anonymous ID
-        anonymous_id = f"anon_{uuid.uuid4().hex[:8]}"
-        
-        # Anonymize user profile
-        anonymized_profile = {
-            "name": "Anonymized User",
-            "age": None,
-            "gender": None,
-            "medicalConditions": ["Anonymized"],
-            "anonymized": True,
-            "anonymization_date": datetime.utcnow().isoformat()
-        }
-        
-        # Update user record with anonymized data
-        user_update = {
-            "username": anonymous_id,
-            "email": f"{anonymous_id}@anonymized.local",
-            "profile": anonymized_profile,
-            "anonymized": True,
-            "original_email_hash": hash(user_email),
-            "anonymization_date": datetime.utcnow().isoformat()
-        }
-        
-        # Get current user data for anonymization
-        current_user_data = await get_user_by_email(user_email)
-        if not current_user_data:
-            raise Exception("User not found for anonymization")
-        
-        # Update user in database
-        user_container.upsert_item(body={**current_user_data, **user_update})
-        
-        print(f"[PRIVACY] User {user_email} anonymized as {anonymous_id}")
-        
-    except Exception as e:
-        print(f"[PRIVACY] Error in anonymization: {str(e)}")
-        raise Exception(f"Failed to anonymize user data: {str(e)}")
-
-async def log_data_deletion(user_email: str, deletion_type: str):
-    """Log data deletion for compliance"""
-    try:
-        deletion_log = {
-            "type": "data_deletion_log",
-            "user_email": user_email,
-            "deletion_type": deletion_type,
-            "timestamp": datetime.utcnow().isoformat(),
-            "id": f"deletion_{uuid.uuid4().hex}",
-            "session_id": "privacy_logs"
-        }
-        
-        interactions_container.create_item(body=deletion_log)
-        print(f"[PRIVACY] Logged {deletion_type} deletion for {user_email}")
-        
-    except Exception as e:
-        print(f"[PRIVACY] Error logging deletion: {str(e)}")
-
-async def update_user_consent_preferences(user_email: str, consent_updates: dict):
-    """Update user consent preferences"""
-    try:
-        # Add timestamp for consent update
-        consent_updates["last_consent_update"] = datetime.utcnow().isoformat()
-        
-        # Get current user data
-        current_user_data = await get_user_by_email(user_email)
-        if not current_user_data:
-            raise Exception("User not found")
-        
-        # Update user with new consent preferences
-        updated_user = {**current_user_data, **consent_updates}
-        user_container.upsert_item(body=updated_user)
-        
-        print(f"[PRIVACY] Updated consent preferences for {user_email}")
-        
-    except Exception as e:
-        print(f"[PRIVACY] Error updating consent: {str(e)}")
-        raise Exception(f"Failed to update consent preferences: {str(e)}")
-
 async def generate_data_export_pdf(export_data: dict, user_info: dict):
     """Generate professional PDF export of user data with logo and improved layout"""
     try:
@@ -8566,123 +8777,6 @@ async def generate_data_export_pdf(export_data: dict, user_info: dict):
         print(f"[PRIVACY] Error generating PDF: {str(e)}")
         raise Exception(f"Failed to generate PDF export: {str(e)}")
 
-def generate_profile_pdf_section(profile: dict, styles):
-    """Generate comprehensive profile section for PDF"""
-    from reportlab.lib.styles import ParagraphStyle
-    from reportlab.lib import colors
-    from reportlab.platypus import Paragraph, Spacer, Table, TableStyle, PageBreak
-    from reportlab.lib.units import inch
-    from reportlab.lib.enums import TA_LEFT, TA_CENTER
-    
-    story = []
-    
-    section_title_style = ParagraphStyle(
-        'SectionTitle',
-        parent=styles['Heading1'],
-        fontSize=18,
-        spaceAfter=20,
-        spaceBefore=30,
-        textColor=colors.HexColor('#1976D2'),
-        borderWidth=1,
-        borderColor=colors.HexColor('#1976D2'),
-        borderPadding=10,
-        backColor=colors.HexColor('#E3F2FD')
-    )
-    
-    subsection_style = ParagraphStyle(
-        'SubSection',
-        parent=styles['Heading2'],
-        fontSize=14,
-        spaceAfter=12,
-        spaceBefore=15,
-        textColor=colors.HexColor('#424242')
-    )
-    
-    story.append(Paragraph("Patient Health Profile", section_title_style))
-    
-    # Demographics
-    story.append(Paragraph("Personal Information", subsection_style))
-    demo_data = [
-        ["Name:", profile.get("name", "Not specified")],
-        ["Age:", str(profile.get("age", "Not specified"))],
-        ["Gender:", profile.get("gender", "Not specified")],
-        ["Date of Birth:", profile.get("dateOfBirth", "Not specified")],
-    ]
-    
-    demo_table = Table(demo_data, colWidths=[2*inch, 4*inch])
-    demo_table.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (0,-1), colors.HexColor('#F8F9FA')),
-        ('FONTNAME', (0,0), (0,-1), 'Helvetica-Bold'),
-        ('FONTNAME', (1,0), (1,-1), 'Helvetica'),
-        ('FONTSIZE', (0,0), (-1,-1), 10),
-        ('GRID', (0,0), (-1,-1), 1, colors.HexColor('#DEE2E6')),
-        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-        ('LEFTPADDING', (0,0), (-1,-1), 8),
-        ('RIGHTPADDING', (0,0), (-1,-1), 8),
-        ('TOPPADDING', (0,0), (-1,-1), 6),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 6),
-    ]))
-    story.append(demo_table)
-    story.append(Spacer(1, 15))
-    
-    # Medical Information
-    story.append(Paragraph("Medical Information", subsection_style))
-    medical_conditions = profile.get("medicalConditions", profile.get("medical_conditions", []))
-    medications = profile.get("currentMedications", [])
-    allergies = profile.get("allergies", [])
-    
-    medical_data = [
-        ["Medical Conditions:", ", ".join(medical_conditions) if medical_conditions else "None specified"],
-        ["Current Medications:", ", ".join(medications) if medications else "None specified"],
-        ["Allergies:", ", ".join(allergies) if allergies else "None specified"],
-    ]
-    
-    medical_table = Table(medical_data, colWidths=[2*inch, 4*inch])
-    medical_table.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (0,-1), colors.HexColor('#FFF3E0')),
-        ('FONTNAME', (0,0), (0,-1), 'Helvetica-Bold'),
-        ('FONTNAME', (1,0), (1,-1), 'Helvetica'),
-        ('FONTSIZE', (0,0), (-1,-1), 10),
-        ('GRID', (0,0), (-1,-1), 1, colors.HexColor('#FFB74D')),
-        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-        ('LEFTPADDING', (0,0), (-1,-1), 8),
-        ('RIGHTPADDING', (0,0), (-1,-1), 8),
-        ('TOPPADDING', (0,0), (-1,-1), 6),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 6),
-    ]))
-    story.append(medical_table)
-    story.append(Spacer(1, 15))
-    
-    # Vital Signs
-    if any([profile.get("height"), profile.get("weight"), profile.get("bmi")]):
-        story.append(Paragraph("Vital Signs & Measurements", subsection_style))
-        vital_data = [
-            ["Height:", f"{profile.get('height', 'Not recorded')} cm" if profile.get('height') else "Not recorded"],
-            ["Weight:", f"{profile.get('weight', 'Not recorded')} kg" if profile.get('weight') else "Not recorded"],
-            ["BMI:", f"{profile.get('bmi', 'Not calculated')}" if profile.get('bmi') else "Not calculated"],
-            ["Blood Pressure:", f"{profile.get('systolicBP', 'N/A')}/{profile.get('diastolicBP', 'N/A')} mmHg" if profile.get('systolicBP') else "Not recorded"],
-            ["Heart Rate:", f"{profile.get('heartRate', 'Not recorded')} bpm" if profile.get('heartRate') else "Not recorded"],
-        ]
-        
-        vital_table = Table(vital_data, colWidths=[2*inch, 4*inch])
-        vital_table.setStyle(TableStyle([
-            ('BACKGROUND', (0,0), (0,-1), colors.HexColor('#E8F5E8')),
-            ('FONTNAME', (0,0), (0,-1), 'Helvetica-Bold'),
-            ('FONTNAME', (1,0), (1,-1), 'Helvetica'),
-            ('FONTSIZE', (0,0), (-1,-1), 10),
-            ('GRID', (0,0), (-1,-1), 1, colors.HexColor('#4CAF50')),
-            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-            ('LEFTPADDING', (0,0), (-1,-1), 8),
-            ('RIGHTPADDING', (0,0), (-1,-1), 8),
-            ('TOPPADDING', (0,0), (-1,-1), 6),
-            ('BOTTOMPADDING', (0,0), (-1,-1), 6),
-        ]))
-        story.append(vital_table)
-        story.append(Spacer(1, 15))
-    
-    story.append(PageBreak())
-    return story
-
 def generate_meal_plans_pdf_section(meal_plans: List[dict], styles):
     """Generate enhanced meal plans section for PDF"""
     from reportlab.lib.styles import ParagraphStyle
@@ -8738,7 +8832,7 @@ def generate_meal_plans_pdf_section(meal_plans: List[dict], styles):
         overview_table = Table(overview_data, colWidths=[1.5*inch, 2*inch])
         overview_table.setStyle(TableStyle([
             ('BACKGROUND', (0,0), (0,-1), colors.HexColor('#FFF8E1')),
-            ('FONTNAME', (0,0), (0,-1), 'Helvetica-Bold'),
+            ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
             ('FONTSIZE', (0,0), (-1,-1), 9),
             ('GRID', (0,0), (-1,-1), 1, colors.HexColor('#FFD54F')),
             ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
