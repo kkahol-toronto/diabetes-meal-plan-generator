@@ -638,6 +638,10 @@ const HomePage: React.FC = () => {
       setAdaptivePlanLoading(true);
       setLoading(true, 'Creating your personalized meal plan...');
       
+      // SAFEGUARD: Preserve deleted meal plan IDs before creating adaptive plan
+      const deletedMealPlanIds = localStorage.getItem('deleted_meal_plan_ids');
+      console.log('Preserving deleted meal plan IDs before adaptive plan creation:', deletedMealPlanIds);
+      
       // Prepare profile data for meal plan generation
       const profileData = {
         dietary_restrictions: userProfile?.dietaryRestrictions || [],
@@ -673,6 +677,20 @@ const HomePage: React.FC = () => {
 
       if (response.ok) {
         await response.json();
+        
+        // SAFEGUARD: Restore deleted meal plan IDs after adaptive plan creation
+        if (deletedMealPlanIds) {
+          try {
+            const currentDeletedIds = localStorage.getItem('deleted_meal_plan_ids');
+            if (currentDeletedIds !== deletedMealPlanIds) {
+              console.log('Detected change in deleted meal plan IDs, restoring original ones...');
+              localStorage.setItem('deleted_meal_plan_ids', deletedMealPlanIds);
+            }
+          } catch (error) {
+            console.error('Failed to restore deleted meal plan IDs:', error);
+          }
+        }
+        
         showNotification('🎉 Your adaptive meal plan has been created using your complete profile!', 'success');
         navigate('/meal_plans');
         setShowAdaptivePlanDialog(false);

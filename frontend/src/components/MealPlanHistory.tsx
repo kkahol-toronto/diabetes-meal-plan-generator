@@ -78,12 +78,43 @@ const MealPlanHistory = () => {
   const [details, setDetails] = useState('');
   const navigate = useNavigate();
 
-  // Helper functions to manage permanently deleted IDs
+  // Helper functions to manage permanently deleted IDs with enhanced robustness
   const getDeletedIds = (): string[] => {
     try {
       const stored = localStorage.getItem('deleted_meal_plan_ids');
-      return stored ? JSON.parse(stored) : [];
-    } catch {
+      if (!stored) return [];
+      
+      const parsed = JSON.parse(stored);
+      
+      // Validate that it's an array of strings
+      if (!Array.isArray(parsed)) {
+        console.warn('Invalid deleted IDs format in localStorage, resetting...');
+        localStorage.removeItem('deleted_meal_plan_ids');
+        return [];
+      }
+      
+      // Filter out invalid entries
+      const validIds = parsed.filter(id => id && typeof id === 'string' && id.length > 0);
+      
+      // If we filtered out some invalid entries, update localStorage
+      if (validIds.length !== parsed.length) {
+        console.warn('Found invalid deleted IDs, cleaning up localStorage...');
+        try {
+          localStorage.setItem('deleted_meal_plan_ids', JSON.stringify(validIds));
+        } catch (error) {
+          console.error('Failed to clean up invalid deleted IDs:', error);
+        }
+      }
+      
+      return validIds;
+    } catch (error) {
+      console.error('Error reading deleted IDs from localStorage:', error);
+      // Clear corrupted data
+      try {
+        localStorage.removeItem('deleted_meal_plan_ids');
+      } catch (clearError) {
+        console.error('Failed to clear corrupted deleted IDs:', clearError);
+      }
       return [];
     }
   };
@@ -91,23 +122,57 @@ const MealPlanHistory = () => {
   const addDeletedIds = (ids: string[]) => {
     try {
       console.log('addDeletedIds called with:', ids);
+      
+      // Validate input
+      const validIds = ids.filter(id => id && typeof id === 'string' && id.length > 0);
+      if (validIds.length === 0) {
+        console.warn('No valid IDs provided to addDeletedIds');
+        return;
+      }
+      
       const existingDeleted = getDeletedIds();
       console.log('Existing deleted IDs:', existingDeleted);
-      const uniqueIds = new Set([...existingDeleted, ...ids]);
+      
+      const uniqueIds = new Set([...existingDeleted, ...validIds]);
       const newDeleted = Array.from(uniqueIds);
       console.log('New deleted IDs array to store:', newDeleted);
+      
+      // Create backup before updating
+      const backupKey = 'deleted_meal_plan_ids_backup';
+      const currentValue = localStorage.getItem('deleted_meal_plan_ids');
+      if (currentValue) {
+        localStorage.setItem(backupKey, currentValue);
+      }
+      
       localStorage.setItem('deleted_meal_plan_ids', JSON.stringify(newDeleted));
       console.log('Successfully stored deleted IDs in localStorage');
+      
+      // Clean up backup after successful update
+      localStorage.removeItem(backupKey);
     } catch (error) {
-      console.log('Failed to save deleted IDs to localStorage:', error);
+      console.error('Failed to save deleted IDs to localStorage:', error);
+      
+      // Try to restore from backup
+      try {
+        const backup = localStorage.getItem('deleted_meal_plan_ids_backup');
+        if (backup) {
+          localStorage.setItem('deleted_meal_plan_ids', backup);
+          localStorage.removeItem('deleted_meal_plan_ids_backup');
+          console.log('Restored deleted IDs from backup');
+        }
+      } catch (restoreError) {
+        console.error('Failed to restore deleted IDs from backup:', restoreError);
+      }
     }
   };
 
   const clearAllDeletedIds = () => {
     try {
+      console.log('Clearing all deleted meal plan IDs from localStorage');
       localStorage.removeItem('deleted_meal_plan_ids');
+      localStorage.removeItem('deleted_meal_plan_ids_backup');
     } catch (error) {
-      console.log('Failed to clear deleted IDs from localStorage:', error);
+      console.error('Failed to clear deleted IDs from localStorage:', error);
     }
   };
 
@@ -124,9 +189,23 @@ const MealPlanHistory = () => {
       const data = await mealPlanApi.getHistory() as { meal_plans: MealPlanData[] };
       console.log('Fetched meal plans from backend:', data);
       
-      // Get permanently deleted IDs
+      // Get permanently deleted IDs with robust error handling
       const deletedIds = getDeletedIds();
       console.log('Permanently deleted IDs from localStorage:', deletedIds);
+      
+      // Validate localStorage integrity - check for corruption
+      if (deletedIds.length > 0) {
+        const validDeletedIds = deletedIds.filter(id => id && typeof id === 'string' && id.length > 0);
+        if (validDeletedIds.length !== deletedIds.length) {
+          console.warn('Found corrupted deleted IDs in localStorage, cleaning up...');
+          // Update localStorage with only valid IDs
+          try {
+            localStorage.setItem('deleted_meal_plan_ids', JSON.stringify(validDeletedIds));
+          } catch (error) {
+            console.error('Failed to update localStorage with valid deleted IDs:', error);
+          }
+        }
+      }
       
       // Filter out permanently deleted meal plans
       const allPlans = data.meal_plans || [];
@@ -141,6 +220,15 @@ const MealPlanHistory = () => {
       
       console.log('Visible plans after filtering:', visiblePlans.length, 'of', allPlans.length);
       console.log('Visible plan IDs:', visiblePlans.map((p: MealPlanData) => p.id));
+      
+      // Additional safeguard: if we suddenly have way more plans than before, something might be wrong
+      if (mealPlans.length > 0 && visiblePlans.length > mealPlans.length * 2) {
+        console.warn(`Detected large increase in meal plans (${mealPlans.length} -> ${visiblePlans.length}), checking for localStorage issues...`);
+        // This could indicate localStorage was cleared or corrupted
+        // In this case, we should preserve the user's current view and warn them
+        const currentDeletedIds = getDeletedIds();
+        console.log('Current deleted IDs after recheck:', currentDeletedIds);
+      }
       
       setMealPlans(visiblePlans);
       setFilteredPlans(visiblePlans);

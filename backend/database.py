@@ -2,7 +2,7 @@ import os
 from azure.cosmos import CosmosClient
 from azure.cosmos.exceptions import CosmosResourceNotFoundError
 from dotenv import load_dotenv
-from datetime import datetime
+from datetime import datetime, timedelta
 import uuid
 import tiktoken
 import json
@@ -138,15 +138,52 @@ async def save_meal_plan(user_id: str, meal_plan_data: dict):
                 print(f"[save_meal_plan] Rejecting meal plan with empty {meal_type} array for user {user_id}")
                 raise ValueError(f"Meal plan missing or empty {meal_type} array")
             
-            # Check if all meals in the array are empty or placeholders
-            placeholders = ["not specified", "not provided", "healthy meal option", "placeholder", "tbd", "to be determined"]
-            if all(not meal or any(placeholder in meal.lower() for placeholder in placeholders) for meal in meals_array):
-                print(f"[save_meal_plan] Rejecting meal plan with only placeholder meals in {meal_type} for user {user_id}")
-                raise ValueError(f"Meal plan contains only placeholder meals in {meal_type}")
+            # RELAXED VALIDATION: Only check for completely empty meals, not AI-generated content
+            # Only reject if ALL meals are truly empty (no content at all)
+            if all(not meal or not meal.strip() for meal in meals_array):
+                print(f"[save_meal_plan] Rejecting meal plan with completely empty {meal_type} for user {user_id}")
+                raise ValueError(f"Meal plan contains completely empty {meal_type}")
+            
+            # Additional check: if this is NOT an adaptive meal plan, be more strict
+            plan_type = meal_plan_data.get('plan_type', '')
+            if plan_type != 'adaptive':
+                # For non-adaptive plans, check for obvious placeholders
+                obvious_placeholders = ["not specified", "not provided", "placeholder", "tbd", "to be determined"]
+                if all(not meal or not meal.strip() or any(placeholder in meal.lower() for placeholder in obvious_placeholders) for meal in meals_array):
+                    print(f"[save_meal_plan] Rejecting non-adaptive meal plan with placeholder meals in {meal_type} for user {user_id}")
+                    raise ValueError(f"Meal plan contains only placeholder meals in {meal_type}")
     
     else:
         print(f"[save_meal_plan] Rejecting meal plan with invalid format for user {user_id}")
         raise ValueError("Meal plan must have either 'meals' dict or 'breakfast', 'lunch', 'dinner', 'snacks' arrays")
+    
+    # Check for duplicate meal plan prevention based on ID and timestamp
+    meal_plan_id = meal_plan_data.get('id', str(uuid.uuid4()))
+    
+    # If this is an adaptive meal plan, check if we already have a similar one created recently
+    # Only prevent duplicates if they have the exact same ID (indicating a true duplicate request)
+    if meal_plan_data.get('plan_type') == 'adaptive':
+        try:
+            # Check for existing adaptive meal plans with the same ID created in the last 30 seconds
+            recent_time = datetime.utcnow() - timedelta(seconds=30)
+            query = f"""
+            SELECT * FROM c 
+            WHERE c.type = 'meal_plan' 
+            AND c.user_id = '{user_id}' 
+            AND c.id = '{meal_plan_id}'
+            AND c.created_at >= '{recent_time.isoformat()}'
+            """
+            existing_plans = list(interactions_container.query_items(
+                query=query,
+                enable_cross_partition_query=True
+            ))
+            
+            if existing_plans:
+                print(f"[save_meal_plan] Found duplicate adaptive meal plan with same ID, returning existing")
+                # Return the existing plan instead of creating a new one
+                return existing_plans[0]
+        except Exception as e:
+            print(f"[save_meal_plan] Error checking for duplicate adaptive plans: {e}")
     
     # Rebuild the item dictionary explicitly to avoid potential CosmosDict issues
     item = {}
@@ -155,7 +192,7 @@ async def save_meal_plan(user_id: str, meal_plan_data: dict):
         
     # Ensure partition key and required fields are included
     item['user_id'] = user_id  # Ensure user_id is set from the authenticated user
-    item['id'] = meal_plan_data.get('id', str(uuid.uuid4())) # Use existing ID or generate new one
+    item['id'] = meal_plan_id # Use existing ID or generate new one
     item['type'] = 'meal_plan' # Add a type discriminator
     item['_partitionKey'] = user_id # Explicitly set the partition key
     item['created_at'] = datetime.utcnow().isoformat() # Add timestamp
