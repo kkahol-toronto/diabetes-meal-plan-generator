@@ -2410,14 +2410,15 @@ class StableMealPlanManager:
             
             for meal_type, planned_meal in planned_meals.items():
                 if meal_type in consumed_by_type:
-                    planned_lower = planned_meal.lower()
                     consumed_foods = consumed_by_type[meal_type]
                     
                     # Check if any consumed food matches planned meal
                     meal_matched = any(
-                        self._meals_similar(planned_lower, consumed_food)
+                        self._meals_similar(planned_meal, consumed_food)
                         for consumed_food in consumed_foods
                     )
+                    
+                    print(f"[DEVIATION] {meal_type}: planned='{planned_meal}', consumed={consumed_foods}, matched={meal_matched}")
                     
                     if not meal_matched:
                         total_deviation += 1.0  # Full deviation for this meal type
@@ -2436,19 +2437,76 @@ class StableMealPlanManager:
     
     def _meals_similar(self, planned_meal: str, consumed_meal: str) -> bool:
         """Check if planned and consumed meals are similar enough."""
+        # Normalize both meal descriptions for comparison
+        planned_normalized = planned_meal.lower().strip()
+        consumed_normalized = consumed_meal.lower().strip()
+        
+        # Remove "✅ You ate: " prefix if present
+        if consumed_normalized.startswith('✅ you ate:'):
+            consumed_normalized = consumed_normalized[11:].strip()
+        
+        print(f"[SIMILARITY] Comparing: planned='{planned_normalized}' vs consumed='{consumed_normalized}'")
+        
+        # Check for exact match first (high confidence)
+        if planned_normalized == consumed_normalized:
+            print(f"[SIMILARITY] Exact match found!")
+            return True
+        
+        # Check for very high similarity (>80% string match)
+        string_sim = self._string_similarity(planned_normalized, consumed_normalized)
+        print(f"[SIMILARITY] String similarity: {string_sim:.2f}")
+        if string_sim > 0.8:
+            print(f"[SIMILARITY] High string similarity match!")
+            return True
+        
         # Extract key ingredients from both meals
         planned_ingredients = self._extract_key_ingredients(planned_meal)
         consumed_ingredients = self._extract_key_ingredients(consumed_meal)
         
+        print(f"[SIMILARITY] Planned ingredients: {planned_ingredients}")
+        print(f"[SIMILARITY] Consumed ingredients: {consumed_ingredients}")
+        
         # Check for overlap in key ingredients
         if not planned_ingredients or not consumed_ingredients:
+            print(f"[SIMILARITY] No ingredients found in one or both meals")
             return False
         
         overlap = len(planned_ingredients.intersection(consumed_ingredients))
         similarity_ratio = overlap / len(planned_ingredients.union(consumed_ingredients))
         
+        print(f"[SIMILARITY] Ingredient overlap: {overlap}, ratio: {similarity_ratio:.2f}")
+        
         # Consider meals similar if they share >40% of key ingredients
-        return similarity_ratio > 0.4
+        is_similar = similarity_ratio > 0.4
+        print(f"[SIMILARITY] Final result: {is_similar}")
+        return is_similar
+    
+    def _string_similarity(self, str1: str, str2: str) -> float:
+        """Calculate string similarity using a simple ratio approach."""
+        try:
+            # Remove common filler words
+            filler_words = {'a', 'an', 'the', 'with', 'and', 'or', 'of', 'in', 'on', 'at', 'to', 'for', 'from', 'by'}
+            
+            def clean_string(s):
+                words = s.split()
+                return ' '.join(word for word in words if word not in filler_words)
+            
+            clean_str1 = clean_string(str1)
+            clean_str2 = clean_string(str2)
+            
+            # Calculate similarity based on common words
+            words1 = set(clean_str1.split())
+            words2 = set(clean_str2.split())
+            
+            if not words1 or not words2:
+                return 0.0
+            
+            intersection = len(words1.intersection(words2))
+            union = len(words1.union(words2))
+            
+            return intersection / union if union > 0 else 0.0
+        except Exception:
+            return 0.0
     
     def _extract_key_ingredients(self, meal_text: str) -> set:
         """Extract key ingredients from meal description."""
@@ -2457,7 +2515,8 @@ class StableMealPlanManager:
             "chickpeas", "lentils", "beans", "yogurt", "almond", "cashew", "walnut",
             "spinach", "kale", "broccoli", "cauliflower", "avocado", "tomato",
             "mushroom", "pepper", "carrot", "cucumber", "sweet potato", "potato",
-            "salmon", "chicken", "beef", "pork", "fish", "turkey", "egg", "cheese"
+            "salmon", "chicken", "beef", "pork", "fish", "turkey", "egg", "cheese",
+            "daikon", "radish", "spaghetti", "wedges", "sandwich", "bowl", "salad"
         ]
         
         found_ingredients = set()
@@ -2466,6 +2525,22 @@ class StableMealPlanManager:
         for ingredient in key_ingredients:
             if ingredient in meal_lower:
                 found_ingredients.add(ingredient)
+        
+        # Also extract meaningful words that might be ingredients
+        words = meal_lower.split()
+        meaningful_words = [
+            word for word in words 
+            if len(word) > 3 and word not in {
+                'with', 'and', 'the', 'for', 'from', 'this', 'that', 'they', 'them',
+                'your', 'have', 'will', 'been', 'were', 'are', 'was', 'can', 'could',
+                'would', 'should', 'might', 'must', 'shall', 'may', 'does', 'did',
+                'bowl', 'plate', 'cup', 'glass', 'piece', 'slice', 'serving'
+            }
+        ]
+        
+        # Add meaningful words as potential ingredients
+        for word in meaningful_words:
+            found_ingredients.add(word)
         
         return found_ingredients
     
