@@ -51,6 +51,10 @@ const test: Environment = {
 };
 
 const getEnvironment = (): Environment => {
+  // Check if we're in production (deployed) or development
+  if (process.env.NODE_ENV === 'production') {
+    return production;
+  }
   // Use development config for local development
   return development;
 };

@@ -3,7 +3,7 @@ from azure.cosmos import CosmosClient, PartitionKey
 from dotenv import load_dotenv
 
 # Load environment variables
-load_dotenv()
+load_dotenv(override=True)
 
 # Cosmos DB configuration
 COSMOS_CONNECTION_STRING = os.getenv("COSMO_DB_CONNECTION_STRING")

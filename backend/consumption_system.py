@@ -122,8 +122,10 @@ class ConsumptionTracker:
         try:
             print(f"[ConsumptionTracker] Getting AI analysis for {food_name}")
             
-            response = client.chat.completions.create(
-                model=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
+            # Import the robust wrapper from main
+            from main import robust_openai_call
+            
+            api_result = await robust_openai_call(
                 messages=[
                     {
                         "role": "system",
@@ -135,11 +137,18 @@ class ConsumptionTracker:
                     }
                 ],
                 max_tokens=500,
-                temperature=0.3
+                temperature=0.3,
+                max_retries=3,
+                timeout=30,
+                context="consumption_analysis"
             )
             
-            analysis_text = response.choices[0].message.content
-            print(f"[ConsumptionTracker] AI response: {analysis_text}")
+            if api_result["success"]:
+                analysis_text = api_result["content"]
+                print(f"[ConsumptionTracker] AI response: {analysis_text}")
+            else:
+                print(f"[ConsumptionTracker] OpenAI failed: {api_result['error']}. Using fallback.")
+                return fallback_data
             
             # Parse JSON response
             try:

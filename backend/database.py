@@ -1119,29 +1119,35 @@ async def log_meal_suggestion(user_id: str, meal_type: str, suggestion: str, con
 
 async def get_ai_suggestion(prompt: str) -> str:
     """
-    Get an AI-powered suggestion using Azure OpenAI
+    Get an AI-powered suggestion using Azure OpenAI with retry logic
     Args:
         prompt (str): The prompt to send to the AI model
     Returns:
         str: The AI-generated suggestion
     """
     try:
-        # Get response from Azure OpenAI
-        response = openai_client.chat.completions.create(
-            model=os.getenv("AZURE_OPENAI_DEPLOYMENT"),
+        # Import the robust wrapper from main
+        from main import robust_openai_call
+        
+        # Call Azure OpenAI API with robust retry logic
+        api_result = await robust_openai_call(
             messages=[
                 {"role": "system", "content": "You are a knowledgeable nutritionist and meal planning expert, specializing in diabetes management."},
                 {"role": "user", "content": prompt}
             ],
             temperature=0.7,
             max_tokens=800,
-            top_p=0.95,
-            frequency_penalty=0.5,
-            presence_penalty=0.5,
+            max_retries=3,
+            timeout=60,
+            context="ai_suggestion"
         )
-
-        # Extract and return the suggestion
-        return response.choices[0].message.content.strip()
+        
+        if api_result["success"]:
+            return api_result["content"].strip()
+        else:
+            logger.error(f"OpenAI API failed: {api_result['error']}")
+            raise Exception(f"Failed to get AI suggestion: {api_result['error']}")
+            
     except Exception as e:
         logger.error(f"Error getting AI suggestion: {str(e)}")
         raise Exception("Failed to get AI suggestion") 

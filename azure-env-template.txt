@@ -1,0 +1,34 @@
+# Azure Environment Variables Template
+# Copy these values to your Azure App Service Configuration -> Application Settings
+
+# REQUIRED - Azure Cosmos DB
+COSMO_DB_CONNECTION_STRING=AccountEndpoint=https://YOUR_COSMOS_ACCOUNT.documents.azure.com:443/;AccountKey=YOUR_PRIMARY_KEY;
+
+# REQUIRED - Azure OpenAI
+AZURE_OPENAI_KEY=your_azure_openai_key_here
+AZURE_OPENAI_ENDPOINT=https://YOUR_OPENAI_RESOURCE.openai.azure.com/
+AZURE_OPENAI_API_VERSION=2024-02-15-preview
+AZURE_OPENAI_DEPLOYMENT_NAME=your_model_deployment_name
+
+# REQUIRED - JWT Secret (Generate a secure random string)
+SECRET_KEY=your_super_secure_jwt_secret_key_minimum_32_characters
+
+# OPTIONAL - Twilio (for SMS features)
+SMS_API_SID=your_twilio_account_sid
+SMS_KEY=your_twilio_auth_token
+TWILIO_PHONE_NUMBER=your_twilio_phone_number
+
+# OPTIONAL - Container Names (default values shown)
+INTERACTIONS_CONTAINER=interactions
+USER_INFORMATION_CONTAINER=user_information
+
+# PRODUCTION SETTINGS
+NODE_ENV=production
+LOG_LEVEL=INFO
+
+# Instructions:
+# 1. Go to Azure Portal -> Your App Service -> Configuration -> Application Settings
+# 2. Add each variable above as a new application setting
+# 3. Don't include the comments (#) in the actual values
+# 4. Generate a strong SECRET_KEY using: python -c "import secrets; print(secrets.token_urlsafe(32))"
+# 5. Save and restart your app service 

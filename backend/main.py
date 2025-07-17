@@ -3183,18 +3183,27 @@ async def generate_shopping_list(
                     """
         print("Prompt for OpenAI:")
         print(prompt)
-        # Call Azure OpenAI (synchronous call)
-        response = client.chat.completions.create(
-            model=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
+        # Call Azure OpenAI with robust retry logic
+        api_result = await robust_openai_call(
             messages=[
                 {"role": "system", "content": "You are a diabetes diet planning assistant."},
                 {"role": "user", "content": prompt}
             ],
             temperature=0.7,
-            max_tokens=20000
+            max_tokens=20000,
+            max_retries=3,
+            timeout=60,
+            context="shopping_list_generation"
         )
+        
+        if not api_result["success"]:
+            raise HTTPException(
+                status_code=500,
+                detail=f"OpenAI API failed: {api_result['error']}"
+            )
+            
         print("OpenAI response received")
-        raw_content = response.choices[0].message.content
+        raw_content = api_result["content"]
         print("Raw OpenAI response:")
         print(raw_content)
         # Remove Markdown code block if present
@@ -3873,9 +3882,8 @@ Remember: You have access to their complete meal planning and consumption histor
                 {"role": "user", "content": content} if is_user else {"role": "assistant", "content": content}
             )
     
-    # Generate response using OpenAI
-    response = client.chat.completions.create(
-        model=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
+    # Generate response using OpenAI with robust retry logic
+    api_result = await robust_openai_call(
         messages=[
             {"role": "system", "content": system_prompt},
             *formatted_chat_history,
@@ -3883,11 +3891,22 @@ Remember: You have access to their complete meal planning and consumption histor
         ],
         max_tokens=1000,  # Increased for more comprehensive responses
         temperature=0.8,  # Slightly more creative for engaging coaching
-        top_p=1.0,
-        frequency_penalty=0.0,
-        presence_penalty=0.0,
-        stream=True
+        max_retries=3,
+        timeout=60,
+        context="chat_message"
     )
+    
+    if not api_result["success"]:
+        # If OpenAI fails, return a helpful error message
+        error_response = "I'm experiencing technical difficulties right now. Please try again in a moment."
+        return StreamingResponse(
+            iter([f"data: {json.dumps({'content': error_response})}\n\n"]),
+            media_type="text/event-stream"
+        )
+    
+    # For streaming, we need to simulate the streaming response
+    full_message = api_result["content"]
+    response = iter([f"data: {json.dumps({'content': full_message})}\n\n"])
     
     # Stream the response and collect the full message
     full_message = ""
@@ -6036,8 +6055,7 @@ async def quick_log_food(
         
         try:
             print("[quick_log_food] Calling OpenAI for nutritional analysis")
-            response = client.chat.completions.create(
-                model=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
+            api_result = await robust_openai_call(
                 messages=[
                     {
                         "role": "system",
@@ -6049,12 +6067,18 @@ async def quick_log_food(
                     }
                 ],
                 max_tokens=500,
-                temperature=0.3
+                temperature=0.3,
+                max_retries=3,
+                timeout=30,
+                context="quick_log_nutrition"
             )
             
-            # Parse AI response
-            analysis_text = response.choices[0].message.content
-            print(f"[quick_log_food] OpenAI response: {analysis_text}")
+            if api_result["success"]:
+                analysis_text = api_result["content"]
+                print(f"[quick_log_food] OpenAI response: {analysis_text}")
+            else:
+                print(f"[quick_log_food] OpenAI failed: {api_result['error']}. Using fallback.")
+                analysis_text = None
             
             try:
                 # Extract JSON from response
@@ -6698,15 +6722,21 @@ Examples of appropriate dishes:
 Ensure ALL dishes are completely vegetarian and egg-free. Do not include any meat, poultry, fish, seafood, or egg-based ingredients."""
 
                 try:
-                    ai_resp = client.chat.completions.create(
-                        model=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
+                    api_result = await robust_openai_call(
                         messages=[{"role": "user", "content": prompt}],
                         temperature=0.7, # Slightly higher temperature for more creativity
-                        max_tokens=500
+                        max_tokens=500,
+                        max_retries=3,
+                        timeout=30,
+                        context="todays_meal_plan_refinement"
                     )
 
-                    import json as _json
-                    ai_json = _json.loads(ai_resp.choices[0].message.content)
+                    if api_result["success"]:
+                        import json as _json
+                        ai_json = _json.loads(api_result["content"])
+                    else:
+                        print(f"[todays_meal_plan] OpenAI failed: {api_result['error']}. Skipping refinement.")
+                        return todays_plan
                     
                     # Update only the meals that were placeholders or needed refinement
                     updated_meals = ai_json.get("meals", {})
@@ -6822,6 +6852,20 @@ Ensure ALL dishes are completely vegetarian and egg-free. Do not include any mea
             remaining_calories = max(0, target_calories - calories_consumed)
             
             # Generate fresh adaptive meal plan
+            fresh_plan = await generate_fresh_adaptive_meal_plan(
+                current_user["email"],
+                today_consumption,
+                remaining_calories,
+                is_vegetarian,
+                no_eggs,
+                dietary_restrictions,
+                allergies,
+                profile.get('dietType', []),
+                profile.get('foodPreferences', []),
+                profile.get('strongDislikes', [])
+            )
+            
+            # Try to generate fresh adaptive vegetarian meal plan
             fresh_plan = await generate_fresh_adaptive_meal_plan(
                 current_user["email"],
                 today_consumption,
@@ -7651,8 +7695,7 @@ async def test_quick_log_food(food_data: dict):
         
         try:
             print("[test_quick_log_food] Calling OpenAI for nutritional analysis")
-            response = client.chat.completions.create(
-                model=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
+            api_result = await robust_openai_call(
                 messages=[
                     {
                         "role": "system",
@@ -7664,12 +7707,18 @@ async def test_quick_log_food(food_data: dict):
                     }
                 ],
                 max_tokens=500,
-                temperature=0.3
+                temperature=0.3,
+                max_retries=3,
+                timeout=30,
+                context="test_quick_log_nutrition"
             )
             
-            # Parse AI response
-            analysis_text = response.choices[0].message.content
-            print(f"[test_quick_log_food] OpenAI response: {analysis_text}")
+            if api_result["success"]:
+                analysis_text = api_result["content"]
+                print(f"[test_quick_log_food] OpenAI response: {analysis_text}")
+            else:
+                print(f"[test_quick_log_food] OpenAI failed: {api_result['error']}. Using fallback.")
+                analysis_text = None
             
             try:
                 # Extract JSON from response
@@ -8327,17 +8376,23 @@ Be conversational but informative, like a knowledgeable nutrition coach who know
 
         # 🚀 GET AI RESPONSE FROM AZURE OPENAI
         try:
-            response = client.chat.completions.create(
-                model=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
+            api_result = await robust_openai_call(
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
                 temperature=0.7,
-                max_tokens=1000
+                max_tokens=1000,
+                max_retries=3,
+                timeout=60,
+                context="meal_suggestion"
             )
             
-            ai_response = response.choices[0].message.content.strip()
+            if api_result["success"]:
+                ai_response = api_result["content"].strip()
+            else:
+                print(f"[AI_COACH] OpenAI failed: {api_result['error']}")
+                ai_response = f"I'm having trouble accessing my AI capabilities right now, but I can see you have {len(today_consumption)} meals logged today with {today_totals['calories']:.0f} calories. Your diabetes adherence is at {diabetes_adherence:.1f}%. Please try your question again in a moment."
             
             # 🧹 CLEAN MARKDOWN FORMATTING for better frontend display
             import re
