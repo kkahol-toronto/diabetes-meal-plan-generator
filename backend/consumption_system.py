@@ -455,6 +455,9 @@ class ConsumptionTracker:
                 "protein": totals["protein"],
                 "carbohydrates": totals["carbohydrates"],
                 "fat": totals["fat"],
+                "fiber": totals["fiber"],
+                "sugar": totals["sugar"],
+                "sodium": totals["sodium"],
                 "meals_count": totals["meals_count"]
             })
         

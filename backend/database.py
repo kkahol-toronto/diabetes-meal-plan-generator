@@ -992,6 +992,9 @@ async def get_consumption_analytics(user_id: str, days: int = 7):
                 "protein": totals["protein"],
                 "carbohydrates": totals["carbohydrates"],
                 "fat": totals["fat"],
+                "fiber": totals["fiber"],
+                "sugar": totals["sugar"],
+                "sodium": totals["sodium"],
                 "meals_count": totals["meals_count"]
             })
         

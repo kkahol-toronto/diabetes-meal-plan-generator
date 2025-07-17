@@ -924,27 +924,7 @@ const HomePage: React.FC = () => {
     const chartConfig = chartConfigs.find(config => config.metric === metric);
     const color = chartConfig?.color || '#45B7D1';
 
-    if (analyticsChartType === 'pie' || analyticsChartType === 'doughnut') {
-      // For pie charts, show distribution across meal types
-      const mealDistribution = consumptionAnalytics.meal_distribution || {};
-      const labels = Object.keys(mealDistribution);
-      const values = Object.values(mealDistribution);
-      
-      if (labels.length === 0) return null;
-
-      return {
-        labels: labels.map(label => label.charAt(0).toUpperCase() + label.slice(1)),
-        datasets: [{
-          data: values,
-          backgroundColor: ['#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A', '#98D8C8', '#F7DC6F'],
-          borderWidth: 2,
-          borderColor: '#fff',
-          hoverOffset: 4
-        }]
-      };
-    }
-
-    // For scatter plots, show relationship between calories and selected metric
+        // Handle special chart types first (scatter and comparison work with all time ranges)
     if (analyticsChartType === 'scatter') {
       const sortedData = [...data].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
       const scatterData = sortedData.map(day => ({
@@ -968,25 +948,47 @@ const HomePage: React.FC = () => {
       };
     }
 
-    // For comparison charts, show actual vs target values
     if (analyticsChartType === 'comparison') {
       const sortedData = [...data].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-      const labels = sortedData.map(day => formatDate(day.date));
-      const values = sortedData.map(day => (day as any)[metric] || 0);
+      
+      // For daily view, use meal-based labels, otherwise use dates
+      const labels = selectedTimeRange === 'daily' ? 
+        ['Breakfast', 'Lunch', 'Dinner', 'Snack'] : 
+        sortedData.map(day => formatDate(day.date));
+      
+      let values: number[];
+      
+      if (selectedTimeRange === 'daily') {
+        // Use meal distribution for daily view
+        const mealDistribution = consumptionAnalytics.meal_distribution || {};
+        const totalMeals = Object.values(mealDistribution).reduce((a: number, b: unknown) => a + (b as number), 0);
+        const todayData = data.length > 0 ? data[data.length - 1] : null;
+        const todayTotal = todayData ? (todayData as any)[metric] || 0 : 0;
+        
+        if (totalMeals === 0) return null;
+        
+        values = ['breakfast', 'lunch', 'dinner', 'snack'].map(mealType => {
+          const mealCount = (mealDistribution as any)[mealType] || 0;
+          const proportion = mealCount / totalMeals;
+          return todayTotal * proportion;
+        });
+      } else {
+        values = sortedData.map(day => (day as any)[metric] || 0);
+      }
       
       if (labels.length === 0) return null;
       
       // Calculate target values based on typical recommendations
       const getTargetValue = (metric: keyof NutritionalInfo) => {
         switch (metric) {
-          case 'calories': return 2000;
-          case 'protein': return 150;
-          case 'carbohydrates': return 250;
-          case 'fat': return 65;
-          case 'fiber': return 25;
-          case 'sugar': return 50;
-          case 'sodium': return 2300;
-          default: return 100;
+          case 'calories': return selectedTimeRange === 'daily' ? 500 : 2000; // 500 per meal for daily
+          case 'protein': return selectedTimeRange === 'daily' ? 25 : 150; // 25g per meal for daily
+          case 'carbohydrates': return selectedTimeRange === 'daily' ? 45 : 250; // 45g per meal for daily
+          case 'fat': return selectedTimeRange === 'daily' ? 15 : 65; // 15g per meal for daily
+          case 'fiber': return selectedTimeRange === 'daily' ? 6 : 25; // 6g per meal for daily
+          case 'sugar': return selectedTimeRange === 'daily' ? 10 : 50; // 10g per meal for daily
+          case 'sodium': return selectedTimeRange === 'daily' ? 575 : 2300; // 575mg per meal for daily
+          default: return selectedTimeRange === 'daily' ? 25 : 100;
         }
       };
 
@@ -1022,6 +1024,96 @@ const HomePage: React.FC = () => {
         }]
       };
     }
+
+    // For daily view, show meal types instead of dates (for regular charts)
+    if (selectedTimeRange === 'daily') {
+      if (analyticsChartType === 'pie' || analyticsChartType === 'doughnut') {
+        // For pie charts, show distribution across meal types
+        const mealDistribution = consumptionAnalytics.meal_distribution || {};
+        const labels = Object.keys(mealDistribution);
+        const values = Object.values(mealDistribution);
+        
+        if (labels.length === 0) return null;
+
+        return {
+          labels: labels.map(label => label.charAt(0).toUpperCase() + label.slice(1)),
+          datasets: [{
+            data: values,
+            backgroundColor: ['#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A', '#98D8C8', '#F7DC6F'],
+            borderWidth: 2,
+            borderColor: '#fff',
+            hoverOffset: 4
+          }]
+        };
+      }
+
+      // For daily view, show meal types on x-axis
+      const mealTypes = ['breakfast', 'lunch', 'dinner', 'snack'];
+      const mealLabels = ['Breakfast', 'Lunch', 'Dinner', 'Snack'];
+      const mealColors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A'];
+      
+      // Get today's data or most recent day's data
+      const todayData = data.length > 0 ? data[data.length - 1] : null;
+      
+      if (!todayData) return null;
+
+      // For daily view, we need to fetch meal-level data
+      // Since we don't have meal-level breakdown in the current data structure,
+      // we'll use the meal distribution to estimate values
+      const mealDistribution = consumptionAnalytics.meal_distribution || {};
+      const totalMeals = Object.values(mealDistribution).reduce((a: number, b: unknown) => a + (b as number), 0);
+      
+      if (totalMeals === 0) return null;
+
+      const todayTotal = (todayData as any)[metric] || 0;
+      const values = mealTypes.map(mealType => {
+        const mealCount = (mealDistribution as any)[mealType] || 0;
+        const proportion = mealCount / totalMeals;
+        return todayTotal * proportion;
+      });
+
+      return {
+        labels: mealLabels,
+        datasets: [{
+          label: `${chartConfig?.title || metric} by Meal`,
+          data: values,
+          backgroundColor: analyticsChartType === 'line' ? 'rgba(0,0,0,0.05)' : 
+                           analyticsChartType === 'area' ? mealColors.map(c => `${c}30`) : mealColors,
+          borderColor: analyticsChartType === 'line' ? color : mealColors,
+          borderWidth: 2,
+          fill: analyticsChartType === 'area',
+          tension: 0.4,
+          pointBackgroundColor: analyticsChartType === 'line' ? color : mealColors,
+          pointBorderColor: '#fff',
+          pointBorderWidth: 2,
+          pointRadius: 4,
+          pointHoverRadius: 6
+        }]
+      };
+    }
+
+    // For non-daily views, continue with date-based charts
+    if (analyticsChartType === 'pie' || analyticsChartType === 'doughnut') {
+      // For pie charts, show distribution across meal types
+      const mealDistribution = consumptionAnalytics.meal_distribution || {};
+      const labels = Object.keys(mealDistribution);
+      const values = Object.values(mealDistribution);
+      
+      if (labels.length === 0) return null;
+
+      return {
+        labels: labels.map(label => label.charAt(0).toUpperCase() + label.slice(1)),
+        datasets: [{
+          data: values,
+          backgroundColor: ['#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A', '#98D8C8', '#F7DC6F'],
+          borderWidth: 2,
+          borderColor: '#fff',
+          hoverOffset: 4
+        }]
+      };
+    }
+
+
 
     // For line, bar, and area charts, sort data by date and show time series
     const sortedData = [...data].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
@@ -1117,14 +1209,17 @@ const HomePage: React.FC = () => {
                             metric === 'sodium' ? 'mg' : 'g';
                 const xValue = context.parsed.x || 0;
                 const yValue = context.parsed.y || 0;
-                return `${label}: ${xValue.toFixed(1)} kcal → ${yValue.toFixed(1)} ${unit}`;
+                const numXValue = typeof xValue === 'number' ? xValue : 0;
+                const numYValue = typeof yValue === 'number' ? yValue : 0;
+                return `${label}: ${numXValue.toFixed(1)} kcal → ${numYValue.toFixed(1)} ${unit}`;
               }
               
               // Regular charts
               const value = context.parsed.y || context.parsed || 0;
+              const numValue = typeof value === 'number' ? value : 0;
               const unit = metric === 'calories' ? 'kcal' : 
                           metric === 'sodium' ? 'mg' : 'g';
-              return `${label}: ${value.toFixed(1)} ${unit}`;
+              return `${label}: ${numValue.toFixed(1)} ${unit}`;
             }
           }
         }
@@ -1332,22 +1427,31 @@ const HomePage: React.FC = () => {
     
     if (!latest) return <Typography>No data available</Typography>;
     
+    // Normalize values for radar chart (scale to 0-100 range)
+    const normalizeValue = (value: number, maxValue: number) => {
+      return Math.min((value / maxValue) * 100, 100);
+    };
+    
     const summaryData = {
       labels: ['Calories', 'Protein', 'Carbs', 'Fat', 'Fiber', 'Sugar', 'Sodium'],
       datasets: [{
-        label: 'Daily Average',
+        label: 'Daily Values (%)',
         data: [
-          latest.calories || 0,
-          latest.protein || 0,
-          latest.carbohydrates || 0,
-          latest.fat || 0,
-          (latest as any).fiber || 0,
-          (latest as any).sugar || 0,
-          (latest as any).sodium || 0
+          normalizeValue(latest.calories || 0, 2000),
+          normalizeValue(latest.protein || 0, 150),
+          normalizeValue(latest.carbohydrates || 0, 250),
+          normalizeValue(latest.fat || 0, 70),
+          normalizeValue((latest as any).fiber || 0, 25),
+          normalizeValue((latest as any).sugar || 0, 50),
+          normalizeValue((latest as any).sodium || 0, 2300)
         ],
-        backgroundColor: ['#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A', '#98D8C8', '#F7DC6F', '#BB8FCE'],
+        backgroundColor: 'rgba(78, 205, 196, 0.2)',
+        borderColor: '#4ECDC4',
         borderWidth: 2,
-        borderColor: '#fff'
+        pointBackgroundColor: '#4ECDC4',
+        pointBorderColor: '#fff',
+        pointBorderWidth: 2,
+        pointRadius: 4
       }]
     };
     
@@ -1362,13 +1466,28 @@ const HomePage: React.FC = () => {
         scales: {
           r: {
             beginAtZero: true,
+            max: 100,
             grid: { color: 'rgba(0,0,0,0.1)' },
-            pointLabels: { font: { size: 12 } }
+            pointLabels: { font: { size: 12 } },
+            ticks: {
+              callback: function(value) {
+                return value + '%';
+              }
+            }
           }
         },
         plugins: {
-          legend: { display: false },
-          title: { display: false }
+          legend: { display: true, position: 'bottom' },
+          title: { display: false },
+          tooltip: {
+            callbacks: {
+              label: function(context) {
+                const value = context.parsed.r;
+                const numValue = typeof value === 'number' ? value : 0;
+                return `${context.label}: ${numValue.toFixed(1)}%`;
+              }
+            }
+          }
         }
       }} 
     />;
@@ -1382,22 +1501,39 @@ const HomePage: React.FC = () => {
     
     if (weeklyData.length === 0) return <Typography>No data available</Typography>;
     
+    // Sort by date to ensure proper ordering
+    const sortedData = [...weeklyData].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    
     const chartData = {
-      labels: weeklyData.map((day: any) => new Date(day.date).toLocaleDateString('en-US', { weekday: 'short' })),
+      labels: sortedData.map((day: any) => {
+        try {
+          return new Date(day.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+        } catch {
+          return 'Invalid Date';
+        }
+      }),
       datasets: [{
         label: 'Calories',
-        data: weeklyData.map((day: any) => day.calories || 0),
+        data: sortedData.map((day: any) => day.calories || 0),
         borderColor: '#FF6B6B',
-        backgroundColor: '#FF6B6B30',
+        backgroundColor: 'rgba(255, 107, 107, 0.1)',
         fill: true,
-        tension: 0.4
+        tension: 0.4,
+        pointBackgroundColor: '#FF6B6B',
+        pointBorderColor: '#fff',
+        pointBorderWidth: 2,
+        pointRadius: 4
       }, {
-        label: 'Protein',
-        data: weeklyData.map((day: any) => day.protein || 0),
+        label: 'Protein (g)',
+        data: sortedData.map((day: any) => day.protein || 0),
         borderColor: '#4ECDC4',
-        backgroundColor: '#4ECDC430',
+        backgroundColor: 'rgba(78, 205, 196, 0.1)',
         fill: true,
-        tension: 0.4
+        tension: 0.4,
+        pointBackgroundColor: '#4ECDC4',
+        pointBorderColor: '#fff',
+        pointBorderWidth: 2,
+        pointRadius: 4
       }]
     };
     
@@ -1411,10 +1547,44 @@ const HomePage: React.FC = () => {
         maintainAspectRatio: false,
         plugins: {
           legend: { position: 'top' },
-          title: { display: false }
+          title: { display: false },
+                      tooltip: {
+              mode: 'index',
+              intersect: false,
+              callbacks: {
+                label: function(context) {
+                  let label = context.dataset.label || '';
+                  if (label) {
+                    label += ': ';
+                  }
+                  if (context.parsed.y !== null) {
+                    const value = context.parsed.y;
+                    const numValue = typeof value === 'number' ? value : 0;
+                    label += numValue.toFixed(1);
+                    if (context.dataset.label === 'Protein (g)') {
+                      label += 'g';
+                    } else if (context.dataset.label === 'Calories') {
+                      label += ' kcal';
+                    }
+                  }
+                  return label;
+                }
+              }
+            }
         },
         scales: {
-          y: { beginAtZero: true }
+          y: { 
+            beginAtZero: true,
+            grid: { color: 'rgba(0,0,0,0.1)' }
+          },
+          x: {
+            grid: { color: 'rgba(0,0,0,0.1)' }
+          }
+        },
+        interaction: {
+          mode: 'nearest',
+          axis: 'x',
+          intersect: false
         }
       }} 
     />;
@@ -1424,11 +1594,21 @@ const HomePage: React.FC = () => {
     if (!consumptionAnalytics?.daily_nutrition_history) return <Typography>No data available</Typography>;
     
     const data = consumptionAnalytics.daily_nutrition_history;
-    const avgData = data.slice(-7).reduce((acc: any, day: any) => ({
+    const recentData = data.slice(-7);
+    
+    if (recentData.length === 0) return <Typography>No data available</Typography>;
+    
+    const avgData = recentData.reduce((acc: any, day: any) => ({
       protein: acc.protein + (day.protein || 0),
       carbs: acc.carbs + (day.carbohydrates || 0),
       fat: acc.fat + (day.fat || 0)
     }), { protein: 0, carbs: 0, fat: 0 });
+    
+    // Calculate averages
+    const numDays = recentData.length;
+    avgData.protein = avgData.protein / numDays;
+    avgData.carbs = avgData.carbs / numDays;
+    avgData.fat = avgData.fat / numDays;
     
     const total = avgData.protein + avgData.carbs + avgData.fat;
     if (total === 0) return <Typography>No data available</Typography>;
@@ -1439,7 +1619,8 @@ const HomePage: React.FC = () => {
         data: [avgData.protein, avgData.carbs, avgData.fat],
         backgroundColor: ['#4ECDC4', '#45B7D1', '#FFA07A'],
         borderWidth: 2,
-        borderColor: '#fff'
+        borderColor: '#fff',
+        hoverOffset: 4
       }]
     };
     
@@ -1452,8 +1633,25 @@ const HomePage: React.FC = () => {
         responsive: true,
         maintainAspectRatio: false,
         plugins: {
-          legend: { position: 'bottom' },
-          title: { display: false }
+          legend: { 
+            position: 'bottom',
+            labels: {
+              padding: 20,
+              usePointStyle: true
+            }
+          },
+          title: { display: false },
+                      tooltip: {
+              callbacks: {
+                label: function(context) {
+                  const label = context.label || '';
+                  const value = context.parsed;
+                  const numValue = typeof value === 'number' ? value : 0;
+                  const percentage = total > 0 ? ((numValue / total) * 100).toFixed(1) : 0;
+                  return `${label}: ${numValue.toFixed(1)}g (${percentage}%)`;
+                }
+              }
+            }
         }
       }} 
     />;
@@ -1476,7 +1674,9 @@ const HomePage: React.FC = () => {
         ],
         backgroundColor: ['#4ECDC4', '#45B7D1', '#FFA07A', '#98D8C8'],
         borderWidth: 2,
-        borderColor: '#fff'
+        borderColor: '#fff',
+        borderRadius: 8,
+        borderSkipped: false
       }]
     };
     
@@ -1490,17 +1690,31 @@ const HomePage: React.FC = () => {
         maintainAspectRatio: false,
         plugins: {
           legend: { display: false },
-          title: { display: false }
+          title: { display: false },
+                      tooltip: {
+              callbacks: {
+                label: function(context) {
+                  const label = context.label || '';
+                  const value = context.parsed.y;
+                  const numValue = typeof value === 'number' ? value : 0;
+                  return `${label}: ${numValue.toFixed(1)}%`;
+                }
+              }
+            }
         },
         scales: {
           y: { 
             beginAtZero: true,
             max: 100,
+            grid: { color: 'rgba(0,0,0,0.1)' },
             ticks: {
               callback: function(value) {
                 return value + '%';
               }
             }
+          },
+          x: {
+            grid: { display: false }
           }
         }
       }} 
@@ -2029,14 +2243,17 @@ const HomePage: React.FC = () => {
                                   label += ': ';
                                 }
                                 if (context.parsed !== null) {
-                                  label += context.parsed.toFixed(1) + 'g'; // Display actual value
+                                  const value = context.parsed;
+                                  const numValue = typeof value === 'number' ? value : 0;
+                                  label += numValue.toFixed(1) + 'g'; // Display actual value
                                 }
                                 return label;
                               },
                               afterLabel: function(context) {
                                 const total = context.dataset.data.reduce((sum: number, value: number) => sum + value, 0);
                                 const value = context.parsed;
-                                const percentage = total > 0 ? (value / total * 100) : 0;
+                                const numValue = typeof value === 'number' ? value : 0;
+                                const percentage = total > 0 ? (numValue / total * 100) : 0;
                                 return `(${percentage.toFixed(1)}%)`; // Display percentage
                               }
                             }
@@ -2162,7 +2379,10 @@ const HomePage: React.FC = () => {
                               /\s*\(.*$/i,       // Remove unclosed parentheses
                               /\s*\bserved\b.*$/i, // Remove "served..." descriptions
                               /\s*\band\b.*$/i,    // Remove "and..." descriptions
-                              /\s*\bincluding\b.*$/i // Remove "including..." descriptions
+                              /\s*\bincluding\b.*$/i, // Remove "including..." descriptions
+                              /\s*\brecommended\b[\s:]*\brecommended\b[\s:]*\brecommended\b[\s:]*/gi, // Remove repeated "Recommended:" text
+                              /\s*\brecommended\b[\s:]*\brecommended\b[\s:]*/gi, // Remove repeated "Recommended:" text
+                              /\s*\brecommended\b[\s:]*/gi // Remove single "Recommended:" text
                             ];
                             
                             patterns.forEach(pattern => {
