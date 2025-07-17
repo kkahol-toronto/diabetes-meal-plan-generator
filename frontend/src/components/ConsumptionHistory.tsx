@@ -708,24 +708,16 @@ const ConsumptionHistory: React.FC = () => {
   const generateChartData = (metric: keyof NutritionalInfo) => {
     if (!analytics?.daily_nutrition_history) return null;
 
-    // Use all available data since backend filters by time range
-    const data = analytics.daily_nutrition_history;
-    
-    if (!data || data.length === 0) return null;
-
-    const chartConfig = chartConfigs.find(config => config.metric === metric);
-    const color = chartConfig?.color || '#45B7D1';
-
+    /* ---------------------------------- PIE / DOUGHNUT ---------------------------------- */
     if (selectedChartType === 'pie' || selectedChartType === 'doughnut') {
-      // For pie charts, show distribution across meal types
       const mealDistribution = analytics.meal_distribution || {};
       const labels = Object.keys(mealDistribution);
       const values = Object.values(mealDistribution);
-      
+
       if (labels.length === 0) return null;
 
       return {
-        labels: labels.map(label => label.charAt(0).toUpperCase() + label.slice(1)),
+        labels: labels.map(l => l.charAt(0).toUpperCase() + l.slice(1)),
         datasets: [{
           data: values,
           backgroundColor: ['#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A', '#98D8C8', '#F7DC6F'],
@@ -736,37 +728,64 @@ const ConsumptionHistory: React.FC = () => {
       };
     }
 
-    // For line and bar charts, sort data by date and show time series
-    const sortedData = [...data].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-    const labels = sortedData.map(day => formatDate(day.date));
-    const values = sortedData.map(day => (day as any)[metric] || 0);
+    /* ---------------------------------- BAR / LINE ---------------------------------- */
+    const selectedDays = parseInt(selectedTimeRange, 10);
+    const today = new Date();
+    const dateList: string[] = [];
+    const valueList: number[] = [];
 
-    const datasets = [{
-      label: `Current Period (${timeRanges.find(r => r.value === selectedTimeRange)?.label})`,
-      data: values,
-      backgroundColor: selectedChartType === 'line' ? 'rgba(0,0,0,0.05)' : color,
-      borderColor: color,
-      borderWidth: 2,
-      fill: selectedChartType === 'line',
-      tension: 0.4,
-      pointBackgroundColor: color,
-      pointBorderColor: '#fff',
-      pointBorderWidth: 2,
-      pointRadius: 4,
-      pointHoverRadius: 6
-    }];
+    // Helper map for quick lookup
+    const currentMap: Record<string, any> = {};
+    analytics!.daily_nutrition_history.forEach(day => {
+      currentMap[day.date.split('T')[0]] = day;
+    });
 
-    // Add comparison data if in comparison mode
+    for (let i = selectedDays - 1; i >= 0; i--) {
+      const d = new Date(today);
+      d.setDate(today.getDate() - i);
+      const iso = d.toISOString().split('T')[0];
+      dateList.push(formatDate(iso));
+      valueList.push((currentMap[iso]?.[metric] as number) || 0);
+    }
+
+    const chartConfig = chartConfigs.find(c => c.metric === metric);
+    const color = chartConfig?.color || '#45B7D1';
+
+    const datasets: any[] = [
+      {
+        label: `Current (${timeRanges.find(r => r.value === selectedTimeRange)?.label})`,
+        data: valueList,
+        backgroundColor: selectedChartType === 'line' ? 'rgba(0,0,0,0.05)' : color,
+        borderColor: color,
+        borderWidth: 2,
+        fill: selectedChartType === 'line',
+        tension: 0.4,
+        pointBackgroundColor: color,
+        pointBorderColor: '#fff',
+        pointBorderWidth: 2,
+        pointRadius: 4,
+        pointHoverRadius: 6
+      }
+    ];
+
+    /* ------------- Comparison dataset (aligned with same dateList) ------------- */
     if (comparisonMode && comparisonAnalytics?.daily_nutrition_history) {
-      const comparisonData = comparisonAnalytics.daily_nutrition_history;
-      const comparisonSortedData = [...comparisonData].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-      const comparisonValues = comparisonSortedData.map(day => (day as any)[metric] || 0);
-      
-      // Use a slightly different color for comparison
-      const comparisonColor = color.replace(')', ', 0.7)').replace('rgb', 'rgba').replace('#', 'rgba(');
-      
+      const comparisonMap: Record<string, any> = {};
+      comparisonAnalytics.daily_nutrition_history.forEach(day => {
+        comparisonMap[day.date.split('T')[0]] = day;
+      });
+
+      const comparisonValues = dateList.map((_l, idx) => {
+        const d = new Date(today);
+        d.setDate(today.getDate() - (selectedDays - 1 - idx));
+        const iso = d.toISOString().split('T')[0];
+        return (comparisonMap[iso]?.[metric] as number) || 0;
+      });
+
+      const comparisonColor = 'rgba(0,0,0,0.4)';
+
       datasets.push({
-        label: `Comparison Period (${timeRanges.find(r => r.value === comparisonTimeRange)?.label})`,
+        label: `Comparison (${timeRanges.find(r => r.value === comparisonTimeRange)?.label})`,
         data: comparisonValues,
         backgroundColor: selectedChartType === 'line' ? 'rgba(0,0,0,0.03)' : comparisonColor,
         borderColor: comparisonColor,
@@ -778,12 +797,12 @@ const ConsumptionHistory: React.FC = () => {
         pointBorderWidth: 2,
         pointRadius: 4,
         pointHoverRadius: 6,
-        ...(selectedChartType === 'line' && { borderDash: [5, 5] }) // Dashed line for comparison
-      } as any);
+        ...(selectedChartType === 'line' && { borderDash: [5, 5] })
+      });
     }
 
     return {
-      labels,
+      labels: dateList,
       datasets
     };
   };
@@ -830,10 +849,11 @@ const ConsumptionHistory: React.FC = () => {
           callbacks: {
             label: function(context: any) {
               const label = context.dataset.label || '';
-              const value = context.parsed.y || context.parsed || 0;
+              const rawVal = context.parsed.y ?? context.parsed ?? 0;
+              const numericVal = typeof rawVal === 'number' && isFinite(rawVal) ? rawVal : Number(rawVal) || 0;
               const unit = metric === 'calories' ? 'kcal' : 
                           metric === 'sodium' ? 'mg' : 'g';
-              return `${label}: ${value.toFixed(1)} ${unit}`;
+              return `${label}: ${numericVal.toFixed(1)} ${unit}`;
             }
           }
         }
@@ -1101,7 +1121,7 @@ const ConsumptionHistory: React.FC = () => {
             </FormControl>
           </Grid>
 
-          <Grid item xs={12} sm={6} md={3}>
+          <Grid item xs={12} sm={6} md={3} sx={{ display: 'none' }}>
             <FormControl fullWidth>
               <InputLabel>Metric</InputLabel>
               <Select
@@ -1114,7 +1134,7 @@ const ConsumptionHistory: React.FC = () => {
                     <Box display="flex" alignItems="center" gap={1}>
                       {config.icon}
                       {config.title}
-                </Box>
+                    </Box>
                   </MenuItem>
                 ))}
               </Select>
@@ -1190,7 +1210,7 @@ const ConsumptionHistory: React.FC = () => {
             iconPosition="start"
           />
           <Tab 
-            label="📈 Advanced Analytics" 
+            label="�� Advanced Analytics" 
             icon={<AnalyticsIcon />}
             iconPosition="start"
           />
@@ -1376,17 +1396,28 @@ const ConsumptionHistory: React.FC = () => {
         <TabPanel value={activeTab} index={2}>
           {analytics && (
             <Box>
-              {/* Interactive Chart Section */}
-              <Card sx={{ mb: 3 }}>
-                <CardContent>
-                  <Typography variant="h5" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    📈 Interactive Nutrition Charts
-                  </Typography>
-                  <Box sx={{ height: 400, mt: 2 }}>
-                    {renderChart(selectedMetric)}
-                  </Box>
-                </CardContent>
-              </Card>
+              {/* Multi-metric Charts */}
+              <Box sx={{ mb: 3 }}>
+                <Typography variant="h5" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  📈 Nutrition Metrics Charts
+                </Typography>
+                <Grid container spacing={3}>
+                  {chartConfigs.map((config) => (
+                    <Grid item xs={12} md={6} key={config.metric}>
+                      <Card>
+                        <CardContent>
+                          <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            {config.icon} {config.title}
+                          </Typography>
+                          <Box sx={{ height: 300 }}>
+                            {renderChart(config.metric)}
+                          </Box>
+                        </CardContent>
+                      </Card>
+                    </Grid>
+                  ))}
+                </Grid>
+              </Box>
 
               {/* Multi-Metric Comparison Grid */}
               <Grid container spacing={3} sx={{ mb: 3 }}>
@@ -1412,8 +1443,8 @@ const ConsumptionHistory: React.FC = () => {
                                                 <Typography variant="h4" sx={{ color: config.color, fontWeight: 'bold' }}>
                           {selectedTimeRange === '1' && dailyInsights?.today_totals ? 
                             Math.round((dailyInsights.today_totals[config.metric] || 0) as number) :
-                            (analytics.daily_averages[config.metric] 
-                              ? Math.round(analytics.daily_averages[config.metric] as number)
+                            (analytics!.daily_averages[config.metric] 
+                              ? Math.round(analytics!.daily_averages[config.metric] as number)
                               : 0)}
                         </Typography>
                   <Typography variant="body2" color="textSecondary">
@@ -1447,7 +1478,7 @@ const ConsumptionHistory: React.FC = () => {
             <Grid item xs={12} sm={6} md={comparisonMode ? 6 : 3}>
                       <Paper sx={{ p: 3, textAlign: 'center', bgcolor: 'primary.light', color: 'primary.contrastText' }}>
                         <Typography variant="h3" fontWeight="bold">
-                          {analytics.total_meals}
+                          {analytics!.total_meals}
                   </Typography>
                         <Typography variant="h6">Total Meals</Typography>
                         <Typography variant="body2" sx={{ opacity: 0.8 }}>
@@ -1455,7 +1486,7 @@ const ConsumptionHistory: React.FC = () => {
                   </Typography>
                         {comparisonMode && comparisonAnalytics && (
                           <Typography variant="h4" sx={{ mt: 1, opacity: 0.8 }}>
-                            vs {comparisonAnalytics.total_meals}
+                            vs {comparisonAnalytics!.total_meals}
                           </Typography>
                         )}
                       </Paper>
@@ -1463,7 +1494,7 @@ const ConsumptionHistory: React.FC = () => {
             <Grid item xs={12} sm={6} md={comparisonMode ? 6 : 3}>
                       <Paper sx={{ p: 3, textAlign: 'center', bgcolor: 'success.light', color: 'success.contrastText' }}>
                         <Typography variant="h3" fontWeight="bold">
-                          {Math.round(analytics.adherence_stats.diabetes_suitable_percentage)}%
+                          {Math.round(analytics!.adherence_stats.diabetes_suitable_percentage)}%
                   </Typography>
                         <Typography variant="h6">Diabetes Suitable</Typography>
                         <Typography variant="body2" sx={{ opacity: 0.8 }}>
@@ -1471,7 +1502,7 @@ const ConsumptionHistory: React.FC = () => {
                     </Typography>
                         {comparisonMode && comparisonAnalytics && (
                           <Typography variant="h4" sx={{ mt: 1, opacity: 0.8 }}>
-                            vs {Math.round(comparisonAnalytics.adherence_stats.diabetes_suitable_percentage)}%
+                            vs {Math.round(comparisonAnalytics!.adherence_stats.diabetes_suitable_percentage)}%
                           </Typography>
                         )}
                       </Paper>
@@ -1483,7 +1514,7 @@ const ConsumptionHistory: React.FC = () => {
                             <Typography variant="h3" fontWeight="bold">
                               {selectedTimeRange === '1' && dailyInsights?.today_totals ? 
                                 Math.round(dailyInsights.today_totals.calories) : 
-                                Math.round(analytics.daily_averages.calories)}
+                                Math.round(analytics!.daily_averages.calories)}
                             </Typography>
                             <Typography variant="h6">{selectedTimeRange === '1' ? 'Total Calories' : 'Avg Calories'}</Typography>
                             <Typography variant="body2" sx={{ opacity: 0.8 }}>
@@ -1496,7 +1527,7 @@ const ConsumptionHistory: React.FC = () => {
                             <Typography variant="h3" fontWeight="bold">
                               {selectedTimeRange === '1' && dailyInsights?.today_totals ? 
                                 Math.round(dailyInsights.today_totals.protein) : 
-                                Math.round(analytics.daily_averages.protein)}g
+                                Math.round(analytics!.daily_averages.protein)}g
                             </Typography>
                             <Typography variant="h6">{selectedTimeRange === '1' ? 'Total Protein' : 'Avg Protein'}</Typography>
                             <Typography variant="body2" sx={{ opacity: 0.8 }}>
@@ -1518,56 +1549,56 @@ const ConsumptionHistory: React.FC = () => {
                         <Grid item xs={12} sm={6} md={3}>
                           <Paper sx={{ p: 2, textAlign: 'center', bgcolor: 'grey.100' }}>
                             <Typography variant="h6" fontWeight="bold">
-                              {Math.round(analytics.daily_averages.calories)} vs {Math.round(comparisonAnalytics.daily_averages.calories)}
+                              {Math.round(analytics!.daily_averages.calories)} vs {Math.round(comparisonAnalytics!.daily_averages.calories)}
                             </Typography>
                             <Typography variant="body2" color="textSecondary">
                               Avg Calories/Day
                             </Typography>
-                            <Typography variant="body2" color={analytics.daily_averages.calories > comparisonAnalytics.daily_averages.calories ? 'error' : 'success'}>
-                              {analytics.daily_averages.calories > comparisonAnalytics.daily_averages.calories ? '↑' : '↓'} 
-                              {Math.abs(Math.round(analytics.daily_averages.calories - comparisonAnalytics.daily_averages.calories))} cal
+                            <Typography variant="body2" color={analytics!.daily_averages.calories > comparisonAnalytics!.daily_averages.calories ? 'error' : 'success'}>
+                              {analytics!.daily_averages.calories > comparisonAnalytics!.daily_averages.calories ? '↑' : '↓'} 
+                              {Math.abs(Math.round(analytics!.daily_averages.calories - comparisonAnalytics!.daily_averages.calories))} cal
                             </Typography>
                           </Paper>
                         </Grid>
                         <Grid item xs={12} sm={6} md={3}>
                           <Paper sx={{ p: 2, textAlign: 'center', bgcolor: 'grey.100' }}>
                             <Typography variant="h6" fontWeight="bold">
-                              {Math.round(analytics.daily_averages.protein)}g vs {Math.round(comparisonAnalytics.daily_averages.protein)}g
+                              {Math.round(analytics!.daily_averages.protein)}g vs {Math.round(comparisonAnalytics!.daily_averages.protein)}g
                             </Typography>
                             <Typography variant="body2" color="textSecondary">
                               Avg Protein/Day
                             </Typography>
-                            <Typography variant="body2" color={analytics.daily_averages.protein > comparisonAnalytics.daily_averages.protein ? 'success' : 'error'}>
-                              {analytics.daily_averages.protein > comparisonAnalytics.daily_averages.protein ? '↑' : '↓'} 
-                              {Math.abs(Math.round(analytics.daily_averages.protein - comparisonAnalytics.daily_averages.protein))}g
+                            <Typography variant="body2" color={analytics!.daily_averages.protein > comparisonAnalytics!.daily_averages.protein ? 'success' : 'error'}>
+                              {analytics!.daily_averages.protein > comparisonAnalytics!.daily_averages.protein ? '↑' : '↓'} 
+                              {Math.abs(Math.round(analytics!.daily_averages.protein - comparisonAnalytics!.daily_averages.protein))}g
                             </Typography>
                           </Paper>
                         </Grid>
                         <Grid item xs={12} sm={6} md={3}>
                           <Paper sx={{ p: 2, textAlign: 'center', bgcolor: 'grey.100' }}>
                             <Typography variant="h6" fontWeight="bold">
-                              {Math.round(analytics.daily_averages.carbohydrates)}g vs {Math.round(comparisonAnalytics.daily_averages.carbohydrates)}g
+                              {Math.round(analytics!.daily_averages.carbohydrates)}g vs {Math.round(comparisonAnalytics!.daily_averages.carbohydrates)}g
                             </Typography>
                             <Typography variant="body2" color="textSecondary">
                               Avg Carbs/Day
                             </Typography>
-                            <Typography variant="body2" color={analytics.daily_averages.carbohydrates > comparisonAnalytics.daily_averages.carbohydrates ? 'error' : 'success'}>
-                              {analytics.daily_averages.carbohydrates > comparisonAnalytics.daily_averages.carbohydrates ? '↑' : '↓'} 
-                              {Math.abs(Math.round(analytics.daily_averages.carbohydrates - comparisonAnalytics.daily_averages.carbohydrates))}g
+                            <Typography variant="body2" color={analytics!.daily_averages.carbohydrates > comparisonAnalytics!.daily_averages.carbohydrates ? 'error' : 'success'}>
+                              {analytics!.daily_averages.carbohydrates > comparisonAnalytics!.daily_averages.carbohydrates ? '↑' : '↓'} 
+                              {Math.abs(Math.round(analytics!.daily_averages.carbohydrates - comparisonAnalytics!.daily_averages.carbohydrates))}g
                             </Typography>
                           </Paper>
                         </Grid>
                         <Grid item xs={12} sm={6} md={3}>
                           <Paper sx={{ p: 2, textAlign: 'center', bgcolor: 'grey.100' }}>
                             <Typography variant="h6" fontWeight="bold">
-                              {Math.round(analytics.daily_averages.fat)}g vs {Math.round(comparisonAnalytics.daily_averages.fat)}g
+                              {Math.round(analytics!.daily_averages.fat)}g vs {Math.round(comparisonAnalytics!.daily_averages.fat)}g
                             </Typography>
                             <Typography variant="body2" color="textSecondary">
                               Avg Fat/Day
                             </Typography>
-                            <Typography variant="body2" color={analytics.daily_averages.fat > comparisonAnalytics.daily_averages.fat ? 'error' : 'success'}>
-                              {analytics.daily_averages.fat > comparisonAnalytics.daily_averages.fat ? '↑' : '↓'} 
-                              {Math.abs(Math.round(analytics.daily_averages.fat - comparisonAnalytics.daily_averages.fat))}g
+                            <Typography variant="body2" color={analytics!.daily_averages.fat > comparisonAnalytics!.daily_averages.fat ? 'error' : 'success'}>
+                              {analytics!.daily_averages.fat > comparisonAnalytics!.daily_averages.fat ? '↑' : '↓'} 
+                              {Math.abs(Math.round(analytics!.daily_averages.fat - comparisonAnalytics!.daily_averages.fat))}g
                             </Typography>
                           </Paper>
                         </Grid>
@@ -1632,7 +1663,7 @@ const ConsumptionHistory: React.FC = () => {
                             {meal}
                           </Typography>
                           <Typography variant="body2" color="textSecondary">
-                            {Math.round((count / analytics.total_meals) * 100)}% of total
+                            {Math.round((count / analytics!.total_meals) * 100)}% of total
                           </Typography>
                         </Paper>
                       </Grid>
@@ -1697,7 +1728,7 @@ const ConsumptionHistory: React.FC = () => {
                               sx={{ mb: 1 }}
                             />
                             <Typography variant="caption" display="block" color="textSecondary">
-                              {Math.round((food.frequency / analytics.total_meals) * 100)}% frequency
+                              {Math.round((food.frequency / analytics!.total_meals) * 100)}% frequency
                           </Typography>
                         </Box>
                         </ListItem>
@@ -1753,7 +1784,7 @@ const ConsumptionHistory: React.FC = () => {
                           <Typography fontWeight="bold">
                             {selectedTimeRange === '1' && dailyInsights?.today_totals ? 
                               Math.round(dailyInsights.today_totals.fiber || 0) : 
-                              Math.round(analytics.daily_averages.fiber || 0)}g{selectedTimeRange === '1' ? '' : '/day'}
+                              Math.round(analytics!.daily_averages.fiber || 0)}g{selectedTimeRange === '1' ? '' : '/day'}
                           </Typography>
                         </Box>
                         <Box display="flex" justifyContent="space-between" alignItems="center">
@@ -1761,7 +1792,7 @@ const ConsumptionHistory: React.FC = () => {
                           <Typography fontWeight="bold">
                             {selectedTimeRange === '1' && dailyInsights?.today_totals ? 
                               Math.round(dailyInsights.today_totals.sugar || 0) : 
-                              Math.round(analytics.daily_averages.sugar || 0)}g{selectedTimeRange === '1' ? '' : '/day'}
+                              Math.round(analytics!.daily_averages.sugar || 0)}g{selectedTimeRange === '1' ? '' : '/day'}
                           </Typography>
                         </Box>
                         <Box display="flex" justifyContent="space-between" alignItems="center">
@@ -1769,7 +1800,7 @@ const ConsumptionHistory: React.FC = () => {
                           <Typography fontWeight="bold">
                             {selectedTimeRange === '1' && dailyInsights?.today_totals ? 
                               Math.round(dailyInsights.today_totals.sodium || 0) : 
-                              Math.round(analytics.daily_averages.sodium || 0)}mg{selectedTimeRange === '1' ? '' : '/day'}
+                              Math.round(analytics!.daily_averages.sodium || 0)}mg{selectedTimeRange === '1' ? '' : '/day'}
                           </Typography>
                         </Box>
                       </Stack>
