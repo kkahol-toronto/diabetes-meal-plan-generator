@@ -929,7 +929,11 @@ async def trigger_meal_plan_recalibration(user_email: str, user_profile: dict):
         diet_type = user_profile.get('dietType', [])
         food_preferences = user_profile.get('foodPreferences', [])
         strong_dislikes = user_profile.get('strongDislikes', [])
-        target_calories = int(user_profile.get('calorieTarget', '2000'))
+        # Handle empty or invalid calorie target
+        calorie_target = user_profile.get('calorieTarget', '2000')
+        if not calorie_target or calorie_target == '':
+            calorie_target = '2000'
+        target_calories = int(calorie_target)
         remaining_calories = max(0, target_calories - calories_consumed)
         
         # Check if user is vegetarian or has restrictions
@@ -4951,8 +4955,12 @@ async def get_consumption_analytics_endpoint(
     try:
         print(f"[get_consumption_analytics] Getting analytics for user {current_user['id']} for {days} days")
         
-        # Use the original database function
-        analytics = await get_consumption_analytics(current_user["email"], days)
+        # Get user's timezone from profile
+        user_timezone = current_user.get("profile", {}).get("timezone", "UTC")
+        print(f"[get_consumption_analytics] Using timezone: {user_timezone}")
+        
+        # Use the original database function with timezone
+        analytics = await get_consumption_analytics(current_user["email"], days, user_timezone)
         print(f"[get_consumption_analytics] Generated analytics successfully")
         
         return analytics
@@ -5741,8 +5749,8 @@ async def get_consumption_progress(current_user: User = Depends(get_current_user
         today_totals["fat"] += ni.get("fat", 0)
 
     # 5. Weekly and monthly averages (reuse analytics logic)
-    weekly = await get_consumption_analytics(current_user["email"], days=7)
-    monthly = await get_consumption_analytics(current_user["email"], days=30)
+    weekly = await get_consumption_analytics(current_user["email"], days=7, user_timezone=user_timezone)
+    monthly = await get_consumption_analytics(current_user["email"], days=30, user_timezone=user_timezone)
 
     def macro_avg(analytics):
         days = analytics.get("period_days", 1)
@@ -7163,14 +7171,25 @@ Ensure ALL dishes are completely vegetarian and egg-free. Do not include any mea
         # Clean up any duplicate "Recommended: " prefixes that may have accumulated
         for _meal_key, _meal_text in todays_plan.get("meals", {}).items():
             if _meal_text:
+                # Remove multiple "Recommended: " prefixes with safety limits
+                max_iterations = 10  # Prevent infinite loops
+                iterations = 0
+                
                 # Remove multiple "Recommended: " prefixes
-                while "Recommended: Recommended: " in _meal_text:
+                while "Recommended: Recommended: " in _meal_text and iterations < max_iterations:
                     _meal_text = _meal_text.replace("Recommended: Recommended: ", "Recommended: ")
+                    iterations += 1
+                
+                # Reset for next loop
+                iterations = 0
+                
                 # Also handle case variations
-                while "recommended: recommended: " in _meal_text.lower():
+                while "recommended: recommended: " in _meal_text.lower() and iterations < max_iterations:
                     _meal_text = _meal_text.replace("recommended: recommended: ", "Recommended: ", 1)
                     # Fix the case of the remaining "recommended:"
                     _meal_text = _meal_text.replace("recommended:", "Recommended:", 1)
+                    iterations += 1
+                
                 todays_plan["meals"][_meal_key] = _meal_text
 
         return todays_plan
@@ -8049,7 +8068,7 @@ async def test_get_consumption_analytics(days: int = 7):
         print(f"[test_get_consumption_analytics] Getting analytics for test user, days: {days}")
         
         # Get analytics for test user
-        analytics_data = await get_consumption_analytics("test@example.com", days)
+        analytics_data = await get_consumption_analytics("test@example.com", days, "UTC")
         print(f"[test_get_consumption_analytics] Analytics data generated successfully")
         
         return analytics_data
@@ -8065,8 +8084,8 @@ async def test_get_daily_insights():
         print(f"[test_get_daily_insights] Getting daily insights for test user")
         
         # Get consumption analytics for today
-        today_analytics = await get_consumption_analytics("test@example.com", 1)
-        weekly_analytics = await get_consumption_analytics("test@example.com", 7)
+        today_analytics = await get_consumption_analytics("test@example.com", 1, "UTC")
+        weekly_analytics = await get_consumption_analytics("test@example.com", 7, "UTC")
         
         # Test user's comprehensive health conditions
         health_conditions = ["Type 2 Diabetes", "Hypertension", "High Cholesterol", "PCOS"]
@@ -8416,8 +8435,10 @@ async def get_meal_suggestion(
         
         # 5. Get consumption analytics for trends
         try:
-            weekly_analytics = await get_consumption_analytics(current_user["email"], 7)
-            monthly_analytics = await get_consumption_analytics(current_user["email"], 30)
+            # Get user's timezone for analytics
+            user_timezone = current_user.get("profile", {}).get("timezone", "UTC")
+            weekly_analytics = await get_consumption_analytics(current_user["email"], 7, user_timezone)
+            monthly_analytics = await get_consumption_analytics(current_user["email"], 30, user_timezone)
         except Exception as e:
             print(f"[AI_COACH] Error fetching analytics: {e}")
             weekly_analytics = {}

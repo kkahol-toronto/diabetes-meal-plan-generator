@@ -817,18 +817,33 @@ async def get_user_consumption_history(user_id: str, limit: int = 50):
         print(f"[get_user_consumption_history] Full error details:", traceback.format_exc())
         raise Exception(f"Failed to get consumption history: {str(e)}")
 
-async def get_consumption_analytics(user_id: str, days: int = 7):
+async def get_consumption_analytics(user_id: str, days: int = 7, user_timezone: str = "UTC"):
     """Get comprehensive consumption analytics for a user over specified days"""
     try:
         if not user_id:
             raise ValueError("User ID is required")
             
-        # Calculate date threshold
+        # Calculate date threshold using user's timezone
         from datetime import datetime, timedelta
         from collections import defaultdict
         import re
+        import pytz
         
-        threshold_date = (datetime.utcnow() - timedelta(days=days)).isoformat()
+        # Get user's timezone boundaries
+        user_tz = pytz.timezone(user_timezone)
+        utc_now = datetime.utcnow().replace(tzinfo=pytz.utc)
+        user_now = utc_now.astimezone(user_tz)
+        
+        # Calculate threshold date in user's timezone
+        threshold_date_user = user_now - timedelta(days=days)
+        threshold_date_utc = threshold_date_user.astimezone(pytz.utc).replace(tzinfo=None)
+        
+        print(f"[get_consumption_analytics] User timezone: {user_timezone}")
+        print(f"[get_consumption_analytics] User local time: {user_now}")
+        print(f"[get_consumption_analytics] Threshold date (user timezone): {threshold_date_user}")
+        print(f"[get_consumption_analytics] Threshold date (UTC): {threshold_date_utc}")
+        
+        threshold_date = threshold_date_utc.isoformat()
         
         query = f"SELECT * FROM c WHERE c.type = 'consumption_record' AND c.user_id = '{user_id}' AND c.timestamp >= '{threshold_date}' ORDER BY c.timestamp DESC"
         
