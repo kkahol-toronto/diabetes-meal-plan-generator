@@ -2354,9 +2354,18 @@ const HomePage: React.FC = () => {
                       
                       <Grid container spacing={2}>
                         {Object.entries(planData.meals || {}).map(([mealType, mealDesc]: [string, any]) => {
+                          // Get consumption status from backend
+                          const consumptionStatus = planData.consumption_status?.[mealType];
+                          const isConsumed = consumptionStatus?.consumed || false;
+                          
                           // Extract just the recipe name from the meal description
                           const extractRecipeName = (desc: string): string => {
                             if (!desc || typeof desc !== 'string') return 'No meal planned';
+                            
+                            // If this is a consumption message, return it as-is
+                            if (desc.startsWith('✅ You ate:')) {
+                              return desc;
+                            }
                             
                             // Remove "Day X:" prefix
                             let cleaned = desc.replace(/^Day\s+\d+:\s*/, '');
@@ -2411,21 +2420,54 @@ const HomePage: React.FC = () => {
                             typeof mealDesc === 'string' ? mealDesc : mealDesc?.description || ''
                           );
                           
+                          // Determine card styling based on consumption status
+                          const cardStyle = isConsumed ? {
+                            bgcolor: 'rgba(76, 175, 80, 0.2)', // Green background for consumed
+                            border: '2px solid rgba(76, 175, 80, 0.5)',
+                            backdropFilter: 'blur(10px)'
+                          } : {
+                            bgcolor: 'rgba(255,255,255,0.1)', 
+                            backdropFilter: 'blur(10px)'
+                          };
+                          
                           return (
                             <Grid item xs={12} sm={6} md={3} key={mealType}>
-                              <Card sx={{ bgcolor: 'rgba(255,255,255,0.1)', backdropFilter: 'blur(10px)' }}>
+                              <Card sx={cardStyle}>
                                 <CardContent sx={{ p: 2 }}>
                                   <Typography variant="subtitle2" sx={{ 
                                     fontWeight: 'bold', 
                                     textTransform: 'capitalize',
                                     color: 'white',
-                                    mb: 1
+                                    mb: 1,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 1
                                   }}>
                                     {mealType}
+                                    {isConsumed && (
+                                      <CheckCircleIcon sx={{ 
+                                        fontSize: 16, 
+                                        color: '#4CAF50' 
+                                      }} />
+                                    )}
                                   </Typography>
-                                  <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.9)' }}>
+                                  <Typography variant="body2" sx={{ 
+                                    color: 'rgba(255,255,255,0.9)',
+                                    fontSize: isConsumed ? '0.85rem' : '0.875rem',
+                                    lineHeight: 1.3
+                                  }}>
                                     {recipeName}
                                   </Typography>
+                                  {isConsumed && consumptionStatus?.matched === false && (
+                                    <Typography variant="caption" sx={{ 
+                                      color: 'rgba(255, 235, 59, 0.9)',
+                                      fontSize: '0.7rem',
+                                      mt: 0.5,
+                                      display: 'block'
+                                    }}>
+                                      ⚠️ Deviated from plan
+                                    </Typography>
+                                  )}
                                 </CardContent>
                               </Card>
                             </Grid>
