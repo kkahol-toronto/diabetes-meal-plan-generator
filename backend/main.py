@@ -842,20 +842,29 @@ async def generate_consumption_aware_meal_plan(base_meal_plan: dict, consumption
                 # User hasn't consumed this meal type yet - show recommendation
                 original_meal = base_meal_plan.get("meals", {}).get(meal_type, "")
                 
+                # Check if meal already has "Recommended: " prefix to avoid duplication
+                def add_recommended_prefix(meal_text: str, prefix: str) -> str:
+                    if not meal_text:
+                        return prefix
+                    # If meal already starts with "Recommended: ", don't add it again
+                    if meal_text.lower().startswith("recommended:"):
+                        return meal_text
+                    return f"{prefix} {meal_text}"
+                
                 # Adjust recommendation based on remaining calories
                 if remaining_calories < 200:
                     if meal_type == "snack":
                         consumption_aware_plan["meals"][meal_type] = "Recommended: No additional snacks needed - you've reached your daily calorie goal"
                     else:
-                        consumption_aware_plan["meals"][meal_type] = f"Recommended: Light {original_meal.lower()}" if original_meal else "Recommended: Light, low-calorie option"
+                        consumption_aware_plan["meals"][meal_type] = add_recommended_prefix(original_meal, "Recommended: Light") if original_meal else "Recommended: Light, low-calorie option"
                 elif remaining_calories < 300:
                     if meal_type == "snack":
                         consumption_aware_plan["meals"][meal_type] = "Recommended: Optional small piece of fruit or vegetables if genuinely hungry"
                     else:
-                        consumption_aware_plan["meals"][meal_type] = f"Recommended: {original_meal} (lighter portion)" if original_meal else "Recommended: Balanced, moderate portion"
+                        consumption_aware_plan["meals"][meal_type] = add_recommended_prefix(original_meal, "Recommended:") if original_meal else "Recommended: Balanced, moderate portion"
                 else:
                     # Normal recommendation
-                    consumption_aware_plan["meals"][meal_type] = f"Recommended: {original_meal}" if original_meal else f"Recommended: Healthy {meal_type} option"
+                    consumption_aware_plan["meals"][meal_type] = add_recommended_prefix(original_meal, "Recommended:") if original_meal else f"Recommended: Healthy {meal_type} option"
                     
             else:
                 # Meal time has passed and user didn't consume - just show what was planned
@@ -4645,6 +4654,70 @@ async def debug_timezone(current_user: User = Depends(get_current_user)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/debug/cleanup-meal-plans")
+async def cleanup_meal_plans(current_user: User = Depends(get_current_user)):
+    """Clean up meal plans with duplicated text and regenerate fresh ones"""
+    try:
+        user_email = current_user["email"]
+        print(f"[CLEANUP] Starting meal plan cleanup for user: {user_email}")
+        
+        # Delete all existing meal plans for this user
+        from database import delete_all_user_meal_plans
+        await delete_all_user_meal_plans(user_email)
+        print(f"[CLEANUP] Deleted all existing meal plans for user: {user_email}")
+        
+        # Generate a fresh meal plan
+        profile = current_user.get("profile", {})
+        
+        # Get today's consumption
+        today_consumption = await get_today_consumption_records_async(user_email, profile.get("timezone", "UTC"))
+        calories_consumed = sum(r.get("nutritional_info", {}).get("calories", 0) for r in today_consumption)
+        target_calories = int(profile.get('calorieTarget', '2000'))
+        remaining_calories = max(0, target_calories - calories_consumed)
+        
+        # Get dietary restrictions
+        dietary_restrictions = profile.get('dietaryRestrictions', [])
+        allergies = profile.get('allergies', [])
+        diet_type = profile.get('dietType', [])
+        
+        # Check if user is vegetarian or has restrictions
+        is_vegetarian = 'vegetarian' in [r.lower() for r in dietary_restrictions] or 'vegetarian' in [d.lower() for d in diet_type]
+        no_eggs = any('egg' in r.lower() for r in dietary_restrictions) or any('egg' in a.lower() for a in allergies)
+        
+        # Generate fresh adaptive meal plan
+        fresh_plan = await generate_fresh_adaptive_meal_plan(
+            user_email,
+            today_consumption,
+            remaining_calories,
+            is_vegetarian,
+            no_eggs,
+            dietary_restrictions,
+            allergies,
+            profile.get('dietType', []),
+            profile.get('foodPreferences', []),
+            profile.get('strongDislikes', [])
+        )
+        
+        if fresh_plan:
+            from database import save_meal_plan
+            await save_meal_plan(user_email, fresh_plan)
+            print(f"[CLEANUP] Generated and saved fresh meal plan for user: {user_email}")
+            
+            return {
+                "success": True,
+                "message": "Meal plans cleaned and fresh plan generated",
+                "plan_id": fresh_plan.get("id"),
+                "meals": fresh_plan.get("meals", {})
+            }
+        else:
+            raise HTTPException(status_code=500, detail="Failed to generate fresh meal plan")
+            
+    except Exception as e:
+        print(f"[CLEANUP] Error: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Cleanup failed: {str(e)}")
+
 @app.post("/consumption/analyze-and-record")
 async def analyze_and_record_food(
     image: UploadFile = File(...),
@@ -7086,6 +7159,19 @@ Ensure ALL dishes are completely vegetarian and egg-free. Do not include any mea
             while " (recommended) (recommended)" in _meal_text:
                 _meal_text = _meal_text.replace(" (recommended) (recommended)", " (recommended)")
             todays_plan["meals"][_meal_key] = _meal_text
+
+        # Clean up any duplicate "Recommended: " prefixes that may have accumulated
+        for _meal_key, _meal_text in todays_plan.get("meals", {}).items():
+            if _meal_text:
+                # Remove multiple "Recommended: " prefixes
+                while "Recommended: Recommended: " in _meal_text:
+                    _meal_text = _meal_text.replace("Recommended: Recommended: ", "Recommended: ")
+                # Also handle case variations
+                while "recommended: recommended: " in _meal_text.lower():
+                    _meal_text = _meal_text.replace("recommended: recommended: ", "Recommended: ", 1)
+                    # Fix the case of the remaining "recommended:"
+                    _meal_text = _meal_text.replace("recommended:", "Recommended:", 1)
+                todays_plan["meals"][_meal_key] = _meal_text
 
         return todays_plan
     except HTTPException:
