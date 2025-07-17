@@ -2358,16 +2358,23 @@ const HomePage: React.FC = () => {
                           const consumptionStatus = planData.consumption_status?.[mealType];
                           const isConsumed = consumptionStatus?.consumed || false;
                           
-                          // Extract just the recipe name from the meal description
-                          const extractRecipeName = (desc: string): string => {
-                            if (!desc || typeof desc !== 'string') return 'No meal planned';
-                            
-                            // If this is a consumption message, return it as-is
-                            if (desc.startsWith('✅ You ate:')) {
-                              return desc;
+                          // Use structured data from consumptionStatus for consistent display
+                          const getDisplayContent = (): string => {
+                            if (isConsumed && consumptionStatus) {
+                              // Use structured consumption data - show actual food names
+                              if (consumptionStatus.total_items === 1) {
+                                return `You ate: ${consumptionStatus.actual[0] || 'Consumed meal'}`;
+                              } else if (consumptionStatus.total_items > 1) {
+                                // For multiple items, show the actual food names joined
+                                return `You ate: ${consumptionStatus.actual.join(', ') || 'Multiple items consumed'}`;
+                              }
                             }
                             
-                            // Remove "Day X:" prefix
+                            // For planned meals, clean up the description
+                            const desc = typeof mealDesc === 'string' ? mealDesc : mealDesc?.description || '';
+                            if (!desc) return 'No meal planned';
+                            
+                            // Remove "Day X:" prefix for planned meals
                             let cleaned = desc.replace(/^Day\s+\d+:\s*/, '');
                             
                             // Extract recipe name before any parentheses (which contain ingredients)
@@ -2405,7 +2412,7 @@ const HomePage: React.FC = () => {
                             if (cleaned.length < 3) {
                               // Try to extract a reasonable recipe name
                               const words = desc.replace(/^Day\s+\d+:\s*/, '').split(/\s+/);
-                              const meaningfulWords = words.filter(word => 
+                              const meaningfulWords = words.filter((word: string) => 
                                 word.length > 2 && 
                                 !word.match(/^\d+$/) && 
                                 !word.match(/^(with|and|or|the|a|an|in|on|at|to|from|for|of|by)$/i)
@@ -2416,9 +2423,7 @@ const HomePage: React.FC = () => {
                             return cleaned || 'Recipe';
                           };
                           
-                          const recipeName = extractRecipeName(
-                            typeof mealDesc === 'string' ? mealDesc : mealDesc?.description || ''
-                          );
+                          const displayContent = getDisplayContent();
                           
                           // Determine card styling based on consumption status
                           const cardStyle = isConsumed ? {
@@ -2450,14 +2455,39 @@ const HomePage: React.FC = () => {
                                         color: '#4CAF50' 
                                       }} />
                                     )}
+                                    {/* Show item count for multiple items */}
+                                    {isConsumed && consumptionStatus?.total_items > 1 && (
+                                      <Chip 
+                                        label={`${consumptionStatus.total_items} items`}
+                                        size="small"
+                                        sx={{ 
+                                          height: '18px',
+                                          fontSize: '0.65rem',
+                                          bgcolor: 'rgba(255,255,255,0.2)',
+                                          color: 'white'
+                                        }}
+                                      />
+                                    )}
                                   </Typography>
                                   <Typography variant="body2" sx={{ 
                                     color: 'rgba(255,255,255,0.9)',
                                     fontSize: isConsumed ? '0.85rem' : '0.875rem',
-                                    lineHeight: 1.3
+                                    lineHeight: 1.3,
+                                    wordBreak: 'break-word' // Ensure long food names wrap properly
                                   }}>
-                                    {recipeName}
+                                    {displayContent}
                                   </Typography>
+                                  {/* Show total calories for consumed items */}
+                                  {isConsumed && consumptionStatus?.total_calories > 0 && (
+                                    <Typography variant="caption" sx={{ 
+                                      color: 'rgba(255, 255, 255, 0.8)',
+                                      fontSize: '0.7rem',
+                                      mt: 0.5,
+                                      display: 'block'
+                                    }}>
+                                      {consumptionStatus.total_calories} calories
+                                    </Typography>
+                                  )}
                                   {isConsumed && consumptionStatus?.matched === false && (
                                     <Typography variant="caption" sx={{ 
                                       color: 'rgba(255, 235, 59, 0.9)',

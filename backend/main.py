@@ -1833,7 +1833,7 @@ def enforce_dietary_restrictions(meal_plan_data: dict, user_profile: dict) -> di
                     elif 'dinner' in meal_lower:
                         return "Baked salmon with roasted vegetables"
                     else:
-                        return "Greek yogurt with berries"
+                        return "Apple with almonds"
         
         return meal
     
@@ -1882,7 +1882,7 @@ class IntelligentMealPlanner:
     def __init__(self):
         self.meal_categories = {
             "breakfast": {
-                "base_proteins": ["tofu scramble", "chickpea flour pancakes", "almond butter", "Greek yogurt", "hemp seeds", "chia seeds"],
+                "base_proteins": ["tofu scramble", "chickpea flour pancakes", "almond butter", "cottage cheese", "hemp seeds", "chia seeds"],
                 "base_carbs": ["steel-cut oats", "quinoa porridge", "whole grain toast", "sweet potato", "brown rice", "buckwheat pancakes"],
                 "vegetables": ["spinach", "mushrooms", "bell peppers", "tomatoes", "avocado", "zucchini"],
                 "healthy_fats": ["olive oil", "avocado", "nuts", "seeds", "tahini", "coconut"],
@@ -2292,7 +2292,34 @@ class StableMealPlanManager:
     def __init__(self):
         self.daily_meal_plans = {}  # Cache for daily meal plans
         self.consumption_cache = {}  # Cache for consumption data
+        self.plan_lock = asyncio.Lock()  # For thread safety
         
+    def clear_cache_for_user(self, user_email: str):
+        """Clear cached meal plans for a specific user."""
+        try:
+            today = datetime.utcnow().date().isoformat()
+            cache_key = f"{user_email}_{today}"
+            
+            if cache_key in self.daily_meal_plans:
+                del self.daily_meal_plans[cache_key]
+                print(f"[STABLE_PLAN] Cleared cached meal plan for {user_email}")
+            
+            if cache_key in self.consumption_cache:
+                del self.consumption_cache[cache_key]
+                print(f"[STABLE_PLAN] Cleared consumption cache for {user_email}")
+                
+        except Exception as e:
+            print(f"[STABLE_PLAN] Error clearing cache: {str(e)}")
+
+    def clear_all_cache(self):
+        """Clear all cached meal plans."""
+        try:
+            self.daily_meal_plans.clear()
+            self.consumption_cache.clear()
+            print(f"[STABLE_PLAN] Cleared all caches")
+        except Exception as e:
+            print(f"[STABLE_PLAN] Error clearing all caches: {str(e)}")
+
     async def get_stable_todays_meal_plan(self, user_email: str, profile: dict) -> dict:
         """
         Get a stable meal plan for today that doesn't constantly regenerate.
@@ -2343,7 +2370,7 @@ class StableMealPlanManager:
     async def _needs_recalibration(self, cached_plan: dict, today_consumption: list, user_email: str) -> bool:
         """
         Determine if the meal plan needs recalibration based on consumption patterns.
-        Only recalibrate if user significantly deviated from the planned meals.
+        Enhanced to be more sensitive to new food logs.
         """
         try:
             # Check if consumption has changed since last check
@@ -2358,19 +2385,13 @@ class StableMealPlanManager:
             # Update consumption cache
             self.consumption_cache[cache_key] = consumption_hash
             
-            # Analyze deviation from planned meals
-            planned_meals = cached_plan.get("meals", {})
-            deviation_score = await self._calculate_deviation_score(planned_meals, today_consumption)
-            
-            # Only recalibrate if deviation is significant (>30%)
-            should_recalibrate = deviation_score > 0.3
-            
-            print(f"[STABLE_PLAN] Deviation score: {deviation_score:.2f}, Recalibrate: {should_recalibrate}")
-            return should_recalibrate
+            # Always recalibrate if consumption has changed
+            print(f"[STABLE_PLAN] Consumption changed - forcing recalibration")
+            return True
             
         except Exception as e:
             print(f"[STABLE_PLAN] Error checking recalibration needs: {str(e)}")
-            return False
+            return True  # Default to recalibration on error
     
     def _hash_consumption(self, consumption: list) -> str:
         """Create a hash of consumption data to detect changes."""
@@ -2583,21 +2604,30 @@ class StableMealPlanManager:
     async def _add_consumption_status(self, meal_plan: dict, today_consumption: list) -> dict:
         """
         Add consumption status to meal plan showing what user actually ate.
-        Format: { "breakfast": "You ate: Oatmeal with berries", "lunch": "Quinoa Buddha bowl", ... }
+        Enhanced to properly handle multiple food items per meal type.
         """
         try:
             enhanced_plan = meal_plan.copy()
             meals = enhanced_plan.get("meals", {})
             
-            # Group consumption by meal type
+            # Group consumption by meal type with timestamps for ordering
             consumed_by_type = {}
             for record in today_consumption:
                 meal_type = record.get("meal_type", "snack")
                 food_name = record.get("food_name", "")
+                timestamp = record.get("timestamp", "")
                 
                 if meal_type not in consumed_by_type:
                     consumed_by_type[meal_type] = []
-                consumed_by_type[meal_type].append(food_name)
+                consumed_by_type[meal_type].append({
+                    "food_name": food_name,
+                    "timestamp": timestamp,
+                    "calories": record.get("nutritional_info", {}).get("calories", 0)
+                })
+            
+            # Sort each meal type by timestamp (earliest first)
+            for meal_type in consumed_by_type:
+                consumed_by_type[meal_type].sort(key=lambda x: x["timestamp"])
             
             # Create enhanced meals with consumption status
             enhanced_meals = {}
@@ -2608,14 +2638,26 @@ class StableMealPlanManager:
                 
                 if meal_type in consumed_by_type:
                     # Show what was actually consumed
-                    consumed_foods = consumed_by_type[meal_type]
-                    consumed_text = ", ".join(consumed_foods)
-                    enhanced_meals[meal_type] = f"✅ You ate: {consumed_text}"
+                    consumed_items = consumed_by_type[meal_type]
+                    
+                    if len(consumed_items) == 1:
+                        # Single item
+                        item = consumed_items[0]
+                        enhanced_meals[meal_type] = f"✅ You ate: {item['food_name']}"
+                    else:
+                        # Multiple items - show as a list
+                        food_names = [item['food_name'] for item in consumed_items]
+                        total_calories = sum(item['calories'] for item in consumed_items)
+                        enhanced_meals[meal_type] = f"✅ You ate: {', '.join(food_names)} (Total: {total_calories:.0f} cal)"
+                    
+                    # Enhanced consumption status
                     consumption_status[meal_type] = {
                         "consumed": True,
                         "planned": planned_meal,
-                        "actual": consumed_foods,
-                        "matched": any(self._meals_similar(planned_meal.lower(), food.lower()) for food in consumed_foods)
+                        "actual": [item['food_name'] for item in consumed_items],
+                        "total_items": len(consumed_items),
+                        "total_calories": sum(item['calories'] for item in consumed_items),
+                        "matched": any(self._meals_similar(planned_meal.lower(), item['food_name'].lower()) for item in consumed_items)
                     }
                 else:
                     # Show planned meal
@@ -2624,12 +2666,16 @@ class StableMealPlanManager:
                         "consumed": False,
                         "planned": planned_meal,
                         "actual": [],
+                        "total_items": 0,
+                        "total_calories": 0,
                         "matched": False
                     }
             
             enhanced_plan["meals"] = enhanced_meals
             enhanced_plan["consumption_status"] = consumption_status
             enhanced_plan["last_updated"] = datetime.utcnow().isoformat()
+            
+            print(f"[STABLE_PLAN] Enhanced meal plan with consumption status: {enhanced_meals}")
             
             return enhanced_plan
             
@@ -3087,10 +3133,10 @@ async def generate_meal_plan(
 
         # Define a robust JSON structure based on selected days
         example_meals = {
-            "breakfast": ["Oatmeal with berries", "Whole grain toast with eggs", "Greek yogurt with granola", "Scrambled eggs with spinach", "Smoothie bowl", "Avocado toast", "Pancakes with fruit"],
+            "breakfast": ["Oatmeal with berries", "Whole grain toast with eggs", "Cottage cheese with granola", "Scrambled eggs with spinach", "Smoothie bowl", "Avocado toast", "Pancakes with fruit"],
             "lunch": ["Grilled chicken salad", "Quinoa bowl", "Turkey sandwich", "Vegetable soup", "Pasta salad", "Chicken wrap", "Buddha bowl"],
             "dinner": ["Baked salmon with vegetables", "Grilled chicken with rice", "Beef stir-fry", "Vegetable curry", "Baked cod with quinoa", "Turkey meatballs", "Roasted vegetables with protein"],
-            "snacks": ["Apple with almonds", "Greek yogurt", "Carrot sticks with hummus", "Mixed nuts", "Cheese and crackers", "Berries with cottage cheese", "Protein smoothie"]
+            "snacks": ["Apple with almonds", "Mixed nuts", "Carrot sticks with hummus", "Cheese and crackers", "Berries with cottage cheese", "Protein smoothie", "Whole grain crackers"]
         }
         
         # Create exactly the right number of meals for each type based on days
@@ -3384,7 +3430,7 @@ REQUIREMENTS:
                         if key == 'dailyCalories':
                             meal_plan[key] = 2000
                         elif key == 'macronutrients':
-                            meal_plan[key] = {"protein": 100, "carbs": 250, "fats": 70}
+                            meal_plan[key] = {"protein": 100, "carbs": 250, "fat": 70}
                         else:
                             meal_plan[key] = ["Healthy meal option"] * days
 
@@ -4708,30 +4754,20 @@ Remember: You have access to their complete meal planning and consumption histor
             media_type="text/event-stream"
         )
     
-    # For streaming, we need to simulate the streaming response
+    # For streaming, we need to simulate the streaming response from the non-streaming response
     full_message = api_result["content"]
-    response = iter([f"data: {json.dumps({'content': full_message})}\n\n"])
     
-    # Stream the response and collect the full message
-    full_message = ""
+    # Create a proper streaming response generator
     async def generate():
-        nonlocal full_message
         try:
-            for chunk in response:
-                if not chunk.choices:
-                    continue
-                if not chunk.choices[0].delta:
-                    continue
-                content = chunk.choices[0].delta.content
-                if content:
-                    full_message += content
-                    # Yield as SSE JSON event
-                    yield f"data: {json.dumps({'content': content})}\n\n"
+            # Send the full message as a single chunk (since we got it from robust_openai_call)
+            yield f"data: {json.dumps({'content': full_message})}\n\n"
+            
         except Exception as e:
             print(f"Error in streaming response: {str(e)}")
-            if full_message:
-                # Send whatever was accumulated as final SSE event
-                yield f"data: {json.dumps({'content': full_message})}\n\n"
+            # Send error message to user
+            error_response = "Sorry, I encountered an error. Please try again."
+            yield f"data: {json.dumps({'content': error_response})}\n\n"
     
     # Create a streaming response
     streaming_response = StreamingResponse(generate(), media_type="text/event-stream")
@@ -5677,53 +5713,70 @@ async def analyze_image(
         )
         
         # Generate response using OpenAI with image
-        response = client.chat.completions.create(
-            model=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
-            messages=[
-                {
-                    "role": "system",
-                    "content": "You are a helpful diet assistant for diabetes patients. Analyze the food image and provide detailed nutritional information, including estimated calories, macronutrients, and any relevant dietary considerations for diabetes patients."
-                },
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": prompt
-                        },
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:image/jpeg;base64,{img_str}"
+        try:
+            response = client.chat.completions.create(
+                model=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are a helpful diet assistant for diabetes patients. Analyze the food image and provide detailed nutritional information, including estimated calories, macronutrients, and any relevant dietary considerations for diabetes patients."
+                    },
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": prompt
+                            },
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": f"data:image/jpeg;base64,{img_str}"
+                                }
                             }
-                        }
-                    ]
-                }
-            ],
-            max_tokens=500,
-            temperature=0.7,
-            stream=True
-        )
+                        ]
+                    }
+                ],
+                max_tokens=500,
+                temperature=0.7,
+                stream=True
+            )
+        except Exception as api_error:
+            print(f"OpenAI API call failed: {str(api_error)}")
+            raise HTTPException(status_code=500, detail=f"Failed to analyze image: {str(api_error)}")
         
         # Stream the response
         async def generate():
             full_message = ""
             try:
-                for chunk in response:
-                    if not chunk.choices:
-                        continue
-                    if not chunk.choices[0].delta:
-                        continue
-                    content = chunk.choices[0].delta.content
-                    if content:
-                        full_message += content
-                        # Yield as SSE JSON event
-                        yield f"data: {json.dumps({'content': content})}\n\n"
+                # Check if response is a proper streaming response
+                if hasattr(response, '__iter__') and not isinstance(response, str):
+                    for chunk in response:
+                        # Validate chunk structure
+                        if not hasattr(chunk, 'choices') or not chunk.choices:
+                            continue
+                        if not hasattr(chunk.choices[0], 'delta') or not chunk.choices[0].delta:
+                            continue
+                        
+                        content = chunk.choices[0].delta.content
+                        if content:
+                            full_message += content
+                            # Yield as SSE JSON event
+                            yield f"data: {json.dumps({'content': content})}\n\n"
+                else:
+                    # Response is not a proper streaming response
+                    error_msg = f"Invalid response type: {type(response)}"
+                    print(f"Error in streaming response: {error_msg}")
+                    fallback_message = "Sorry, I encountered an error processing your image. Please try again."
+                    yield f"data: {json.dumps({'content': fallback_message})}\n\n"
+                    full_message = fallback_message
+                    
             except Exception as e:
                 print(f"Error in streaming response: {str(e)}")
-                if full_message:
-                    # Send whatever was accumulated as final SSE event
-                    yield f"data: {json.dumps({'content': full_message})}\n\n"
+                # Send error message to user
+                error_response = "Sorry, I encountered an error processing your image. Please try again."
+                yield f"data: {json.dumps({'content': error_response})}\n\n"
+                full_message = error_response
             
             # Save the complete assistant message after streaming
             if full_message:
@@ -6050,6 +6103,9 @@ Would you like me to create a detailed recipe for any of these meal suggestions?
         }
         await save_consumption_record(current_user["email"], consumption_data, meal_type=meal_type)
 
+        # Clear the stable meal plan cache for this user to ensure fresh data
+        stable_meal_manager.clear_cache_for_user(current_user["email"])
+
         # Trigger meal plan recalibration after logging food
         try:
             profile = current_user.get("profile", {})
@@ -6135,6 +6191,9 @@ Would you like me to log this to your consumption history? Just say "log this as
             "image_url": img_str if analysis_data else None
         }
         await save_consumption_record(current_user["email"], consumption_data, meal_type=meal_type)
+
+        # Clear the stable meal plan cache for this user to ensure fresh data
+        stable_meal_manager.clear_cache_for_user(current_user["email"])
 
         # Trigger meal plan recalibration after logging food
         try:
@@ -6951,6 +7010,9 @@ async def quick_log_food(
         consumption_record = await save_consumption_record(current_user["email"], consumption_data, meal_type=meal_type)
         print(f"[quick_log_food] Successfully saved consumption record with ID: {consumption_record['id']}")
         
+        # Clear the stable meal plan cache for this user to ensure fresh data
+        stable_meal_manager.clear_cache_for_user(current_user["email"])
+        
         # ------------------------------
         # SIMPLIFIED MEAL PLAN REGENERATION AFTER EVERY LOG
         # ------------------------------
@@ -7402,6 +7464,76 @@ async def get_todays_meal_plan(current_user: User = Depends(get_current_user)):
         raise HTTPException(status_code=500, detail=f"Failed to retrieve or generate meal plan: {str(e)}")
 
 
+# Debug endpoints for meal plan cache issues
+@app.post("/debug/clear-meal-plan-cache")
+async def clear_meal_plan_cache_debug(current_user: User = Depends(get_current_user)):
+    """Debug endpoint to force clear meal plan cache and regenerate"""
+    try:
+        print(f"[DEBUG] Force clearing meal plan cache for user {current_user['email']}")
+        
+        # Clear all caches for this user
+        stable_meal_manager.clear_cache_for_user(current_user["email"])
+        
+        # Also clear the global cache just to be sure
+        stable_meal_manager.clear_all_cache()
+        
+        # Get fresh consumption data
+        today_consumption = await get_today_consumption_records_async(current_user["email"], user_timezone="UTC")
+        
+        print(f"[DEBUG] Found {len(today_consumption)} consumption records for today:")
+        for record in today_consumption:
+            print(f"[DEBUG] - {record.get('meal_type', 'unknown')}: {record.get('food_name', 'unknown')} at {record.get('timestamp', 'unknown')}")
+        
+        # Force regenerate meal plan
+        profile = current_user.get("profile", {})
+        fresh_plan = await stable_meal_manager.get_stable_todays_meal_plan(current_user["email"], profile)
+        
+        print(f"[DEBUG] Generated fresh meal plan: {fresh_plan}")
+        
+        return {
+            "success": True,
+            "message": "Cache cleared and meal plan regenerated",
+            "consumption_records": len(today_consumption),
+            "fresh_plan": fresh_plan
+        }
+        
+    except Exception as e:
+        print(f"[DEBUG] Error clearing cache: {str(e)}")
+        return {
+            "success": False,
+            "error": str(e)
+        }
+
+@app.get("/debug/consumption-records")
+async def get_consumption_records_debug(current_user: User = Depends(get_current_user)):
+    """Debug endpoint to see current consumption records"""
+    try:
+        print(f"[DEBUG] Getting consumption records for user {current_user['email']}")
+        
+        # Get all recent consumption data
+        all_consumption = await get_user_consumption_history(current_user["email"], limit=50)
+        
+        # Get today's consumption
+        today_consumption = await get_today_consumption_records_async(current_user["email"], user_timezone="UTC")
+        
+        print(f"[DEBUG] Found {len(all_consumption)} total records, {len(today_consumption)} for today")
+        
+        return {
+            "success": True,
+            "total_records": len(all_consumption),
+            "today_records": len(today_consumption),
+            "today_consumption": today_consumption,
+            "all_consumption": all_consumption[:10]  # Show first 10
+        }
+        
+    except Exception as e:
+        print(f"[DEBUG] Error getting consumption records: {str(e)}")
+        return {
+            "success": False,
+            "error": str(e)
+        }
+
+
 @app.post("/coach/adaptive-meal-plan")
 async def create_adaptive_meal_plan(
     payload: dict = Body(None),
@@ -7594,11 +7726,11 @@ Make each meal specific with exact portions and cooking methods. Ensure all {req
                     lunch_base = ["Dal with roti", "Vegetable curry with quinoa", "Chickpea curry with brown rice"]
                     dinner_base = ["Palak paneer with roti", "Mixed vegetable curry", "Lentil dal with vegetables"]
                 elif 'vegetarian' in dietary_restrictions or is_vegetarian:
-                    breakfast_base = ["Oatmeal with berries", "Greek yogurt with nuts", "Avocado toast"]
+                    breakfast_base = ["Oatmeal with berries", "Cottage cheese with nuts", "Avocado toast"]
                     lunch_base = ["Quinoa salad with vegetables", "Lentil soup", "Chickpea curry"]
                     dinner_base = ["Vegetable stir-fry with tofu", "Bean and vegetable stew", "Roasted vegetable bowl"]
                 else:
-                    breakfast_base = ["Greek yogurt with berries", "Oatmeal with nuts", "Cottage cheese with vegetables"]
+                    breakfast_base = ["Cottage cheese with berries", "Oatmeal with nuts", "Scrambled eggs with vegetables"]
                     lunch_base = ["Grilled chicken salad", "Lentil soup", "Turkey and avocado wrap"]
                     dinner_base = ["Grilled fish with vegetables", "Chicken stir-fry", "Lean protein with quinoa"]
                 
@@ -7620,7 +7752,7 @@ Make each meal specific with exact portions and cooking methods. Ensure all {req
                 "plan_name": f"Adaptive {cuisine_preference} Plan - {datetime.now().strftime('%Y-%m-%d')}",
                 "duration_days": req_days,
                 "dailyCalories": target_calories,
-                "macronutrients": {"protein": int(target_calories * 0.2 / 4), "carbs": int(target_calories * 0.45 / 4), "fats": int(target_calories * 0.35 / 9)},
+                "macronutrients": {"protein": int(target_calories * 0.2 / 4), "carbs": int(target_calories * 0.45 / 4), "fat": int(target_calories * 0.35 / 9)},
                 "breakfast": [f"Day {i+1}: {meal}" for i, meal in enumerate(fallback_breakfast)],
                 "lunch": [f"Day {i+1}: {meal}" for i, meal in enumerate(fallback_lunch)],
                 "dinner": [f"Day {i+1}: {meal}" for i, meal in enumerate(fallback_dinner)],
@@ -9026,71 +9158,95 @@ async def get_meal_plans_history_alias(current_user: User = Depends(get_current_
     """Alias for /meal_plans to maintain frontend backward compatibility"""
     return await get_meal_plans(current_user)
 
-@app.post("/consumption/fix-meal-types")
-async def fix_meal_types(current_user: User = Depends(get_current_user)):
-    """Fix meal types for existing consumption records based on timestamp"""
+@app.post("/coach/quick-log")
+async def quick_log_food(
+    food_data: dict,
+    current_user: User = Depends(get_current_user)
+):
+    """Quick log food - USING ORIGINAL SAVE FUNCTION with better AI analysis"""
     try:
-        print(f"[fix_meal_types] Starting meal type fix for user {current_user['email']}")
+        print(f"[quick_log_food] Starting quick log for user {current_user['id']}")
         
-        # Get all consumption records for the user
-        query = f"""
-        SELECT * FROM c 
-        WHERE c.type = 'consumption_record' 
-        AND c.user_id = '{current_user['email']}' 
-        ORDER BY c.timestamp DESC
-        """
+        # Extract and validate food data
+        food_name = food_data.get("food_name", "").strip()
+        portion = food_data.get("portion", "medium portion").strip()
+        meal_type = food_data.get("meal_type", "").strip()
         
-        records = list(interactions_container.query_items(
-            query=query,
-            enable_cross_partition_query=True
-        ))
+        print(f"[quick_log_food] Food: {food_name}, Portion: {portion}, Meal Type: {meal_type}")
         
-        print(f"[fix_meal_types] Found {len(records)} consumption records")
+        if not food_name:
+            raise HTTPException(status_code=400, detail="Food name is required")
         
-        updated_count = 0
-        
-        for record in records:
-            timestamp = record.get("timestamp", "")
-            current_meal_type = record.get("meal_type", "")
+        # Auto-determine meal type based on current time if not provided
+        if not meal_type or meal_type == "":
+            current_time = datetime.utcnow()
+            # Default to US Eastern timezone
+            import pytz
+            try:
+                eastern = pytz.timezone('America/New_York')
+                utc_time = current_time.replace(tzinfo=pytz.utc)
+                local_time = utc_time.astimezone(eastern)
+                hour = local_time.hour
+            except:
+                hour = current_time.hour
             
-            # Only update if meal_type is empty or "snack" (likely incorrect)
-            if not current_meal_type or current_meal_type == "" or current_meal_type == "snack":
-                try:
-                    # Determine correct meal type based on timestamp
-                    record_time = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
-                    hour = record_time.hour
-                    
-                    if 5 <= hour < 11:
-                        correct_meal_type = "breakfast"
-                    elif 11 <= hour < 16:
-                        correct_meal_type = "lunch"
-                    elif 16 <= hour < 22:
-                        correct_meal_type = "dinner"
-                    else:
-                        correct_meal_type = "snack"
-                    
-                    # Only update if the meal type actually changed
-                    if current_meal_type != correct_meal_type:
-                        record["meal_type"] = correct_meal_type
-                        interactions_container.upsert_item(body=record)
-                        updated_count += 1
-                        print(f"[fix_meal_types] Updated record {record['id']}: {current_meal_type} -> {correct_meal_type}")
-                    
-                except Exception as e:
-                    print(f"[fix_meal_types] Error processing record {record.get('id', 'unknown')}: {str(e)}")
-                    continue
+            if 5 <= hour < 11:
+                meal_type = "breakfast"
+            elif 11 <= hour < 16:
+                meal_type = "lunch"
+            elif 16 <= hour < 22:
+                meal_type = "dinner"
+            else:
+                meal_type = "snack"
+        
+        print(f"[quick_log_food] Determined meal type: {meal_type}")
+        
+        # Get AI analysis for the food
+        analysis_data = await get_ai_food_analysis(food_name, portion)
+        
+        print(f"[quick_log_food] AI analysis: {analysis_data}")
+        
+        # Prepare consumption data
+        consumption_data = {
+            "food_name": analysis_data.get("food_name", food_name),
+            "estimated_portion": analysis_data.get("estimated_portion", portion),
+            "nutritional_info": analysis_data.get("nutritional_info", {}),
+            "medical_rating": analysis_data.get("medical_rating", {}),
+            "image_analysis": analysis_data.get("analysis_notes", f"Quick log entry for {food_name}"),
+            "image_url": None,
+            "meal_type": meal_type
+        }
+        
+        print(f"[quick_log_food] Prepared consumption data: {consumption_data}")
+        
+        # Save to consumption history using the ORIGINAL save function
+        print(f"[quick_log_food] Saving consumption record for user {current_user['email']}")
+        consumption_record = await save_consumption_record(current_user["email"], consumption_data, meal_type=meal_type)
+        print(f"[quick_log_food] Successfully saved consumption record with ID: {consumption_record['id']}")
+        
+        # Clear the stable meal plan cache for this user to ensure fresh data
+        stable_meal_manager.clear_cache_for_user(current_user["email"])
         
         return {
             "success": True,
-            "message": f"Fixed meal types for {updated_count} consumption records",
-            "total_records": len(records),
-            "updated_records": updated_count
+            "message": f"Successfully logged {analysis_data.get('food_name', food_name)}",
+            "consumption_record_id": consumption_record["id"],
+            "analysis": analysis_data,
+            "food_name": analysis_data.get("food_name", food_name),
+            "nutritional_summary": {
+                "calories": analysis_data.get("nutritional_info", {}).get("calories", 0),
+                "carbohydrates": analysis_data.get("nutritional_info", {}).get("carbohydrates", 0),
+                "protein": analysis_data.get("nutritional_info", {}).get("protein", 0),
+                "fat": analysis_data.get("nutritional_info", {}).get("fat", 0)
+            },
+            "diabetes_rating": analysis_data.get("medical_rating", {}).get("diabetes_suitability", "medium"),
+            "meal_plan_updated": True
         }
         
     except Exception as e:
-        print(f"[fix_meal_types] Error: {str(e)}")
-        print(f"[fix_meal_types] Traceback: {traceback.format_exc()}")
-        raise HTTPException(status_code=500, detail=f"Failed to fix meal types: {str(e)}")
+        print(f"[quick_log_food] Error: {str(e)}")
+        print(f"[quick_log_food] Traceback: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"Failed to log food: {str(e)}")
 
 async def generate_data_export_pdf(export_data: dict, user_info: dict):
     """Generate professional PDF export of user data with logo and improved layout"""
