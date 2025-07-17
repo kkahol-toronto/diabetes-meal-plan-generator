@@ -159,21 +159,21 @@ async def robust_openai_call(
             
             # Check if this is a rate limit error
             if "rate_limit" in error_msg.lower() or "429" in error_msg:
-                wait_time = min(2 ** attempt, 30)  # Exponential backoff, max 30 seconds
+                wait_time = min(2 ** attempt, 60)  # Exponential backoff, max 60 seconds
                 print(f"[{context}] Rate limit detected, waiting {wait_time} seconds...")
                 await asyncio.sleep(wait_time)
                 continue
-                
+            
             # Check if this is a timeout error
             if "timeout" in error_msg.lower():
                 print(f"[{context}] Timeout detected on attempt {attempt + 1}")
                 if attempt < max_retries - 1:
-                    await asyncio.sleep(2 ** attempt)  # Exponential backoff
+                    await asyncio.sleep(min(2 ** attempt, 60))  # Exponential backoff, max 60 seconds
                     continue
-                    
+            
             # For other errors, wait a bit before retrying
             if attempt < max_retries - 1:
-                wait_time = min(2 ** attempt, 10)  # Exponential backoff, max 10 seconds
+                wait_time = min(2 ** attempt, 60)  # Exponential backoff, max 60 seconds
                 print(f"[{context}] Waiting {wait_time} seconds before retry...")
                 await asyncio.sleep(wait_time)
             else:
