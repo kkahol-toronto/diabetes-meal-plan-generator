@@ -108,54 +108,71 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({
     }
     normalized.primaryGoals = normalized.primaryGoals || [];
     
+    // Ensure readinessToChange and wantsWeightLoss are properly handled
+    if (typeof normalized.readinessToChange !== 'string') {
+      normalized.readinessToChange = normalized.readinessToChange || '';
+    }
+    
+    if (typeof normalized.wantsWeightLoss !== 'boolean') {
+      normalized.wantsWeightLoss = Boolean(normalized.wantsWeightLoss) || false;
+    }
+    
+    console.log(`[UserProfileForm] Normalized profile: readinessToChange=${normalized.readinessToChange}, wantsWeightLoss=${normalized.wantsWeightLoss}`);
+    
     return normalized;
   };
 
-  const [profile, setProfile] = useState<UserProfile>({
-    name: '',
-    dateOfBirth: '',
-    age: undefined,
-    gender: '',
-    ethnicity: [],
-    medicalConditions: [],
-    currentMedications: [],
-    labValues: {},
-    height: 0,
-    weight: 0,
-    bmi: undefined,
-    waistCircumference: undefined,
-    systolicBP: undefined,
-    diastolicBP: undefined,
-    heartRate: undefined,
-    dietType: [],
-    dietaryFeatures: [],
-    dietaryRestrictions: [],
-    foodPreferences: [],
-    allergies: [],
-    avoids: [],
-    strongDislikes: [],
-    workActivityLevel: '',
-    exerciseFrequency: '',
-    exerciseTypes: [],
-    mobilityIssues: false,
-    mealPrepCapability: '',
-    availableAppliances: [
-      'Fridge & Freezer',
-      'Microwave',
-      'Stove/Oven',
-      'Instant Pot',
-      'Air Fryer',
-      'Slow Cooker',
-      'Blender',
-      'Food Processor',
-      'Toaster'
-    ],
-    eatingSchedule: '',
-    primaryGoals: [],
-    readinessToChange: '',
-    wantsWeightLoss: false,
-    calorieTarget: '',
-    ...normalizeProfile(initialProfile),
+  const [profile, setProfile] = useState<UserProfile>(() => {
+    const defaultProfile = {
+      name: '',
+      dateOfBirth: '',
+      age: undefined,
+      gender: '',
+      ethnicity: [],
+      medicalConditions: [],
+      currentMedications: [],
+      labValues: {},
+      height: 0,
+      weight: 0,
+      bmi: undefined,
+      waistCircumference: undefined,
+      systolicBP: undefined,
+      diastolicBP: undefined,
+      heartRate: undefined,
+      dietType: [],
+      dietaryFeatures: [],
+      dietaryRestrictions: [],
+      foodPreferences: [],
+      allergies: [],
+      avoids: [],
+      strongDislikes: [],
+      workActivityLevel: '',
+      exerciseFrequency: '',
+      exerciseTypes: [],
+      mobilityIssues: false,
+      mealPrepCapability: '',
+      availableAppliances: [
+        'Fridge & Freezer',
+        'Microwave',
+        'Stove/Oven',
+        'Instant Pot',
+        'Air Fryer',
+        'Slow Cooker',
+        'Blender',
+        'Food Processor',
+        'Toaster'
+      ],
+      eatingSchedule: '',
+      primaryGoals: [],
+      readinessToChange: '',
+      wantsWeightLoss: false,
+      calorieTarget: '',
+      ...normalizeProfile(initialProfile),
+    };
+    
+    console.log(`[UserProfileForm] Initial profile loaded with readinessToChange: ${defaultProfile.readinessToChange}, wantsWeightLoss: ${defaultProfile.wantsWeightLoss}`);
+    
+    return defaultProfile;
   });
 
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -328,8 +345,9 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({
       localStorage.setItem('userProfile', JSON.stringify(profile));
       
       // Also save to database for persistence
+      console.log(`[UserProfileForm] Auto-saving profile with readinessToChange: ${profile.readinessToChange}, wantsWeightLoss: ${profile.wantsWeightLoss}`);
       await saveProfileToDatabase(profile);
-    }, 2000); // Increased delay to reduce API calls
+    }, 1000); // Reduced delay to save more frequently
 
     return () => clearTimeout(timeoutId);
   }, [profile]);
@@ -337,8 +355,13 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({
   const saveProfileToDatabase = async (profileData: UserProfile) => {
     try {
       const token = localStorage.getItem('token');
-      if (!token) return; // User not logged in, skip database save
+      if (!token) {
+        console.log('[UserProfileForm] No token found, skipping database save');
+        return;
+      }
 
+      console.log(`[UserProfileForm] Saving profile to database with readinessToChange: ${profileData.readinessToChange}, wantsWeightLoss: ${profileData.wantsWeightLoss}`);
+      
       const response = await fetch(`${config.API_URL}/user/profile`, {
         method: 'POST',
         headers: {
@@ -349,12 +372,14 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({
       });
 
       if (response.ok) {
-        console.log('Profile saved to database successfully');
+        const result = await response.json();
+        console.log('[UserProfileForm] Profile saved to database successfully:', result);
       } else {
-        console.error('Failed to save profile to database');
+        const errorText = await response.text();
+        console.error('[UserProfileForm] Failed to save profile to database:', response.status, errorText);
       }
     } catch (error) {
-      console.error('Error saving profile to database:', error);
+      console.error('[UserProfileForm] Error saving profile to database:', error);
     }
   };
 
@@ -377,8 +402,9 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({
             if (response.ok) {
               const data = await response.json();
               if (data && data.profile && Object.keys(data.profile).length > 0) {
-                console.log('Profile loaded from database successfully');
-                setProfile(prev => ({ ...prev, ...normalizeProfile(data.profile) }));
+                console.log(`[UserProfileForm] Profile loaded from database successfully with readinessToChange: ${data.profile.readinessToChange}, wantsWeightLoss: ${data.profile.wantsWeightLoss}`);
+                const normalizedProfile = normalizeProfile(data.profile);
+                setProfile(prev => ({ ...prev, ...normalizedProfile }));
                 return; // Exit early if database load was successful
               }
             }
@@ -405,9 +431,17 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({
   }, [initialProfile]);
 
   const handleInputChange = (field: keyof UserProfile, value: any) => {
+    console.log(`[UserProfileForm] Field changed: ${field} = ${value}`);
     setProfile(prev => ({ ...prev, [field]: value }));
     if (errors[field]) {
       setErrors(prev => ({ ...prev, [field]: '' }));
+    }
+    
+    // For critical fields like readinessToChange and wantsWeightLoss, 
+    // trigger immediate save to ensure they're not lost
+    if (field === 'readinessToChange' || field === 'wantsWeightLoss') {
+      console.log(`[UserProfileForm] Critical field ${field} changed, triggering immediate save`);
+      setTimeout(() => saveProfileToDatabase({ ...profile, [field]: value }), 500);
     }
   };
 
@@ -526,7 +560,18 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({
 
   const handleSubmit = () => {
     if (validateForm()) {
-      onSubmit(profile);
+      console.log(`[UserProfileForm] Submitting profile with readinessToChange: ${profile.readinessToChange}, wantsWeightLoss: ${profile.wantsWeightLoss}`);
+      
+      // Ensure critical fields are included in the final submission
+      const finalProfile = {
+        ...profile,
+        readinessToChange: profile.readinessToChange || '',
+        wantsWeightLoss: Boolean(profile.wantsWeightLoss)
+      };
+      
+      console.log(`[UserProfileForm] Final profile to submit: readinessToChange=${finalProfile.readinessToChange}, wantsWeightLoss=${finalProfile.wantsWeightLoss}`);
+      
+      onSubmit(finalProfile);
     }
   };
 

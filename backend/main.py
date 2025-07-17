@@ -863,6 +863,7 @@ async def trigger_meal_plan_recalibration(user_email: str, user_profile: dict):
         
         # Get user's dietary restrictions and preferences
         dietary_restrictions = user_profile.get('dietaryRestrictions', [])
+        dietary_features = user_profile.get('dietaryFeatures', [])
         allergies = user_profile.get('allergies', [])
         diet_type = user_profile.get('dietType', [])
         food_preferences = user_profile.get('foodPreferences', [])
@@ -870,12 +871,23 @@ async def trigger_meal_plan_recalibration(user_email: str, user_profile: dict):
         target_calories = int(user_profile.get('calorieTarget', '2000'))
         remaining_calories = max(0, target_calories - calories_consumed)
         
-        # Check if user is vegetarian or has restrictions
-        is_vegetarian = 'vegetarian' in [r.lower() for r in dietary_restrictions] or 'vegetarian' in [d.lower() for d in diet_type]
-        no_eggs = any('egg' in r.lower() for r in dietary_restrictions) or any('egg' in a.lower() for a in allergies)
+        # Check if user is vegetarian or has restrictions - check all possible fields
+        is_vegetarian = (
+            'vegetarian' in [r.lower() for r in dietary_restrictions] or 
+            'vegetarian' in [d.lower() for d in diet_type] or
+            any('vegetarian' in f.lower() for f in dietary_features)
+        )
+        no_eggs = (
+            any('egg' in r.lower() for r in dietary_restrictions) or 
+            any('egg' in a.lower() for a in allergies) or
+            any('no eggs' in f.lower() for f in dietary_features)
+        )
         
         print(f"[RECALIBRATION] User dietary profile: vegetarian={is_vegetarian}, no_eggs={no_eggs}")
+        print(f"[RECALIBRATION] Dietary restrictions: {dietary_restrictions}")
+        print(f"[RECALIBRATION] Dietary features: {dietary_features}")
         print(f"[RECALIBRATION] Cuisine preferences: {diet_type}")
+        print(f"[RECALIBRATION] Allergies: {allergies}")
         print(f"[RECALIBRATION] Calories consumed: {calories_consumed}, remaining: {remaining_calories}")
         
         # Get current meal plan to use as base
@@ -1714,12 +1726,14 @@ def enforce_dietary_restrictions(meal_plan_data: dict, user_profile: dict) -> di
     
     # Extract user dietary information
     dietary_restrictions = user_profile.get('dietaryRestrictions', [])
+    dietary_features = user_profile.get('dietaryFeatures', [])
     food_allergies = user_profile.get('allergies', [])
     strong_dislikes = user_profile.get('strongDislikes', [])
     diet_type = user_profile.get('dietType', [])
     
     # Convert to lowercase for case-insensitive matching
     restrictions_lower = [r.lower() for r in dietary_restrictions]
+    features_lower = [f.lower() for f in dietary_features]
     allergies_lower = [a.lower() for a in food_allergies]
     dislikes_lower = [d.lower() for d in strong_dislikes]
     diet_type_lower = [dt.lower() for dt in diet_type]
@@ -1764,6 +1778,21 @@ def enforce_dietary_restrictions(meal_plan_data: dict, user_profile: dict) -> di
         elif 'halal' in restriction:
             banned_ingredients.update(['pork', 'alcohol', 'bacon', 'ham'])
     
+    # Add dietary features enforcement (this is where vegetarian preference is often stored)
+    for feature in features_lower:
+        if 'vegetarian' in feature:
+            banned_ingredients.update(['chicken', 'beef', 'pork', 'fish', 'salmon', 'tuna', 'turkey', 'lamb', 'meat', 'seafood', 'shrimp', 'bacon', 'ham'])
+            # If specifically "vegetarian (no eggs)", also ban eggs
+            if 'no eggs' in feature:
+                banned_ingredients.update(['eggs', 'egg', 'omelet', 'omelette', 'mayonnaise'])
+        elif 'vegan' in feature:
+            banned_ingredients.update(['chicken', 'beef', 'pork', 'fish', 'salmon', 'tuna', 'turkey', 'lamb', 'meat', 'seafood', 'shrimp', 'bacon', 'ham'])
+            banned_ingredients.update(['milk', 'cheese', 'butter', 'cream', 'yogurt', 'ice cream', 'eggs', 'egg'])
+        elif 'gluten-free' in feature:
+            banned_ingredients.update(['wheat', 'flour', 'bread', 'pasta', 'noodles'])
+        elif 'lactose-free' in feature:
+            banned_ingredients.update(['milk', 'cheese', 'butter', 'cream', 'yogurt', 'ice cream'])
+    
     # Add strong dislikes
     banned_ingredients.update(dislikes_lower)
     
@@ -1771,6 +1800,10 @@ def enforce_dietary_restrictions(meal_plan_data: dict, user_profile: dict) -> di
     if 'vegetarian' in diet_type_lower:
         banned_ingredients.update(['chicken', 'beef', 'pork', 'fish', 'salmon', 'tuna', 'turkey', 'lamb', 'meat', 'seafood', 'shrimp', 'bacon', 'ham'])
     
+    print(f"[enforce_dietary_restrictions] Dietary restrictions: {dietary_restrictions}")
+    print(f"[enforce_dietary_restrictions] Dietary features: {dietary_features}")
+    print(f"[enforce_dietary_restrictions] Diet type: {diet_type}")
+    print(f"[enforce_dietary_restrictions] Allergies: {food_allergies}")
     print(f"[enforce_dietary_restrictions] Banned ingredients: {banned_ingredients}")
     
     def sanitize_meal(meal: str) -> str:
@@ -1835,6 +1868,416 @@ def generate_recipe_prompt(meal_name: str, user_profile: UserProfile) -> str:
     """Legacy function - now redirects to comprehensive profile handling"""
     # This function is deprecated - the main endpoint now uses comprehensive profiling
     return "This function has been replaced with comprehensive profile analysis"
+
+# ============================================================================
+# INTELLIGENT MEAL DIVERSITY & CALORIE-AWARE PLANNING SYSTEM
+# ============================================================================
+
+class IntelligentMealPlanner:
+    """
+    Advanced AI-powered meal planning system that ensures diversity, 
+    intelligently manages calories, and provides context-aware suggestions.
+    """
+    
+    def __init__(self):
+        self.meal_categories = {
+            "breakfast": {
+                "base_proteins": ["tofu scramble", "chickpea flour pancakes", "almond butter", "Greek yogurt", "hemp seeds", "chia seeds"],
+                "base_carbs": ["steel-cut oats", "quinoa porridge", "whole grain toast", "sweet potato", "brown rice", "buckwheat pancakes"],
+                "vegetables": ["spinach", "mushrooms", "bell peppers", "tomatoes", "avocado", "zucchini"],
+                "healthy_fats": ["olive oil", "avocado", "nuts", "seeds", "tahini", "coconut"],
+                "flavors": ["cinnamon", "vanilla", "berries", "banana", "lemon", "herbs"]
+            },
+            "lunch": {
+                "base_proteins": ["lentils", "chickpeas", "black beans", "tofu", "tempeh", "quinoa"],
+                "base_carbs": ["brown rice", "quinoa", "whole grain pasta", "sweet potato", "barley", "bulgur"],
+                "vegetables": ["kale", "broccoli", "cauliflower", "carrots", "cucumbers", "spinach"],
+                "healthy_fats": ["olive oil", "avocado", "tahini", "nuts", "seeds", "olives"],
+                "flavors": ["garlic", "ginger", "lemon", "herbs", "spices", "nutritional yeast"]
+            },
+            "dinner": {
+                "base_proteins": ["lentil curry", "bean stew", "stuffed vegetables", "tofu dishes", "tempeh", "legume soups"],
+                "base_carbs": ["brown rice", "quinoa", "whole grain pasta", "barley", "millet", "cauliflower rice"],
+                "vegetables": ["broccoli", "asparagus", "Brussels sprouts", "zucchini", "eggplant", "peppers"],
+                "healthy_fats": ["olive oil", "coconut oil", "nuts", "seeds", "avocado", "tahini"],
+                "flavors": ["curry spices", "Italian herbs", "Mediterranean", "Asian seasonings", "Mexican spices", "Middle Eastern"]
+            },
+            "snack": {
+                "quick_options": ["apple with almond butter", "hummus with veggies", "mixed nuts", "berries with yogurt", "veggie sticks", "homemade energy balls"],
+                "substantial_options": ["smoothie bowl", "avocado toast", "trail mix", "roasted chickpeas", "vegetable soup", "quinoa salad"],
+                "light_options": ["herbal tea", "cucumber water", "celery sticks", "small fruit", "handful of nuts", "vegetable broth"]
+            }
+        }
+    
+    def get_meal_diversity_score(self, meals_dict: dict) -> dict:
+        """Calculate diversity score to avoid repetitive ingredients."""
+        all_ingredients = []
+        for meal_type, meal_text in meals_dict.items():
+            if meal_text:
+                # Extract key ingredients from meal text
+                ingredients = self._extract_ingredients_from_text(meal_text)
+                all_ingredients.extend(ingredients)
+        
+        # Count ingredient frequency
+        ingredient_counts = {}
+        for ingredient in all_ingredients:
+            ingredient_counts[ingredient] = ingredient_counts.get(ingredient, 0) + 1
+        
+        # Calculate diversity metrics
+        total_ingredients = len(all_ingredients)
+        unique_ingredients = len(set(all_ingredients))
+        repeated_ingredients = [ing for ing, count in ingredient_counts.items() if count > 1]
+        
+        diversity_score = unique_ingredients / total_ingredients if total_ingredients > 0 else 0
+        
+        return {
+            "diversity_score": diversity_score,
+            "repeated_ingredients": repeated_ingredients,
+            "total_ingredients": total_ingredients,
+            "unique_ingredients": unique_ingredients
+        }
+    
+    def _extract_ingredients_from_text(self, meal_text: str) -> list:
+        """Extract key ingredients from meal description."""
+        # Common ingredients to look for
+        common_ingredients = [
+            "oats", "quinoa", "rice", "pasta", "bread", "toast", "tofu", "tempeh",
+            "chickpeas", "lentils", "beans", "yogurt", "almond", "cashew", "walnut",
+            "spinach", "kale", "broccoli", "cauliflower", "avocado", "tomato",
+            "mushroom", "pepper", "carrot", "cucumber", "sweet potato", "potato"
+        ]
+        
+        found_ingredients = []
+        meal_lower = meal_text.lower()
+        
+        for ingredient in common_ingredients:
+            if ingredient in meal_lower:
+                found_ingredients.append(ingredient)
+        
+        return found_ingredients
+    
+    async def generate_intelligent_meal_plan(self, user_email: str, profile: dict, 
+                                           consumed_today: list, remaining_calories: int) -> dict:
+        """
+        Generate an intelligent, diverse meal plan that adapts to calorie constraints
+        and avoids repetitive ingredients.
+        """
+        try:
+            print(f"[INTELLIGENT_PLANNER] Generating smart meal plan for {user_email}")
+            print(f"[INTELLIGENT_PLANNER] Remaining calories: {remaining_calories}")
+            
+            # Analyze what's already been consumed
+            consumed_analysis = self._analyze_consumption_today(consumed_today)
+            
+            # Get dietary preferences and restrictions
+            dietary_features = profile.get('dietaryFeatures', [])
+            diet_type = profile.get('dietType', [])
+            allergies = profile.get('allergies', [])
+            strong_dislikes = profile.get('strongDislikes', [])
+            
+            # Generate diverse meal suggestions with AI
+            meal_suggestions = await self._generate_diverse_meals_with_ai(
+                consumed_analysis, remaining_calories, dietary_features, 
+                diet_type, allergies, strong_dislikes
+            )
+            
+            # Validate diversity
+            diversity_score = self.get_meal_diversity_score(meal_suggestions)
+            
+            # If diversity is poor, regenerate with explicit diversity constraints
+            if diversity_score["diversity_score"] < 0.7:
+                print(f"[INTELLIGENT_PLANNER] Poor diversity detected ({diversity_score['diversity_score']:.2f}), regenerating...")
+                meal_suggestions = await self._generate_diverse_meals_with_ai(
+                    consumed_analysis, remaining_calories, dietary_features, 
+                    diet_type, allergies, strong_dislikes, 
+                    avoid_ingredients=diversity_score["repeated_ingredients"]
+                )
+            
+            # Create the final meal plan
+            today = datetime.utcnow().date()
+            intelligent_plan = {
+                "id": f"intelligent_{user_email}_{today.isoformat()}_{int(datetime.utcnow().timestamp())}",
+                "date": today.isoformat(),
+                "type": "intelligent_adaptive",
+                "meals": meal_suggestions,
+                "dailyCalories": int(profile.get('calorieTarget', '2000')),
+                "remaining_calories": remaining_calories,
+                "diversity_score": diversity_score["diversity_score"],
+                "consumed_today": consumed_analysis,
+                "created_at": datetime.utcnow().isoformat(),
+                "notes": f"Intelligent meal plan with {diversity_score['unique_ingredients']} unique ingredients"
+            }
+            
+            print(f"[INTELLIGENT_PLANNER] Generated plan with diversity score: {diversity_score['diversity_score']:.2f}")
+            return intelligent_plan
+            
+        except Exception as e:
+            print(f"[INTELLIGENT_PLANNER] Error: {str(e)}")
+            return None
+    
+    def _analyze_consumption_today(self, consumed_today: list) -> dict:
+        """Analyze what's been consumed today to inform meal planning."""
+        calories_consumed = 0
+        protein_consumed = 0
+        carbs_consumed = 0
+        fat_consumed = 0
+        
+        meal_types_eaten = set()
+        ingredients_used = []
+        
+        for record in consumed_today:
+            nutrition = record.get("nutritional_info", {})
+            calories_consumed += nutrition.get("calories", 0)
+            protein_consumed += nutrition.get("protein", 0)
+            carbs_consumed += nutrition.get("carbohydrates", 0)
+            fat_consumed += nutrition.get("fat", 0)
+            
+            meal_types_eaten.add(record.get("meal_type", ""))
+            
+            # Extract ingredients from food name
+            food_name = record.get("food_name", "")
+            ingredients = self._extract_ingredients_from_text(food_name)
+            ingredients_used.extend(ingredients)
+        
+        return {
+            "calories_consumed": calories_consumed,
+            "protein_consumed": protein_consumed,
+            "carbs_consumed": carbs_consumed,
+            "fat_consumed": fat_consumed,
+            "meal_types_eaten": list(meal_types_eaten),
+            "ingredients_used": list(set(ingredients_used)),
+            "total_meals": len(consumed_today)
+        }
+    
+    async def _generate_diverse_meals_with_ai(self, consumed_analysis: dict, remaining_calories: int, 
+                                            dietary_features: list, diet_type: list, allergies: list, 
+                                            strong_dislikes: list, avoid_ingredients: list = None) -> dict:
+        """Generate diverse meals using AI with explicit diversity constraints."""
+        
+        if avoid_ingredients is None:
+            avoid_ingredients = []
+        
+        # Build comprehensive AI prompt for intelligent meal generation
+        prompt = self._build_intelligent_meal_prompt(
+            consumed_analysis, remaining_calories, dietary_features, 
+            diet_type, allergies, strong_dislikes, avoid_ingredients
+        )
+        
+        try:
+            # Call AI with the intelligent prompt
+            api_result = await robust_openai_call(
+                messages=[
+                    {
+                        "role": "system", 
+                        "content": "You are an advanced AI nutritionist and meal planning expert with deep knowledge of cuisine diversity, ingredient combinations, and calorie management. You excel at creating varied, delicious meal plans that avoid repetition while meeting nutritional goals."
+                    },
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.8,  # Higher temperature for more creativity
+                max_tokens=800,
+                max_retries=3,
+                timeout=30,
+                context="intelligent_meal_planning"
+            )
+            
+            if api_result["success"]:
+                import json
+                meal_response = json.loads(api_result["content"])
+                return meal_response.get("meals", {})
+            else:
+                print(f"[INTELLIGENT_PLANNER] AI failed: {api_result['error']}")
+                return self._generate_fallback_diverse_meals(remaining_calories, diet_type)
+                
+        except Exception as e:
+            print(f"[INTELLIGENT_PLANNER] AI generation error: {str(e)}")
+            return self._generate_fallback_diverse_meals(remaining_calories, diet_type)
+    
+    def _build_intelligent_meal_prompt(self, consumed_analysis: dict, remaining_calories: int, 
+                                     dietary_features: list, diet_type: list, allergies: list, 
+                                     strong_dislikes: list, avoid_ingredients: list) -> str:
+        """Build a sophisticated prompt for intelligent meal generation."""
+        
+        # Get current time context
+        current_hour = datetime.utcnow().hour
+        meal_time_context = ""
+        if current_hour < 10:
+            meal_time_context = "It's morning - focus on energizing breakfast options."
+        elif current_hour < 14:
+            meal_time_context = "It's midday - focus on satisfying lunch options."
+        elif current_hour < 18:
+            meal_time_context = "It's afternoon - focus on hearty dinner options."
+        else:
+            meal_time_context = "It's evening - focus on lighter dinner options."
+        
+        # Build dietary restrictions
+        dietary_restrictions = []
+        if any("vegetarian" in f.lower() for f in dietary_features):
+            dietary_restrictions.append("STRICTLY VEGETARIAN - No meat, poultry, fish, or seafood")
+        if any("no eggs" in f.lower() for f in dietary_features):
+            dietary_restrictions.append("NO EGGS - No egg-based dishes")
+        if any("vegan" in f.lower() for f in dietary_features):
+            dietary_restrictions.append("STRICTLY VEGAN - No animal products")
+        
+        # Build allergy warnings
+        allergy_warnings = []
+        for allergy in allergies:
+            allergy_warnings.append(f"ALLERGY WARNING: No {allergy}")
+        
+        # Build calorie strategy
+        calorie_strategy = ""
+        if remaining_calories > 1200:
+            calorie_strategy = "HIGH CALORIE REMAINING - Focus on substantial, satisfying meals with healthy fats and proteins."
+        elif remaining_calories > 800:
+            calorie_strategy = "MODERATE CALORIES REMAINING - Balance portions thoughtfully, include fiber-rich foods."
+        elif remaining_calories > 400:
+            calorie_strategy = "LOW CALORIES REMAINING - Focus on nutrient-dense, lower-calorie options with high satiety."
+        else:
+            calorie_strategy = "VERY LOW CALORIES REMAINING - Suggest light, optional meals only if genuinely hungry."
+        
+        # Determine cuisine style
+        cuisine_style = "International"
+        if diet_type:
+            diet_lower = [d.lower() for d in diet_type]
+            if any("mediterranean" in d for d in diet_lower):
+                cuisine_style = "Mediterranean"
+            elif any("asian" in d or "chinese" in d or "korean" in d for d in diet_lower):
+                cuisine_style = "Asian"
+            elif any("indian" in d or "south asian" in d for d in diet_lower):
+                cuisine_style = "Indian"
+            elif any("mexican" in d or "latin" in d for d in diet_lower):
+                cuisine_style = "Mexican"
+        
+        prompt = f"""🧠 INTELLIGENT MEAL PLANNING CHALLENGE 🧠
+
+You are an advanced AI nutritionist creating a diverse, intelligent meal plan that AVOIDS REPETITION and maximizes variety.
+
+📊 CONSUMPTION ANALYSIS:
+- Already consumed today: {consumed_analysis['calories_consumed']} calories
+- Protein consumed: {consumed_analysis['protein_consumed']}g
+- Carbs consumed: {consumed_analysis['carbs_consumed']}g
+- Fat consumed: {consumed_analysis['fat_consumed']}g
+- Meal types eaten: {', '.join(consumed_analysis['meal_types_eaten']) if consumed_analysis['meal_types_eaten'] else 'None'}
+- Ingredients already used: {', '.join(consumed_analysis['ingredients_used']) if consumed_analysis['ingredients_used'] else 'None'}
+- Total meals logged: {consumed_analysis['total_meals']}
+
+🎯 CALORIE MANAGEMENT:
+- Remaining calories: {remaining_calories}
+- Strategy: {calorie_strategy}
+- Context: {meal_time_context}
+
+🍽️ CUISINE PREFERENCES:
+- Primary cuisine style: {cuisine_style}
+- Use authentic {cuisine_style} ingredients and flavor profiles
+
+🚫 DIETARY RESTRICTIONS:
+{chr(10).join(dietary_restrictions) if dietary_restrictions else "No specific restrictions"}
+
+🚨 ALLERGIES:
+{chr(10).join(allergy_warnings) if allergy_warnings else "No known allergies"}
+
+🎭 DIVERSITY REQUIREMENTS:
+- CRITICAL: Each meal MUST use completely different base ingredients
+- AVOID these ingredients that might cause repetition: {', '.join(avoid_ingredients) if avoid_ingredients else 'None specified'}
+- AVOID ingredients already consumed today: {', '.join(consumed_analysis['ingredients_used']) if consumed_analysis['ingredients_used'] else 'None'}
+- Use different cooking methods (steamed, roasted, raw, sautéed, etc.)
+- Vary textures (crunchy, creamy, chewy, smooth, etc.)
+- Include different color profiles for visual appeal
+
+💡 INTELLIGENT SUGGESTIONS:
+1. **Breakfast**: If not eaten, suggest energizing options with protein + complex carbs
+2. **Lunch**: If not eaten, suggest satisfying options with diverse vegetables + proteins
+3. **Dinner**: If not eaten, suggest comforting options with different flavor profiles from lunch
+4. **Snack**: Only if remaining calories > 200, suggest light options that complement the day
+
+🎨 CREATIVITY REQUIREMENTS:
+- Use seasonal ingredients where possible
+- Include different preparation methods for variety
+- Suggest dishes that would photographically look different from each other
+- Include a mix of warm and cool dishes if appropriate
+- Consider different spice levels and flavor intensities
+
+Generate a JSON response with this EXACT structure:
+{{
+  "meals": {{
+    "breakfast": "<specific, diverse {cuisine_style} breakfast dish>",
+    "lunch": "<specific, diverse {cuisine_style} lunch dish using different ingredients>",
+    "dinner": "<specific, diverse {cuisine_style} dinner dish using different ingredients and methods>",
+    "snack": "<specific, diverse {cuisine_style} snack or 'Light snack only if needed' if calories very low>"
+  }}
+}}
+
+🏆 SUCCESS CRITERIA:
+- Zero ingredient overlap between meals
+- All meals respect dietary restrictions and allergies
+- Calorie distribution is intelligent based on remaining calories
+- Each meal sounds delicious and authentic to {cuisine_style} cuisine
+- Visual and textural variety across all meals
+- Nutritionally balanced overall"""
+
+        return prompt
+    
+    def _generate_fallback_diverse_meals(self, remaining_calories: int, diet_type: list) -> dict:
+        """Generate diverse fallback meals if AI fails."""
+        
+        # Determine cuisine style for fallback
+        cuisine_style = "International"
+        if diet_type:
+            diet_lower = [d.lower() for d in diet_type]
+            if any("mediterranean" in d for d in diet_lower):
+                cuisine_style = "Mediterranean"
+            elif any("asian" in d or "chinese" in d or "korean" in d for d in diet_lower):
+                cuisine_style = "Asian"
+            elif any("indian" in d or "south asian" in d for d in diet_lower):
+                cuisine_style = "Indian"
+            elif any("mexican" in d or "latin" in d for d in diet_lower):
+                cuisine_style = "Mexican"
+        
+        # Get diverse options based on cuisine style
+        if cuisine_style == "Mediterranean":
+            meals = {
+                "breakfast": "Greek yogurt parfait with nuts, honey, and fresh figs",
+                "lunch": "Mediterranean quinoa salad with roasted vegetables and olives",
+                "dinner": "Stuffed bell peppers with herbs, rice, and pine nuts",
+                "snack": "Hummus with fresh vegetable sticks and olive tapenade"
+            }
+        elif cuisine_style == "Asian":
+            meals = {
+                "breakfast": "Congee with shiitake mushrooms and scallions",
+                "lunch": "Asian lettuce wraps with seasoned tofu and peanut sauce",
+                "dinner": "Miso-glazed eggplant with brown rice and steamed bok choy",
+                "snack": "Edamame with sea salt and sesame seeds"
+            }
+        elif cuisine_style == "Indian":
+            meals = {
+                "breakfast": "Upma with curry leaves, mustard seeds, and vegetables",
+                "lunch": "Rajma (kidney bean curry) with quinoa and cucumber raita",
+                "dinner": "Palak paneer with cauliflower rice and mint chutney",
+                "snack": "Roasted chickpeas with turmeric and chili powder"
+            }
+        elif cuisine_style == "Mexican":
+            meals = {
+                "breakfast": "Breakfast burrito bowl with black beans and avocado",
+                "lunch": "Mexican street corn salad with lime and cilantro",
+                "dinner": "Stuffed poblano peppers with quinoa and pepitas",
+                "snack": "Guacamole with jicama sticks and lime"
+            }
+        else:  # International
+            meals = {
+                "breakfast": "Overnight chia pudding with berries and almond butter",
+                "lunch": "Rainbow Buddha bowl with tahini dressing",
+                "dinner": "Stuffed acorn squash with wild rice and cranberries",
+                "snack": "Trail mix with dried fruit and raw nuts"
+            }
+        
+        # Adjust for low calories
+        if remaining_calories < 400:
+            meals["snack"] = "Light snack only if genuinely hungry"
+        
+        return meals
+
+
+# Initialize the intelligent meal planner
+intelligent_planner = IntelligentMealPlanner()
 
 # ============================================================================
 # COMPREHENSIVE AI HEALTH COACH SYSTEM
@@ -6166,6 +6609,7 @@ async def quick_log_food(
             # Get user profile for dietary restrictions
             profile = current_user.get("profile", {})
             dietary_restrictions = profile.get('dietaryRestrictions', [])
+            dietary_features = profile.get('dietaryFeatures', [])
             allergies = profile.get('allergies', [])
             diet_type = profile.get('dietType', [])
             target_calories = int(profile.get('calorieTarget', '2000'))
@@ -6173,14 +6617,26 @@ async def quick_log_food(
             
             print(f"[quick_log_food] Target calories: {target_calories}, Remaining: {remaining_calories}")
             print(f"[quick_log_food] Dietary restrictions: {dietary_restrictions}")
+            print(f"[quick_log_food] Dietary features: {dietary_features}")
             print(f"[quick_log_food] Allergies: {allergies}")
             print(f"[quick_log_food] Diet type: {diet_type}")
             
-            # Build explicit restriction warnings for AI
+            # Build explicit restriction warnings for AI - check all possible fields
             restriction_warnings = []
-            if 'vegetarian' in [r.lower() for r in dietary_restrictions] or 'vegetarian' in [d.lower() for d in diet_type]:
+            is_vegetarian = (
+                'vegetarian' in [r.lower() for r in dietary_restrictions] or 
+                'vegetarian' in [d.lower() for d in diet_type] or
+                any('vegetarian' in f.lower() for f in dietary_features)
+            )
+            no_eggs = (
+                any('egg' in r.lower() for r in dietary_restrictions) or 
+                any('egg' in a.lower() for a in allergies) or
+                any('no eggs' in f.lower() for f in dietary_features)
+            )
+            
+            if is_vegetarian:
                 restriction_warnings.append("STRICTLY VEGETARIAN - NO MEAT, POULTRY, FISH, OR SEAFOOD")
-            if any('egg' in r.lower() for r in dietary_restrictions) or any('egg' in a.lower() for a in allergies):
+            if no_eggs:
                 restriction_warnings.append("NO EGGS - Avoid all egg-based dishes and ingredients")
             if any('nut' in a.lower() for a in allergies):
                 restriction_warnings.append("NUT ALLERGY - Avoid all nuts and nut-based products")
@@ -6582,21 +7038,38 @@ async def get_todays_meal_plan(current_user: User = Depends(get_current_user)):
                 "notes": "Pulled from your most recent saved meal plan."
             }
 
-        # Final safety: if after all previous steps todays_plan is still None, create minimal fallback
+        # Final safety: if after all previous steps todays_plan is still None, use INTELLIGENT FALLBACK
         if not todays_plan:
-            todays_plan = {
-                "id": f"fallback_{current_user['email']}_{today.isoformat()}",
-            "date": today.isoformat(),
-                "type": "fallback_basic",
-                "meals": {
-                    "breakfast": "Oatmeal with berries",
-                    "lunch": "Mixed green salad with chickpeas",
-                    "dinner": "Grilled vegetables with quinoa",
-                    "snack": "Apple slices with peanut butter"
-                },
-                "created_at": datetime.utcnow().isoformat(),
-                "notes": "Generic fallback meal plan."
-            }
+            print(f"[get_todays_meal_plan] No plan generated yet - using INTELLIGENT FALLBACK")
+            
+            # Get today's consumption for intelligent fallback
+            today_consumption = await get_today_consumption_records_async(current_user["email"], user_timezone="UTC")
+            calories_consumed = sum(r.get("nutritional_info", {}).get("calories", 0) for r in today_consumption)
+            target_calories = int(profile.get('calorieTarget', '2000'))
+            remaining_calories = max(0, target_calories - calories_consumed)
+            
+            # Try intelligent planner first
+            intelligent_plan = await intelligent_planner.generate_intelligent_meal_plan(
+                current_user["email"],
+                profile,
+                today_consumption,
+                remaining_calories
+            )
+            
+            if intelligent_plan:
+                todays_plan = intelligent_plan
+                print(f"[get_todays_meal_plan] Generated INTELLIGENT fallback plan with diversity score: {intelligent_plan.get('diversity_score', 'N/A')}")
+            else:
+                # Absolute fallback with diverse meals
+                todays_plan = {
+                    "id": f"diverse_fallback_{current_user['email']}_{today.isoformat()}",
+                    "date": today.isoformat(),
+                    "type": "diverse_fallback",
+                    "meals": intelligent_planner._generate_fallback_diverse_meals(remaining_calories, profile.get('dietType', [])),
+                    "dailyCalories": target_calories,
+                    "created_at": datetime.utcnow().isoformat(),
+                    "notes": "Diverse fallback meal plan with variety"
+                }
 
         # --------------
         # NORMALIZE MEAL-PLAN SHAPE FOR FRONTEND
@@ -6834,16 +7307,34 @@ Ensure ALL dishes are completely vegetarian and egg-free. Do not include any mea
         # ALWAYS GENERATE FRESH VEGETARIAN MEAL PLANS - Don't use old plans that may contain non-vegetarian dishes
         profile = current_user.get("profile", {})
         dietary_restrictions = profile.get('dietaryRestrictions', [])
+        dietary_features = profile.get('dietaryFeatures', [])
         allergies = profile.get('allergies', [])
         diet_type = profile.get('dietType', [])
         
         # Check if user is vegetarian or has egg restrictions
-        is_vegetarian = 'vegetarian' in [r.lower() for r in dietary_restrictions] or 'vegetarian' in [d.lower() for d in diet_type]
-        no_eggs = any('egg' in r.lower() for r in dietary_restrictions) or any('egg' in a.lower() for a in allergies)
+        # Check all possible places where vegetarian preference could be stored
+        is_vegetarian = (
+            'vegetarian' in [r.lower() for r in dietary_restrictions] or 
+            'vegetarian' in [d.lower() for d in diet_type] or
+            any('vegetarian' in f.lower() for f in dietary_features)
+        )
+        
+        # Check for egg restrictions in all relevant fields
+        no_eggs = (
+            any('egg' in r.lower() for r in dietary_restrictions) or 
+            any('egg' in a.lower() for a in allergies) or
+            any('no eggs' in f.lower() for f in dietary_features)
+        )
+        
+        print(f"[get_todays_meal_plan] Dietary analysis: is_vegetarian={is_vegetarian}, no_eggs={no_eggs}")
+        print(f"[get_todays_meal_plan] Dietary restrictions: {dietary_restrictions}")
+        print(f"[get_todays_meal_plan] Dietary features: {dietary_features}")
+        print(f"[get_todays_meal_plan] Diet type: {diet_type}")
+        print(f"[get_todays_meal_plan] Allergies: {allergies}")
         
         # Always generate fresh diverse meals for users with dietary restrictions
         if is_vegetarian or no_eggs:
-            print(f"[get_todays_meal_plan] User has dietary restrictions - generating fresh diverse vegetarian meal plan")
+            print(f"[get_todays_meal_plan] User has dietary restrictions - using INTELLIGENT MEAL PLANNER")
             
             # Use the new comprehensive recalibration system
             today_consumption = await get_today_consumption_records_async(current_user["email"], user_timezone="UTC")
@@ -6851,60 +7342,60 @@ Ensure ALL dishes are completely vegetarian and egg-free. Do not include any mea
             target_calories = int(profile.get('calorieTarget', '2000'))
             remaining_calories = max(0, target_calories - calories_consumed)
             
-            # Generate fresh adaptive meal plan
-            fresh_plan = await generate_fresh_adaptive_meal_plan(
+            # Use the INTELLIGENT MEAL PLANNER for diverse, smart meal suggestions
+            intelligent_plan = await intelligent_planner.generate_intelligent_meal_plan(
                 current_user["email"],
+                profile,
                 today_consumption,
-                remaining_calories,
-                is_vegetarian,
-                no_eggs,
-                dietary_restrictions,
-                allergies,
-                profile.get('dietType', []),
-                profile.get('foodPreferences', []),
-                profile.get('strongDislikes', [])
+                remaining_calories
             )
             
-            # Try to generate fresh adaptive vegetarian meal plan
-            fresh_plan = await generate_fresh_adaptive_meal_plan(
-                current_user["email"],
-                today_consumption,
-                remaining_calories,
-                is_vegetarian,
-                no_eggs,
-                dietary_restrictions,
-                allergies,
-                profile.get('dietType', []),
-                profile.get('foodPreferences', []),
-                profile.get('strongDislikes', [])
-            )
-            
-            if fresh_plan:
-                todays_plan = fresh_plan
-                print(f"[get_todays_meal_plan] Generated fresh adaptive vegetarian meal plan")
+            if intelligent_plan:
+                todays_plan = intelligent_plan
+                print(f"[get_todays_meal_plan] Generated INTELLIGENT meal plan with diversity score: {intelligent_plan.get('diversity_score', 'N/A')}")
             else:
-                # Fallback to safe vegetarian meals
-                todays_plan = generate_safe_vegetarian_fallback(
-                    current_user["email"],
-                    remaining_calories,
-                    is_vegetarian,
-                    no_eggs
-                )
-                print(f"[get_todays_meal_plan] Used safe vegetarian fallback")
+                # Fallback only if intelligent planner fails completely
+                print(f"[get_todays_meal_plan] Intelligent planner failed, using diverse fallback")
+                todays_plan = {
+                    "id": f"diverse_fallback_{current_user['email']}_{today.isoformat()}",
+                    "date": today.isoformat(),
+                    "type": "diverse_fallback",
+                    "meals": intelligent_planner._generate_fallback_diverse_meals(remaining_calories, profile.get('dietType', [])),
+                    "dailyCalories": target_calories,
+                    "created_at": datetime.utcnow().isoformat(),
+                    "notes": "Diverse fallback meal plan with variety"
+                }
                 
-        # Even for non-vegetarian users, ensure we use the recalibration system if consumption has occurred
+        # Even for non-vegetarian users, use intelligent planning if consumption has occurred
         elif todays_plan:
             # Check if we have consumption today and need to recalibrate
             today_consumption = await get_today_consumption_records_async(current_user["email"], user_timezone="UTC")
             if today_consumption:
-                print(f"[get_todays_meal_plan] User has consumption today - triggering recalibration")
+                print(f"[get_todays_meal_plan] User has consumption today - using INTELLIGENT MEAL PLANNER")
                 try:
-                    updated_plan = await trigger_meal_plan_recalibration(current_user["email"], profile)
-                    if updated_plan:
-                        todays_plan = updated_plan
-                        print(f"[get_todays_meal_plan] Successfully recalibrated meal plan")
+                    calories_consumed = sum(r.get("nutritional_info", {}).get("calories", 0) for r in today_consumption)
+                    target_calories = int(profile.get('calorieTarget', '2000'))
+                    remaining_calories = max(0, target_calories - calories_consumed)
+                    
+                    # Use intelligent planner for all users with consumption data
+                    intelligent_plan = await intelligent_planner.generate_intelligent_meal_plan(
+                        current_user["email"],
+                        profile,
+                        today_consumption,
+                        remaining_calories
+                    )
+                    
+                    if intelligent_plan:
+                        todays_plan = intelligent_plan
+                        print(f"[get_todays_meal_plan] Successfully generated INTELLIGENT meal plan with diversity score: {intelligent_plan.get('diversity_score', 'N/A')}")
+                    else:
+                        # Fallback to traditional recalibration
+                        updated_plan = await trigger_meal_plan_recalibration(current_user["email"], profile)
+                        if updated_plan:
+                            todays_plan = updated_plan
+                            print(f"[get_todays_meal_plan] Used traditional recalibration as fallback")
                 except Exception as recal_err:
-                    print(f"[get_todays_meal_plan] Error in recalibration: {recal_err}")
+                    print(f"[get_todays_meal_plan] Error in intelligent planning: {recal_err}")
                     # Continue with existing plan
         
         # If no plan generated yet, use fallback
@@ -6929,6 +7420,45 @@ Ensure ALL dishes are completely vegetarian and egg-free. Do not include any mea
             while " (recommended) (recommended)" in _meal_text:
                 _meal_text = _meal_text.replace(" (recommended) (recommended)", " (recommended)")
             todays_plan["meals"][_meal_key] = _meal_text
+
+        # FINAL SAFETY CHECK: Ensure all dietary restrictions are enforced before returning
+        try:
+            print(f"[get_todays_meal_plan] Applying final dietary restriction enforcement")
+            todays_plan = enforce_dietary_restrictions(todays_plan, profile)
+            print(f"[get_todays_meal_plan] Dietary restrictions enforced successfully")
+        except Exception as enforce_err:
+            print(f"[get_todays_meal_plan] Error enforcing dietary restrictions: {enforce_err}")
+            # Continue with the plan but log the error
+            
+        # EXTRA SAFETY CHECK: If user is vegetarian and we still have non-vegetarian meals, use guaranteed vegetarian fallback
+        if is_vegetarian or no_eggs:
+            meals = todays_plan.get("meals", {})
+            non_veg_keywords = ['chicken', 'beef', 'pork', 'fish', 'salmon', 'tuna', 'turkey', 'lamb', 'meat', 'seafood', 'shrimp', 'bacon', 'ham']
+            egg_keywords = ['egg', 'eggs', 'omelet', 'omelette'] if no_eggs else []
+            
+            # Check if any meal contains non-vegetarian ingredients
+            contains_non_veg = any(
+                any(keyword in meal.lower() for keyword in non_veg_keywords + egg_keywords) 
+                for meal in meals.values()
+            )
+            
+            if contains_non_veg:
+                print(f"[get_todays_meal_plan] WARNING: Non-vegetarian ingredients detected in meal plan for vegetarian user! Using guaranteed vegetarian fallback")
+                todays_plan = {
+                    "id": f"vegetarian_fallback_{current_user['email']}_{today.isoformat()}",
+                    "date": today.isoformat(),
+                    "type": "guaranteed_vegetarian",
+                    "meals": {
+                        "breakfast": "Steel-cut oats with almond milk, chia seeds, and fresh berries",
+                        "lunch": "Quinoa Buddha bowl with roasted chickpeas, mixed vegetables, and tahini dressing",
+                        "dinner": "Lentil curry with brown rice, steamed broccoli, and spinach",
+                        "snack": "Apple slices with almond butter and a sprinkle of cinnamon"
+                    },
+                    "dailyCalories": int(profile.get('calorieTarget', '2000')),
+                    "created_at": datetime.utcnow().isoformat(),
+                    "notes": "Guaranteed vegetarian meal plan generated due to dietary restrictions"
+                }
+                print(f"[get_todays_meal_plan] Replaced with guaranteed vegetarian fallback")
 
         return todays_plan
     except HTTPException:
@@ -8243,6 +8773,7 @@ async def get_meal_suggestion(
         # Health conditions and dietary info
         health_conditions = user_profile.get("medicalConditions", []) or user_profile.get("medical_conditions", [])
         dietary_restrictions = user_profile.get("dietaryRestrictions", []) or user_profile.get("dietary_restrictions", [])
+        dietary_features = user_profile.get("dietaryFeatures", [])
         allergies = user_profile.get("allergies", [])
         medications = user_profile.get("currentMedications", [])
         
