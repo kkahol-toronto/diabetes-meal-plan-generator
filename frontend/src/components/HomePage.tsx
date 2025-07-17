@@ -2405,6 +2405,9 @@ const HomePage: React.FC = () => {
                               /\s*\blightlightlight\b[\s:]*/gi, // Remove "lightlightlight" pattern
                               /\s*\blightlight\b[\s:]*/gi, // Remove "lightlight" pattern
                               /\s*\blight\b.*$/i, // Remove "light" and everything after it
+                              /\s*lightlightlight.*$/i, // Remove "lightlightlight" and everything after it
+                              /\s*lightlight.*$/i, // Remove "lightlight" and everything after it
+                              /\s*light.*$/i, // Remove "light" and everything after it
                             ];
                             
                             patterns.forEach(pattern => {
@@ -2434,6 +2437,17 @@ const HomePage: React.FC = () => {
                             
                             cleaned = cleanedWords.join(' ');
                             
+                            // Additional aggressive cleanup for repetitive patterns
+                            // Remove any text that contains repetitive "light" patterns
+                            if (cleaned.toLowerCase().includes('lightlightlight') || 
+                                cleaned.toLowerCase().includes('lightlight') ||
+                                cleaned.toLowerCase().includes('light light light') ||
+                                cleaned.toLowerCase().includes('light light')) {
+                              // Extract only the meaningful part before the repetitive text
+                              const meaningfulPart = cleaned.split(/\s*light\s*/i)[0];
+                              cleaned = meaningfulPart.trim();
+                            }
+                            
                             // Clean up any remaining artifacts
                             cleaned = cleaned.trim();
                             
@@ -2450,7 +2464,12 @@ const HomePage: React.FC = () => {
                             }
                             
                             // Final fallback for corrupted or empty descriptions
-                            if (cleaned.length < 3 || cleaned.toLowerCase().includes('lightlightlight')) {
+                            if (cleaned.length < 3 || 
+                                cleaned.toLowerCase().includes('lightlightlight') ||
+                                cleaned.toLowerCase().includes('lightlight') ||
+                                cleaned.toLowerCase().includes('light light light') ||
+                                cleaned.toLowerCase().includes('light light') ||
+                                cleaned.toLowerCase().includes('light')) {
                               // Provide sensible defaults based on meal type
                               const mealDefaults: { [key: string]: string } = {
                                 'breakfast': 'Healthy breakfast option',
