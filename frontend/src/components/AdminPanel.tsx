@@ -31,9 +31,10 @@ interface Patient {
   created_at: string;
 }
 
-const AdminPanel = () => {
+const AdminPanel: React.FC = () => {
   const navigate = useNavigate();
   const [patients, setPatients] = useState<Patient[]>([]);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [openDialog, setOpenDialog] = useState(false);
@@ -42,6 +43,7 @@ const AdminPanel = () => {
     phone: '',
     condition: '',
   });
+  const [adminTimezone, setAdminTimezone] = useState<string>('UTC');
 
   // Function to format phone number
   const formatPhoneNumber = (phone: string) => {
@@ -58,6 +60,9 @@ const AdminPanel = () => {
   };
 
   useEffect(() => {
+    // Detect admin's timezone on component mount
+    const detectedTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+    setAdminTimezone(detectedTimezone);
     fetchPatients();
   }, []);
 
@@ -145,6 +150,39 @@ const AdminPanel = () => {
     }));
   };
 
+  const formatTimestamp = (timestamp: string) => {
+    try {
+      console.log(`[DEBUG] Original timestamp: ${timestamp}`);
+      console.log(`[DEBUG] Admin timezone: ${adminTimezone}`);
+      
+      // Ensure the timestamp is treated as UTC by adding Z if it doesn't have it
+      let utcTimestamp = timestamp;
+      if (!timestamp.endsWith('Z') && !timestamp.includes('+')) {
+        utcTimestamp = timestamp + 'Z';
+      }
+      
+      const date = new Date(utcTimestamp);
+      console.log(`[DEBUG] Parsed date: ${date.toISOString()}`);
+      
+      const formatted = date.toLocaleString('en-US', { 
+        timeZone: adminTimezone,
+        year: 'numeric',
+        month: 'numeric',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: 'numeric',
+        second: 'numeric',
+        hour12: true
+      });
+      
+      console.log(`[DEBUG] Formatted result: ${formatted}`);
+      return formatted;
+    } catch (error) {
+      console.error(`[DEBUG] Error formatting timestamp: ${error}`);
+      return timestamp; // Fallback to original timestamp if parsing fails
+    }
+  };
+
   return (
     <Container maxWidth="lg" sx={{ py: 4 }}>
       <Paper elevation={3} sx={{ p: 4 }}>
@@ -186,9 +224,7 @@ const AdminPanel = () => {
                   <TableCell>{formatPhoneNumber(patient.phone)}</TableCell>
                   <TableCell>{patient.condition}</TableCell>
                   <TableCell>{patient.registration_code}</TableCell>
-                  <TableCell>
-                    {new Date(patient.created_at).toLocaleString()}
-                  </TableCell>
+                  <TableCell>{formatTimestamp(patient.created_at)}</TableCell>
                   <TableCell>
                     <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
                       <Button

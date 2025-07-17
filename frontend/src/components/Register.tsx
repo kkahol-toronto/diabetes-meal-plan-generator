@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Container,
   Paper,
@@ -28,6 +28,7 @@ const Register = () => {
     email: '',
     password: '',
     confirmPassword: '',
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
   });
   const [error, setError] = useState<string | null>(null);
   const [consentChecked, setConsentChecked] = useState(false);
@@ -39,6 +40,10 @@ const Register = () => {
     timestamp: string;
     ipAddress?: string;
   } | null>(null);
+
+  useEffect(() => {
+    setFormData(f => ({ ...f, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC' }));
+  }, []);
 
   const handleChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = event.target;
@@ -77,15 +82,20 @@ const Register = () => {
     }
 
     try {
+      const payload = {
+        ...formData,
+        timezone: formData.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+      };
+
       const response = await fetch(`${config.API_URL}/register`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          registration_code: formData.registrationCode,
-          email: formData.email,
-          password: formData.password,
+          registration_code: payload.registrationCode,
+          email: payload.email,
+          password: payload.password,
           consent_given: signatureData.requiredConsent,
           consent_timestamp: signatureData.timestamp,
           policy_version: CURRENT_POLICY_VERSION,

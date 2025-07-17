@@ -2398,12 +2398,41 @@ const HomePage: React.FC = () => {
                               /\s*\bincluding\b.*$/i, // Remove "including..." descriptions
                               /\s*\brecommended\b[\s:]*\brecommended\b[\s:]*\brecommended\b[\s:]*/gi, // Remove repeated "Recommended:" text
                               /\s*\brecommended\b[\s:]*\brecommended\b[\s:]*/gi, // Remove repeated "Recommended:" text
-                              /\s*\brecommended\b[\s:]*/gi // Remove single "Recommended:" text
+                              /\s*\brecommended\b[\s:]*/gi, // Remove single "Recommended:" text
+                              /\s*\blight\b[\s:]*\blight\b[\s:]*\blight\b[\s:]*/gi, // Remove repeated "light" text
+                              /\s*\blight\b[\s:]*\blight\b[\s:]*/gi, // Remove repeated "light" text
+                              /\s*\blight\b[\s:]*/gi, // Remove single "light" text
+                              /\s*\blightlightlight\b[\s:]*/gi, // Remove "lightlightlight" pattern
+                              /\s*\blightlight\b[\s:]*/gi, // Remove "lightlight" pattern
+                              /\s*\blight\b.*$/i, // Remove "light" and everything after it
                             ];
                             
                             patterns.forEach(pattern => {
                               cleaned = cleaned.replace(pattern, '');
                             });
+                            
+                            // Additional cleanup for repetitive text patterns
+                            // Remove any word that repeats more than 3 times consecutively
+                            const words = cleaned.split(/\s+/);
+                            const cleanedWords = [];
+                            let lastWord = '';
+                            let repeatCount = 0;
+                            
+                            for (const word of words) {
+                              if (word.toLowerCase() === lastWord.toLowerCase()) {
+                                repeatCount++;
+                                if (repeatCount <= 2) { // Keep up to 2 repetitions
+                                  cleanedWords.push(word);
+                                }
+                                // Skip additional repetitions
+                              } else {
+                                lastWord = word;
+                                repeatCount = 1;
+                                cleanedWords.push(word);
+                              }
+                            }
+                            
+                            cleaned = cleanedWords.join(' ');
                             
                             // Clean up any remaining artifacts
                             cleaned = cleaned.trim();
@@ -2415,9 +2444,21 @@ const HomePage: React.FC = () => {
                               const meaningfulWords = words.filter((word: string) => 
                                 word.length > 2 && 
                                 !word.match(/^\d+$/) && 
-                                !word.match(/^(with|and|or|the|a|an|in|on|at|to|from|for|of|by)$/i)
+                                !word.match(/^(with|and|or|the|a|an|in|on|at|to|from|for|of|by|light|recommended)$/i)
                               );
                               cleaned = meaningfulWords.slice(0, 4).join(' ');
+                            }
+                            
+                            // Final fallback for corrupted or empty descriptions
+                            if (cleaned.length < 3 || cleaned.toLowerCase().includes('lightlightlight')) {
+                              // Provide sensible defaults based on meal type
+                              const mealDefaults: { [key: string]: string } = {
+                                'breakfast': 'Healthy breakfast option',
+                                'lunch': 'Balanced lunch option',
+                                'dinner': 'Nutritious dinner option',
+                                'snack': 'Healthy snack option'
+                              };
+                              return mealDefaults[mealType] || 'Recipe';
                             }
                             
                             return cleaned || 'Recipe';

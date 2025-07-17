@@ -22,6 +22,10 @@ COSMOS_CONNECTION_STRING = os.getenv("COSMO_DB_CONNECTION_STRING")
 INTERACTIONS_CONTAINER = os.getenv("INTERACTIONS_CONTAINER")
 USER_INFORMATION_CONTAINER = os.getenv("USER_INFORMATION_CONTAINER")
 
+print(f"[DATABASE] Environment variables:")
+print(f"[DATABASE] INTERACTIONS_CONTAINER: {INTERACTIONS_CONTAINER}")
+print(f"[DATABASE] USER_INFORMATION_CONTAINER: {USER_INFORMATION_CONTAINER}")
+
 # Initialize Cosmos DB client
 client = CosmosClient.from_connection_string(COSMOS_CONNECTION_STRING)
 database = client.get_database_client("diabetes_diet_manager")
@@ -54,10 +58,17 @@ async def create_user(user_data: dict):
 async def get_user_by_email(email: str):
     """Get user by email"""
     try:
+        print(f"[get_user_by_email] Looking for user: {email}")
+        print(f"[get_user_by_email] Using container: {user_container.id}")
         query = f"SELECT * FROM c WHERE c.type = 'user' AND c.id = '{email}'"
+        print(f"[get_user_by_email] Query: {query}")
         items = list(user_container.query_items(query=query, enable_cross_partition_query=True))
+        print(f"[get_user_by_email] Found {len(items)} items")
+        if items:
+            print(f"[get_user_by_email] First item: {items[0].get('email')} (admin: {items[0].get('is_admin')})")
         return items[0] if items else None
     except Exception as e:
+        print(f"[get_user_by_email] Error: {str(e)}")
         raise Exception(f"Failed to get user: {str(e)}")
 
 async def create_patient(patient_data: dict):
