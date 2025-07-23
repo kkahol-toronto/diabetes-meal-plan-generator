@@ -926,6 +926,7 @@ async def trigger_meal_plan_recalibration(user_email: str, user_profile: dict):
         
         # Get user's dietary restrictions and preferences
         dietary_restrictions = user_profile.get('dietaryRestrictions', [])
+        dietary_features = user_profile.get('dietaryFeatures', []) or user_profile.get('diet_features', [])
         allergies = user_profile.get('allergies', [])
         diet_type = user_profile.get('dietType', [])
         food_preferences = user_profile.get('foodPreferences', [])
@@ -937,9 +938,23 @@ async def trigger_meal_plan_recalibration(user_email: str, user_profile: dict):
         target_calories = int(calorie_target)
         remaining_calories = max(0, target_calories - calories_consumed)
         
-        # Check if user is vegetarian or has restrictions
-        is_vegetarian = 'vegetarian' in [r.lower() for r in dietary_restrictions] or 'vegetarian' in [d.lower() for d in diet_type]
-        no_eggs = any('egg' in r.lower() for r in dietary_restrictions) or any('egg' in a.lower() for a in allergies)
+        # FIXED: Comprehensive dietary restriction detection including dietaryFeatures
+        # Check if user is vegetarian or has restrictions from ALL possible sources
+        all_dietary_info = []
+        for field in [dietary_restrictions, dietary_features, diet_type]:
+            if isinstance(field, list):
+                all_dietary_info.extend([str(item).lower() for item in field])
+            elif isinstance(field, str) and field:
+                all_dietary_info.append(field.lower())
+        
+        is_vegetarian = any('vegetarian' in info for info in all_dietary_info)
+        
+        # CRITICAL FIX: Check for egg restrictions in ALL fields including dietaryFeatures - handle both singular and plural
+        no_eggs = (
+            any('egg' in r.lower() for r in dietary_restrictions) or 
+            any('egg' in a.lower() for a in allergies) or
+            any('no egg' in feature.lower() or 'no eggs' in feature.lower() or 'vegetarian (no egg' in feature.lower() or 'vegetarian (no eggs' in feature.lower() for feature in dietary_features)
+        )
         
         print(f"[RECALIBRATION] User dietary profile: vegetarian={is_vegetarian}, no_eggs={no_eggs}")
         print(f"[RECALIBRATION] Cuisine preferences: {diet_type}")
@@ -1032,12 +1047,14 @@ async def generate_fresh_adaptive_meal_plan(user_email: str, today_consumption: 
         # Determine what meals are still needed today
         remaining_meals = get_remaining_meals_by_time(current_hour)
         
-        # Build restriction warnings for AI
+        # Build restriction warnings for AI with enhanced detection
         restriction_warnings = []
         if is_vegetarian:
-            restriction_warnings.append("STRICTLY VEGETARIAN - NO MEAT, POULTRY, FISH, OR SEAFOOD")
+            restriction_warnings.append("VEGETARIAN - Exclude meat, poultry, fish, and seafood. Plant-based proteins preferred")
         if no_eggs:
-            restriction_warnings.append("NO EGGS - Avoid all egg-based dishes and ingredients")
+            restriction_warnings.append("EGG-FREE - Avoid eggs and egg-containing dishes like omelets, quiche, and french toast")
+        if is_vegetarian and no_eggs:
+            restriction_warnings.append("VEGETARIAN + EGG-FREE - Requires both meat-free and egg-free options")
         if any('nut' in a.lower() for a in allergies):
             restriction_warnings.append("NUT ALLERGY - Avoid all nuts and nut-based products")
         
@@ -1216,15 +1233,36 @@ def sanitize_vegetarian_meal(meal_text: str, is_vegetarian: bool, no_eggs: bool)
         return "Healthy balanced meal option"
     
     # Check for non-vegetarian ingredients
-    non_veg_keywords = ['chicken', 'beef', 'pork', 'fish', 'salmon', 'tuna', 'turkey', 'lamb', 'meat', 'seafood', 'shrimp', 'bacon', 'ham', 'duck', 'goose']
-    egg_keywords = ['egg', 'eggs', 'omelet', 'omelette', 'scrambled', 'poached', 'fried egg', 'boiled egg']
+    non_veg_keywords = ['chicken', 'beef', 'pork', 'fish', 'salmon', 'tuna', 'turkey', 'lamb', 'meat', 'seafood', 'shrimp', 'bacon', 'ham', 'duck', 'goose', 'crab', 'lobster', 'cod', 'tilapia', 'halibut', 'anchovy', 'sardine']
+    
+    # ENHANCED: Comprehensive egg detection including all egg-containing dishes and ingredients
+    egg_keywords = [
+        # Direct egg references
+        'egg', 'eggs', 'egg white', 'egg yolk', 'whole egg', 'beaten egg', 'raw egg',
+        # Egg-based dishes
+        'omelet', 'omelette', 'scrambled', 'poached', 'fried egg', 'boiled egg', 'hard-boiled', 'soft-boiled',
+        'egg sandwich', 'breakfast sandwich', 'egg muffin', 'egg wrap', 'egg salad', 'deviled egg',
+        'eggs benedict', 'scotch egg', 'pickled egg', 'egg drop soup', 'egg roll',
+        # Egg-containing foods and preparations  
+        'mayonnaise', 'mayo', 'hollandaise', 'custard', 'meringue', 'eggnog', 'zabaglione',
+        'french toast', 'pancake', 'waffle', 'crepe', 'quiche', 'frittata', 'strata', 'souffle',
+        'carbonara', 'caesar dressing', 'caesar salad', 'aioli', 'tartar sauce', 'thousand island',
+        # Baked goods that typically contain eggs
+        'muffin', 'cake', 'cupcake', 'cookie', 'brownie', 'pastry', 'donut', 'danish', 'croissant',
+        'brioche', 'challah', 'bagel', 'english muffin', 'scone', 'biscuit',
+        # Other egg-containing items
+        'pasta carbonara', 'egg noodles', 'fresh pasta', 'homemade pasta', 'batter', 'tempura',
+        'fried chicken', 'breaded', 'coated', 'dumplings', 'gnocchi', 'egg bread'
+    ]
     
     if is_vegetarian and any(keyword in meal_lower for keyword in non_veg_keywords):
         print(f"[sanitize_vegetarian_meal] Replacing non-vegetarian meal: '{meal_text}'")
         return "Vegetarian lentil curry with brown rice and steamed vegetables"
+    
     if no_eggs and any(keyword in meal_lower for keyword in egg_keywords):
-        print(f"[sanitize_vegetarian_meal] Replacing egg-containing meal: '{meal_text}'")
-        return "Overnight oats with almond milk, chia seeds, and fresh berries"
+        print(f"[sanitize_vegetarian_meal] CRITICAL: Replacing egg-containing meal: '{meal_text}' - found egg ingredient")
+        # Return a safe, guaranteed egg-free option
+        return "Vegetarian quinoa bowl with roasted vegetables and tahini dressing"
     
     return meal_text
 
@@ -1858,13 +1896,14 @@ def enforce_dietary_restrictions(meal_plan_data: dict, user_profile: dict) -> di
     # Add dietary restriction-related banned ingredients - check ALL restriction sources
     for restriction in all_restrictions:
         if 'vegetarian' in restriction:
-            banned_ingredients.update(['chicken', 'beef', 'pork', 'fish', 'salmon', 'tuna', 'turkey', 'lamb', 'meat', 'seafood', 'shrimp', 'bacon', 'ham'])
-            # CRITICAL: Handle "vegetarian (no eggs)" pattern specifically
-            if 'no egg' in restriction or '(no egg' in restriction:
-                banned_ingredients.update(['eggs', 'egg', 'omelet', 'omelette', 'scrambled', 'poached', 'fried egg', 'boiled egg'])
+            # COMPREHENSIVE meat and poultry ban for vegetarians
+            banned_ingredients.update(['chicken', 'beef', 'pork', 'fish', 'salmon', 'tuna', 'turkey', 'lamb', 'meat', 'seafood', 'shrimp', 'bacon', 'ham', 'duck', 'goose', 'veal', 'venison', 'rabbit', 'sausage', 'pepperoni', 'salami', 'prosciutto', 'chorizo', 'ground beef', 'ground turkey', 'chicken breast', 'chicken thigh', 'steak', 'roast beef', 'pork chop', 'fish fillet', 'crab', 'lobster', 'scallops', 'mussels', 'clams', 'oysters', 'cod', 'tilapia', 'halibut', 'sardines', 'anchovies', 'mackerel'])
+            # CRITICAL: Handle "vegetarian (no eggs)" pattern specifically - check for both singular and plural
+            if 'no egg' in restriction or '(no egg' in restriction or 'no eggs' in restriction or '(no eggs' in restriction:
+                banned_ingredients.update(['eggs', 'egg', 'omelet', 'omelette', 'scrambled', 'poached', 'fried egg', 'boiled egg', 'hard-boiled', 'soft-boiled', 'egg white', 'egg yolk', 'egg sandwich', 'french toast', 'quiche', 'frittata', 'carbonara', 'mayonnaise', 'mayo', 'hollandaise', 'custard', 'meringue'])
                 print(f"[enforce_dietary_restrictions] VEGETARIAN (NO EGGS) detected: {restriction}")
         elif 'vegan' in restriction:
-            banned_ingredients.update(['chicken', 'beef', 'pork', 'fish', 'salmon', 'tuna', 'turkey', 'lamb', 'meat', 'seafood', 'shrimp', 'bacon', 'ham'])
+            banned_ingredients.update(['chicken', 'beef', 'pork', 'fish', 'salmon', 'tuna', 'turkey', 'lamb', 'meat', 'seafood', 'shrimp', 'bacon', 'ham', 'duck', 'goose', 'veal', 'venison'])
             banned_ingredients.update(['milk', 'cheese', 'butter', 'cream', 'yogurt', 'ice cream', 'eggs', 'egg'])
         elif 'no dairy' in restriction or 'dairy-free' in restriction:
             banned_ingredients.update(['milk', 'cheese', 'butter', 'cream', 'yogurt', 'ice cream'])
@@ -1876,8 +1915,8 @@ def enforce_dietary_restrictions(meal_plan_data: dict, user_profile: dict) -> di
             banned_ingredients.update(['pork', 'shellfish', 'bacon', 'ham'])
         elif 'halal' in restriction:
             banned_ingredients.update(['pork', 'alcohol', 'bacon', 'ham'])
-        elif 'egg-free' in restriction or 'no egg' in restriction:
-            banned_ingredients.update(['eggs', 'egg', 'omelet', 'omelette', 'scrambled', 'poached', 'fried egg', 'boiled egg'])
+        elif 'egg-free' in restriction or 'no egg' in restriction or 'no eggs' in restriction:
+            banned_ingredients.update(['eggs', 'egg', 'omelet', 'omelette', 'scrambled', 'poached', 'fried egg', 'boiled egg', 'hard-boiled', 'soft-boiled', 'egg white', 'egg yolk', 'egg sandwich', 'french toast', 'quiche', 'frittata', 'carbonara', 'mayonnaise', 'mayo', 'hollandaise', 'custard', 'meringue'])
             print(f"[enforce_dietary_restrictions] EGG-FREE detected: {restriction}")
     
     # Add strong dislikes
@@ -2396,12 +2435,12 @@ async def generate_meal_plan(
 
             return prev_sample + new_sample
 
-        # Define a robust JSON structure based on selected days
+        # Define a robust JSON structure based on selected days - SAFE VEGETARIAN OPTIONS
         example_meals = {
-            "breakfast": ["Oatmeal with berries", "Whole grain toast with eggs", "Greek yogurt with granola", "Scrambled eggs with spinach", "Smoothie bowl", "Avocado toast", "Pancakes with fruit"],
-            "lunch": ["Grilled chicken salad", "Quinoa bowl", "Turkey sandwich", "Vegetable soup", "Pasta salad", "Chicken wrap", "Buddha bowl"],
-            "dinner": ["Baked salmon with vegetables", "Grilled chicken with rice", "Beef stir-fry", "Vegetable curry", "Baked cod with quinoa", "Turkey meatballs", "Roasted vegetables with protein"],
-            "snacks": ["Apple with almonds", "Greek yogurt", "Carrot sticks with hummus", "Mixed nuts", "Cheese and crackers", "Berries with cottage cheese", "Protein smoothie"]
+            "breakfast": ["Oatmeal with berries", "Whole grain toast with avocado", "Greek yogurt with granola", "Quinoa breakfast bowl", "Smoothie bowl", "Avocado toast", "Chia pudding with fruit"],
+            "lunch": ["Quinoa and vegetable salad", "Quinoa bowl with beans", "Vegetable wrap", "Vegetable soup", "Pasta with marinara", "Hummus and vegetable wrap", "Buddha bowl"],
+            "dinner": ["Lentil curry with vegetables", "Vegetable stir-fry with tofu", "Bean and vegetable stew", "Vegetable curry", "Quinoa with roasted vegetables", "Chickpea curry", "Roasted vegetables with grains"],
+            "snacks": ["Apple with almonds", "Plant-based yogurt", "Carrot sticks with hummus", "Mixed nuts", "Fruit and nut bars", "Berries with seeds", "Green smoothie"]
         }
         
         # Create exactly the right number of meals for each type based on days
@@ -2536,15 +2575,17 @@ REQUIREMENTS:
 
 {profile_summary}
 
+🚨 ABSOLUTE PRIORITY: DIETARY RESTRICTIONS MUST BE FOLLOWED WITHOUT EXCEPTION 🚨
+
 CRITICAL INSTRUCTIONS:
-1. MEDICAL SAFETY: Carefully consider all medical conditions, medications, and lab values. Ensure meals are appropriate for diabetes management and any other health conditions.
-2. DIETARY COMPLIANCE: Strictly follow dietary restrictions, allergies, and food preferences.
-3. DIET TYPE ADHERENCE: **CRITICALLY IMPORTANT** - Follow the specified Diet Type exactly:
-   - If "Western" or "European": MUST include traditional European/Western dishes such as:
-     * BREAKFAST: Scrambled eggs with toast, pancakes, French toast, English breakfast, cereal with milk, bagels with cream cheese
-     * LUNCH: Sandwiches (turkey, ham, BLT), burgers, pizza slices, pasta salads, chicken Caesar salad, club sandwiches  
-     * DINNER: Spaghetti with meatballs, grilled chicken with mashed potatoes, beef steak with vegetables, baked fish with rice, pizza, lasagna, roast beef
-     * SNACKS: Cheese and crackers, nuts, yogurt, fruit, granola bars
+1. DIETARY COMPLIANCE (TOP PRIORITY): Absolutely MUST follow ALL dietary restrictions, features, and allergies listed above. If patient has "Vegetarian (no eggs)" selected, completely exclude ALL eggs, omelets, quiche, french toast, mayonnaise, egg sandwiches, and egg-containing foods.
+2. MEDICAL SAFETY: Carefully consider all medical conditions, medications, and lab values. Ensure meals are appropriate for diabetes management and any other health conditions.
+3. DIET TYPE ADHERENCE: **CRITICALLY IMPORTANT** - Follow the specified Diet Type exactly, but ALWAYS respect dietary restrictions above all else:
+   - If "Western" or "European": Include traditional European/Western dishes modified for dietary restrictions:
+     * BREAKFAST: Oatmeal with berries, avocado toast, quinoa breakfast bowl, smoothie bowls, chia pudding (modify based on restrictions)
+     * LUNCH: Vegetable sandwiches, salads with appropriate proteins, quinoa bowls, vegetable soups (adapt proteins to dietary needs)
+     * DINNER: Pasta with marinara, vegetable stir-fries, grain bowls, lentil dishes (choose proteins based on dietary requirements)
+     * SNACKS: Fresh fruit, nuts, hummus with vegetables, yogurt (select based on dietary restrictions)
    - If "Mediterranean": Focus on Mediterranean cuisine with olive oil, fish, vegetables, legumes, etc.
    - If "South Asian": Include curries, rice dishes, lentils, chapati, etc.
    - If "East Asian": Include stir-fries, rice, noodles, steamed dishes, etc.
@@ -2579,7 +2620,7 @@ REQUIREMENTS:
                 messages=[
                     {
                         "role": "system",
-                        "content": "You are a meal planning assistant specializing in culturally authentic cuisine. When a user specifies 'Western' or 'European' diet type, you MUST provide traditional Western/European dishes like pizza (regular crust), pasta (wheat-based), sandwiches, burgers, steaks, etc. AVOID health substitutions like gluten-free, quinoa, cauliflower crust, zucchini noodles unless specifically requested. Include 5 healthy traditional meals and 2 indulgent traditional meals per week for balance. Always respond with valid JSON matching the exact structure requested. No explanations or markdown."
+                        "content": "You are a medical nutrition specialist creating meal plans for diabetic patients. CRITICAL PRIORITY ORDER: 1) DIETARY RESTRICTIONS AND ALLERGIES (absolutely no exceptions) 2) Medical conditions (diabetes-friendly foods) 3) Cultural cuisine preferences. If a user has 'Vegetarian (no eggs)' or any egg restrictions, you MUST completely avoid eggs, omelets, french toast, quiche, mayonnaise, and all egg-containing dishes. For vegetarians, exclude all meat, poultry, fish, and seafood. Only after ensuring complete dietary compliance, then incorporate authentic cultural dishes from their preferred cuisine type. Always respond with valid JSON matching the exact structure requested. No explanations or markdown."
                     },
                     {"role": "user", "content": prompt}
                 ],
@@ -2615,6 +2656,29 @@ REQUIREMENTS:
                 # CRITICAL: Enforce dietary restrictions before any other processing
                 meal_plan = enforce_dietary_restrictions(meal_plan, user_profile)
                 print("Dietary restrictions enforced successfully")
+                
+                # EXTRA SAFETY CHECK: Additional vegetarian/egg-free enforcement
+                dietary_features = user_profile.get('dietaryFeatures', [])
+                dietary_restrictions = user_profile.get('dietaryRestrictions', [])
+                
+                # Check if user has vegetarian (no eggs) restriction
+                has_egg_restriction = any('vegetarian (no eggs)' in str(feature).lower() or 
+                                        'vegetarian (no egg)' in str(feature).lower() or
+                                        'no eggs' in str(feature).lower() or 
+                                        'no egg' in str(feature).lower() or
+                                        'egg-free' in str(feature).lower() 
+                                        for feature in dietary_features + dietary_restrictions)
+                
+                is_vegetarian = any('vegetarian' in str(feature).lower() for feature in dietary_features + dietary_restrictions)
+                
+                if has_egg_restriction or is_vegetarian:
+                    print(f"[EXTRA SAFETY] Applying additional vegetarian/egg-free enforcement: vegetarian={is_vegetarian}, no_eggs={has_egg_restriction}")
+                    for meal_type in ['breakfast', 'lunch', 'dinner', 'snacks']:
+                        if meal_type in meal_plan and isinstance(meal_plan[meal_type], list):
+                            meal_plan[meal_type] = [
+                                sanitize_vegetarian_meal(meal, is_vegetarian, has_egg_restriction) 
+                                for meal in meal_plan[meal_type]
+                            ]
                 
                 # Validate meal plan structure
                 required_keys = ['breakfast', 'lunch', 'dinner', 'snacks', 'dailyCalories', 'macronutrients']
@@ -4125,6 +4189,93 @@ async def get_current_user_info(current_user: User = Depends(get_current_user)):
         "policy_version": current_user.get("policy_version", None)
     }
 
+def validate_and_normalize_profile(profile: dict) -> dict:
+    """
+    Validate and normalize user profile data to ensure proper data types and structure.
+    """
+    if not isinstance(profile, dict):
+        raise ValueError("Profile must be a dictionary")
+    
+    # Create a copy to avoid modifying the original
+    normalized = profile.copy()
+    
+    # Normalize array fields - ensure they are lists
+    array_fields = [
+        'ethnicity', 'medicalConditions', 'currentMedications', 'dietType', 
+        'dietaryFeatures', 'dietaryRestrictions', 'foodPreferences', 'allergies', 
+        'avoids', 'strongDislikes', 'exerciseTypes', 'primaryGoals', 'availableAppliances'
+    ]
+    
+    for field in array_fields:
+        if field in normalized:
+            if isinstance(normalized[field], str):
+                # Convert string to single-item array
+                normalized[field] = [normalized[field]] if normalized[field] else []
+            elif not isinstance(normalized[field], list):
+                # Convert other types to empty array
+                normalized[field] = []
+    
+    # Ensure labValues is a dict
+    if 'labValues' in normalized and not isinstance(normalized['labValues'], dict):
+        normalized['labValues'] = {}
+    
+    # Validate numeric fields
+    numeric_fields = ['age', 'height', 'weight', 'bmi', 'waistCircumference', 
+                     'systolicBP', 'diastolicBP', 'heartRate']
+    
+    for field in numeric_fields:
+        if field in normalized and normalized[field] is not None:
+            try:
+                normalized[field] = float(normalized[field])
+            except (ValueError, TypeError):
+                normalized[field] = None
+    
+    # Validate boolean fields
+    boolean_fields = ['mobilityIssues', 'wantsWeightLoss']
+    
+    for field in boolean_fields:
+        if field in normalized:
+            if isinstance(normalized[field], str):
+                normalized[field] = normalized[field].lower() in ('true', '1', 'yes')
+            else:
+                normalized[field] = bool(normalized[field])
+    
+    print(f"[validate_and_normalize_profile] Normalized profile with {len(normalized)} fields")
+    return normalized
+
+def calculate_profile_completeness(profile: dict) -> float:
+    """
+    Calculate the completeness percentage of a user profile.
+    """
+    if not profile:
+        return 0.0
+    
+    # Define important fields and their weights
+    critical_fields = {
+        'name': 2.0, 'age': 2.0, 'gender': 2.0, 'height': 2.0, 'weight': 2.0,
+        'medicalConditions': 3.0, 'currentMedications': 2.0, 'dietType': 2.0,
+        'dietaryFeatures': 2.0, 'primaryGoals': 2.0, 'calorieTarget': 2.0
+    }
+    
+    optional_fields = {
+        'ethnicity': 1.0, 'labValues': 1.5, 'allergies': 1.5, 'exerciseTypes': 1.0,
+        'workActivityLevel': 1.0, 'exerciseFrequency': 1.0, 'mealPrepCapability': 1.0,
+        'eatingSchedule': 1.0, 'readinessToChange': 1.0
+    }
+    
+    all_fields = {**critical_fields, **optional_fields}
+    
+    total_weight = sum(all_fields.values())
+    completed_weight = 0.0
+    
+    for field, weight in all_fields.items():
+        if field in profile:
+            value = profile[field]
+            if value and value != [] and value != {} and str(value).strip():
+                completed_weight += weight
+    
+    return round((completed_weight / total_weight) * 100, 1)
+
 @app.post("/user/profile")
 async def save_user_profile(
     request: FastAPIRequest,
@@ -4136,18 +4287,27 @@ async def save_user_profile(
         if not profile:
             raise HTTPException(status_code=400, detail="No profile data provided")
         
+        # Validate and normalize profile data
+        profile = validate_and_normalize_profile(profile)
+        
         user_doc = await get_user_by_email(current_user["email"])
         if not user_doc:
             raise HTTPException(status_code=404, detail="User not found")
 
-        # Update the profile
+        # Update the profile with validation
         user_doc["profile"] = profile
         user_doc["updated_at"] = datetime.utcnow().isoformat()
+        
+        # Log profile structure for debugging
+        print(f"[save_user_profile] Saving profile for {current_user['email']}:")
+        print(f"[save_user_profile] Profile fields: {list(profile.keys())}")
+        print(f"[save_user_profile] Array fields: {[k for k, v in profile.items() if isinstance(v, list)]}")
+        print(f"[save_user_profile] Dict fields: {[k for k, v in profile.items() if isinstance(v, dict)]}")
         
         # Save to database with proper error handling
         try:
             result = user_container.replace_item(item=user_doc["id"], body=user_doc)
-            print(f"Profile saved successfully for user {current_user['email']}")
+            print(f"[save_user_profile] Profile saved to user doc successfully for {current_user['email']}")
             
             # Also create/update a separate profile record for easier querying
             profile_record = {
@@ -4156,22 +4316,27 @@ async def save_user_profile(
                 "user_id": current_user["email"],
                 "profile": profile,
                 "updated_at": datetime.utcnow().isoformat(),
-                "created_at": user_doc.get("created_at", datetime.utcnow().isoformat())
+                "created_at": user_doc.get("created_at", datetime.utcnow().isoformat()),
+                "profile_completeness": calculate_profile_completeness(profile)
             }
             
             user_container.upsert_item(body=profile_record)
-            print(f"Profile record upserted for user {current_user['email']}")
+            print(f"[save_user_profile] Profile record upserted for {current_user['email']}")
             
         except Exception as db_error:
-            print(f"Database error saving profile: {str(db_error)}")
+            print(f"[save_user_profile] Database error: {str(db_error)}")
             raise HTTPException(status_code=500, detail=f"Failed to save profile: {str(db_error)}")
         
-        return {"message": "Profile saved successfully", "timestamp": datetime.utcnow().isoformat()}
+        return {
+            "message": "Profile saved successfully", 
+            "timestamp": datetime.utcnow().isoformat(),
+            "profile_completeness": calculate_profile_completeness(profile)
+        }
     
     except HTTPException:
         raise
     except Exception as e:
-        print(f"Error saving profile: {str(e)}")
+        print(f"[save_user_profile] Error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 @app.get("/user/profile-analysis")
@@ -4228,21 +4393,33 @@ async def get_user_profile(current_user: User = Depends(get_current_user)):
                 profiles = list(user_container.query_items(query=profile_query, enable_cross_partition_query=True))
                 if profiles:
                     profile = profiles[0].get('profile', {})
+                    print(f"[get_user_profile] Loaded profile from separate record for {current_user['email']}")
             except Exception as e:
-                print(f"Error loading profile record: {str(e)}")
+                print(f"[get_user_profile] Error loading profile record: {str(e)}")
         
         # If still no profile, return empty dict wrapped in profile object
         if not profile:
-            print(f"No profile found for user {current_user['email']}")
+            print(f"[get_user_profile] No profile found for user {current_user['email']}")
             return {"profile": {}}
         
-        print(f"Profile loaded successfully for user {current_user['email']}")
-        return {"profile": profile}
+        # Log profile structure for debugging
+        print(f"[get_user_profile] Profile loaded for {current_user['email']}:")
+        print(f"[get_user_profile] Profile fields: {list(profile.keys())}")
+        print(f"[get_user_profile] Array fields: {[k for k, v in profile.items() if isinstance(v, list)]}")
+        print(f"[get_user_profile] Dict fields: {[k for k, v in profile.items() if isinstance(v, dict)]}")
+        
+        # Ensure profile is properly structured
+        validated_profile = validate_and_normalize_profile(profile)
+        
+        return {
+            "profile": validated_profile,
+            "profile_completeness": calculate_profile_completeness(validated_profile)
+        }
     
     except HTTPException:
         raise
     except Exception as e:
-        print(f"Error loading profile: {str(e)}")
+        print(f"[get_user_profile] Error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 @app.get("/test/profile-persistence")
@@ -4286,6 +4463,10 @@ async def test_profile_persistence(current_user: User = Depends(get_current_user
                     "field_count": len(profile_in_user_doc),
                     "has_name": bool(profile_in_user_doc.get("name")),
                     "has_medical_conditions": bool(profile_in_user_doc.get("medicalConditions")),
+                    "has_dietary_features": bool(profile_in_user_doc.get("dietaryFeatures")),
+                    "array_fields": [k for k, v in profile_in_user_doc.items() if isinstance(v, list)],
+                    "dict_fields": [k for k, v in profile_in_user_doc.items() if isinstance(v, dict)],
+                    "completeness": calculate_profile_completeness(profile_in_user_doc),
                     "sample_fields": {k: v for k, v in list(profile_in_user_doc.items())[:3]}
                 },
                 "separate_profile_record": {
@@ -4293,10 +4474,33 @@ async def test_profile_persistence(current_user: User = Depends(get_current_user
                     "field_count": len(separate_profile),
                     "has_name": bool(separate_profile.get("name")),
                     "has_medical_conditions": bool(separate_profile.get("medicalConditions")),
+                    "has_dietary_features": bool(separate_profile.get("dietaryFeatures")),
+                    "array_fields": [k for k, v in separate_profile.items() if isinstance(v, list)],
+                    "dict_fields": [k for k, v in separate_profile.items() if isinstance(v, dict)],
+                    "completeness": calculate_profile_completeness(separate_profile),
                     "sample_fields": {k: v for k, v in list(separate_profile.items())[:3]}
                 },
                 "profile_sources_match": profile_in_user_doc == separate_profile,
-                "user_doc_updated_at": user_doc.get("updated_at", "Not set")
+                "user_doc_updated_at": user_doc.get("updated_at", "Not set"),
+                "comprehensive_health_profile_fields": {
+                    "demographics": ["name", "age", "gender", "ethnicity"],
+                    "medical": ["medicalConditions", "currentMedications", "labValues"],
+                    "vitals": ["height", "weight", "bmi", "systolicBP", "diastolicBP"],
+                    "dietary": ["dietType", "dietaryFeatures", "dietaryRestrictions", "allergies"],
+                    "lifestyle": ["exerciseTypes", "workActivityLevel", "primaryGoals"],
+                    "preferences": ["calorieTarget", "wantsWeightLoss", "readinessToChange"]
+                },
+                "field_analysis": {
+                    field_category: [field for field in fields if field in profile_in_user_doc]
+                    for field_category, fields in {
+                        "demographics": ["name", "age", "gender", "ethnicity"],
+                        "medical": ["medicalConditions", "currentMedications", "labValues"],
+                        "vitals": ["height", "weight", "bmi", "systolicBP", "diastolicBP"],
+                        "dietary": ["dietType", "dietaryFeatures", "dietaryRestrictions", "allergies"],
+                        "lifestyle": ["exerciseTypes", "workActivityLevel", "primaryGoals"],
+                        "preferences": ["calorieTarget", "wantsWeightLoss", "readinessToChange"]
+                    }.items()
+                }
             },
             "recommendations": []
         }
@@ -7617,6 +7821,7 @@ async def quick_log_food(
             # Get user profile for dietary restrictions
             profile = current_user.get("profile", {})
             dietary_restrictions = profile.get('dietaryRestrictions', [])
+            dietary_features = profile.get('dietaryFeatures', []) or profile.get('diet_features', [])
             allergies = profile.get('allergies', [])
             diet_type = profile.get('dietType', [])
             target_calories = int(profile.get('calorieTarget', '2000'))
@@ -7624,15 +7829,27 @@ async def quick_log_food(
             
             print(f"[quick_log_food] Target calories: {target_calories}, Remaining: {remaining_calories}")
             print(f"[quick_log_food] Dietary restrictions: {dietary_restrictions}")
+            print(f"[quick_log_food] Dietary features: {dietary_features}")
             print(f"[quick_log_food] Allergies: {allergies}")
             print(f"[quick_log_food] Diet type: {diet_type}")
             
-            # Build explicit restriction warnings for AI
+            # FIXED: Build explicit restriction warnings for AI with comprehensive detection
+            all_dietary_info = []
+            for field in [dietary_restrictions, dietary_features, diet_type]:
+                if isinstance(field, list):
+                    all_dietary_info.extend([str(item).lower() for item in field])
+                elif isinstance(field, str) and field:
+                    all_dietary_info.append(field.lower())
+            
             restriction_warnings = []
-            if 'vegetarian' in [r.lower() for r in dietary_restrictions] or 'vegetarian' in [d.lower() for d in diet_type]:
-                restriction_warnings.append("STRICTLY VEGETARIAN - NO MEAT, POULTRY, FISH, OR SEAFOOD")
-            if any('egg' in r.lower() for r in dietary_restrictions) or any('egg' in a.lower() for a in allergies):
-                restriction_warnings.append("NO EGGS - Avoid all egg-based dishes and ingredients")
+            if any('vegetarian' in info for info in all_dietary_info):
+                restriction_warnings.append("VEGETARIAN - Exclude meat, poultry, fish, and seafood")
+            
+            # Check for egg restrictions in ALL fields including dietaryFeatures  
+            if (any('egg' in r.lower() for r in dietary_restrictions) or 
+                any('egg' in a.lower() for a in allergies) or
+                any('no egg' in feature.lower() or 'no eggs' in feature.lower() or 'vegetarian (no egg' in feature.lower() or 'vegetarian (no eggs' in feature.lower() for feature in dietary_features)):
+                restriction_warnings.append("EGG-FREE - Avoid eggs and egg-containing dishes")
             if any('nut' in a.lower() for a in allergies):
                 restriction_warnings.append("NUT ALLERGY - Avoid all nuts and nut-based products")
             
@@ -8259,16 +8476,19 @@ async def get_todays_meal_plan(current_user: User = Depends(get_current_user)):
 USER PROFILE:
 Diet Type: {', '.join(diet_type) or 'Standard'}
 Dietary Restrictions: {', '.join(dietary_restrictions) or 'None'}
+Dietary Features: {', '.join(dietary_features) or 'None'}
 Allergies: {', '.join(allergies) or 'None'}
 Health Conditions: {', '.join(profile.get('medical_conditions', [])) or 'None'}
 
+🚨 CRITICAL DIETARY ENFORCEMENT 🚨
 {restriction_text if restriction_warnings else ""}
 
-CRITICAL REQUIREMENTS:
+ABSOLUTE REQUIREMENTS:
 - ALL dishes must be diabetes-friendly (low glycemic index)
-- ALL dishes must strictly adhere to dietary restrictions and allergies
-- Provide SPECIFIC dish names, not generic descriptions
+- All dishes must follow dietary restrictions, dietary features, and allergies
+- Provide specific dish names, not generic descriptions
 - Each meal should be balanced and nutritious
+- Ensure ingredients comply with dietary restrictions
 
 Existing Plan (replace placeholders with specific dishes):
 Breakfast: {breakfast_prompt}
@@ -8407,12 +8627,26 @@ Ensure ALL dishes are completely vegetarian and egg-free. Do not include any mea
         # ALWAYS GENERATE FRESH VEGETARIAN MEAL PLANS - Don't use old plans that may contain non-vegetarian dishes
         profile = current_user.get("profile", {})
         dietary_restrictions = profile.get('dietaryRestrictions', [])
+        dietary_features = profile.get('dietaryFeatures', []) or profile.get('diet_features', [])
         allergies = profile.get('allergies', [])
         diet_type = profile.get('dietType', [])
         
-        # Check if user is vegetarian or has egg restrictions
-        is_vegetarian = 'vegetarian' in [r.lower() for r in dietary_restrictions] or 'vegetarian' in [d.lower() for d in diet_type]
-        no_eggs = any('egg' in r.lower() for r in dietary_restrictions) or any('egg' in a.lower() for a in allergies)
+        # FIXED: Check if user is vegetarian or has egg restrictions from ALL sources including dietaryFeatures
+        all_dietary_info = []
+        for field in [dietary_restrictions, dietary_features, diet_type]:
+            if isinstance(field, list):
+                all_dietary_info.extend([str(item).lower() for item in field])
+            elif isinstance(field, str) and field:
+                all_dietary_info.append(field.lower())
+        
+        is_vegetarian = any('vegetarian' in info for info in all_dietary_info)
+        
+        # CRITICAL FIX: Check for egg restrictions in ALL fields including dietaryFeatures - handle both singular and plural
+        no_eggs = (
+            any('egg' in r.lower() for r in dietary_restrictions) or 
+            any('egg' in a.lower() for a in allergies) or
+            any('no egg' in feature.lower() or 'no eggs' in feature.lower() or 'vegetarian (no egg' in feature.lower() or 'vegetarian (no eggs' in feature.lower() for feature in dietary_features)
+        )
         
         # Always generate fresh diverse meals for users with dietary restrictions
         if is_vegetarian or no_eggs:
@@ -8676,10 +8910,11 @@ async def create_adaptive_meal_plan(
             for info in all_dietary_info
         )
         
-        # Enhanced egg restriction detection - specifically handle "vegetarian (no eggs)" pattern
+        # Enhanced egg restriction detection - specifically handle "vegetarian (no eggs)" pattern - check both singular and plural
         no_eggs = any(
-            'no egg' in info or 'egg-free' in info or 'no eggs' in info or 'avoid egg' in info or 
-            ('vegetarian' in info and '(no egg' in info) or ('vegetarian' in info and 'no egg' in info)
+            'no egg' in info or 'egg-free' in info or 'no eggs' in info or 'avoid egg' in info or 'avoid eggs' in info or
+            ('vegetarian' in info and '(no egg' in info) or ('vegetarian' in info and 'no egg' in info) or
+            ('vegetarian' in info and '(no eggs' in info) or ('vegetarian' in info and 'no eggs' in info)
             for info in all_dietary_info
         ) or any(
             'egg' in str(allergy).lower() for allergy in allergies
@@ -8772,9 +9007,9 @@ CRITICAL MEDICAL & DIETARY REQUIREMENTS:
 4. **HEALTH GOALS**: Directly address their primary health goals: {', '.join(primary_goals) if primary_goals else 'general wellness'}
 5. **CUISINE PREFERENCE**: STRICTLY follow the cuisine type: {', '.join(diet_type) if diet_type else 'Mixed international'}
 6. **DIETARY RESTRICTIONS**: ABSOLUTELY respect all dietary restrictions and allergies - NO EXCEPTIONS
-7. {'🥬 **STRICTLY VEGETARIAN REQUIRED** - ABSOLUTELY NO MEAT, POULTRY, FISH, OR SEAFOOD' if is_vegetarian else ''}
-8. {'🚫🥚 **COMPLETELY EGG-FREE REQUIRED** - ABSOLUTELY NO EGGS, OMELETS, OR EGG-BASED DISHES' if no_eggs else ''}
-9. {'⚠️ **DUAL RESTRICTION ENFORCEMENT** - This person requires BOTH vegetarian AND egg-free meals (no meat AND no eggs)' if is_vegetarian and no_eggs else ''}
+7. {'**Vegetarian Required**: Exclude meat, poultry, fish, and seafood from all meals' if is_vegetarian else ''}
+8. {'**Egg-Free Required**: Avoid eggs and egg-containing dishes' if no_eggs else ''}
+9. {'**Vegetarian + Egg-Free**: This person requires both meat-free and egg-free options' if is_vegetarian and no_eggs else ''}
 9. **DIETARY FEATURES**: Incorporate dietary features like {', '.join(dietary_features) if dietary_features else 'standard nutrition'}
 10. **ACTIVITY LEVEL**: Consider their {exercise_frequency or 'moderate'} activity level for meal timing and portions
 11. **WEIGHT MANAGEMENT**: {'Include weight loss considerations' if wants_weight_loss else 'Focus on maintenance'}
@@ -8817,7 +9052,7 @@ Make each meal specific with exact portions and cooking methods. Ensure all {req
                 messages=[
                     {
                         "role": "system",
-                        "content": f"You are a COMPREHENSIVE MEDICAL NUTRITION SPECIALIST with expertise in {', '.join(diet_type) if diet_type else 'international'} cuisine and multi-condition management. You are creating meal plans for patients with specific medical conditions, medications, and health goals. APPROACH: 1) **MEDICAL-FIRST**: Address all medical conditions and medication interactions, 2) **GOAL-ORIENTED**: Target their specific health goals ({', '.join(primary_goals) if primary_goals else 'general wellness'}), 3) **CULTURALLY AUTHENTIC**: Provide traditional {', '.join(diet_type) if diet_type else 'international'} dishes, 4) **RESTRICTION-COMPLIANT**: ZERO tolerance for dietary violations, 5) **PERSONALIZED**: Based on their actual eating patterns and preferences. CRITICAL ENFORCEMENT: {'🥬 STRICTLY VEGETARIAN - absolutely NO meat, poultry, fish, seafood, or any animal flesh. ' if is_vegetarian else ''}{'🚫🥚 ABSOLUTELY EGG-FREE - NO eggs, omelets, scrambled eggs, egg-based dishes, or foods containing eggs as ingredients. ' if no_eggs else ''}{'⚠️ DUAL RESTRICTION: This person is VEGETARIAN AND EGG-FREE - must avoid both meat and eggs completely. ' if is_vegetarian and no_eggs else ''}Medical conditions require careful consideration: {', '.join(medical_conditions) if medical_conditions else 'diabetes management'}. Always provide exactly {req_days} clean meal names WITHOUT Day X: prefixes."
+                        "content": f"You are a medical nutrition specialist with expertise in {', '.join(diet_type) if diet_type else 'international'} cuisine. Create meal plans that are: 1) **Medically appropriate** for their conditions and medications, 2) **Goal-focused** on {', '.join(primary_goals) if primary_goals else 'general wellness'}, 3) **Culturally authentic** with traditional {', '.join(diet_type) if diet_type else 'international'} dishes, 4) **Dietary compliant** with all restrictions and allergies, 5) **Personalized** to their preferences. {'**Vegetarian Required**: Exclude all meat, poultry, fish, and seafood. Include plant-based proteins, dairy (if allowed), and eggs (if allowed). ' if is_vegetarian else ''}{'**Egg-Free Required**: Avoid eggs and egg-containing dishes like omelets, quiche, french toast, carbonara, and mayonnaise-based items. ' if no_eggs else ''}{'**Note**: This person needs both vegetarian AND egg-free meals. ' if is_vegetarian and no_eggs else ''}Medical considerations: {', '.join(medical_conditions) if medical_conditions else 'diabetes management'}. Provide exactly {req_days} meal names without day prefixes."
                     },
                     {
                         "role": "user",
