@@ -292,11 +292,20 @@ const HomePage: React.FC = () => {
             autoFocus
             margin="dense"
             label="Food Item"
+            placeholder="e.g., Grilled chicken salad with olive oil dressing"
             type="text"
             fullWidth
             value={quickLogFood}
             onChange={(e) => setQuickLogFood(e.target.value)}
           />
+          <Box sx={{ mt: 2, p: 2, bgcolor: 'info.light', borderRadius: 1 }}>
+            <Typography variant="body2" color="info.dark" sx={{ fontWeight: 'bold', mb: 1 }}>
+              ✅ No meal plan required!
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              Our AI will analyze nutrition and diabetes suitability automatically. Food logging works independently and updates your daily nutrition score.
+            </Typography>
+          </Box>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setShowQuickLogDialog(false)}>Cancel</Button>

@@ -40,6 +40,7 @@ import HomeIcon from '@mui/icons-material/Home';
 import TrackChangesIcon from '@mui/icons-material/TrackChanges';
 import { UserProfile } from '../types';
 import config from '../config/environment';
+import { isTokenExpired } from '../utils/auth';
 
 interface UserProfileFormProps {
   onSubmit: (profile: UserProfile) => void;
@@ -176,6 +177,15 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({
   });
 
   const [errors, setErrors] = useState<Record<string, string>>({});
+  
+  // Debug state for monitoring save issues
+  const [debugInfo, setDebugInfo] = useState({
+    lastSaveAttempt: null as string | null,
+    lastSaveSuccess: null as string | null,
+    lastSaveError: null as string | null,
+    saveStatus: 'idle' as 'idle' | 'saving' | 'success' | 'error',
+    tokenValid: true,
+  });
   
   // State for unit preferences
   const [unitPreferences, setUnitPreferences] = useState({
@@ -354,13 +364,43 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({
 
   const saveProfileToDatabase = async (profileData: UserProfile) => {
     try {
+      setDebugInfo(prev => ({
+        ...prev,
+        saveStatus: 'saving',
+        lastSaveAttempt: new Date().toISOString()
+      }));
+
       const token = localStorage.getItem('token');
       if (!token) {
         console.log('[UserProfileForm] No token found, skipping database save');
+        setDebugInfo(prev => ({
+          ...prev,
+          saveStatus: 'error',
+          lastSaveError: 'No authentication token found',
+          tokenValid: false
+        }));
         return;
       }
 
+      // Check if token is expired
+      const isExpired = isTokenExpired(token);
+      if (isExpired) {
+        console.error('[UserProfileForm] Token is expired, cannot save profile');
+        // Clear expired token and redirect to login
+        localStorage.removeItem('token');
+        setDebugInfo(prev => ({
+          ...prev,
+          saveStatus: 'error',
+          lastSaveError: 'Token expired - session ended',
+          tokenValid: false
+        }));
+        return;
+      }
+
+      setDebugInfo(prev => ({ ...prev, tokenValid: true }));
+
       console.log(`[UserProfileForm] Saving profile to database with readinessToChange: ${profileData.readinessToChange}, wantsWeightLoss: ${profileData.wantsWeightLoss}`);
+      console.log('[UserProfileForm] Full profile data being saved:', profileData);
       
       const response = await fetch(`${config.API_URL}/user/profile`, {
         method: 'POST',
@@ -371,15 +411,46 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({
         body: JSON.stringify({ profile: profileData }),
       });
 
+      console.log('[UserProfileForm] Save response status:', response.status);
+
       if (response.ok) {
         const result = await response.json();
         console.log('[UserProfileForm] Profile saved to database successfully:', result);
+        setDebugInfo(prev => ({
+          ...prev,
+          saveStatus: 'success',
+          lastSaveSuccess: new Date().toISOString(),
+          lastSaveError: null
+        }));
       } else {
         const errorText = await response.text();
         console.error('[UserProfileForm] Failed to save profile to database:', response.status, errorText);
+        
+        // If it's an auth error, clear token and show message
+        if (response.status === 401) {
+          localStorage.removeItem('token');
+          console.error('[UserProfileForm] Authentication failed - token may be expired');
+          setDebugInfo(prev => ({
+            ...prev,
+            saveStatus: 'error',
+            lastSaveError: 'Authentication failed (401)',
+            tokenValid: false
+          }));
+        } else {
+          setDebugInfo(prev => ({
+            ...prev,
+            saveStatus: 'error',
+            lastSaveError: `HTTP ${response.status}: ${errorText}`
+          }));
+        }
       }
     } catch (error) {
       console.error('[UserProfileForm] Error saving profile to database:', error);
+      setDebugInfo(prev => ({
+        ...prev,
+        saveStatus: 'error',
+        lastSaveError: error instanceof Error ? error.message : 'Unknown error'
+      }));
     }
   };
 
@@ -389,41 +460,71 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({
       if (!initialProfile) {
         const token = localStorage.getItem('token');
         
+        console.log('[UserProfileForm] Loading profile - token exists:', !!token);
+        
         // Try to load from database first
         if (token) {
-          try {
-            const response = await fetch(`${config.API_URL}/user/profile`, {
-              method: 'GET',
-              headers: {
-                'Authorization': `Bearer ${token}`,
-              },
-            });
+          const isExpired = isTokenExpired(token);
+          console.log('[UserProfileForm] Token expired?', isExpired);
+          
+          if (isExpired) {
+            localStorage.removeItem('token');
+            console.error('[UserProfileForm] Token expired, cannot load profile from database');
+          } else {
+            try {
+              console.log('[UserProfileForm] Attempting to load profile from database...');
+              const response = await fetch(`${config.API_URL}/user/profile`, {
+                method: 'GET',
+                headers: {
+                  'Authorization': `Bearer ${token}`,
+                },
+              });
 
-            if (response.ok) {
-              const data = await response.json();
-              if (data && data.profile && Object.keys(data.profile).length > 0) {
-                console.log(`[UserProfileForm] Profile loaded from database successfully with readinessToChange: ${data.profile.readinessToChange}, wantsWeightLoss: ${data.profile.wantsWeightLoss}`);
-                const normalizedProfile = normalizeProfile(data.profile);
-                setProfile(prev => ({ ...prev, ...normalizedProfile }));
-                return; // Exit early if database load was successful
+              console.log('[UserProfileForm] Database load response status:', response.status);
+
+              if (response.ok) {
+                const data = await response.json();
+                console.log('[UserProfileForm] Raw profile data from database:', data);
+                
+                if (data && data.profile && Object.keys(data.profile).length > 0) {
+                  console.log(`[UserProfileForm] Profile loaded from database successfully with readinessToChange: ${data.profile.readinessToChange}, wantsWeightLoss: ${data.profile.wantsWeightLoss}`);
+                  const normalizedProfile = normalizeProfile(data.profile);
+                  console.log('[UserProfileForm] Normalized profile:', normalizedProfile);
+                  setProfile(prev => ({ ...prev, ...normalizedProfile }));
+                  return; // Exit early if database load was successful
+                } else {
+                  console.log('[UserProfileForm] Database returned empty profile, falling back to localStorage');
+                }
+              } else {
+                const errorText = await response.text();
+                console.error('[UserProfileForm] Failed to load profile from database:', response.status, errorText);
+                if (response.status === 401) {
+                  localStorage.removeItem('token');
+                }
               }
+            } catch (error) {
+              console.error('Error loading profile from database:', error);
             }
-          } catch (error) {
-            console.error('Error loading profile from database:', error);
           }
         }
 
         // Fallback to localStorage if database load failed or user not logged in
         const savedProfile = localStorage.getItem('userProfile');
+        console.log('[UserProfileForm] LocalStorage profile exists:', !!savedProfile);
+        
         if (savedProfile) {
           try {
             const parsed = JSON.parse(savedProfile);
-            console.log('Profile loaded from localStorage as fallback');
+            console.log('[UserProfileForm] Profile loaded from localStorage as fallback:', parsed);
             setProfile(prev => ({ ...prev, ...normalizeProfile(parsed) }));
           } catch (error) {
             console.error('Error loading saved profile from localStorage:', error);
           }
+        } else {
+          console.log('[UserProfileForm] No profile found in localStorage either');
         }
+      } else {
+        console.log('[UserProfileForm] Using provided initialProfile:', initialProfile);
       }
     };
 
@@ -739,6 +840,42 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({
             <>🔒 Your information is automatically saved as you type and stays private. The more details you provide, the more personalized your meal plan will be. All fields marked with * are required.</>
           )}
         </Alert>
+
+        {/* Debug Section - only show if there are issues */}
+        {(debugInfo.saveStatus === 'error' || !debugInfo.tokenValid) && (
+          <Alert severity="warning" sx={{ mb: 3 }}>
+            <Typography variant="h6" gutterBottom>🔧 Profile Save Diagnostics</Typography>
+            <Grid container spacing={2}>
+              <Grid item xs={12} sm={6}>
+                <Typography variant="body2"><strong>Save Status:</strong> {debugInfo.saveStatus}</Typography>
+                <Typography variant="body2"><strong>Token Valid:</strong> {debugInfo.tokenValid ? 'Yes' : 'No'}</Typography>
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <Typography variant="body2"><strong>Last Attempt:</strong> {debugInfo.lastSaveAttempt ? new Date(debugInfo.lastSaveAttempt).toLocaleTimeString() : 'None'}</Typography>
+                <Typography variant="body2"><strong>Last Success:</strong> {debugInfo.lastSaveSuccess ? new Date(debugInfo.lastSaveSuccess).toLocaleTimeString() : 'None'}</Typography>
+              </Grid>
+              {debugInfo.lastSaveError && (
+                <Grid item xs={12}>
+                  <Typography variant="body2" color="error"><strong>Last Error:</strong> {debugInfo.lastSaveError}</Typography>
+                </Grid>
+              )}
+            </Grid>
+          </Alert>
+        )}
+
+        {/* Success indicator */}
+        {debugInfo.saveStatus === 'success' && (
+          <Alert severity="success" sx={{ mb: 3 }}>
+            ✅ Profile saved successfully at {debugInfo.lastSaveSuccess ? new Date(debugInfo.lastSaveSuccess).toLocaleTimeString() : 'unknown time'}
+          </Alert>
+        )}
+
+        {/* Saving indicator */}
+        {debugInfo.saveStatus === 'saving' && (
+          <Alert severity="info" sx={{ mb: 3 }}>
+            💾 Saving profile to database...
+          </Alert>
+        )}
 
         {/* Patient Demographics */}
         <Accordion defaultExpanded sx={sectionStyle}>

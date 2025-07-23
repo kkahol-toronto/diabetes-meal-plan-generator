@@ -1138,7 +1138,7 @@ const Chat = () => {
                 setShowMealTypeSelector(false);
               }
             }}
-            placeholder="Ask your AI health coach anything about diabetes, nutrition, meal planning, or upload images for analysis..."
+            placeholder="Ask your AI health coach anything, upload food photos, or just type what you ate to log it instantly - no meal plan needed!"
             variant="outlined"
             onKeyPress={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {

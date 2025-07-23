@@ -1188,19 +1188,41 @@ Ensure maximum variety within the specified cuisine type and completely avoid an
 def sanitize_vegetarian_meal(meal_text: str, is_vegetarian: bool, no_eggs: bool) -> str:
     """
     Ensure meal is vegetarian and egg-free with strong enforcement.
+    Also validates against corrupted or nonsensical meal data.
     """
     if not meal_text:
         return "Vegetarian meal option"
     
-    meal_lower = meal_text.lower()
+    meal_lower = meal_text.lower().strip()
+    
+    # Check for corrupted or nonsensical meal patterns
+    def is_corrupted_meal(text: str) -> bool:
+        """Check if meal text is corrupted or nonsensical"""
+        suspicious_patterns = [
+            r'^\d+\/\d+\s+\w+\s+fruit',  # "1/2 Lindt fruit" pattern
+            r'^[0-9]+\/[0-9]+',          # Starts with fractions
+            r'lindt',                     # Brand names that don't make sense as meals
+            r'^[0-9]+\s+(g|ml|oz|cups?|tbsp|tsp)\s*$',  # Just quantities
+            r'^[\d\s\/\-\.]+$',          # Only numbers and punctuation
+            r'^[a-z]{1,2}$',             # Single letters or very short nonsense
+            r'^\s*$',                    # Empty or whitespace only
+        ]
+        return any(__import__('re').search(pattern, text.lower()) for pattern in suspicious_patterns)
+    
+    # If corrupted, return a safe default
+    if is_corrupted_meal(meal_text):
+        print(f"[sanitize_vegetarian_meal] Detected corrupted meal text: '{meal_text}' - replacing with safe option")
+        return "Healthy balanced meal option"
     
     # Check for non-vegetarian ingredients
     non_veg_keywords = ['chicken', 'beef', 'pork', 'fish', 'salmon', 'tuna', 'turkey', 'lamb', 'meat', 'seafood', 'shrimp', 'bacon', 'ham', 'duck', 'goose']
     egg_keywords = ['egg', 'eggs', 'omelet', 'omelette', 'scrambled', 'poached', 'fried egg', 'boiled egg']
     
     if is_vegetarian and any(keyword in meal_lower for keyword in non_veg_keywords):
+        print(f"[sanitize_vegetarian_meal] Replacing non-vegetarian meal: '{meal_text}'")
         return "Vegetarian lentil curry with brown rice and steamed vegetables"
     if no_eggs and any(keyword in meal_lower for keyword in egg_keywords):
+        print(f"[sanitize_vegetarian_meal] Replacing egg-containing meal: '{meal_text}'")
         return "Overnight oats with almond milk, chia seeds, and fresh berries"
     
     return meal_text
@@ -1793,17 +1815,22 @@ def enforce_dietary_restrictions(meal_plan_data: dict, user_profile: dict) -> di
     """
     print("[enforce_dietary_restrictions] Starting dietary compliance check...")
     
-    # Extract user dietary information
+    # Extract user dietary information from ALL possible fields
     dietary_restrictions = user_profile.get('dietaryRestrictions', [])
+    dietary_features = user_profile.get('dietaryFeatures', [])  # CRITICAL: Include dietaryFeatures
     food_allergies = user_profile.get('allergies', [])
     strong_dislikes = user_profile.get('strongDislikes', [])
     diet_type = user_profile.get('dietType', [])
     
     # Convert to lowercase for case-insensitive matching
     restrictions_lower = [r.lower() for r in dietary_restrictions]
+    features_lower = [f.lower() for f in dietary_features]  # CRITICAL: Include dietary features
     allergies_lower = [a.lower() for a in food_allergies]
     dislikes_lower = [d.lower() for d in strong_dislikes]
     diet_type_lower = [dt.lower() for dt in diet_type]
+    
+    # Combine all dietary restrictions into one comprehensive list
+    all_restrictions = restrictions_lower + features_lower + diet_type_lower
     
     # Build comprehensive banned ingredients list
     banned_ingredients = set()
@@ -1827,10 +1854,14 @@ def enforce_dietary_restrictions(meal_plan_data: dict, user_profile: dict) -> di
         else:
             banned_ingredients.add(allergy)
     
-    # Add dietary restriction-related banned ingredients
-    for restriction in restrictions_lower:
+    # Add dietary restriction-related banned ingredients - check ALL restriction sources
+    for restriction in all_restrictions:
         if 'vegetarian' in restriction:
             banned_ingredients.update(['chicken', 'beef', 'pork', 'fish', 'salmon', 'tuna', 'turkey', 'lamb', 'meat', 'seafood', 'shrimp', 'bacon', 'ham'])
+            # CRITICAL: Handle "vegetarian (no eggs)" pattern specifically
+            if 'no egg' in restriction or '(no egg' in restriction:
+                banned_ingredients.update(['eggs', 'egg', 'omelet', 'omelette', 'scrambled', 'poached', 'fried egg', 'boiled egg'])
+                print(f"[enforce_dietary_restrictions] VEGETARIAN (NO EGGS) detected: {restriction}")
         elif 'vegan' in restriction:
             banned_ingredients.update(['chicken', 'beef', 'pork', 'fish', 'salmon', 'tuna', 'turkey', 'lamb', 'meat', 'seafood', 'shrimp', 'bacon', 'ham'])
             banned_ingredients.update(['milk', 'cheese', 'butter', 'cream', 'yogurt', 'ice cream', 'eggs', 'egg'])
@@ -1844,13 +1875,15 @@ def enforce_dietary_restrictions(meal_plan_data: dict, user_profile: dict) -> di
             banned_ingredients.update(['pork', 'shellfish', 'bacon', 'ham'])
         elif 'halal' in restriction:
             banned_ingredients.update(['pork', 'alcohol', 'bacon', 'ham'])
+        elif 'egg-free' in restriction or 'no egg' in restriction:
+            banned_ingredients.update(['eggs', 'egg', 'omelet', 'omelette', 'scrambled', 'poached', 'fried egg', 'boiled egg'])
+            print(f"[enforce_dietary_restrictions] EGG-FREE detected: {restriction}")
     
     # Add strong dislikes
     banned_ingredients.update(dislikes_lower)
     
-    # Diet type enforcement
-    if 'vegetarian' in diet_type_lower:
-        banned_ingredients.update(['chicken', 'beef', 'pork', 'fish', 'salmon', 'tuna', 'turkey', 'lamb', 'meat', 'seafood', 'shrimp', 'bacon', 'ham'])
+    # Additional diet type enforcement (already handled above in all_restrictions loop)
+    # This section kept for backward compatibility but functionality moved to comprehensive loop above
     
     print(f"[enforce_dietary_restrictions] Banned ingredients: {banned_ingredients}")
     
@@ -1864,7 +1897,7 @@ def enforce_dietary_restrictions(meal_plan_data: dict, user_profile: dict) -> di
                 print(f"[enforce_dietary_restrictions] Found banned ingredient '{banned}' in meal '{meal}' - replacing")
                 
                 # Get appropriate replacement based on diet type
-                if 'vegetarian' in diet_type_lower or 'vegetarian' in restrictions_lower:
+                if 'vegetarian' in all_restrictions:
                     if 'breakfast' in meal_lower:
                         return "Oatmeal with fresh berries and almond milk"
                     elif 'lunch' in meal_lower:
@@ -3964,52 +3997,86 @@ Remember: You have access to their complete meal planning and consumption histor
                 {"role": "user", "content": content} if is_user else {"role": "assistant", "content": content}
             )
     
-    # Generate response using OpenAI with robust retry logic
-    api_result = await robust_openai_call(
-        messages=[
-            {"role": "system", "content": system_prompt},
-            *formatted_chat_history,
-            {"role": "user", "content": message.message}
-        ],
-        max_tokens=1000,  # Increased for more comprehensive responses
-        temperature=0.8,  # Slightly more creative for engaging coaching
-        max_retries=3,
-        timeout=60,
-        context="chat_message"
-    )
-    
-    if not api_result["success"]:
-        # If OpenAI fails, return a helpful error message
+    # Generate response using OpenAI with simulated streaming (fallback approach)
+    try:
+        print(f"[CHAT_STREAMING] Starting message generation...")
+        
+        # First get the complete response (temporarily)
+        api_result = await robust_openai_call(
+            messages=[
+                {"role": "system", "content": system_prompt},
+                *formatted_chat_history,
+                {"role": "user", "content": message.message}
+            ],
+            max_tokens=1000,
+            temperature=0.8,
+            max_retries=3,
+            timeout=60,
+            context="chat_message"
+        )
+        
+        if not api_result["success"]:
+            error_response = "I'm experiencing technical difficulties right now. Please try again in a moment."
+            return StreamingResponse(
+                iter([f"data: {json.dumps({'content': error_response})}\n\n"]),
+                media_type="text/event-stream"
+            )
+        
+        full_message = api_result["content"]
+        print(f"[CHAT_STREAMING] Got full response: {len(full_message)} characters")
+
+        # Stream the response word by word
+        async def generate():
+            try:
+                import asyncio
+                words = full_message.split(' ')
+                print(f"[CHAT_STREAMING] Streaming {len(words)} words...")
+                
+                for i, word in enumerate(words):
+                    # Add space back except for first word
+                    chunk = f" {word}" if i > 0 else word
+                    print(f"[CHAT_STREAMING] Chunk {i+1}/{len(words)}: '{chunk}'")
+                    yield f"data: {json.dumps({'content': chunk})}\n\n"
+                    # Small delay to simulate real streaming
+                    await asyncio.sleep(0.05)  # 50ms delay between words
+                
+                print(f"[CHAT_STREAMING] Streaming complete!")
+                
+                # Save the complete assistant message after streaming
+                await save_chat_message(
+                    current_user["id"],
+                    full_message,
+                    is_user=False,
+                    session_id=message.session_id if hasattr(message, 'session_id') else None
+                )
+                print(f"[CHAT_STREAMING] Message saved to database")
+                
+            except Exception as e:
+                print(f"Error in streaming response: {str(e)}")
+                yield f"data: {json.dumps({'content': 'Error occurred during streaming'})}\n\n"
+
+        # Create a streaming response with proper headers
+        headers = {
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "Content-Type": "text/event-stream",
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Headers": "*",
+        }
+        return StreamingResponse(
+            generate(), 
+            media_type="text/event-stream",
+            headers=headers
+        )
+
+    except Exception as e:
+        print(f"Error setting up OpenAI streaming: {str(e)}")
+        # If OpenAI setup fails, return a helpful error message
         error_response = "I'm experiencing technical difficulties right now. Please try again in a moment."
         return StreamingResponse(
             iter([f"data: {json.dumps({'content': error_response})}\n\n"]),
             media_type="text/event-stream"
         )
-    
-    # For non-streaming response, simulate streaming by sending the full message
-    full_message = api_result["content"]
-    async def generate():
-        try:
-            yield f"data: {json.dumps({'content': full_message})}\n\n"
-        except Exception as e:
-            print(f"Error in streaming response: {str(e)}")
-            yield f"data: {json.dumps({'content': 'I apologize, but I encountered an error. Please try again.'})}\n\n"
-
-    # Create a streaming response
-    streaming_response = StreamingResponse(generate(), media_type="text/event-stream")
-
-    # Save the complete assistant message after streaming is done
-    async def save_message():
-        if full_message:
-            await save_chat_message(
-                current_user["id"],
-                full_message,
-                is_user=False,
-                session_id=message.session_id if hasattr(message, 'session_id') else None
-            )
-
-    streaming_response.background = save_message
-    return streaming_response
 
 @app.get("/chat/history")
 async def get_chat_history(
@@ -4106,6 +4173,44 @@ async def save_user_profile(
         print(f"Error saving profile: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
+@app.get("/user/profile-analysis")
+async def get_profile_analysis(current_user: User = Depends(get_current_user)):
+    """Show users exactly what comprehensive profile data is being used for AI meal planning."""
+    try:
+        user_email = current_user["email"]
+        user_doc = await get_user_by_email(user_email)
+        if not user_doc:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        user_profile = user_doc.get("profile", {})
+        
+        # Quick analysis of what data is available for AI
+        analysis = {
+            "medical_data_available": {
+                "conditions": len(user_profile.get('medicalConditions', [])) > 0,
+                "medications": len(user_profile.get('currentMedications', [])) > 0,
+                "lab_values": len(user_profile.get('labValues', {})) > 0,
+                "vital_signs": bool(user_profile.get('height') and user_profile.get('weight'))
+            },
+            "dietary_intelligence": {
+                "cuisine_preferences": len(user_profile.get('dietType', [])) > 0,
+                "dietary_features": len(user_profile.get('dietaryFeatures', [])) > 0,
+                "restrictions_allergies": len(user_profile.get('dietaryRestrictions', []) + user_profile.get('allergies', [])) > 0,
+                "food_preferences": len(user_profile.get('foodPreferences', [])) > 0
+            },
+            "lifestyle_factors": {
+                "activity_level": bool(user_profile.get('workActivityLevel') and user_profile.get('exerciseFrequency')),
+                "health_goals": len(user_profile.get('primaryGoals', [])) > 0,
+                "meal_prep_info": bool(user_profile.get('mealPrepCapability')),
+                "eating_schedule": bool(user_profile.get('eatingSchedule'))
+            },
+            "ai_utilization_summary": "The AI uses comprehensive health data including medical conditions, medications, dietary preferences, physical characteristics, activity levels, and health goals for personalized meal planning"
+        }
+        return analysis
+    except Exception as e:
+        print(f"Error in profile analysis: {str(e)}")
+        raise HTTPException(status_code=500, detail="Profile analysis failed")
+
 @app.get("/user/profile")
 async def get_user_profile(current_user: User = Depends(get_current_user)):
     try:
@@ -4138,6 +4243,69 @@ async def get_user_profile(current_user: User = Depends(get_current_user)):
     except Exception as e:
         print(f"Error loading profile: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+@app.get("/test/profile-persistence")
+async def test_profile_persistence(current_user: User = Depends(get_current_user)):
+    """
+    Test endpoint to diagnose profile persistence issues.
+    Returns detailed information about profile storage and retrieval.
+    """
+    try:
+        user_email = current_user["email"]
+        
+        # Get user document
+        user_doc = await get_user_by_email(user_email)
+        if not user_doc:
+            return {
+                "status": "error",
+                "message": "User not found",
+                "user_email": user_email
+            }
+        
+        # Get profile from user document
+        profile_in_user_doc = user_doc.get("profile", {})
+        
+        # Get separate profile record
+        separate_profile = {}
+        try:
+            profile_query = f"SELECT * FROM c WHERE c.type = 'user_profile' AND c.user_id = '{user_email}'"
+            profiles = list(user_container.query_items(query=profile_query, enable_cross_partition_query=True))
+            if profiles:
+                separate_profile = profiles[0].get('profile', {})
+        except Exception as e:
+            print(f"Error loading separate profile record: {str(e)}")
+        
+        return {
+            "status": "success",
+            "user_email": user_email,
+            "diagnostics": {
+                "user_doc_exists": bool(user_doc),
+                "profile_in_user_doc": {
+                    "exists": bool(profile_in_user_doc),
+                    "field_count": len(profile_in_user_doc),
+                    "has_name": bool(profile_in_user_doc.get("name")),
+                    "has_medical_conditions": bool(profile_in_user_doc.get("medicalConditions")),
+                    "sample_fields": {k: v for k, v in list(profile_in_user_doc.items())[:3]}
+                },
+                "separate_profile_record": {
+                    "exists": bool(separate_profile),
+                    "field_count": len(separate_profile),
+                    "has_name": bool(separate_profile.get("name")),
+                    "has_medical_conditions": bool(separate_profile.get("medicalConditions")),
+                    "sample_fields": {k: v for k, v in list(separate_profile.items())[:3]}
+                },
+                "profile_sources_match": profile_in_user_doc == separate_profile,
+                "user_doc_updated_at": user_doc.get("updated_at", "Not set")
+            },
+            "recommendations": []
+        }
+        
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": f"Test failed: {str(e)}",
+            "user_email": current_user.get("email", "Unknown")
+        }
 
 @app.get("/user/shopping-list")
 async def get_user_shopping_list(current_user: User = Depends(get_current_user)):
@@ -5773,38 +5941,270 @@ async def get_consumption_progress(current_user: User = Depends(get_current_user
         "monthly_avg": macro_avg(monthly)
     }
 
-def calculate_consistency_streak(consumption_history: list) -> int:
+def calculate_consistency_streak(consumption_history: list, user_timezone: str = "UTC") -> int:
     """Calculate consistency streak based on daily logging patterns"""
     if not consumption_history:
         return 0
     
     from datetime import datetime, timedelta
+    import pytz
     
-    # Group consumption by date
+    try:
+        # Get user timezone for accurate daily boundaries
+        user_tz = pytz.timezone(user_timezone)
+    except:
+        user_tz = pytz.UTC
+    
+    # Group consumption by date using user's timezone
     daily_logs = {}
     for record in consumption_history:
         try:
-            record_date = datetime.fromisoformat(record.get("timestamp", "").replace("Z", "+00:00")).date()
+            # Parse timestamp and convert to user timezone
+            timestamp_str = record.get("timestamp", "")
+            if not timestamp_str:
+                continue
+                
+            record_timestamp = datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
+            # Convert to user timezone for accurate date calculation
+            record_local = record_timestamp.astimezone(user_tz)
+            record_date = record_local.date()
+            
             if record_date not in daily_logs:
                 daily_logs[record_date] = 0
             daily_logs[record_date] += 1
-        except:
+        except Exception as e:
+            print(f"Error processing record timestamp in streak calculation: {e}")
             continue
     
-    # Calculate streak from today backwards
-    today = datetime.utcnow().date()
+    # Calculate streak from today backwards using user's timezone
+    utc_now = datetime.utcnow().replace(tzinfo=pytz.utc)
+    user_now = utc_now.astimezone(user_tz)
+    today = user_now.date()
+    
     streak = 0
     current_date = today
     
-    # Check each day backwards
-    for i in range(30):  # Check last 30 days max
-        if current_date in daily_logs and daily_logs[current_date] >= 2:  # At least 2 meals logged
+    # Check each day backwards - count any day with at least 1 meal logged
+    for i in range(60):  # Check last 60 days max for longer streaks
+        if current_date in daily_logs and daily_logs[current_date] >= 1:  # At least 1 meal logged
             streak += 1
         else:
-            break  # Streak broken
+            # Streak broken - stop counting
+            break
         current_date -= timedelta(days=1)
     
+    print(f"[STREAK_DEBUG] Calculated streak: {streak} days (timezone: {user_timezone})")
+    print(f"[STREAK_DEBUG] Today: {today}, Total logged days: {len(daily_logs)}")
+    
     return streak
+
+
+# ============================================================================
+# PERSONALIZED NUTRITION SCORING SYSTEM
+# ============================================================================
+
+def calculate_personalized_weights(user_profile: dict) -> dict:
+    """
+    Calculate personalized penalty weights and reward boosts based on user profile.
+    This makes scoring more accurate for different user types and conditions.
+    """
+    try:
+        # Default weights (baseline for healthy adults)
+        weights = {
+            "carb_penalty_multiplier": 8.0,      # Base carb penalty
+            "sugar_penalty_multiplier": 10.0,    # Base sugar penalty
+            "processed_penalty_multiplier": 5.0, # Base processed food penalty
+            "healthy_bonus_multiplier": 15.0,    # Base healthy choice bonus
+            "today_boost_cap": 20.0,             # Max today's boost percentage
+            "sensitivity_factor": 1.0            # Overall sensitivity (1.0 = normal)
+        }
+        
+        # Extract user characteristics
+        age = user_profile.get("age", 35)
+        medical_conditions = user_profile.get("medicalConditions", []) or user_profile.get("medical_conditions", [])
+        activity_level = user_profile.get("workActivityLevel", "moderate")
+        exercise_frequency = user_profile.get("exerciseFrequency", "2-3 times per week")
+        primary_goals = user_profile.get("primaryGoals", [])
+        readiness_to_change = user_profile.get("readinessToChange", "somewhat ready")
+        
+        # Convert to lowercase for easier matching
+        medical_conditions_lower = [condition.lower() for condition in medical_conditions]
+        
+        # 1. AGE-BASED ADJUSTMENTS
+        if age and isinstance(age, (int, float)):
+            if age >= 65:
+                # Older adults: More sensitive to sodium, more forgiving on carbs
+                weights["processed_penalty_multiplier"] *= 1.3  # Higher sodium sensitivity
+                weights["carb_penalty_multiplier"] *= 0.8       # Less strict on carbs
+                weights["healthy_bonus_multiplier"] *= 1.2      # Reward healthy choices more
+            elif age <= 25:
+                # Younger adults: More resilient, but still encourage good habits
+                weights["sensitivity_factor"] *= 0.9
+                weights["today_boost_cap"] *= 1.1               # More immediate feedback
+        
+        # 2. DIABETES STAGE ADJUSTMENTS
+        diabetes_severity = "none"
+        for condition in medical_conditions_lower:
+            if "prediabetes" in condition or "prediabetic" in condition:
+                diabetes_severity = "prediabetes"
+            elif "type 1 diabetes" in condition:
+                diabetes_severity = "type1"
+                break
+            elif "type 2 diabetes" in condition or "diabetes" in condition:
+                diabetes_severity = "type2"
+                break
+        
+        if diabetes_severity == "prediabetes":
+            # Prediabetic: Moderate sensitivity, high reward for good choices
+            weights["carb_penalty_multiplier"] *= 1.1
+            weights["sugar_penalty_multiplier"] *= 1.2
+            weights["healthy_bonus_multiplier"] *= 1.3
+            weights["today_boost_cap"] *= 1.2
+        elif diabetes_severity == "type1":
+            # Type 1: Focus on consistency, less penalty-based
+            weights["carb_penalty_multiplier"] *= 0.9  # Less harsh on carbs (they can manage with insulin)
+            weights["sugar_penalty_multiplier"] *= 1.1 # Still avoid sugar spikes
+            weights["healthy_bonus_multiplier"] *= 1.1 # Moderate rewards
+        elif diabetes_severity == "type2":
+            # Type 2: Higher sensitivity to carbs and processed foods
+            weights["carb_penalty_multiplier"] *= 1.3
+            weights["sugar_penalty_multiplier"] *= 1.4
+            weights["processed_penalty_multiplier"] *= 1.2
+            weights["healthy_bonus_multiplier"] *= 1.4
+        
+        # 3. PHYSICAL ACTIVITY LEVEL ADJUSTMENTS
+        if activity_level:
+            activity_lower = activity_level.lower()
+            if "sedentary" in activity_lower or "low" in activity_lower:
+                # Sedentary: More strict on everything
+                weights["sensitivity_factor"] *= 1.2
+                weights["carb_penalty_multiplier"] *= 1.1
+            elif "very active" in activity_lower or "high" in activity_lower:
+                # Very active: More forgiving, higher calorie needs
+                weights["sensitivity_factor"] *= 0.8
+                weights["carb_penalty_multiplier"] *= 0.7  # Can handle more carbs
+        
+        # Exercise frequency adjustments
+        if exercise_frequency:
+            exercise_lower = exercise_frequency.lower()
+            if "daily" in exercise_lower or "5" in exercise_lower:
+                # Regular exercisers: More forgiving
+                weights["carb_penalty_multiplier"] *= 0.8
+                weights["healthy_bonus_multiplier"] *= 1.1
+            elif "rarely" in exercise_lower or "never" in exercise_lower:
+                # Sedentary: More strict
+                weights["carb_penalty_multiplier"] *= 1.2
+        
+        # 4. HEALTH GOALS ADJUSTMENTS
+        goals_lower = [goal.lower() for goal in primary_goals]
+        
+        if any("weight loss" in goal or "lose weight" in goal for goal in goals_lower):
+            # Weight loss goals: More strict on processed foods and calories
+            weights["processed_penalty_multiplier"] *= 1.2
+            weights["healthy_bonus_multiplier"] *= 1.3
+        
+        if any("manage diabetes" in goal or "blood sugar" in goal for goal in goals_lower):
+            # Diabetes management focus: Higher carb/sugar sensitivity
+            weights["carb_penalty_multiplier"] *= 1.2
+            weights["sugar_penalty_multiplier"] *= 1.3
+        
+        # 5. READINESS TO CHANGE ADJUSTMENTS
+        if readiness_to_change:
+            readiness_lower = readiness_to_change.lower()
+            if "very ready" in readiness_lower or "highly motivated" in readiness_lower:
+                # High motivation: More sensitive feedback
+                weights["today_boost_cap"] *= 1.3
+                weights["healthy_bonus_multiplier"] *= 1.2
+            elif "not ready" in readiness_lower or "resistant" in readiness_lower:
+                # Low motivation: Gentler approach
+                weights["carb_penalty_multiplier"] *= 0.8
+                weights["sugar_penalty_multiplier"] *= 0.9
+                weights["today_boost_cap"] *= 1.4  # More immediate positive feedback
+        
+        # 6. MULTIPLE CONDITIONS ADJUSTMENTS
+        if len(medical_conditions) >= 3:
+            # Multiple health conditions: More sensitive overall
+            weights["sensitivity_factor"] *= 1.1
+            weights["healthy_bonus_multiplier"] *= 1.2  # Reward good choices more
+        
+        # Ensure weights stay within reasonable bounds
+        for key, value in weights.items():
+            if "multiplier" in key or key == "today_boost_cap":
+                weights[key] = max(2.0, min(25.0, value))  # Keep between 2x and 25x
+            elif key == "sensitivity_factor":
+                weights[key] = max(0.5, min(2.0, value))   # Keep between 0.5x and 2.0x
+        
+        # Debug logging
+        print(f"[PERSONALIZED_WEIGHTS] User profile analysis:")
+        print(f"  - Age: {age}")
+        print(f"  - Diabetes severity: {diabetes_severity}")
+        print(f"  - Activity level: {activity_level}")
+        print(f"  - Exercise frequency: {exercise_frequency}")
+        print(f"  - Primary goals: {primary_goals}")
+        print(f"  - Readiness to change: {readiness_to_change}")
+        print(f"[PERSONALIZED_WEIGHTS] Calculated weights: {weights}")
+        
+        return weights
+        
+    except Exception as e:
+        print(f"[PERSONALIZED_WEIGHTS] Error calculating weights: {e}")
+        # Return default weights on error
+        return {
+            "carb_penalty_multiplier": 8.0,
+            "sugar_penalty_multiplier": 10.0,
+            "processed_penalty_multiplier": 5.0,
+            "healthy_bonus_multiplier": 15.0,
+            "today_boost_cap": 20.0,
+            "sensitivity_factor": 1.0
+        }
+
+
+def calculate_score_decay(user_email: str, recent_consumption: list, user_timezone: str = "UTC") -> float:
+    """
+    Calculate gradual score decay if user hasn't logged healthy meals recently.
+    Encourages consistency without harsh punishment.
+    """
+    try:
+        from datetime import datetime, timedelta
+        
+        # Check last 3 days for healthy meal logging
+        three_days_ago = datetime.utcnow() - timedelta(days=3)
+        recent_healthy_count = 0
+        total_recent_meals = 0
+        
+        for record in recent_consumption:
+            try:
+                record_time = datetime.fromisoformat(record.get("timestamp", "").replace("Z", "+00:00"))
+                if record_time >= three_days_ago:
+                    total_recent_meals += 1
+                    medical_rating = record.get("medical_rating", {})
+                    diabetes_suitability = medical_rating.get("diabetes_suitability", "medium").lower()
+                    
+                    if diabetes_suitability == "high":
+                        recent_healthy_count += 1
+                    elif diabetes_suitability == "medium":
+                        recent_healthy_count += 0.5
+            except:
+                continue
+        
+        # Calculate decay factor
+        if total_recent_meals == 0:
+            # No meals logged in 3 days: gradual decay
+            decay_factor = 2.0  # 2% decay per day
+        else:
+            healthy_ratio = recent_healthy_count / total_recent_meals
+            if healthy_ratio < 0.3:  # Less than 30% healthy meals
+                decay_factor = 1.0  # 1% decay per day
+            else:
+                decay_factor = 0.0  # No decay if maintaining healthy habits
+        
+        print(f"[SCORE_DECAY] Recent meals: {total_recent_meals}, healthy: {recent_healthy_count:.1f}, decay: {decay_factor}%/day")
+        return decay_factor
+        
+    except Exception as e:
+        print(f"[SCORE_DECAY] Error calculating decay: {e}")
+        return 0.0
+
 
 @app.get("/coach/daily-insights")
 async def get_daily_coaching_insights(current_user: User = Depends(get_current_user)):
@@ -5983,20 +6383,74 @@ async def get_daily_coaching_insights(current_user: User = Depends(get_current_u
             if fiber >= 5 and glycemic_impact == "low":
                 diabetes_score_factors["healthy_choices"] += 1
         
-        # Calculate enhanced diabetes score
+        # FIXED: Calculate today's separate score for immediate feedback
+        today_suitable_count = 0
+        today_records_count = len(today_consumption)
+        
+        for record in today_consumption:
+            medical_rating = record.get("medical_rating", {})
+            diabetes_suitability = medical_rating.get("diabetes_suitability", "medium").lower()
+            
+            if diabetes_suitability == "high":
+                today_suitable_count += 1
+            elif diabetes_suitability == "medium":
+                today_suitable_count += 0.7
+        
+        # ENHANCED: Use personalized weights based on user profile
+        personalized_weights = calculate_personalized_weights(profile)
+        
+        # Calculate score decay for consistency encouragement
+        score_decay = calculate_score_decay(current_user["email"], recent_consumption, user_timezone)
+        
+        # Calculate enhanced diabetes score with personalized weighting
         if total_recent_records > 0:
             base_score = (condition_suitable_count / total_recent_records * 100)
             
-            # Apply penalties and bonuses
-            carb_penalty = (diabetes_score_factors["high_carb_meals"] / total_recent_records) * 15
-            sugar_penalty = (diabetes_score_factors["high_sugar_meals"] / total_recent_records) * 20
-            processed_penalty = (diabetes_score_factors["processed_foods"] / total_recent_records) * 10
-            healthy_bonus = (diabetes_score_factors["healthy_choices"] / total_recent_records) * 10
+            # Apply personalized penalties and bonuses
+            carb_penalty = (diabetes_score_factors["high_carb_meals"] / total_recent_records) * personalized_weights["carb_penalty_multiplier"]
+            sugar_penalty = (diabetes_score_factors["high_sugar_meals"] / total_recent_records) * personalized_weights["sugar_penalty_multiplier"]
+            processed_penalty = (diabetes_score_factors["processed_foods"] / total_recent_records) * personalized_weights["processed_penalty_multiplier"]
+            healthy_bonus = (diabetes_score_factors["healthy_choices"] / total_recent_records) * personalized_weights["healthy_bonus_multiplier"]
             
-            health_adherence = max(0, min(100, base_score - carb_penalty - sugar_penalty - processed_penalty + healthy_bonus))
+            # Apply personalized today's boost for immediate feedback
+            today_boost = 0
+            if today_records_count > 0:
+                today_score = (today_suitable_count / today_records_count) * 100
+                # If today's meals are healthy (>60%), give a personalized boost
+                if today_score > 60:
+                    max_boost = personalized_weights["today_boost_cap"]
+                    today_boost = min(max_boost, (today_score - 60) * 0.5)
+            
+            # Apply score decay for consistency
+            consistency_penalty = score_decay
+            
+            # Calculate final score with all personalized factors
+            raw_score = base_score - carb_penalty - sugar_penalty - processed_penalty + healthy_bonus + today_boost - consistency_penalty
+            health_adherence = max(0, min(100, raw_score * personalized_weights["sensitivity_factor"]))
+            
+            # Enhanced debug logging for score calculation
+            print(f"[DEBUG] Personalized Nutrition Score Calculation:")
+            print(f"[DEBUG] - Base score: {base_score:.1f}%")
+            print(f"[DEBUG] - Carb penalty: -{carb_penalty:.1f}% (weight: {personalized_weights['carb_penalty_multiplier']:.1f})")
+            print(f"[DEBUG] - Sugar penalty: -{sugar_penalty:.1f}% (weight: {personalized_weights['sugar_penalty_multiplier']:.1f})") 
+            print(f"[DEBUG] - Processed penalty: -{processed_penalty:.1f}% (weight: {personalized_weights['processed_penalty_multiplier']:.1f})")
+            print(f"[DEBUG] - Healthy bonus: +{healthy_bonus:.1f}% (weight: {personalized_weights['healthy_bonus_multiplier']:.1f})")
+            print(f"[DEBUG] - Today's boost: +{today_boost:.1f}% (max: {personalized_weights['today_boost_cap']:.1f}%)")
+            print(f"[DEBUG] - Consistency penalty: -{consistency_penalty:.1f}%")
+            print(f"[DEBUG] - Sensitivity factor: {personalized_weights['sensitivity_factor']:.2f}x")
+            print(f"[DEBUG] - Final health adherence: {health_adherence:.1f}%")
+            print(f"[DEBUG] - Today's meals: {today_records_count}, suitable: {today_suitable_count}")
+            
+        elif today_records_count > 0:
+            # NEW: For new users, base score entirely on today's meals for immediate feedback
+            today_score = (today_suitable_count / today_records_count) * 100
+            health_adherence = max(0, min(100, today_score))
+            print(f"[DEBUG] New user nutrition score based on today only: {health_adherence:.1f}%")
+            
         else:
-            # Default score for new users - show 0 until they have data
+            # Default score for users with no data
             health_adherence = 0
+            print(f"[DEBUG] No consumption data - nutrition score: 0%")
         
         # Generate coaching recommendations with better logic
         recommendations = []
@@ -6148,7 +6602,7 @@ async def get_daily_coaching_insights(current_user: User = Depends(get_current_u
             "diabetes_adherence": health_adherence,  # Now represents overall health adherence
             "health_adherence": health_adherence,  # Add explicit health adherence field
             "health_conditions": user_conditions,  # Add user's health conditions
-            "consistency_streak": calculate_consistency_streak(recent_consumption),
+            "consistency_streak": calculate_consistency_streak(recent_consumption, user_timezone),
             "meals_logged_today": len(today_consumption),
             "weekly_stats": {
                 "total_meals": total_recent_records,
@@ -6182,7 +6636,20 @@ async def get_daily_coaching_insights(current_user: User = Depends(get_current_u
                     "message": f"Start logging your meals to get personalized AI insights for your health conditions: {', '.join(user_conditions)}!",
                     "action": "Log First Meal"
                 }
-            ]
+            ],
+            # Add detailed score breakdown for UI transparency
+            "score_breakdown": {
+                "base_score": base_score if 'base_score' in locals() else 0,
+                "carb_penalty": carb_penalty if 'carb_penalty' in locals() else 0,
+                "sugar_penalty": sugar_penalty if 'sugar_penalty' in locals() else 0,
+                "processed_penalty": processed_penalty if 'processed_penalty' in locals() else 0,
+                "healthy_bonus": healthy_bonus if 'healthy_bonus' in locals() else 0,
+                "today_boost": today_boost if 'today_boost' in locals() else 0,
+                "consistency_penalty": consistency_penalty if 'consistency_penalty' in locals() else 0,
+                "sensitivity_factor": personalized_weights["sensitivity_factor"] if 'personalized_weights' in locals() else 1.0,
+                "personalized_weights": personalized_weights if 'personalized_weights' in locals() else {},
+                "calculation_method": "personalized" if 'personalized_weights' in locals() else "standard"
+            }
         }
         
         print(f"[get_daily_insights] Generated insights successfully")
@@ -6193,6 +6660,180 @@ async def get_daily_coaching_insights(current_user: User = Depends(get_current_u
         print(f"[get_daily_insights] Error: {str(e)}")
         print(f"[get_daily_insights] Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Failed to get daily insights: {str(e)}")
+
+
+@app.get("/coach/nutrition-score-breakdown")
+async def get_nutrition_score_breakdown(current_user: User = Depends(get_current_user)):
+    """
+    Get detailed nutrition score breakdown for UI transparency.
+    Shows users exactly how their score was calculated.
+    """
+    try:
+        # Get the daily insights which contains the score breakdown
+        insights = await get_daily_coaching_insights(current_user)
+        score_breakdown = insights.get("score_breakdown", {})
+        
+        # Add additional explanation for UI
+        breakdown_with_explanations = {
+            "current_score": insights.get("diabetes_adherence", 0),
+            "breakdown": {
+                "base_score": {
+                    "value": score_breakdown.get("base_score", 0),
+                    "explanation": "Based on the diabetes-suitability of your recent meals",
+                    "icon": "📊"
+                },
+                "today_boost": {
+                    "value": score_breakdown.get("today_boost", 0),
+                    "explanation": "Bonus for healthy choices made today",
+                    "icon": "⚡",
+                    "is_positive": True
+                },
+                "healthy_bonus": {
+                    "value": score_breakdown.get("healthy_bonus", 0),
+                    "explanation": "Reward for high-fiber, low-glycemic food choices",
+                    "icon": "🥬",
+                    "is_positive": True
+                },
+                "carb_penalty": {
+                    "value": -score_breakdown.get("carb_penalty", 0),
+                    "explanation": "Reduction for high-carb meals (>45g carbs)",
+                    "icon": "🍞",
+                    "is_positive": False
+                },
+                "sugar_penalty": {
+                    "value": -score_breakdown.get("sugar_penalty", 0),
+                    "explanation": "Reduction for high-sugar meals (>15g sugar)",
+                    "icon": "🍭",
+                    "is_positive": False
+                },
+                "processed_penalty": {
+                    "value": -score_breakdown.get("processed_penalty", 0),
+                    "explanation": "Reduction for high-sodium processed foods (>800mg)",
+                    "icon": "🥫",
+                    "is_positive": False
+                },
+                "consistency_penalty": {
+                    "value": -score_breakdown.get("consistency_penalty", 0),
+                    "explanation": "Small reduction for inconsistent healthy logging",
+                    "icon": "📅",
+                    "is_positive": False
+                }
+            },
+            "personalization": {
+                "is_personalized": score_breakdown.get("calculation_method") == "personalized",
+                "sensitivity_factor": score_breakdown.get("sensitivity_factor", 1.0),
+                "explanation": "Your score is personalized based on your age, health conditions, activity level, and goals"
+            },
+            "tips": []
+        }
+        
+        # Generate actionable tips based on the breakdown
+        if score_breakdown.get("carb_penalty", 0) > 5:
+            breakdown_with_explanations["tips"].append({
+                "type": "carbs",
+                "message": "Try choosing lower-carb alternatives like cauliflower rice or zucchini noodles",
+                "icon": "💡"
+            })
+        
+        if score_breakdown.get("sugar_penalty", 0) > 5:
+            breakdown_with_explanations["tips"].append({
+                "type": "sugar",
+                "message": "Opt for naturally sweet foods like berries instead of processed desserts",
+                "icon": "🫐"
+            })
+        
+        if score_breakdown.get("processed_penalty", 0) > 3:
+            breakdown_with_explanations["tips"].append({
+                "type": "processed",
+                "message": "Choose fresh, whole foods and cook at home when possible",
+                "icon": "🍳"
+            })
+        
+        if score_breakdown.get("today_boost", 0) > 10:
+            breakdown_with_explanations["tips"].append({
+                "type": "positive",
+                "message": "Great job with today's healthy choices! Keep up the excellent work!",
+                "icon": "🌟"
+            })
+        elif score_breakdown.get("today_boost", 0) == 0:
+            breakdown_with_explanations["tips"].append({
+                "type": "encouragement",
+                "message": "Log some healthy meals today to boost your score!",
+                "icon": "🎯"
+            })
+        
+        return breakdown_with_explanations
+        
+    except Exception as e:
+        print(f"[nutrition_score_breakdown] Error: {str(e)}")
+        print(f"[nutrition_score_breakdown] Traceback: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"Failed to get score breakdown: {str(e)}")
+
+
+def detect_food_exploitation(user_email: str, today_consumption: list, new_food_name: str) -> dict:
+    """
+    Detect if user is trying to exploit the scoring system by logging the same food repeatedly.
+    Returns exploitation status and adjusted scoring.
+    """
+    try:
+        from collections import Counter
+        from datetime import datetime, timedelta
+        
+        # Count food occurrences today
+        food_counts = Counter()
+        for record in today_consumption:
+            food_name = record.get("food_name", "").lower().strip()
+            food_counts[food_name] += 1
+        
+        # Add the new food being logged
+        new_food_lower = new_food_name.lower().strip()
+        food_counts[new_food_lower] += 1
+        
+        exploitation_detected = False
+        score_adjustment = 0
+        warnings = []
+        
+        # Check for repetitive logging
+        for food, count in food_counts.items():
+            if count > 3:  # Same food more than 3 times in one day
+                exploitation_detected = True
+                excess_logs = count - 3
+                score_adjustment -= (excess_logs * 2)  # 2% penalty per excess log
+                warnings.append(f"'{food}' logged {count} times today (max recommended: 3)")
+            elif count == 3:
+                warnings.append(f"'{food}' logged 3 times today - consider adding variety")
+        
+        # Check for suspicious patterns (only "healthy" foods logged)
+        healthy_foods = ["spinach", "broccoli", "kale", "lettuce", "cucumber", "celery"]
+        if len(food_counts) >= 5 and all(any(healthy in food for healthy in healthy_foods) for food in food_counts.keys()):
+            exploitation_detected = True
+            score_adjustment -= 5  # 5% penalty for unrealistic all-healthy pattern
+            warnings.append("Diet seems unrealistically limited to only healthy foods - add variety")
+        
+        # Check for meal variety (encourage diverse nutrition)
+        if len(food_counts) == 1 and list(food_counts.values())[0] > 2:
+            warnings.append("Try adding variety to your meals for better nutrition coverage")
+        
+        return {
+            "exploitation_detected": exploitation_detected,
+            "score_adjustment": score_adjustment,
+            "warnings": warnings,
+            "food_counts": dict(food_counts),
+            "variety_score": len(food_counts),  # Higher is better
+            "recommendation": "Add more variety to your meals" if len(food_counts) < 3 else "Good meal variety!"
+        }
+        
+    except Exception as e:
+        print(f"[FOOD_EXPLOITATION] Error: {e}")
+        return {
+            "exploitation_detected": False,
+            "score_adjustment": 0,
+            "warnings": [],
+            "food_counts": {},
+            "variety_score": 1,
+            "recommendation": "Continue logging diverse meals"
+        }
+
 
 @app.post("/coach/quick-log")
 async def quick_log_food(
@@ -6236,7 +6877,12 @@ async def quick_log_food(
             "analysis_notes": "Brief explanation of nutritional value and diabetes considerations"
         }}
         
-        Base estimates on standard nutritional databases. Be accurate and conservative with diabetes ratings.
+        Guidelines for diabetes_suitability rating:
+        - "high": Vegetables, lean proteins, nuts, low-sugar fruits, whole grains in moderate portions, foods with fiber ≥3g and sugar ≤10g
+        - "medium": Foods with moderate carbs/sugar (10-25g sugar, moderate fiber), dairy products, starchy vegetables
+        - "low": High-sugar foods (>25g sugar), refined grains, processed foods, high-sodium items (>600mg)
+        
+        Be more generous with "high" ratings for genuinely healthy foods. Base estimates on standard nutritional databases.
         Only return valid JSON, no other text.
         """
         
@@ -6798,7 +7444,9 @@ async def get_todays_meal_plan(current_user: User = Depends(get_current_user)):
                 the new shape { 'meals': { breakfast: str, lunch: str, dinner: str, snack: str } } expected by the dashboard."""
                 val = latest_plan.get(meal_key)
                 if isinstance(val, list):
-                    return val[today.weekday()] if today.weekday() < len(val) else (val[0] if val else "")
+                    # For today's personalized meal plan display, always use Day 1 (index 0)
+                    # This ensures we show "Day 1: [meal]" as today's meal, not some random weekday
+                    return val[0] if val else ""
                 return val or ""
 
             derived_meals = {
@@ -6856,7 +7504,9 @@ async def get_todays_meal_plan(current_user: User = Depends(get_current_user)):
             def _extract(meal_key_plural: str):
                 val = plan.get(meal_key_plural)
                 if isinstance(val, list):
-                    return val[today_idx] if today_idx < len(val) else (val[0] if val else "")
+                    # For today's display, always use Day 1 (index 0) from multi-day plans
+                    # This prevents showing "Day 2", "Day 3" etc. in today's meal plan
+                    return val[0] if val else ""
                 return val or ""
 
             meals_dict["breakfast"] = _extract("breakfast")
@@ -7269,61 +7919,183 @@ async def create_adaptive_meal_plan(
         top_favorites = sorted(favorite_foods.items(), key=lambda x: x[1], reverse=True)[:10]
         favorite_foods_list = [food for food, count in top_favorites]
         
-        # Get user preferences
+        # COMPREHENSIVE USER PROFILE ANALYSIS for truly personalized meal planning
+        print(f"[create_adaptive_meal_plan] COMPREHENSIVE PROFILE ANALYSIS for user: {current_user['email']}")
+        
+        # Helper function to get profile value with fallbacks
+        def get_profile_value(profile, new_key, old_key=None, default='Not provided'):
+            value = profile.get(new_key)
+            if not value and old_key:
+                value = profile.get(old_key)
+            if isinstance(value, list) and value:
+                return ', '.join(str(v) for v in value)
+            elif isinstance(value, list):
+                return default
+            return str(value) if value else default
+
+        # Extract comprehensive health and lifestyle profile
+        medical_conditions = user_profile.get("medicalConditions", []) or user_profile.get("medical_conditions", [])
+        current_medications = user_profile.get("currentMedications", [])
+        primary_goals = user_profile.get("primaryGoals", [])
+        
+        # Physical characteristics
+        age = user_profile.get("age")
+        weight = user_profile.get("weight")
+        height = user_profile.get("height")
+        bmi = user_profile.get("bmi")
+        
+        # Vital signs for medical considerations
+        systolic_bp = user_profile.get("systolicBP") or user_profile.get("systolic_bp")
+        diastolic_bp = user_profile.get("diastolicBP") or user_profile.get("diastolic_bp")
+        
+        # Activity and lifestyle
+        work_activity_level = user_profile.get("workActivityLevel")
+        exercise_frequency = user_profile.get("exerciseFrequency") 
+        exercise_types = user_profile.get("exerciseTypes", [])
+        wants_weight_loss = user_profile.get("wantsWeightLoss") or user_profile.get("weight_loss_goal")
+        
+        # Dietary preferences
         dietary_restrictions = user_profile.get("dietaryRestrictions", [])
         food_preferences = user_profile.get("foodPreferences", [])
         allergies = user_profile.get("allergies", [])
         calorie_target = user_profile.get("calorieTarget", "2000")
+        diet_type = user_profile.get("dietType", [])
+        dietary_features = user_profile.get("dietaryFeatures", []) or user_profile.get("diet_features", [])
+        strong_dislikes = user_profile.get("strongDislikes", [])
+        ethnicity = user_profile.get("ethnicity", [])
+        
+        # Lab values for medical considerations
+        lab_values = user_profile.get("labValues", {})
         
         try:
             target_calories = int(calorie_target)
         except:
             target_calories = int(avg_daily_calories) if avg_daily_calories > 1200 else 2000
         
-        # Get additional profile information for better personalization
-        diet_type = user_profile.get("dietType", [])
-        strong_dislikes = user_profile.get("strongDislikes", [])
-        ethnicity = user_profile.get("ethnicity", [])
+        # CRITICAL: Enhanced dietary restriction detection for patterns like "Vegetarian (no eggs)"
+        # Check multiple possible field names and formats
+        all_dietary_info = []
+        for field_name in ["dietaryRestrictions", "dietary_restrictions", "dietaryFeatures", "dietary_features", 
+                          "dietType", "diet_type", "restrictions", "diet_preferences"]:
+            field_value = user_profile.get(field_name, [])
+            if isinstance(field_value, list):
+                all_dietary_info.extend([str(item).lower() for item in field_value])
+            elif isinstance(field_value, str) and field_value:
+                all_dietary_info.append(field_value.lower())
+        
+        print(f"[create_adaptive_meal_plan] All dietary info collected: {all_dietary_info}")
+        
+        # Enhanced vegetarian detection
+        is_vegetarian = any(
+            'vegetarian' in info or 'veg' in info or 'plant-based' in info 
+            for info in all_dietary_info
+        )
+        
+        # Enhanced egg restriction detection - specifically handle "vegetarian (no eggs)" pattern
+        no_eggs = any(
+            'no egg' in info or 'egg-free' in info or 'no eggs' in info or 'avoid egg' in info or 
+            ('vegetarian' in info and '(no egg' in info) or ('vegetarian' in info and 'no egg' in info)
+            for info in all_dietary_info
+        ) or any(
+            'egg' in str(allergy).lower() for allergy in allergies
+        )
+        
+        print(f"[create_adaptive_meal_plan] DIETARY RESTRICTION ANALYSIS:")
+        print(f"[create_adaptive_meal_plan] Is vegetarian: {is_vegetarian}")
+        print(f"[create_adaptive_meal_plan] No eggs: {no_eggs}")
+        
+        print(f"[create_adaptive_meal_plan] COMPREHENSIVE PROFILE ANALYSIS:")
+        print(f"[create_adaptive_meal_plan] Medical conditions: {medical_conditions}")
+        print(f"[create_adaptive_meal_plan] Current medications: {current_medications}")  
+        print(f"[create_adaptive_meal_plan] Primary health goals: {primary_goals}")
+        print(f"[create_adaptive_meal_plan] Age: {age}, Weight: {weight}kg, Height: {height}cm, BMI: {bmi}")
+        print(f"[create_adaptive_meal_plan] BP: {systolic_bp}/{diastolic_bp}, Wants weight loss: {wants_weight_loss}")
+        print(f"[create_adaptive_meal_plan] Activity: {work_activity_level}, Exercise: {exercise_frequency}")
+        print(f"[create_adaptive_meal_plan] Dietary features: {dietary_features}")
+        print(f"[create_adaptive_meal_plan] All dietary info found: {all_dietary_info}")
+        print(f"[create_adaptive_meal_plan] Is vegetarian: {is_vegetarian}, No eggs: {no_eggs}")
+        print(f"[create_adaptive_meal_plan] Lab values: {lab_values}")
         
         # Use requested cuisine type or fall back to profile preferences
         cuisine_preference = req_cuisine if req_cuisine else ', '.join(diet_type) if diet_type else 'Mixed international'
         
-        # Create dynamic meal plan structure for the prompt
+        # Create dynamic meal plan structure for the prompt - WITHOUT Day X: prefixes
+        # since the weekly breakdown view already shows days separately
         day_examples = []
         for day_num in range(1, req_days + 1):
-            day_examples.append(f'"Day {day_num}: [specific meal with portions]"')
+            day_examples.append(f'"[specific meal with portions for day {day_num}]"')
         
         day_examples_str = ", ".join(day_examples)
         
-        # Create comprehensive adaptive meal plan prompt
-        prompt = f"""Create a personalized {req_days}-day diabetes-friendly meal plan based on this user's analysis:
-        
-USER ANALYSIS:
+        # Create comprehensive medical profile summary for AI
+        comprehensive_profile_summary = f"""
+COMPREHENSIVE HEALTH PROFILE ANALYSIS:
+
+CONSUMPTION PATTERN ANALYSIS:
 - Total recent meals logged: {total_recent_meals}
 - Diabetes adherence rate: {adherence_rate:.1f}%
 - Average daily calories: {avg_daily_calories:.0f}
 - Target daily calories: {target_calories}
-- Favorite foods: {', '.join(favorite_foods_list[:5]) if favorite_foods_list else 'None identified'}
-        
-USER PREFERENCES & RESTRICTIONS:
-- CUISINE TYPE: {cuisine_preference} (STRICTLY FOLLOW THIS)
-- Dietary restrictions: {', '.join(dietary_restrictions) if dietary_restrictions else 'None'}
-- Diet type: {', '.join(diet_type) if diet_type else 'None'}
-- Food preferences: {', '.join(food_preferences) if food_preferences else 'None'}
-- Strong dislikes: {', '.join(strong_dislikes) if strong_dislikes else 'None'}
-- Allergies: {', '.join(allergies) if allergies else 'None'}
+- Favorite foods from history: {', '.join(favorite_foods_list[:5]) if favorite_foods_list else 'None identified'}
+
+PATIENT DEMOGRAPHICS:
+- Name: {get_profile_value(user_profile, 'name')}
+- Age: {age or 'Not specified'}
+- Gender: {get_profile_value(user_profile, 'gender')}
+- Ethnicity: {get_profile_value(user_profile, 'ethnicity', default='Not specified')}
+
+VITAL SIGNS & MEASUREMENTS:
+- Height: {height or 'Not specified'} cm
+- Weight: {weight or 'Not specified'} kg
+- BMI: {bmi or 'Not calculated'}
+- Blood Pressure: {systolic_bp or 'Not specified'}/{diastolic_bp or 'Not specified'} mmHg
+
+MEDICAL CONDITIONS & MEDICATIONS:
+- Medical Conditions: {', '.join(medical_conditions) if medical_conditions else 'None specified'}
+- Current Medications: {', '.join(current_medications) if current_medications else 'None specified'}
+- Lab Values: {lab_values if lab_values else 'Not provided'}
+
+HEALTH GOALS & TARGETS:
+- Primary Health Goals: {', '.join(primary_goals) if primary_goals else 'General wellness'}
+- Weight Loss Goal: {'Yes' if wants_weight_loss else 'No'}
+- Calorie Target: {target_calories} kcal/day
+
+DIETARY INFORMATION:
+- PREFERRED CUISINE TYPE: {', '.join(diet_type) if diet_type else 'Mixed international'} (CRITICALLY IMPORTANT - MUST FOLLOW)
+- Dietary Features: {', '.join(dietary_features) if dietary_features else 'None specified'}
+- Dietary Restrictions: {', '.join(dietary_restrictions) if dietary_restrictions else 'None'}
+- Food Preferences: {', '.join(food_preferences) if food_preferences else 'None'}
+- Food Allergies: {', '.join(allergies) if allergies else 'None'}
+- Strong Dislikes: {', '.join(strong_dislikes) if strong_dislikes else 'None'}
 - Ethnicity: {', '.join(ethnicity) if ethnicity else 'Not specified'}
 
-CRITICAL REQUIREMENTS:
-1. Create a diabetes-friendly meal plan with {target_calories} calories per day
-2. STRICTLY follow the cuisine type: {cuisine_preference}
-3. ABSOLUTELY respect all dietary restrictions and allergies - NO EXCEPTIONS
-4. Incorporate user's favorite foods where diabetes-appropriate and cuisine-consistent
-5. Avoid all foods listed in strong dislikes
-6. Focus on low glycemic index foods appropriate for the cuisine
-7. Balance macronutrients appropriately for diabetes
-8. Include variety within the specified cuisine type
-9. Provide specific adaptations based on user's eating patterns
+PHYSICAL ACTIVITY & LIFESTYLE:
+- Work Activity Level: {work_activity_level or 'Not specified'}
+- Exercise Frequency: {exercise_frequency or 'Not specified'}
+- Exercise Types: {', '.join(exercise_types) if exercise_types else 'Not specified'}
+        """
+
+        # Create comprehensive adaptive meal plan prompt
+        prompt = f"""Create a medically-appropriate, personalized {req_days}-day meal plan based on this comprehensive health profile:
+
+{comprehensive_profile_summary}
+
+CRITICAL MEDICAL & DIETARY REQUIREMENTS:
+1. **MEDICAL CONDITIONS**: Address ALL medical conditions listed above - especially diabetes management, blood pressure control, cholesterol management
+2. **MEDICATION CONSIDERATIONS**: Consider how meals interact with medications (timing, absorption, blood sugar impacts)
+3. **TARGET CALORIES**: Create meal plan with {target_calories} calories per day appropriate for their goals
+4. **HEALTH GOALS**: Directly address their primary health goals: {', '.join(primary_goals) if primary_goals else 'general wellness'}
+5. **CUISINE PREFERENCE**: STRICTLY follow the cuisine type: {', '.join(diet_type) if diet_type else 'Mixed international'}
+6. **DIETARY RESTRICTIONS**: ABSOLUTELY respect all dietary restrictions and allergies - NO EXCEPTIONS
+7. {'🥬 **STRICTLY VEGETARIAN REQUIRED** - ABSOLUTELY NO MEAT, POULTRY, FISH, OR SEAFOOD' if is_vegetarian else ''}
+8. {'🚫🥚 **COMPLETELY EGG-FREE REQUIRED** - ABSOLUTELY NO EGGS, OMELETS, OR EGG-BASED DISHES' if no_eggs else ''}
+9. {'⚠️ **DUAL RESTRICTION ENFORCEMENT** - This person requires BOTH vegetarian AND egg-free meals (no meat AND no eggs)' if is_vegetarian and no_eggs else ''}
+9. **DIETARY FEATURES**: Incorporate dietary features like {', '.join(dietary_features) if dietary_features else 'standard nutrition'}
+10. **ACTIVITY LEVEL**: Consider their {exercise_frequency or 'moderate'} activity level for meal timing and portions
+11. **WEIGHT MANAGEMENT**: {'Include weight loss considerations' if wants_weight_loss else 'Focus on maintenance'}
+12. **BLOOD PRESSURE**: {'Consider low-sodium options due to blood pressure readings' if systolic_bp and str(systolic_bp).isdigit() and int(systolic_bp) > 130 else ''}
+13. **FAVORITE FOODS**: Incorporate user's favorite foods where medically appropriate and cuisine-consistent
+14. **PERSONALIZATION**: Adapt based on their eating patterns and {adherence_rate:.0f}% diabetes adherence rate
 
 Provide a JSON response with this exact structure:
 {{
@@ -7340,6 +8112,19 @@ Provide a JSON response with this exact structure:
 }}
 
 Make each meal specific with exact portions and cooking methods. Ensure all {req_days} days are included for each meal type."""
+
+        print(f"[create_adaptive_meal_plan] SENDING COMPREHENSIVE HEALTH PROFILE TO AI:")
+        print(f"[create_adaptive_meal_plan] ✅ Medical conditions: {medical_conditions}")
+        print(f"[create_adaptive_meal_plan] ✅ Medications: {current_medications}")
+        print(f"[create_adaptive_meal_plan] ✅ Health goals: {primary_goals}")
+        print(f"[create_adaptive_meal_plan] ✅ Physical stats: Age={age}, Weight={weight}kg, BMI={bmi}, BP={systolic_bp}/{diastolic_bp}")
+        print(f"[create_adaptive_meal_plan] ✅ Activity: Work={work_activity_level}, Exercise={exercise_frequency}")
+        print(f"[create_adaptive_meal_plan] ✅ Diet preferences: {diet_type}, Features: {dietary_features}")
+        print(f"[create_adaptive_meal_plan] ✅ Restrictions: {dietary_restrictions}, Allergies: {allergies}")
+        print(f"[create_adaptive_meal_plan] ✅ Consumption analysis: {total_recent_meals} meals, {adherence_rate:.1f}% diabetes-friendly")
+        print(f"[create_adaptive_meal_plan] ✅ Target calories: {target_calories} (from {calorie_target})")
+        print(f"[create_adaptive_meal_plan] ✅ Lab values: {lab_values}")
+        print(f"[create_adaptive_meal_plan] Profile summary length: {len(comprehensive_profile_summary)} chars")
         
         try:
             response = client.chat.completions.create(
@@ -7347,7 +8132,7 @@ Make each meal specific with exact portions and cooking methods. Ensure all {req
                 messages=[
                     {
                         "role": "system",
-                        "content": f"You are a diabetes nutrition specialist with expertise in {cuisine_preference} cuisine. Create practical, specific meal plans that are: 1) Diabetes-friendly with low glycemic index, 2) Authentic to the specified cuisine type, 3) STRICTLY compliant with all dietary restrictions and allergies - NO EXCEPTIONS, 4) Personalized to the user's eating history and preferences. Always provide exactly {req_days} meals for each meal type (breakfast, lunch, dinner, snacks)."
+                        "content": f"You are a COMPREHENSIVE MEDICAL NUTRITION SPECIALIST with expertise in {', '.join(diet_type) if diet_type else 'international'} cuisine and multi-condition management. You are creating meal plans for patients with specific medical conditions, medications, and health goals. APPROACH: 1) **MEDICAL-FIRST**: Address all medical conditions and medication interactions, 2) **GOAL-ORIENTED**: Target their specific health goals ({', '.join(primary_goals) if primary_goals else 'general wellness'}), 3) **CULTURALLY AUTHENTIC**: Provide traditional {', '.join(diet_type) if diet_type else 'international'} dishes, 4) **RESTRICTION-COMPLIANT**: ZERO tolerance for dietary violations, 5) **PERSONALIZED**: Based on their actual eating patterns and preferences. CRITICAL ENFORCEMENT: {'🥬 STRICTLY VEGETARIAN - absolutely NO meat, poultry, fish, seafood, or any animal flesh. ' if is_vegetarian else ''}{'🚫🥚 ABSOLUTELY EGG-FREE - NO eggs, omelets, scrambled eggs, egg-based dishes, or foods containing eggs as ingredients. ' if no_eggs else ''}{'⚠️ DUAL RESTRICTION: This person is VEGETARIAN AND EGG-FREE - must avoid both meat and eggs completely. ' if is_vegetarian and no_eggs else ''}Medical conditions require careful consideration: {', '.join(medical_conditions) if medical_conditions else 'diabetes management'}. Always provide exactly {req_days} clean meal names WITHOUT Day X: prefixes."
                     },
                     {
                         "role": "user",
@@ -7367,14 +8152,32 @@ Make each meal specific with exact portions and cooking methods. Ensure all {req
                 json_str = ai_content[start_idx:end_idx]
                 meal_plan_data = json.loads(json_str)
                 
-                # CRITICAL: Enforce dietary restrictions for adaptive meal plan
+                # CRITICAL: Enforce dietary restrictions for adaptive meal plan using enhanced detection
+                enhanced_dietary_restrictions = dietary_restrictions.copy()
+                if is_vegetarian:
+                    enhanced_dietary_restrictions.append("vegetarian")
+                if no_eggs:
+                    enhanced_dietary_restrictions.append("no eggs")
+                    
                 user_profile_dict = {
-                    'dietaryRestrictions': dietary_restrictions,
+                    'dietaryRestrictions': enhanced_dietary_restrictions,
                     'allergies': allergies,
                     'strongDislikes': strong_dislikes,
                     'dietType': diet_type
                 }
                 meal_plan_data = enforce_dietary_restrictions(meal_plan_data, user_profile_dict)
+                
+                # Apply additional safety sanitization for vegetarian/egg-free meals
+                if is_vegetarian or no_eggs:
+                    for meal_type in ['breakfast', 'lunch', 'dinner', 'snacks']:
+                        if meal_type in meal_plan_data:
+                            if isinstance(meal_plan_data[meal_type], list):
+                                meal_plan_data[meal_type] = [
+                                    sanitize_vegetarian_meal(meal, is_vegetarian, no_eggs) 
+                                    for meal in meal_plan_data[meal_type]
+                                ]
+                            elif isinstance(meal_plan_data[meal_type], str):
+                                meal_plan_data[meal_type] = sanitize_vegetarian_meal(meal_plan_data[meal_type], is_vegetarian, no_eggs)
                 print("Dietary restrictions enforced for adaptive meal plan")
             else:
                 raise json.JSONDecodeError("No JSON found", ai_content, 0)
@@ -7411,33 +8214,38 @@ Make each meal specific with exact portions and cooking methods. Ensure all {req
                 
                 return breakfast_base[:req_days], lunch_base[:req_days], dinner_base[:req_days]
             
-            is_vegetarian = 'vegetarian' in [r.lower() for r in dietary_restrictions]
+            # Use the enhanced dietary detection for fallback meals too
             fallback_breakfast, fallback_lunch, fallback_dinner = get_fallback_meals(cuisine_preference, is_vegetarian)
             
-            # Comprehensive fallback meal plan
+            # Comprehensive fallback meal plan - WITHOUT Day X: prefixes
             meal_plan_data = {
                 "plan_name": f"Adaptive {cuisine_preference} Plan - {datetime.now().strftime('%Y-%m-%d')}",
                 "duration_days": req_days,
                 "dailyCalories": target_calories,
                 "macronutrients": {"protein": int(target_calories * 0.2 / 4), "carbs": int(target_calories * 0.45 / 4), "fats": int(target_calories * 0.35 / 9)},
-                "breakfast": [f"Day {i+1}: {meal}" for i, meal in enumerate(fallback_breakfast)],
-                "lunch": [f"Day {i+1}: {meal}" for i, meal in enumerate(fallback_lunch)],
-                "dinner": [f"Day {i+1}: {meal}" for i, meal in enumerate(fallback_dinner)],
-                "snacks": [f"Day {i+1}: {snack}" for i, snack in enumerate([
+                "breakfast": fallback_breakfast,
+                "lunch": fallback_lunch,
+                "dinner": fallback_dinner,
+                "snacks": [
                     "Apple slices with almond butter (1 tbsp)",
                     "Handful of mixed nuts (1 oz)",
                     "Celery sticks with hummus (2 tbsp)",
                     "Greek yogurt (1/2 cup) with cinnamon",
-                    "Hard-boiled egg with cucumber slices",
+                    "Hard-boiled egg with cucumber slices" if not ('vegetarian' in [r.lower() for r in dietary_restrictions] or any('egg' in a.lower() for a in allergies)) else "Berries (1/2 cup) with cottage cheese",
                     "Berries (1/2 cup) with cottage cheese",
                     "Vegetable sticks with guacamole"
-                ][:req_days])],
+                ][:req_days],
                 "adaptations": [
-                    f"Based on your {adherence_rate:.0f}% diabetes adherence rate, this plan emphasizes low-glycemic foods",
-                    f"Incorporated your eating patterns from {total_recent_meals} recent meals",
-                    f"Adjusted from your average {avg_daily_calories:.0f} calories to target {target_calories} calories"
+                    f"Medical focus: Addresses {', '.join(medical_conditions) if medical_conditions else 'diabetes management'} with appropriate nutrition",
+                    f"Health goals: Targets {', '.join(primary_goals) if primary_goals else 'general wellness'} through meal selection",
+                    f"Activity level: Meals adapted for {exercise_frequency or 'moderate'} activity level and {work_activity_level or 'standard'} work demands",
+                    f"Medication considerations: {'Meal timing optimized for medication schedules' if current_medications else 'Standard meal timing'}",
+                    f"Dietary compliance: {adherence_rate:.0f}% diabetes adherence rate with personalized food choices",
+                    f"Weight management: {'Supports weight loss goals' if wants_weight_loss else 'Maintains healthy weight'}",
+                    f"Cultural preferences: Authentic {', '.join(diet_type) if diet_type else 'international'} cuisine selections",
+                    f"Consumption patterns: Based on analysis of {total_recent_meals} recent meals and favorite foods"
                 ],
-                "coaching_notes": f"This adaptive plan is based on your consumption history. Your {adherence_rate:.0f}% diabetes adherence rate shows {'excellent' if adherence_rate >= 80 else 'good' if adherence_rate >= 60 else 'room for improvement'} progress. Focus on consistent meal timing and portion control."
+                "coaching_notes": f"This medically-adaptive plan integrates your complete health profile including medical conditions, medications, health goals, and eating patterns. Your {adherence_rate:.0f}% diabetes adherence rate shows {'excellent' if adherence_rate >= 80 else 'good' if adherence_rate >= 60 else 'room for improvement'} progress. The plan addresses your specific health goals: {', '.join(primary_goals) if primary_goals else 'general wellness'}."
             }
         
         # Save to database using existing function
@@ -7930,7 +8738,12 @@ async def test_quick_log_food(food_data: dict):
             "analysis_notes": "Brief explanation of nutritional value and diabetes considerations"
         }}
         
-        Base estimates on standard nutritional databases. Be accurate and conservative with diabetes ratings.
+        Guidelines for diabetes_suitability rating:
+        - "high": Vegetables, lean proteins, nuts, low-sugar fruits, whole grains in moderate portions, foods with fiber ≥3g and sugar ≤10g
+        - "medium": Foods with moderate carbs/sugar (10-25g sugar, moderate fiber), dairy products, starchy vegetables
+        - "low": High-sugar foods (>25g sugar), refined grains, processed foods, high-sodium items (>600mg)
+        
+        Be more generous with "high" ratings for genuinely healthy foods. Base estimates on standard nutritional databases.
         Only return valid JSON, no other text.
         """
         
@@ -8539,7 +9352,7 @@ async def get_meal_suggestion(
         diabetes_adherence = (diabetes_suitable_count / total_recent_meals * 100) if total_recent_meals > 0 else 0
         
         # Calculate consistency streak
-        consistency_streak = calculate_consistency_streak(recent_consumption)
+        consistency_streak = calculate_consistency_streak(recent_consumption, user_profile.get("timezone", "UTC"))
         
         # Analyze meal timing patterns
         meal_times = {}

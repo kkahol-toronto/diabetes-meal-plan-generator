@@ -1917,7 +1917,7 @@ const HomePage: React.FC = () => {
           </Box>
           
           <Typography variant="h6" sx={{ color: 'white', mb: 3, opacity: 0.9, maxWidth: '800px', mx: 'auto', lineHeight: 1.6 }}>
-            Welcome to Dietra. Dietra provides personalized meal plans and shopping lists tailored to your medical and behavioral profile. Simply snap photos of your meals, and our AI automatically analyzes nutritional intake to adapt your plan in real time. With continuous tracking and intelligent adjustments, plus an AI-powered Nutrition Coach to answer your dietary questions, Dietra makes achieving health goals effortless and smart.
+            Welcome to Dietra. Track your nutrition instantly - no meal plan required! Simply snap photos of your meals or log food manually, and our AI automatically analyzes nutritional intake and calculates your diabetes health score. Optional personalized meal plans available. With continuous tracking and an AI-powered Nutrition Coach to answer your dietary questions, Dietra makes achieving health goals effortless and smart.
           </Typography>
           
           <Box sx={{ display: 'flex', gap: 2, justifyContent: 'center', flexWrap: 'wrap' }}>
@@ -1994,7 +1994,7 @@ const HomePage: React.FC = () => {
           🤖 AI Nutrition Coach Dashboard
         </Typography>
         <Typography variant="subtitle1" color="text.secondary">
-          Your intelligent health companion • Last updated: {new Date().toLocaleTimeString()}
+          Your intelligent health companion • Log food anytime, meal plans optional • Last updated: {new Date().toLocaleTimeString()}
         </Typography>
       </Box>
 
@@ -2051,6 +2051,7 @@ const HomePage: React.FC = () => {
                 <Typography variant="body1" sx={{ lineHeight: 1.6 }}>
                   To generate your personalized starter meal plan, please complete your full health profile by clicking the button above. 
                   Your doctor has already filled out some information to get you started.
+                  <br/><strong>Note:</strong> You can start logging food and tracking nutrition right away - meal plans are optional!
                 </Typography>
               </>
             ) : (
@@ -2061,6 +2062,7 @@ const HomePage: React.FC = () => {
                 <Typography variant="body1" sx={{ lineHeight: 1.6 }}>
                   To generate your personalized starter meal plan, please complete your health profile by clicking the button above. 
                   This will help us create nutrition recommendations tailored specifically to your needs and medical conditions.
+                  <br/><strong>Note:</strong> You can start logging food and tracking nutrition right away - meal plans are optional!
                 </Typography>
               </>
             )}
@@ -2377,6 +2379,31 @@ const HomePage: React.FC = () => {
                             // Remove "Day X:" prefix for planned meals
                             let cleaned = desc.replace(/^Day\s+\d+:\s*/, '');
                             
+                            // Validate and sanitize meal names to prevent corrupted data
+                            const isSuspiciousMeal = (text: string): boolean => {
+                              // Check for patterns that indicate corrupted or nonsensical meal data
+                              const suspiciousPatterns = [
+                                /^\d+\/\d+\s+\w+\s+fruit/i, // "1/2 Lindt fruit" pattern
+                                /^[0-9]+\/[0-9]+/,         // Starts with fractions
+                                /lindt/i,                   // Brand names that don't make sense as meals
+                                /^[0-9]+\s+(g|ml|oz|cups?|tbsp|tsp)\s*$/i, // Just quantities
+                                /^[\d\s\/\-\.]+$/,         // Only numbers and punctuation
+                                /^[a-z]{1,2}$/i,           // Single letters or very short nonsense
+                              ];
+                              return suspiciousPatterns.some(pattern => pattern.test(text.trim()));
+                            };
+                            
+                            // If the meal name is suspicious/corrupted, provide a fallback
+                            if (isSuspiciousMeal(cleaned)) {
+                              const mealTypeMap: { [key: string]: string } = {
+                                'breakfast': 'Healthy breakfast option',
+                                'lunch': 'Balanced lunch meal',
+                                'dinner': 'Nutritious dinner',
+                                'snack': 'Healthy snack'
+                              };
+                              return mealTypeMap[mealType] || 'Meal option';
+                            }
+                            
                             // Extract recipe name before any parentheses (which contain ingredients)
                             const parenIndex = cleaned.indexOf('(');
                             if (parenIndex !== -1) {
@@ -2652,7 +2679,7 @@ const HomePage: React.FC = () => {
                             fontSize: '0.9rem'
                           }}
                         >
-                          Quickly record what you've eaten with AI-powered nutrition analysis
+                          Start tracking immediately! No meal plan needed - just log your food and get instant nutrition insights
                         </Typography>
                       </CardContent>
                     </Card>
@@ -3178,10 +3205,15 @@ const HomePage: React.FC = () => {
               <MenuItem value="snack">Snack</MenuItem>
             </Select>
           </FormControl>
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-            Our AI will analyze the nutrition and diabetes suitability automatically. 
-            {!quickLogMealType && ' Meal type will be auto-detected based on current time.'}
-          </Typography>
+          <Box sx={{ mt: 2, p: 2, bgcolor: 'info.light', borderRadius: 1 }}>
+            <Typography variant="body2" color="info.dark" sx={{ fontWeight: 'bold', mb: 1 }}>
+              ✅ No meal plan required!
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              Our AI will analyze nutrition and diabetes suitability automatically. Food logging works independently and updates your daily nutrition score.
+              {!quickLogMealType && ' Meal type will be auto-detected based on current time.'}
+            </Typography>
+          </Box>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setShowQuickLogDialog(false)}>Cancel</Button>
