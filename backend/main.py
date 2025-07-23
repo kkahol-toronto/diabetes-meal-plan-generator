@@ -7098,7 +7098,7 @@ async def get_daily_coaching_insights(current_user: User = Depends(get_current_u
                 "action": "maintain"
             })
         
-        # Protein recommendations - fix logic
+        # Protein recommendations - fix logic with dietary restriction awareness
         protein_adherence_pct = adherence["protein"]
         protein_needed = macro_goals["protein"] - today_totals["protein"]
         
@@ -7108,10 +7108,13 @@ async def get_daily_coaching_insights(current_user: User = Depends(get_current_u
         
         if protein_adherence_pct < 80:  # Less than 80% of goal
             if protein_needed > 0:  # Only show if actually need more protein
+                # Generate personalized protein suggestions based on dietary restrictions
+                protein_suggestions = generate_personalized_protein_suggestions(profile)
+                
                 recommendations.append({
                     "type": "protein_low",
                     "priority": "medium",
-                    "message": f"You need {protein_needed:.0f}g more protein today. Try adding lean meats, eggs, or Greek yogurt.",
+                    "message": f"You need {protein_needed:.0f}g more protein today. Try adding {protein_suggestions}.",
                     "action": "add_protein"
                 })
         elif protein_adherence_pct >= 100:  # Met or exceeded goal
@@ -7869,6 +7872,96 @@ async def analyze_consumption_vs_plan(consumption_records: list, meal_plan: dict
             "diabetes_suitability_score": 0,
             "recommendations": []
         }
+
+
+def generate_personalized_protein_suggestions(user_profile: dict) -> str:
+    """
+    Generate personalized protein suggestions based on user's dietary restrictions and preferences.
+    """
+    try:
+        # Get dietary restrictions and preferences
+        dietary_restrictions = user_profile.get('dietaryRestrictions', [])
+        dietary_features = user_profile.get('dietaryFeatures', []) or user_profile.get('diet_features', [])
+        allergies = user_profile.get('allergies', [])
+        diet_type = user_profile.get('dietType', [])
+        
+        # Combine all dietary info for comprehensive checking
+        all_dietary_info = []
+        for field in [dietary_restrictions, dietary_features, diet_type]:
+            if isinstance(field, list):
+                all_dietary_info.extend([str(item).lower() for item in field])
+            elif isinstance(field, str) and field:
+                all_dietary_info.append(field.lower())
+        
+        allergies_lower = [str(allergy).lower() for allergy in allergies]
+        
+        # Check dietary restrictions
+        is_vegetarian = any('vegetarian' in info or 'veg' in info or 'plant-based' in info for info in all_dietary_info)
+        is_vegan = any('vegan' in info for info in all_dietary_info)
+        no_eggs = (any('no egg' in info or 'egg-free' in info or 'no eggs' in info for info in all_dietary_info) or 
+                   any('egg' in allergy for allergy in allergies_lower))
+        no_dairy = (any('dairy-free' in info or 'no dairy' in info for info in all_dietary_info) or 
+                    any('dairy' in allergy or 'milk' in allergy for allergy in allergies_lower))
+        no_nuts = any('nut' in allergy for allergy in allergies_lower)
+        no_soy = any('soy' in allergy for allergy in allergies_lower)
+        
+        # Build protein suggestions based on restrictions
+        protein_options = []
+        
+        if is_vegan:
+            # Vegan protein sources
+            if not no_soy:
+                protein_options.extend(["tofu", "tempeh"])
+            if not no_nuts:
+                protein_options.extend(["almond butter", "hemp seeds", "chia seeds"])
+            protein_options.extend(["lentils", "chickpeas", "quinoa", "black beans", "nutritional yeast"])
+            
+        elif is_vegetarian:
+            # Vegetarian protein sources
+            if not no_eggs:
+                protein_options.append("eggs")
+            if not no_dairy:
+                protein_options.extend(["Greek yogurt", "cottage cheese", "paneer"])
+            if not no_soy:
+                protein_options.extend(["tofu", "tempeh"])
+            if not no_nuts:
+                protein_options.extend(["almond butter", "hemp seeds"])
+            protein_options.extend(["lentils", "chickpeas", "quinoa", "black beans"])
+            
+        else:
+            # Non-vegetarian protein sources
+            protein_options.extend(["lean meats like chicken or turkey", "fish like salmon or tuna"])
+            if not no_eggs:
+                protein_options.append("eggs")
+            if not no_dairy:
+                protein_options.extend(["Greek yogurt", "cottage cheese"])
+            if not no_soy:
+                protein_options.append("tofu")
+            if not no_nuts:
+                protein_options.extend(["nuts", "almond butter"])
+            protein_options.extend(["lentils", "chickpeas", "quinoa"])
+        
+        # Create a natural language suggestion
+        if len(protein_options) == 0:
+            return "plant-based protein sources like beans and quinoa"
+        elif len(protein_options) == 1:
+            return protein_options[0]
+        elif len(protein_options) == 2:
+            return f"{protein_options[0]} or {protein_options[1]}"
+        else:
+            # Take top 3-4 options for readability
+            top_options = protein_options[:3]
+            if len(top_options) > 2:
+                return f"{', '.join(top_options[:-1])}, or {top_options[-1]}"
+            elif len(top_options) == 2:
+                return f"{top_options[0]} or {top_options[1]}"
+            else:
+                return top_options[0] if top_options else "beans and quinoa"
+            
+    except Exception as e:
+        print(f"[generate_personalized_protein_suggestions] Error: {e}")
+        # Safe fallback that works for most dietary restrictions
+        return "beans, lentils, or quinoa"
 
 
 def get_remaining_meals_by_time(current_hour: int) -> list:
