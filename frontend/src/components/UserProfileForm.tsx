@@ -823,8 +823,14 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({
   };
 
   return (
-    <Box sx={{ maxWidth: 1200, mx: 'auto', p: 3 }}>
-      <Paper elevation={3} sx={{ p: 4 }}>
+    <Box sx={{ 
+      maxWidth: 1200, 
+      mx: 'auto', 
+      p: { xs: 1, sm: 2, md: 3 } // Mobile: 8px, Tablet: 16px, Desktop: 24px
+    }}>
+      <Paper elevation={3} sx={{ 
+        p: { xs: 2, sm: 3, md: 4 } // Mobile: 16px, Tablet: 24px, Desktop: 32px
+      }}>
         <Typography variant="h4" align="center" gutterBottom sx={{ 
           color: theme.palette.primary.main,
           fontWeight: 'bold',

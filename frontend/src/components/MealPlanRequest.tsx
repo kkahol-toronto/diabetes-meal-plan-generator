@@ -1114,12 +1114,14 @@ const MealPlanRequest: React.FC = () => {
         py: 4,
       }}
     >
-      <Container maxWidth="lg">
+      <Container maxWidth="lg" sx={{ 
+        px: { xs: 1, sm: 3 } // Reduce horizontal padding on mobile
+      }}>
         <Fade in={loaded} timeout={1000}>
           <Paper 
             elevation={0}
             sx={{ 
-              p: { xs: 2, sm: 3, md: 4 }, 
+              p: { xs: 1.5, sm: 3, md: 4 }, // Slightly reduce padding on mobile 
               borderRadius: 4,
               background: 'rgba(255,255,255,0.95)',
               backdropFilter: 'blur(20px)',
@@ -1508,7 +1510,9 @@ const MealPlanRequest: React.FC = () => {
                   },
                 }}
               >
-                <CardContent sx={{ p: 4 }}>
+                <CardContent sx={{ 
+                  p: { xs: 1, sm: 2, md: 4 } // Mobile: 8px, Tablet: 16px, Desktop: 32px
+                }}>
                   {renderStepContent(activeStep)}
                 </CardContent>
               </Card>

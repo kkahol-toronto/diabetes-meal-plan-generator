@@ -1189,33 +1189,37 @@ const ConsumptionHistory: React.FC = () => {
           value={activeTab} 
           onChange={handleTabChange} 
           aria-label="consumption tabs"
-          variant="fullWidth"
+          variant="scrollable"
+          scrollButtons="auto"
+          allowScrollButtonsMobile
           sx={{ 
             borderBottom: 1, 
             borderColor: 'divider',
             '& .MuiTab-root': { 
               fontWeight: 'bold',
-              fontSize: '1rem'
+              fontSize: { xs: '0.75rem', sm: '0.875rem', md: '1rem' },
+              minWidth: { xs: 80, sm: 120, md: 160 },
+              px: { xs: 1, sm: 2 }
             }
           }}
         >
           <Tab 
-            label="📊 Daily Insights" 
+            label="DAILY INSIGHTS" 
             icon={<TrendingUpIcon />}
             iconPosition="start"
           />
           <Tab 
-            label="🍽️ Meal History" 
+            label="MEAL HISTORY" 
             icon={<MealIcon />}
             iconPosition="start"
           />
           <Tab 
-            label="�� Advanced Analytics" 
+            label="ADVANCED ANALYTICS" 
             icon={<AnalyticsIcon />}
             iconPosition="start"
           />
           <Tab 
-            label="📋 Detailed Reports" 
+            label="DETAILED REPORTS" 
             icon={<AssessmentIcon />}
             iconPosition="start"
           />
