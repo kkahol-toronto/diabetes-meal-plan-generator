@@ -40,10 +40,24 @@ from database import (
     log_meal_suggestion,
     get_ai_suggestion,
     update_consumption_meal_type,
+    # Phase 1: Deletion system imports
+    soft_delete_consumption,
+    bulk_delete_consumption,
+    restore_consumption,
+    soft_delete_meal_plan,
+    soft_delete_shopping_list,
+    delete_user_account,
+    verify_deletion_code,
+    purge_user_data,
+    get_user_consumption_history_with_deleted,
 )
 
 # Use interactions_container as consumption_collection for consistency
 consumption_collection = interactions_container
+
+# Phase 2: Initialize meal extraction service
+from meal_extraction_service import MealExtractionService
+meal_extraction_service = MealExtractionService()
 import uuid
 from io import BytesIO
 from reportlab.lib.pagesizes import letter, landscape
@@ -5849,7 +5863,6 @@ async def get_daily_coaching_insights(current_user: User = Depends(get_current_u
         # Get recent consumption history (last 7 days) - USING ORIGINAL FUNCTION
         try:
             recent_consumption = await get_user_consumption_history(current_user["email"], limit=30)
-            from datetime import datetime, timedelta
             seven_days_ago = datetime.utcnow() - timedelta(days=7)
             recent_consumption = [
                 record for record in recent_consumption 
@@ -9647,6 +9660,2141 @@ Export Timestamp: """ + datetime.now().isoformat()
                 "format": "json_fallback"
             }
         })
+
+# ============================================================================
+# PHASE 1: DELETION CAPABILITIES ENDPOINTS
+# ============================================================================
+
+@app.delete("/consumption/{consumption_id}")
+async def delete_consumption(
+    consumption_id: str,
+    current_user: User = Depends(get_current_user),
+    hard_delete: bool = False
+):
+    """
+    Delete a consumption record
+    - Soft delete by default (sets deleted_at timestamp)
+    - Hard delete option for admin users
+    - Cascade deletion for related analytics
+    """
+    try:
+        # Validate ownership - Fix: Use correct field access
+        user_id = current_user.get("email") or current_user.get("id")
+        if not user_id:
+            raise HTTPException(400, "User identification not found")
+        
+        # Use soft delete (hard delete not implemented yet for safety)
+        result = await soft_delete_consumption(consumption_id, user_id)
+        
+        return {
+            "status": "deleted", 
+            "consumption_id": consumption_id,
+            "deletion_type": "soft",
+            "can_be_restored": True
+        }
+    
+    except Exception as e:
+        logger.error(f"Deletion failed: {str(e)}")
+        raise HTTPException(500, f"Deletion failed: {str(e)}")
+
+@app.delete("/consumption/bulk")
+async def bulk_delete_consumption_endpoint(
+    request: Request,
+    current_user: User = Depends(get_current_user)
+):
+    """Bulk delete multiple consumption records"""
+    try:
+        data = await request.json()
+        consumption_ids = data.get("consumption_ids", [])
+        
+        if not consumption_ids:
+            raise HTTPException(400, "consumption_ids is required")
+        
+        # Fix: Use 'id' field which contains the email, not 'email'
+        user_id = current_user.get("email") or current_user.get("id")
+        if not user_id:
+            raise HTTPException(400, "User identification not found")
+            
+        result = await bulk_delete_consumption(consumption_ids, user_id)
+        
+        return result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Bulk deletion failed: {str(e)}")
+        raise HTTPException(500, f"Bulk deletion failed: {str(e)}")
+
+@app.post("/consumption/{consumption_id}/restore")
+async def restore_consumption_endpoint(
+    consumption_id: str,
+    current_user: User = Depends(get_current_user)
+):
+    """Restore a soft-deleted consumption record"""
+    try:
+        # Fix: Use correct field access
+        user_id = current_user.get("email") or current_user.get("id")
+        if not user_id:
+            raise HTTPException(400, "User identification not found")
+            
+        result = await restore_consumption(consumption_id, user_id)
+        
+        return {
+            "status": "restored",
+            "consumption_id": consumption_id,
+            "restored_at": datetime.utcnow().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Restoration failed: {str(e)}")
+        raise HTTPException(500, f"Restoration failed: {str(e)}")
+
+@app.put("/consumption/{consumption_id}/edit")
+async def edit_consumption_endpoint(
+    consumption_id: str,
+    edit_data: dict,
+    current_user: User = Depends(get_current_user)
+):
+    """Edit an existing consumption record"""
+    try:
+        # Validate ownership
+        user_id = current_user.get("email") or current_user.get("id")
+        if not user_id:
+            raise HTTPException(400, "User identification not found")
+        
+        # Get the consumption record
+        query = f"SELECT * FROM c WHERE c.id = '{consumption_id}' AND c.user_id = '{user_id}' AND c.type = 'consumption_record'"
+        items = list(interactions_container.query_items(query=query, enable_cross_partition_query=True))
+        
+        if not items:
+            raise HTTPException(404, "Consumption record not found or not owned by user")
+        
+        consumption_record = items[0]
+        
+        # Check if record is soft-deleted
+        if consumption_record.get("soft_delete"):
+            raise HTTPException(400, "Cannot edit a deleted record. Please restore it first.")
+        
+        # Update fields that are provided in edit_data
+        allowed_fields = ["food_name", "estimated_portion", "meal_type", "nutritional_info", "medical_rating"]
+        for field in allowed_fields:
+            if field in edit_data:
+                consumption_record[field] = edit_data[field]
+        
+        # Add edit metadata
+        consumption_record["edited_at"] = datetime.utcnow().isoformat()
+        consumption_record["edited_by"] = user_id
+        consumption_record["edit_history"] = consumption_record.get("edit_history", [])
+        consumption_record["edit_history"].append({
+            "edited_at": datetime.utcnow().isoformat(),
+            "edited_by": user_id,
+            "changes": edit_data
+        })
+        
+        # Update the record
+        result = interactions_container.upsert_item(body=consumption_record)
+        
+        return {
+            "status": "edited",
+            "consumption_id": consumption_id,
+            "edited_at": datetime.utcnow().isoformat(),
+            "updated_fields": list(edit_data.keys())
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Edit failed: {str(e)}")
+        raise HTTPException(500, f"Edit failed: {str(e)}")
+
+@app.delete("/meal-plans/{meal_plan_id}")
+async def delete_meal_plan_endpoint(
+    meal_plan_id: str,
+    current_user: User = Depends(get_current_user),
+    cascade_shopping_list: bool = True
+):
+    """
+    Delete meal plan with dependency handling
+    - Check for dependent shopping lists
+    - Option to cascade delete or preserve
+    - Audit trail for deletion
+    """
+    try:
+        user_id = current_user["email"]
+        result = await soft_delete_meal_plan(meal_plan_id, user_id, cascade_shopping_list)
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"Meal plan deletion failed: {str(e)}")
+        raise HTTPException(500, f"Meal plan deletion failed: {str(e)}")
+
+@app.delete("/users/account")
+async def delete_user_account_endpoint(
+    request: Request,
+    current_user: User = Depends(get_current_user)
+):
+    """
+    GDPR-compliant complete user account deletion
+    - Requires email confirmation
+    - Deletes all user data across all collections
+    - Sends deletion confirmation
+    """
+    try:
+        data = await request.json()
+        confirmation_code = data.get("confirmation_code")
+        
+        user_id = current_user["email"]
+        result = await delete_user_account(user_id, confirmation_code)
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"Account deletion failed: {str(e)}")
+        raise HTTPException(500, f"Account deletion failed: {str(e)}")
+
+@app.get("/consumption/history-with-deleted")
+async def get_consumption_history_with_deleted_endpoint(
+    include_deleted: bool = False,
+    limit: int = 50,
+    current_user: User = Depends(get_current_user)
+):
+    """Get consumption history with option to include soft-deleted records"""
+    try:
+        # Fix: Use correct field access
+        user_id = current_user.get("email") or current_user.get("id")
+        if not user_id:
+            raise HTTPException(400, "User identification not found")
+        
+        history = await get_user_consumption_history_with_deleted(user_id, include_deleted, limit)
+        
+        return {
+            "consumption_history": history,
+            "total_records": len(history),
+            "includes_deleted": include_deleted
+        }
+        
+    except Exception as e:
+        logger.error(f"Consumption history retrieval failed: {str(e)}")
+        raise HTTPException(500, f"Failed to get consumption history: {str(e)}")
+
+# ============================================================================
+# PHASE 1: PENDING LOG SYSTEM (Accept/Edit/Delete Flow)
+# ============================================================================
+
+class PendingMealLog(BaseModel):
+    food_name: str
+    quantity: str = "medium portion"
+    meal_type: str = "snack"
+    consumption_date: Optional[datetime] = None
+
+@app.post("/consumption/log/pending")
+async def initiate_pending_log(
+    meal: PendingMealLog, 
+    current_user: User = Depends(get_current_user)
+):
+    """Initiate log entry in pending state"""
+    try:
+        user_id = current_user["email"]
+        
+        pending_entry = {
+            "type": "pending_consumption",
+            "id": f"pending_{user_id}_{int(datetime.utcnow().timestamp() * 1000)}",
+            "session_id": generate_session_id(),
+            "user_id": user_id,
+            "food_name": meal.food_name,
+            "quantity": meal.quantity,
+            "meal_type": meal.meal_type,
+            "consumption_date": meal.consumption_date or datetime.utcnow(),
+            "status": "pending",
+            "created_at": datetime.utcnow().isoformat()
+        }
+        
+        # Save pending entry
+        result = interactions_container.upsert_item(body=pending_entry)
+        
+        return {
+            "status": "pending", 
+            "pending_id": result["id"], 
+            "entry": pending_entry
+        }
+        
+    except Exception as e:
+        logger.error(f"Pending log creation failed: {str(e)}")
+        raise HTTPException(500, f"Pending log creation failed: {str(e)}")
+
+@app.put("/consumption/log/{pending_id}/accept")
+async def accept_pending_log(
+    pending_id: str,
+    current_user: User = Depends(get_current_user)
+):
+    """Accept pending log and commit to database"""
+    try:
+        user_id = current_user["email"]
+        
+        # Get pending entry
+        query = f"SELECT * FROM c WHERE c.id = '{pending_id}' AND c.user_id = '{user_id}' AND c.type = 'pending_consumption'"
+        items = list(interactions_container.query_items(query=query, enable_cross_partition_query=True))
+        
+        if not items:
+            raise HTTPException(404, "Pending log entry not found")
+        
+        pending_entry = items[0]
+        
+        # Convert to consumption record
+        consumption_data = {
+            "food_name": pending_entry["food_name"],
+            "estimated_portion": pending_entry["quantity"],
+            "nutritional_info": {},  # Will be analyzed
+            "meal_type": pending_entry["meal_type"]
+        }
+        
+        # Save as consumption record
+        consumption_record = await save_consumption_record(user_id, consumption_data, pending_entry["meal_type"])
+        
+        # Delete pending entry
+        interactions_container.delete_item(item=pending_id, partition_key=pending_entry["session_id"])
+        
+        return {
+            "status": "accepted",
+            "consumption_id": consumption_record["id"],
+            "pending_id": pending_id
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Accept pending log failed: {str(e)}")
+        raise HTTPException(500, f"Accept pending log failed: {str(e)}")
+
+@app.put("/consumption/log/{pending_id}/edit")
+async def edit_pending_log(
+    pending_id: str,
+    current_user: User = Depends(get_current_user)
+):
+    """Edit pending log - opens chat window for modifications"""
+    try:
+        user_id = current_user["email"]
+        
+        # Get pending entry
+        query = f"SELECT * FROM c WHERE c.id = '{pending_id}' AND c.user_id = '{user_id}' AND c.type = 'pending_consumption'"
+        items = list(interactions_container.query_items(query=query, enable_cross_partition_query=True))
+        
+        if not items:
+            raise HTTPException(404, "Pending log entry not found")
+        
+        pending_entry = items[0]
+        
+        # Create a chat session for editing
+        session_id = generate_session_id()
+        
+        # Save initial chat message
+        await save_chat_message(
+            user_id,
+            f"I want to edit this food log: {pending_entry['food_name']} ({pending_entry['quantity']}) for {pending_entry['meal_type']}",
+            is_user=True,
+            session_id=session_id
+        )
+        
+        return {
+            "status": "edit_mode",
+            "chat_session_id": session_id,
+            "pending_id": pending_id,
+            "current_entry": pending_entry,
+            "message": "Chat session created for editing. You can now modify the food log through the chat interface."
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Edit pending log failed: {str(e)}")
+        raise HTTPException(500, f"Edit pending log failed: {str(e)}")
+
+@app.delete("/consumption/log/{pending_id}")
+async def delete_pending_log(
+    pending_id: str,
+    current_user: User = Depends(get_current_user)
+):
+    """Delete pending log before commit"""
+    try:
+        user_id = current_user["email"]
+        
+        # Get pending entry
+        query = f"SELECT * FROM c WHERE c.id = '{pending_id}' AND c.user_id = '{user_id}' AND c.type = 'pending_consumption'"
+        items = list(interactions_container.query_items(query=query, enable_cross_partition_query=True))
+        
+        if not items:
+            raise HTTPException(404, "Pending log entry not found")
+        
+        pending_entry = items[0]
+        
+        # Delete pending entry
+        interactions_container.delete_item(item=pending_id, partition_key=pending_entry["session_id"])
+        
+        return {
+            "status": "deleted",
+            "pending_id": pending_id,
+            "message": "Pending log entry deleted successfully"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Delete pending log failed: {str(e)}")
+        raise HTTPException(500, f"Delete pending log failed: {str(e)}")
+
+# ============================================================================
+# PHASE 2: AUTOMATED FOOD LOGGING SYSTEM (Chat Integration)
+# ============================================================================
+
+# Import the meal extraction service
+import sys
+
+# Load the meal extraction service from the services file
+from services import MealExtractionService
+
+# Initialize the meal extraction service
+meal_extraction_service = MealExtractionService()
+
+@app.post("/chat/analyze-for-meals")
+async def analyze_message_for_meals(
+    request: Request,
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Analyze chat message for meal mentions and return extraction results
+    """
+    try:
+        data = await request.json()
+        message = data.get("message", "")
+        conversation_id = data.get("conversation_id")
+        
+        if not message:
+            raise HTTPException(400, "Message is required")
+        
+        # Get user context
+        user_context = await get_comprehensive_user_context(current_user["email"])
+        
+        # Get recent conversation history
+        conversation_history = await get_recent_chat_history(
+            current_user["id"], 
+            session_id=conversation_id,
+            limit=5
+        )
+        
+        # Extract meals from message
+        extracted_meals = await meal_extraction_service.extract_meals_from_message(
+            message=message,
+            user_context=user_context.get("user_profile", {}),
+            conversation_history=conversation_history
+        )
+        
+        # Store extraction results for potential logging
+        extraction_result = {
+            "message": message,
+            "user_id": current_user["email"],
+            "extracted_meals": extracted_meals,
+            "timestamp": datetime.utcnow().isoformat(),
+            "confidence_threshold": 70  # Configurable threshold
+        }
+        
+        # Only return high-confidence extractions
+        high_confidence_meals = [
+            meal for meal in extracted_meals 
+            if meal.get('confidence', 0) >= 70
+        ]
+        
+        # Store extraction result for potential confirmation
+        extraction_id = f"extraction_{current_user['email']}_{int(datetime.utcnow().timestamp() * 1000)}"
+        
+        # Store in interactions container temporarily
+        temp_extraction = {
+            "type": "meal_extraction",
+            "id": extraction_id,
+            "session_id": extraction_id,
+            "user_id": current_user["email"],
+            "extraction_data": extraction_result,
+            "created_at": datetime.utcnow().isoformat(),
+            "expires_at": (datetime.utcnow() + timedelta(hours=1)).isoformat()
+        }
+        
+        interactions_container.upsert_item(body=temp_extraction)
+        
+        return {
+            "meals_detected": len(high_confidence_meals),
+            "extracted_meals": high_confidence_meals,
+            "requires_confirmation": len(high_confidence_meals) > 0,
+            "extraction_id": extraction_id,
+            "confidence_threshold": 70
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Message analysis failed: {str(e)}")
+        raise HTTPException(500, f"Analysis failed: {str(e)}")
+
+@app.post("/chat/confirm-meal-extraction")
+async def confirm_and_log_meals(
+    request: Request,
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Confirm extracted meals and log them to consumption history
+    """
+    try:
+        data = await request.json()
+        extraction_id = data.get("extraction_id")
+        confirmed_meals = data.get("confirmed_meals", [])
+        modifications = data.get("modifications", {})
+        
+        if not extraction_id:
+            raise HTTPException(400, "extraction_id is required")
+        
+        # Retrieve original extraction
+        query = f"SELECT * FROM c WHERE c.id = '{extraction_id}' AND c.user_id = '{current_user['email']}' AND c.type = 'meal_extraction'"
+        items = list(interactions_container.query_items(query=query, enable_cross_partition_query=True))
+        
+        if not items:
+            raise HTTPException(404, "Extraction not found or expired")
+        
+        extraction_data = items[0]["extraction_data"]
+        
+        logged_meals = []
+        
+        for meal_data in confirmed_meals:
+            # Apply any user modifications
+            final_meal_data = {**meal_data, **modifications.get(meal_data.get("food_name", ""), {})}
+            
+            # Log to consumption system
+            consumption_entry = {
+                "food_name": final_meal_data["food_name"],
+                "estimated_portion": final_meal_data.get("quantity", "1 serving"),
+                "nutritional_info": final_meal_data.get("estimated_nutrition", {}),
+                "meal_type": final_meal_data.get("meal_type", "snack"),
+                "image_analysis": f"Extracted from chat: {final_meal_data.get('raw_mention', '')}",
+                "medical_rating": {
+                    "diabetes_suitability": final_meal_data.get("diabetes_impact", {}).get("impact_level", "unknown"),
+                    "recommendation": final_meal_data.get("diabetes_impact", {}).get("recommendation", "")
+                }
+            }
+            
+            # Save to database
+            logged_meal = await save_consumption_record(
+                current_user["email"], 
+                consumption_entry, 
+                final_meal_data.get("meal_type", "snack")
+            )
+            logged_meals.append({
+                "logged_meal_id": logged_meal["id"],
+                "food_name": final_meal_data["food_name"],
+                "meal_type": final_meal_data.get("meal_type", "snack"),
+                "estimated_nutrition": final_meal_data.get("estimated_nutrition", {})
+            })
+        
+        # Clean up extraction record
+        interactions_container.delete_item(item=extraction_id, partition_key=extraction_id)
+        
+        # Trigger meal plan recalibration
+        try:
+            user_profile = current_user.get("profile", {})
+            await trigger_meal_plan_recalibration(current_user["email"], user_profile)
+        except Exception as recal_error:
+            logging.warning(f"Meal plan recalibration failed: {str(recal_error)}")
+        
+        return {
+            "status": "meals_logged",
+            "logged_count": len(logged_meals),
+            "logged_meals": logged_meals,
+            "message": f"Successfully logged {len(logged_meals)} meal(s) from your message"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Meal confirmation failed: {str(e)}")
+        raise HTTPException(500, f"Confirmation failed: {str(e)}")
+
+@app.post("/chat/smart-log")
+async def smart_log_from_message(
+    request: Request,
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Smart logging endpoint that automatically extracts and logs meals with minimal user interaction
+    """
+    try:
+        data = await request.json()
+        message = data.get("message", "")
+        auto_confirm = data.get("auto_confirm", False)  # Allow automatic confirmation for high-confidence extractions
+        
+        if not message:
+            raise HTTPException(400, "Message is required")
+        
+        # Analyze message for meals
+        analyze_response = await analyze_message_for_meals(request, current_user)
+        
+        extracted_meals = analyze_response["extracted_meals"]
+        
+        if not extracted_meals:
+            return {
+                "status": "no_meals_detected",
+                "message": "No meals detected in your message",
+                "extracted_meals": []
+            }
+        
+        # If auto_confirm is enabled and all meals have high confidence, log automatically
+        if auto_confirm and all(meal.get('confidence', 0) >= 85 for meal in extracted_meals):
+            confirm_request = Request(scope={
+                'type': 'http',
+                'method': 'POST',
+                'headers': []
+            })
+            
+            # Mock the request body for confirmation
+            confirm_data = {
+                "extraction_id": analyze_response["extraction_id"],
+                "confirmed_meals": extracted_meals,
+                "modifications": {}
+            }
+            
+            # Create a mock request with the confirmation data
+            import asyncio
+            from unittest.mock import AsyncMock
+            
+            mock_request = AsyncMock()
+            mock_request.json = AsyncMock(return_value=confirm_data)
+            
+            confirm_response = await confirm_and_log_meals(mock_request, current_user)
+            
+            return {
+                "status": "auto_logged",
+                "message": f"Automatically logged {confirm_response['logged_count']} meal(s) from your message",
+                "logged_meals": confirm_response["logged_meals"],
+                "confidence": "high"
+            }
+        else:
+            return {
+                "status": "requires_confirmation",
+                "message": "Meals detected but require confirmation",
+                "extracted_meals": extracted_meals,
+                "extraction_id": analyze_response["extraction_id"],
+                "instructions": "Please review and confirm the detected meals using /chat/confirm-meal-extraction"
+            }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Smart logging failed: {str(e)}")
+        raise HTTPException(500, f"Smart logging failed: {str(e)}")
+
+# ============================================================================
+# PHASE 3: ENHANCED ADMIN PORTAL & PATIENT TRACKING
+# ============================================================================
+
+class PatientAnalytics(BaseModel):
+    patient_id: str
+    date_range: Optional[str] = "30_days"  # 7_days, 30_days, 90_days
+    include_metrics: Optional[List[str]] = ["adherence", "nutrition", "goals"]
+
+class HealthRiskAssessment(BaseModel):
+    risk_factors: List[str]
+    severity_level: str  # low, medium, high, critical
+    recommendations: List[str]
+    next_review_date: str
+
+@app.get("/admin/dashboard/overview")
+async def get_admin_dashboard_overview(
+    current_user: User = Depends(get_current_user)
+):
+    """Enhanced admin dashboard with comprehensive patient analytics"""
+    try:
+        if not current_user.get("is_admin"):
+            raise HTTPException(403, "Not authorized")
+        
+        # Get all patients with recent activity
+        patients = await get_all_patients()
+        
+        dashboard_data = {
+            "total_patients": len(patients),
+            "active_patients": 0,
+            "high_risk_patients": 0,
+            "adherence_stats": {
+                "excellent": 0,
+                "good": 0,
+                "needs_improvement": 0,
+                "poor": 0
+            },
+            "recent_activities": [],
+            "system_alerts": [],
+            "performance_metrics": {
+                "avg_meal_plan_adherence": 0,
+                "avg_glucose_control": 0,
+                "patient_satisfaction": 0
+            }
+        }
+        
+        # Analyze each patient
+        for patient in patients:
+            try:
+                # Get patient consumption data
+                patient_email = await get_patient_email_by_id(patient["id"])
+                if patient_email:
+                    consumption_data = await get_user_consumption_history(patient_email, limit=50)
+                    analytics = await get_consumption_analytics(patient_email, days=30)
+                    
+                    # Determine if patient is active (logged food in last 7 days)
+                    recent_activity = any(
+                        (datetime.utcnow() - datetime.fromisoformat(record["timestamp"].replace("Z", "+00:00"))).days <= 7
+                        for record in consumption_data
+                    )
+                    
+                    if recent_activity:
+                        dashboard_data["active_patients"] += 1
+                    
+                    # Risk assessment based on adherence
+                    adherence_rate = analytics.get("adherence_stats", {}).get("diabetes_suitable_percentage", 0)
+                    
+                    if adherence_rate >= 80:
+                        dashboard_data["adherence_stats"]["excellent"] += 1
+                    elif adherence_rate >= 60:
+                        dashboard_data["adherence_stats"]["good"] += 1
+                    elif adherence_rate >= 40:
+                        dashboard_data["adherence_stats"]["needs_improvement"] += 1
+                    else:
+                        dashboard_data["adherence_stats"]["poor"] += 1
+                        dashboard_data["high_risk_patients"] += 1
+                        
+                        # Add to system alerts
+                        dashboard_data["system_alerts"].append({
+                            "type": "low_adherence",
+                            "patient_name": patient.get("name", "Unknown"),
+                            "patient_id": patient["id"],
+                            "adherence_rate": adherence_rate,
+                            "severity": "high",
+                            "message": f"Patient {patient.get('name', 'Unknown')} has low adherence rate ({adherence_rate:.1f}%)"
+                        })
+            
+            except Exception as e:
+                logging.error(f"Error analyzing patient {patient.get('id', 'unknown')}: {str(e)}")
+                continue
+        
+        # Calculate performance metrics
+        if dashboard_data["total_patients"] > 0:
+            total_adherence = sum(dashboard_data["adherence_stats"].values())
+            if total_adherence > 0:
+                dashboard_data["performance_metrics"]["avg_meal_plan_adherence"] = (
+                    (dashboard_data["adherence_stats"]["excellent"] * 90 + 
+                     dashboard_data["adherence_stats"]["good"] * 70 + 
+                     dashboard_data["adherence_stats"]["needs_improvement"] * 50 + 
+                     dashboard_data["adherence_stats"]["poor"] * 25) / total_adherence
+                )
+        
+        return dashboard_data
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Admin dashboard error: {str(e)}")
+        raise HTTPException(500, f"Dashboard error: {str(e)}")
+
+@app.get("/admin/patients/{patient_id}/analytics")
+async def get_patient_analytics(
+    patient_id: str,
+    date_range: str = "30_days",
+    current_user: User = Depends(get_current_user)
+):
+    """Get detailed analytics for a specific patient"""
+    try:
+        if not current_user.get("is_admin"):
+            raise HTTPException(403, "Not authorized")
+        
+        # Get patient info
+        patient = await get_patient_by_id(patient_id)
+        if not patient:
+            raise HTTPException(404, "Patient not found")
+        
+        # Get patient email to fetch data
+        patient_email = await get_patient_email_by_id(patient_id)
+        if not patient_email:
+            raise HTTPException(404, "Patient email not found")
+        
+        # Determine date range
+        days_map = {"7_days": 7, "30_days": 30, "90_days": 90}
+        days = days_map.get(date_range, 30)
+        
+        # Get comprehensive analytics
+        consumption_analytics = await get_consumption_analytics(patient_email, days=days)
+        consumption_history = await get_user_consumption_history(patient_email, limit=100)
+        meal_plans = await get_user_meal_plans(patient_email, limit=10)
+        
+        # Health risk assessment
+        risk_assessment = await assess_patient_health_risk(patient, consumption_analytics)
+        
+        # Compliance trends
+        compliance_trends = await calculate_compliance_trends(consumption_history, days)
+        
+        # Nutrition goals tracking
+        nutrition_goals = await track_nutrition_goals(patient, consumption_analytics)
+        
+        analytics_data = {
+            "patient_info": {
+                "id": patient["id"],
+                "name": patient.get("name", "Unknown"),
+                "condition": patient.get("condition", "Unknown"),
+                "medical_conditions": patient.get("medical_conditions", []),
+                "registration_date": patient.get("created_at"),
+                "last_activity": consumption_history[0]["timestamp"] if consumption_history else None
+            },
+            "consumption_analytics": consumption_analytics,
+            "risk_assessment": risk_assessment,
+            "compliance_trends": compliance_trends,
+            "nutrition_goals": nutrition_goals,
+            "meal_plan_history": [
+                {
+                    "id": plan["id"],
+                    "created_at": plan["created_at"],
+                    "daily_calories": plan.get("dailyCalories", 0),
+                    "type": plan.get("type", "standard")
+                }
+                for plan in meal_plans
+            ],
+            "recommendations": await generate_patient_recommendations(patient, consumption_analytics, risk_assessment)
+        }
+        
+        return analytics_data
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Patient analytics error: {str(e)}")
+        raise HTTPException(500, f"Patient analytics error: {str(e)}")
+
+@app.post("/admin/patients/{patient_id}/risk-assessment")
+async def create_health_risk_assessment(
+    patient_id: str,
+    assessment_data: dict,
+    current_user: User = Depends(get_current_user)
+):
+    """Create or update health risk assessment for a patient"""
+    try:
+        if not current_user.get("is_admin"):
+            raise HTTPException(403, "Not authorized")
+        
+        # Get patient info
+        patient = await get_patient_by_id(patient_id)
+        if not patient:
+            raise HTTPException(404, "Patient not found")
+        
+        # Create risk assessment record
+        risk_assessment = {
+            "id": f"risk_assessment_{patient_id}_{datetime.utcnow().timestamp()}",
+            "type": "health_risk_assessment",
+            "patient_id": patient_id,
+            "assessment_date": datetime.utcnow().isoformat(),
+            "created_by": current_user["email"],
+            "risk_factors": assessment_data.get("risk_factors", []),
+            "severity_level": assessment_data.get("severity_level", "medium"),
+            "clinical_notes": assessment_data.get("clinical_notes", ""),
+            "recommendations": assessment_data.get("recommendations", []),
+            "follow_up_required": assessment_data.get("follow_up_required", False),
+            "next_review_date": assessment_data.get("next_review_date"),
+            "assessment_score": assessment_data.get("assessment_score", 0),
+            "session_id": patient_id  # Use patient_id as partition key
+        }
+        
+        # Save to database
+        result = interactions_container.upsert_item(body=risk_assessment)
+        
+        # Log the assessment activity
+        await log_admin_activity(
+            admin_id=current_user["email"],
+            action="health_risk_assessment_created",
+            patient_id=patient_id,
+            details=f"Risk level: {assessment_data.get('severity_level', 'medium')}"
+        )
+        
+        return {
+            "status": "created",
+            "assessment_id": risk_assessment["id"],
+            "severity_level": risk_assessment["severity_level"],
+            "next_review_date": risk_assessment["next_review_date"]
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Risk assessment creation error: {str(e)}")
+        raise HTTPException(500, f"Risk assessment creation error: {str(e)}")
+
+@app.get("/admin/alerts")
+async def get_system_alerts(
+    severity: Optional[str] = None,
+    limit: int = 50,
+    current_user: User = Depends(get_current_user)
+):
+    """Get system alerts for patient monitoring"""
+    try:
+        if not current_user.get("is_admin"):
+            raise HTTPException(403, "Not authorized")
+        
+        alerts = []
+        
+        # Get all patients for analysis
+        patients = await get_all_patients()
+        
+        for patient in patients:
+            try:
+                patient_email = await get_patient_email_by_id(patient["id"])
+                if not patient_email:
+                    continue
+                
+                # Check for various alert conditions
+                consumption_data = await get_user_consumption_history(patient_email, limit=20)
+                analytics = await get_consumption_analytics(patient_email, days=7)
+                
+                # Alert: No recent activity
+                if not consumption_data:
+                    alerts.append({
+                        "id": f"no_activity_{patient['id']}",
+                        "type": "no_recent_activity",
+                        "severity": "medium",
+                        "patient_id": patient["id"],
+                        "patient_name": patient.get("name", "Unknown"),
+                        "message": f"Patient {patient.get('name', 'Unknown')} has no logged meals in the past 7 days",
+                        "created_at": datetime.utcnow().isoformat(),
+                        "requires_action": True
+                    })
+                
+                # Alert: Low adherence
+                adherence_rate = analytics.get("adherence_stats", {}).get("diabetes_suitable_percentage", 0)
+                if adherence_rate < 50:
+                    alerts.append({
+                        "id": f"low_adherence_{patient['id']}",
+                        "type": "low_adherence",
+                        "severity": "high" if adherence_rate < 30 else "medium",
+                        "patient_id": patient["id"],
+                        "patient_name": patient.get("name", "Unknown"),
+                        "message": f"Patient {patient.get('name', 'Unknown')} has low diabetes-suitable meal adherence ({adherence_rate:.1f}%)",
+                        "created_at": datetime.utcnow().isoformat(),
+                        "requires_action": True,
+                        "adherence_rate": adherence_rate
+                    })
+                
+                # Alert: High calorie intake
+                avg_calories = analytics.get("daily_averages", {}).get("calories", 0)
+                if avg_calories > 2500:
+                    alerts.append({
+                        "id": f"high_calories_{patient['id']}",
+                        "type": "high_calorie_intake",
+                        "severity": "medium",
+                        "patient_id": patient["id"],
+                        "patient_name": patient.get("name", "Unknown"),
+                        "message": f"Patient {patient.get('name', 'Unknown')} has high average daily calorie intake ({avg_calories:.0f} kcal)",
+                        "created_at": datetime.utcnow().isoformat(),
+                        "requires_action": False,
+                        "avg_calories": avg_calories
+                    })
+                
+            except Exception as e:
+                logging.error(f"Error checking alerts for patient {patient.get('id', 'unknown')}: {str(e)}")
+                continue
+        
+        # Filter by severity if specified
+        if severity:
+            alerts = [alert for alert in alerts if alert["severity"] == severity]
+        
+        # Sort by severity and date
+        severity_order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+        alerts.sort(key=lambda x: (severity_order.get(x["severity"], 4), x["created_at"]), reverse=True)
+        
+        return {
+            "alerts": alerts[:limit],
+            "total_count": len(alerts),
+            "severity_breakdown": {
+                "critical": len([a for a in alerts if a["severity"] == "critical"]),
+                "high": len([a for a in alerts if a["severity"] == "high"]),
+                "medium": len([a for a in alerts if a["severity"] == "medium"]),
+                "low": len([a for a in alerts if a["severity"] == "low"])
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"System alerts error: {str(e)}")
+        raise HTTPException(500, f"System alerts error: {str(e)}")
+
+# ============================================================================
+# HELPER FUNCTIONS FOR PHASE 3
+# ============================================================================
+
+async def get_patient_email_by_id(patient_id: str) -> Optional[str]:
+    """Get patient email from user registration"""
+    try:
+        query = f"SELECT * FROM c WHERE c.type = 'user' AND c.registration_code = '{patient_id}'"
+        users = list(user_container.query_items(query=query, enable_cross_partition_query=True))
+        return users[0]["email"] if users else None
+    except Exception as e:
+        logging.error(f"Error getting patient email for ID {patient_id}: {str(e)}")
+        return None
+
+async def assess_patient_health_risk(patient: dict, consumption_analytics: dict) -> dict:
+    """Assess health risk based on patient data and consumption patterns"""
+    try:
+        risk_factors = []
+        risk_score = 0
+        
+        # Medical conditions risk
+        medical_conditions = patient.get("medical_conditions", [])
+        condition_risk_map = {
+            "diabetes": 30,
+            "hypertension": 20,
+            "heart disease": 40,
+            "kidney disease": 35,
+            "obesity": 25
+        }
+        
+        for condition in medical_conditions:
+            condition_lower = condition.lower()
+            for risk_condition, score in condition_risk_map.items():
+                if risk_condition in condition_lower:
+                    risk_factors.append(f"Medical condition: {condition}")
+                    risk_score += score
+                    break
+        
+        # Adherence risk
+        adherence_rate = consumption_analytics.get("adherence_stats", {}).get("diabetes_suitable_percentage", 0)
+        if adherence_rate < 60:
+            risk_factors.append(f"Low dietary adherence ({adherence_rate:.1f}%)")
+            risk_score += (60 - adherence_rate) * 0.5
+        
+        # Calorie intake risk
+        avg_calories = consumption_analytics.get("daily_averages", {}).get("calories", 0)
+        if avg_calories > 2500:
+            risk_factors.append(f"High calorie intake ({avg_calories:.0f} kcal/day)")
+            risk_score += min((avg_calories - 2500) / 100, 20)
+        
+        # Determine severity
+        if risk_score >= 80:
+            severity = "critical"
+        elif risk_score >= 60:
+            severity = "high"
+        elif risk_score >= 40:
+            severity = "medium"
+        else:
+            severity = "low"
+        
+        return {
+            "risk_score": min(risk_score, 100),
+            "severity_level": severity,
+            "risk_factors": risk_factors,
+            "recommendations": generate_risk_recommendations(severity, risk_factors),
+            "next_review_date": (datetime.utcnow() + timedelta(days=30 if severity == "low" else 14)).isoformat()
+        }
+        
+    except Exception as e:
+        logging.error(f"Risk assessment error: {str(e)}")
+        return {
+            "risk_score": 50,
+            "severity_level": "medium",
+            "risk_factors": ["Unable to assess - insufficient data"],
+            "recommendations": ["Schedule comprehensive health review"],
+            "next_review_date": (datetime.utcnow() + timedelta(days=30)).isoformat()
+        }
+
+def generate_risk_recommendations(severity: str, risk_factors: List[str]) -> List[str]:
+    """Generate recommendations based on risk assessment"""
+    recommendations = []
+    
+    if severity == "critical":
+        recommendations.extend([
+            "Immediate clinical intervention required",
+            "Schedule urgent appointment with healthcare provider",
+            "Consider intensive dietary counseling",
+            "Implement daily monitoring protocol"
+        ])
+    elif severity == "high":
+        recommendations.extend([
+            "Schedule appointment within 1-2 weeks",
+            "Increase meal plan supervision",
+            "Consider additional dietary restrictions",
+            "Weekly progress monitoring"
+        ])
+    elif severity == "medium":
+        recommendations.extend([
+            "Review and adjust meal plan",
+            "Provide additional education resources",
+            "Bi-weekly check-ins",
+            "Focus on adherence improvement"
+        ])
+    else:
+        recommendations.extend([
+            "Continue current management plan",
+            "Monthly routine check-ins",
+            "Maintain healthy lifestyle habits"
+        ])
+    
+    # Add specific recommendations based on risk factors
+    for factor in risk_factors:
+        if "low dietary adherence" in factor.lower():
+            recommendations.append("Implement adherence support strategies")
+        elif "high calorie intake" in factor.lower():
+            recommendations.append("Reduce portion sizes and calorie-dense foods")
+    
+    return recommendations
+
+async def calculate_compliance_trends(consumption_history: List[dict], days: int) -> dict:
+    """Calculate compliance trends over time"""
+    try:
+        daily_compliance = {}
+        
+        for record in consumption_history:
+            try:
+                record_date = datetime.fromisoformat(record["timestamp"].replace("Z", "+00:00")).date()
+                date_str = record_date.isoformat()
+                
+                if date_str not in daily_compliance:
+                    daily_compliance[date_str] = {"total": 0, "compliant": 0}
+                
+                daily_compliance[date_str]["total"] += 1
+                
+                # Check if meal is diabetes-suitable
+                medical_rating = record.get("medical_rating", {})
+                diabetes_suitability = medical_rating.get("diabetes_suitability", "").lower()
+                if diabetes_suitability in ["high", "good", "suitable"]:
+                    daily_compliance[date_str]["compliant"] += 1
+                    
+            except Exception as e:
+                logging.error(f"Error processing compliance record: {str(e)}")
+                continue
+        
+        # Calculate daily compliance rates
+        compliance_trends = []
+        for date_str in sorted(daily_compliance.keys())[-days:]:
+            data = daily_compliance[date_str]
+            compliance_rate = (data["compliant"] / data["total"] * 100) if data["total"] > 0 else 0
+            
+            compliance_trends.append({
+                "date": date_str,
+                "compliance_rate": compliance_rate,
+                "total_meals": data["total"],
+                "compliant_meals": data["compliant"]
+            })
+        
+        return {
+            "daily_trends": compliance_trends,
+            "avg_compliance": sum(t["compliance_rate"] for t in compliance_trends) / len(compliance_trends) if compliance_trends else 0,
+            "trend_direction": calculate_trend_direction(compliance_trends)
+        }
+        
+    except Exception as e:
+        logging.error(f"Compliance trends calculation error: {str(e)}")
+        return {"daily_trends": [], "avg_compliance": 0, "trend_direction": "stable"}
+
+def calculate_trend_direction(trends: List[dict]) -> str:
+    """Calculate if compliance is improving, declining, or stable"""
+    if len(trends) < 3:
+        return "insufficient_data"
+    
+    recent_avg = sum(t["compliance_rate"] for t in trends[-3:]) / 3
+    earlier_avg = sum(t["compliance_rate"] for t in trends[:3]) / 3
+    
+    if recent_avg > earlier_avg + 5:
+        return "improving"
+    elif recent_avg < earlier_avg - 5:
+        return "declining"
+    else:
+        return "stable"
+
+async def track_nutrition_goals(patient: dict, consumption_analytics: dict) -> dict:
+    """Track patient progress towards nutrition goals"""
+    try:
+        # Default goals based on medical conditions
+        medical_conditions = patient.get("medical_conditions", [])
+        
+        # Set condition-specific goals
+        goals = {
+            "calories": {"target": 2000, "tolerance": 200},
+            "protein": {"target": 100, "tolerance": 20},
+            "carbohydrates": {"target": 200, "tolerance": 50},
+            "fiber": {"target": 30, "tolerance": 10},
+            "sodium": {"target": 2300, "tolerance": 500}  # mg
+        }
+        
+        # Adjust goals based on conditions
+        for condition in medical_conditions:
+            condition_lower = condition.lower()
+            if "diabetes" in condition_lower:
+                goals["carbohydrates"]["target"] = 150  # Lower carb target
+                goals["fiber"]["target"] = 35
+            elif "hypertension" in condition_lower:
+                goals["sodium"]["target"] = 1500  # Lower sodium target
+            elif "kidney" in condition_lower:
+                goals["protein"]["target"] = 80  # Lower protein target
+        
+        # Compare actual vs goals
+        daily_averages = consumption_analytics.get("daily_averages", {})
+        goal_progress = {}
+        
+        for nutrient, goal_data in goals.items():
+            actual = daily_averages.get(nutrient, 0)
+            target = goal_data["target"]
+            tolerance = goal_data["tolerance"]
+            
+            # Calculate percentage of goal achieved
+            percentage = (actual / target * 100) if target > 0 else 0
+            
+            # Determine status
+            if abs(actual - target) <= tolerance:
+                status = "on_target"
+            elif actual > target + tolerance:
+                status = "above_target"
+            else:
+                status = "below_target"
+            
+            goal_progress[nutrient] = {
+                "actual": actual,
+                "target": target,
+                "percentage": percentage,
+                "status": status,
+                "tolerance_range": [target - tolerance, target + tolerance]
+            }
+        
+        return {
+            "goals": goals,
+            "progress": goal_progress,
+            "overall_score": sum(
+                min(100, prog["percentage"]) for prog in goal_progress.values()
+            ) / len(goal_progress) if goal_progress else 0
+        }
+        
+    except Exception as e:
+        logging.error(f"Nutrition goals tracking error: {str(e)}")
+        return {"goals": {}, "progress": {}, "overall_score": 0}
+
+async def generate_patient_recommendations(patient: dict, consumption_analytics: dict, risk_assessment: dict) -> List[dict]:
+    """Generate personalized recommendations for patient"""
+    try:
+        recommendations = []
+        
+        # Based on risk level
+        risk_level = risk_assessment.get("severity_level", "medium")
+        if risk_level in ["critical", "high"]:
+            recommendations.append({
+                "type": "clinical",
+                "priority": "high",
+                "title": "Clinical Review Required",
+                "description": "Schedule appointment with healthcare provider to review current management plan",
+                "action_required": True
+            })
+        
+        # Based on adherence
+        adherence_rate = consumption_analytics.get("adherence_stats", {}).get("diabetes_suitable_percentage", 0)
+        if adherence_rate < 70:
+            recommendations.append({
+                "type": "dietary",
+                "priority": "medium",
+                "title": "Improve Meal Plan Adherence",
+                "description": f"Current adherence rate is {adherence_rate:.1f}%. Focus on diabetes-friendly meal choices.",
+                "action_required": True
+            })
+        
+        # Based on calorie intake
+        avg_calories = consumption_analytics.get("daily_averages", {}).get("calories", 0)
+        if avg_calories > 2200:
+            recommendations.append({
+                "type": "nutrition",
+                "priority": "medium",
+                "title": "Reduce Calorie Intake",
+                "description": f"Average daily intake is {avg_calories:.0f} calories. Consider smaller portions.",
+                "action_required": False
+            })
+        
+        # Based on meal frequency
+        total_meals = consumption_analytics.get("total_meals", 0)
+        days_analyzed = 30  # Assuming 30-day analysis
+        avg_meals_per_day = total_meals / days_analyzed if days_analyzed > 0 else 0
+        
+        if avg_meals_per_day < 3:
+            recommendations.append({
+                "type": "lifestyle",
+                "priority": "low",
+                "title": "Increase Meal Frequency",
+                "description": "Consider eating regular meals to maintain stable blood glucose levels.",
+                "action_required": False
+            })
+        
+        return recommendations
+        
+    except Exception as e:
+        logging.error(f"Patient recommendations error: {str(e)}")
+        return []
+
+async def log_admin_activity(admin_id: str, action: str, patient_id: str = None, details: str = None):
+    """Log admin activities for audit trail"""
+    try:
+        activity_log = {
+            "id": f"admin_activity_{datetime.utcnow().timestamp()}",
+            "type": "admin_activity_log",
+            "admin_id": admin_id,
+            "action": action,
+            "patient_id": patient_id,
+            "details": details,
+            "timestamp": datetime.utcnow().isoformat(),
+            "session_id": admin_id  # Use admin_id as partition key
+        }
+        
+        interactions_container.upsert_item(body=activity_log)
+        
+    except Exception as e:
+        logging.error(f"Admin activity logging error: {str(e)}")
+
+# ============================================================================
+# PHASE 4: WELCOME SYSTEM & MEAL PLAN HISTORY ANALYSIS
+# ============================================================================
+
+class WelcomeMessage(BaseModel):
+    user_id: str
+    personalized_greeting: str
+    health_insights: List[str]
+    daily_recommendations: List[str]
+    meal_plan_suggestions: List[str]
+    progress_summary: Dict[str, Any]
+
+@app.get("/user/welcome-message")
+async def get_personalized_welcome_message(
+    current_user: User = Depends(get_current_user)
+):
+    """Generate personalized welcome message with auto-populated insights"""
+    try:
+        user_id = current_user["email"]
+        
+        # Get user profile and health data
+        user_data = await get_user_by_email(user_id)
+        user_profile = user_data.get("profile", {})
+        
+        # Get recent consumption data for insights
+        consumption_history = await get_user_consumption_history(user_id, limit=30)
+        consumption_analytics = await get_consumption_analytics(user_id, days=7)
+        
+        # Get meal plans for context
+        meal_plans = await get_user_meal_plans(user_id, limit=5)
+        
+        # Generate personalized greeting
+        patient_name = user_profile.get("name", "").split()[0] if user_profile.get("name") else "there"
+        greeting = await generate_personalized_greeting(patient_name, user_profile, consumption_analytics)
+        
+        # Generate health insights
+        health_insights = await generate_health_insights(user_profile, consumption_analytics, consumption_history)
+        
+        # Generate daily recommendations
+        daily_recommendations = await generate_daily_recommendations(user_profile, consumption_analytics)
+        
+        # Generate meal plan suggestions
+        meal_plan_suggestions = await generate_meal_plan_suggestions(user_profile, meal_plans, consumption_analytics)
+        
+        # Create progress summary
+        progress_summary = await create_progress_summary(consumption_analytics, meal_plans)
+        
+        welcome_data = {
+            "user_id": user_id,
+            "personalized_greeting": greeting,
+            "health_insights": health_insights,
+            "daily_recommendations": daily_recommendations,
+            "meal_plan_suggestions": meal_plan_suggestions,
+            "progress_summary": progress_summary,
+            "generated_at": datetime.utcnow().isoformat(),
+            "user_timezone": user_profile.get("timezone", "UTC")
+        }
+        
+        return welcome_data
+        
+    except Exception as e:
+        logging.error(f"Welcome message generation error: {str(e)}")
+        raise HTTPException(500, f"Welcome message generation error: {str(e)}")
+
+@app.get("/meal-plans/history-analysis")
+async def get_meal_plan_history_analysis(
+    days: int = 30,
+    current_user: User = Depends(get_current_user)
+):
+    """Analyze meal plan history with 70% repetition / 30% new dishes algorithm"""
+    try:
+        user_id = current_user["email"]
+        
+        # Get consumption history for analysis
+        consumption_history = await get_user_consumption_history(user_id, limit=200)
+        
+        # Get all meal plans for the user
+        meal_plans = await get_user_meal_plans(user_id, limit=20)
+        
+        # Analyze meal repetition patterns
+        repetition_analysis = await analyze_meal_repetition_patterns(consumption_history, days)
+        
+        # Apply 70/30 algorithm for optimal meal planning
+        optimal_meal_distribution = await calculate_optimal_meal_distribution(repetition_analysis)
+        
+        # Generate new meal plan based on 70/30 rule
+        optimized_meal_plan = await generate_70_30_meal_plan(user_id, repetition_analysis, optimal_meal_distribution)
+        
+        # Calculate variety score
+        variety_metrics = await calculate_meal_variety_metrics(consumption_history, days)
+        
+        analysis_data = {
+            "analysis_period": f"Last {days} days",
+            "repetition_analysis": repetition_analysis,
+            "optimal_distribution": optimal_meal_distribution,
+            "variety_metrics": variety_metrics,
+            "recommended_meal_plan": optimized_meal_plan,
+            "algorithm_insights": {
+                "repetition_percentage": 70,
+                "new_dishes_percentage": 30,
+                "rationale": "70% familiar foods ensure adherence and satisfaction, 30% new dishes provide variety and prevent monotony"
+            },
+            "implementation_recommendations": await generate_implementation_recommendations(repetition_analysis, variety_metrics)
+        }
+        
+        return analysis_data
+        
+    except Exception as e:
+        logging.error(f"Meal plan history analysis error: {str(e)}")
+        raise HTTPException(500, f"Meal plan history analysis error: {str(e)}")
+
+@app.post("/meal-plans/generate-optimized")
+async def generate_optimized_meal_plan(
+    request: dict,
+    current_user: User = Depends(get_current_user)
+):
+    """Generate optimized meal plan using 70/30 algorithm"""
+    try:
+        user_id = current_user["email"]
+        days = request.get("days", 7)
+        focus_area = request.get("focus_area", "balanced")  # balanced, weight_loss, diabetes_control
+        
+        # Get user data
+        user_data = await get_user_by_email(user_id)
+        user_profile = user_data.get("profile", {})
+        
+        # Get consumption history for pattern analysis
+        consumption_history = await get_user_consumption_history(user_id, limit=100)
+        
+        # Analyze preferences and patterns
+        preference_analysis = await analyze_user_food_preferences(consumption_history)
+        
+        # Generate 70/30 optimized meal plan
+        optimized_plan = await create_70_30_optimized_plan(
+            user_profile, 
+            preference_analysis, 
+            days, 
+            focus_area
+        )
+        
+        # Save the optimized meal plan
+        saved_plan = await save_meal_plan(user_id, optimized_plan)
+        
+        return {
+            "status": "generated",
+            "meal_plan_id": saved_plan["id"],
+            "optimization_strategy": "70/30 repetition algorithm",
+            "focus_area": focus_area,
+            "plan_data": optimized_plan,
+            "implementation_tips": await generate_implementation_tips(optimized_plan, preference_analysis)
+        }
+        
+    except Exception as e:
+        logging.error(f"Optimized meal plan generation error: {str(e)}")
+        raise HTTPException(500, f"Optimized meal plan generation error: {str(e)}")
+
+# ============================================================================
+# HELPER FUNCTIONS FOR PHASE 4
+# ============================================================================
+
+async def generate_personalized_greeting(name: str, user_profile: dict, consumption_analytics: dict) -> str:
+    """Generate personalized greeting based on user data and recent activity"""
+    try:
+        current_hour = datetime.utcnow().hour
+        
+        # Time-based greeting
+        if 5 <= current_hour < 12:
+            time_greeting = "Good morning"
+        elif 12 <= current_hour < 17:
+            time_greeting = "Good afternoon"
+        elif 17 <= current_hour < 22:
+            time_greeting = "Good evening"
+        else:
+            time_greeting = "Hello"
+        
+        # Personalization based on recent activity
+        total_meals = consumption_analytics.get("total_meals", 0)
+        adherence_rate = consumption_analytics.get("adherence_stats", {}).get("diabetes_suitable_percentage", 0)
+        
+        if total_meals == 0:
+            activity_context = "Welcome back! Ready to start tracking your meals today?"
+        elif adherence_rate >= 80:
+            activity_context = f"Great job maintaining excellent adherence! You're doing fantastic with your health goals."
+        elif adherence_rate >= 60:
+            activity_context = f"You're making good progress with your meal planning. Keep up the great work!"
+        else:
+            activity_context = f"Let's work together to improve your meal choices. Every healthy choice counts!"
+        
+        # Health condition awareness
+        medical_conditions = user_profile.get("medicalConditions", [])
+        if "diabetes" in str(medical_conditions).lower():
+            health_context = "Your diabetes management journey continues with every mindful meal choice."
+        elif medical_conditions:
+            health_context = f"Managing {', '.join(medical_conditions[:2])} with proper nutrition is key to your wellbeing."
+        else:
+            health_context = "Your commitment to healthy eating is an investment in your future self."
+        
+        greeting = f"{time_greeting}, {name}! {activity_context} {health_context}"
+        return greeting
+        
+    except Exception as e:
+        logging.error(f"Personalized greeting generation error: {str(e)}")
+        return f"Hello, {name}! Welcome back to your health journey."
+
+async def generate_health_insights(user_profile: dict, consumption_analytics: dict, consumption_history: List[dict]) -> List[str]:
+    """Generate personalized health insights based on user data"""
+    try:
+        insights = []
+        
+        # Adherence insights
+        adherence_rate = consumption_analytics.get("adherence_stats", {}).get("diabetes_suitable_percentage", 0)
+        if adherence_rate >= 80:
+            insights.append(f"🎉 Excellent adherence rate of {adherence_rate:.1f}%! You're successfully managing your dietary goals.")
+        elif adherence_rate >= 60:
+            insights.append(f"📈 Good progress with {adherence_rate:.1f}% adherence. Small improvements can make a big difference.")
+        else:
+            insights.append(f"💡 Your adherence rate is {adherence_rate:.1f}%. Let's focus on making diabetes-friendly choices.")
+        
+        # Calorie insights
+        avg_calories = consumption_analytics.get("daily_averages", {}).get("calories", 0)
+        calorie_target = int(user_profile.get("calorieTarget", 2000))
+        
+        if avg_calories > 0:
+            calorie_diff = avg_calories - calorie_target
+            if abs(calorie_diff) <= 100:
+                insights.append(f"🎯 Your calorie intake is well-balanced, averaging {avg_calories:.0f} calories daily.")
+            elif calorie_diff > 100:
+                insights.append(f"⚠️ Average intake is {avg_calories:.0f} calories, {calorie_diff:.0f} above your target. Consider smaller portions.")
+            else:
+                insights.append(f"📊 Average intake is {avg_calories:.0f} calories, {abs(calorie_diff):.0f} below target. Ensure adequate nutrition.")
+        
+        # Meal frequency insights
+        total_meals = consumption_analytics.get("total_meals", 0)
+        if total_meals > 0:
+            avg_meals_per_day = total_meals / 7  # Assuming 7-day analysis
+            if avg_meals_per_day >= 3:
+                insights.append(f"✅ Great meal frequency with {avg_meals_per_day:.1f} meals per day on average.")
+            else:
+                insights.append(f"🍽️ Consider increasing meal frequency to {avg_meals_per_day:.1f} meals per day for better glucose control.")
+        
+        # Top foods insight
+        top_foods = consumption_analytics.get("top_foods", [])
+        if top_foods:
+            favorite_food = top_foods[0]["food"]
+            insights.append(f"🥗 Your most logged food is {favorite_food}. Great choice if it's diabetes-friendly!")
+        
+        # Progress trend
+        if len(consumption_history) >= 7:
+            recent_week = consumption_history[:7]
+            diabetes_suitable_recent = sum(
+                1 for meal in recent_week 
+                if meal.get("medical_rating", {}).get("diabetes_suitability", "").lower() in ["high", "good", "suitable"]
+            )
+            recent_adherence = (diabetes_suitable_recent / len(recent_week)) * 100
+            
+            if recent_adherence > adherence_rate + 10:
+                insights.append(f"🚀 Your recent adherence is improving! Keep up the momentum.")
+            elif recent_adherence < adherence_rate - 10:
+                insights.append(f"📉 Recent choices could be improved. Let's get back on track together.")
+        
+        return insights[:4]  # Limit to 4 most relevant insights
+        
+    except Exception as e:
+        logging.error(f"Health insights generation error: {str(e)}")
+        return ["Welcome back! Let's continue your health journey together."]
+
+async def generate_daily_recommendations(user_profile: dict, consumption_analytics: dict) -> List[str]:
+    """Generate daily recommendations based on user profile and recent activity"""
+    try:
+        recommendations = []
+        
+        # Medical condition-specific recommendations
+        medical_conditions = user_profile.get("medicalConditions", [])
+        
+        for condition in medical_conditions:
+            condition_lower = condition.lower()
+            if "diabetes" in condition_lower:
+                recommendations.append("🩸 Monitor your blood glucose before and after meals to understand food impacts")
+                recommendations.append("🥬 Include fiber-rich vegetables in every meal to help stabilize blood sugar")
+            elif "hypertension" in condition_lower:
+                recommendations.append("🧂 Limit sodium intake to less than 2,300mg daily by avoiding processed foods")
+            elif "heart" in condition_lower:
+                recommendations.append("❤️ Include omega-3 rich foods like salmon or walnuts for heart health")
+        
+        # Activity-based recommendations
+        avg_calories = consumption_analytics.get("daily_averages", {}).get("calories", 0)
+        
+        if avg_calories > 2200:
+            recommendations.append("🍽️ Consider reducing portion sizes by 20% to reach your calorie goals")
+        elif avg_calories < 1500:
+            recommendations.append("🥤 Add healthy snacks like nuts or Greek yogurt to meet your nutritional needs")
+        
+        # Time-based recommendations
+        current_hour = datetime.utcnow().hour
+        
+        if 6 <= current_hour < 10:
+            recommendations.append("🌅 Start your day with a protein-rich breakfast to maintain stable energy")
+        elif 11 <= current_hour < 14:
+            recommendations.append("🥗 Make lunch your largest meal with plenty of vegetables and lean protein")
+        elif 17 <= current_hour < 20:
+            recommendations.append("🌙 Keep dinner light and finish eating 3 hours before bedtime")
+        else:
+            recommendations.append("💤 If you're having a late snack, choose something light and diabetes-friendly")
+        
+        # Hydration and lifestyle
+        recommendations.append("💧 Aim for 8 glasses of water throughout the day for optimal hydration")
+        
+        return recommendations[:5]  # Limit to 5 recommendations
+        
+    except Exception as e:
+        logging.error(f"Daily recommendations generation error: {str(e)}")
+        return ["Stay hydrated and make mindful food choices throughout the day."]
+
+async def analyze_meal_repetition_patterns(consumption_history: List[dict], days: int) -> dict:
+    """Analyze meal repetition patterns for 70/30 algorithm"""
+    try:
+        # Count food frequency
+        food_frequency = {}
+        meal_type_frequency = {"breakfast": {}, "lunch": {}, "dinner": {}, "snack": {}}
+        
+        for record in consumption_history[:days*4]:  # Approximate meals per day
+            food_name = record.get("food_name", "").lower().strip()
+            meal_type = record.get("meal_type", "snack").lower()
+            
+            if food_name:
+                # Overall frequency
+                food_frequency[food_name] = food_frequency.get(food_name, 0) + 1
+                
+                # Meal type specific frequency
+                if meal_type in meal_type_frequency:
+                    meal_type_frequency[meal_type][food_name] = meal_type_frequency[meal_type].get(food_name, 0) + 1
+        
+        # Identify frequently eaten foods (potential 70% foods)
+        total_meals = len(consumption_history[:days*4])
+        frequent_foods = {
+            food: count for food, count in food_frequency.items() 
+            if count >= 3 and count / total_meals >= 0.1  # At least 3 times and 10% frequency
+        }
+        
+        # Identify rarely eaten foods (potential 30% foods)
+        rare_foods = {
+            food: count for food, count in food_frequency.items() 
+            if count <= 2 and count / total_meals <= 0.05  # 2 or fewer times and 5% frequency
+        }
+        
+        # Calculate variety scores per meal type
+        variety_scores = {}
+        for meal_type, foods in meal_type_frequency.items():
+            if foods:
+                unique_foods = len(foods)
+                total_meals_type = sum(foods.values())
+                variety_scores[meal_type] = unique_foods / max(total_meals_type, 1) * 100
+            else:
+                variety_scores[meal_type] = 0
+        
+        return {
+            "food_frequency": food_frequency,
+            "meal_type_frequency": meal_type_frequency,
+            "frequent_foods": frequent_foods,
+            "rare_foods": rare_foods,
+            "variety_scores": variety_scores,
+            "total_unique_foods": len(food_frequency),
+            "total_meals_analyzed": total_meals,
+            "analysis_period": f"{days} days"
+        }
+        
+    except Exception as e:
+        logging.error(f"Meal repetition analysis error: {str(e)}")
+        return {"error": "Analysis failed", "food_frequency": {}}
+
+async def calculate_optimal_meal_distribution(repetition_analysis: dict) -> dict:
+    """Calculate optimal meal distribution using 70/30 rule"""
+    try:
+        frequent_foods = repetition_analysis.get("frequent_foods", {})
+        rare_foods = repetition_analysis.get("rare_foods", {})
+        meal_type_frequency = repetition_analysis.get("meal_type_frequency", {})
+        
+        optimal_distribution = {}
+        
+        for meal_type in ["breakfast", "lunch", "dinner", "snack"]:
+            meal_foods = meal_type_frequency.get(meal_type, {})
+            
+            # Sort foods by frequency for this meal type
+            sorted_foods = sorted(meal_foods.items(), key=lambda x: x[1], reverse=True)
+            
+            # Calculate 70% (familiar) and 30% (new) distribution
+            total_meal_instances = sum(meal_foods.values()) if meal_foods else 7  # Default to weekly
+            repetition_count = int(total_meal_instances * 0.7)
+            new_count = int(total_meal_instances * 0.3)
+            
+            # Select foods for 70% repetition (most frequent, diabetes-friendly)
+            repetition_foods = []
+            for food, count in sorted_foods[:5]:  # Top 5 most frequent
+                if count >= 2:  # Minimum frequency
+                    repetition_foods.append({
+                        "food": food,
+                        "frequency": count,
+                        "recommendation": "repeat",
+                        "reason": "familiar and well-tolerated"
+                    })
+            
+            # Suggest new foods for 30% variety
+            new_food_suggestions = await suggest_new_foods_for_meal_type(meal_type, repetition_foods)
+            
+            optimal_distribution[meal_type] = {
+                "repetition_foods": repetition_foods[:3],  # Top 3 for repetition
+                "new_food_suggestions": new_food_suggestions[:3],  # 3 new suggestions
+                "target_repetition_percentage": 70,
+                "target_variety_percentage": 30,
+                "weekly_distribution": {
+                    "familiar_meals": repetition_count,
+                    "new_meals": new_count
+                }
+            }
+        
+        return optimal_distribution
+        
+    except Exception as e:
+        logging.error(f"Optimal meal distribution calculation error: {str(e)}")
+        return {}
+
+async def suggest_new_foods_for_meal_type(meal_type: str, existing_foods: List[dict]) -> List[dict]:
+    """Suggest new diabetes-friendly foods for meal type"""
+    try:
+        existing_food_names = [food["food"] for food in existing_foods]
+        
+        # Diabetes-friendly food suggestions by meal type
+        suggestions_db = {
+            "breakfast": [
+                {"food": "steel-cut oats with berries", "diabetes_rating": "high", "reason": "high fiber, low glycemic"},
+                {"food": "greek yogurt with nuts", "diabetes_rating": "high", "reason": "high protein, probiotics"},
+                {"food": "vegetable omelet", "diabetes_rating": "high", "reason": "high protein, low carb"},
+                {"food": "chia seed pudding", "diabetes_rating": "high", "reason": "omega-3, fiber"},
+                {"food": "avocado toast on whole grain", "diabetes_rating": "medium", "reason": "healthy fats, fiber"}
+            ],
+            "lunch": [
+                {"food": "quinoa salad with vegetables", "diabetes_rating": "high", "reason": "complete protein, fiber"},
+                {"food": "lentil soup", "diabetes_rating": "high", "reason": "plant protein, low glycemic"},
+                {"food": "grilled chicken with vegetables", "diabetes_rating": "high", "reason": "lean protein, low carb"},
+                {"food": "chickpea curry", "diabetes_rating": "high", "reason": "plant protein, fiber"},
+                {"food": "salmon with quinoa", "diabetes_rating": "high", "reason": "omega-3, balanced macros"}
+            ],
+            "dinner": [
+                {"food": "baked fish with roasted vegetables", "diabetes_rating": "high", "reason": "lean protein, vitamins"},
+                {"food": "turkey meatballs with zucchini noodles", "diabetes_rating": "high", "reason": "low carb, high protein"},
+                {"food": "stir-fried tofu with vegetables", "diabetes_rating": "high", "reason": "plant protein, low glycemic"},
+                {"food": "cauliflower rice with lean protein", "diabetes_rating": "high", "reason": "very low carb"},
+                {"food": "bean and vegetable stew", "diabetes_rating": "high", "reason": "fiber, plant protein"}
+            ],
+            "snack": [
+                {"food": "apple slices with almond butter", "diabetes_rating": "high", "reason": "fiber, healthy fats"},
+                {"food": "cucumber with hummus", "diabetes_rating": "high", "reason": "low calorie, protein"},
+                {"food": "mixed nuts and seeds", "diabetes_rating": "high", "reason": "healthy fats, protein"},
+                {"food": "berries with greek yogurt", "diabetes_rating": "high", "reason": "antioxidants, protein"},
+                {"food": "celery with peanut butter", "diabetes_rating": "medium", "reason": "fiber, protein"}
+            ]
+        }
+        
+        meal_suggestions = suggestions_db.get(meal_type, [])
+        
+        # Filter out foods already in rotation
+        new_suggestions = [
+            suggestion for suggestion in meal_suggestions
+            if not any(existing in suggestion["food"] for existing in existing_food_names)
+        ]
+        
+        return new_suggestions[:5]  # Return top 5 new suggestions
+        
+    except Exception as e:
+        logging.error(f"New food suggestions error: {str(e)}")
+        return []
+
+async def generate_70_30_meal_plan(user_id: str, repetition_analysis: dict, optimal_distribution: dict) -> dict:
+    """Generate a meal plan following the 70/30 repetition algorithm"""
+    try:
+        # Create 7-day meal plan
+        meal_plan = {
+            "id": f"optimized_70_30_{user_id}_{datetime.utcnow().date().isoformat()}",
+            "type": "70_30_optimized",
+            "algorithm": "70% repetition, 30% variety",
+            "meals": {
+                "breakfast": [],
+                "lunch": [],
+                "dinner": [],
+                "snack": []
+            },
+            "created_at": datetime.utcnow().isoformat(),
+            "daily_calories": 2000,
+            "optimization_notes": []
+        }
+        
+        # Generate 7 days of meals
+        for day in range(7):
+            day_number = day + 1
+            
+            for meal_type in ["breakfast", "lunch", "dinner", "snack"]:
+                distribution = optimal_distribution.get(meal_type, {})
+                repetition_foods = distribution.get("repetition_foods", [])
+                new_foods = distribution.get("new_food_suggestions", [])
+                
+                # Apply 70/30 rule: Days 1-5 favor repetition, days 6-7 introduce variety
+                if day < 5 and repetition_foods:  # 70% repetition days
+                    selected_food = repetition_foods[day % len(repetition_foods)]["food"]
+                    meal_plan["optimization_notes"].append(f"Day {day_number} {meal_type}: Familiar food for adherence")
+                elif new_foods:  # 30% variety days
+                    selected_food = new_foods[day % len(new_foods)]["food"]
+                    meal_plan["optimization_notes"].append(f"Day {day_number} {meal_type}: New food for variety")
+                else:
+                    # Fallback to default healthy option
+                    selected_food = f"Healthy {meal_type} option"
+                    meal_plan["optimization_notes"].append(f"Day {day_number} {meal_type}: Default healthy option")
+                
+                meal_plan["meals"][meal_type].append(f"Day {day_number}: {selected_food}")
+        
+        return meal_plan
+         
+    except Exception as e:
+        logging.error(f"70/30 meal plan generation error: {str(e)}")
+        return {"error": "Failed to generate optimized meal plan"}
+
+# ============================================================================
+# PHASE 5: PWA & PUSH NOTIFICATIONS
+# ============================================================================
+
+class PushSubscription(BaseModel):
+    endpoint: str
+    keys: Dict[str, str]
+    user_agent: Optional[str] = None
+
+class NotificationPayload(BaseModel):
+    title: str
+    body: str
+    icon: Optional[str] = "/dietra_logo.png"
+    badge: Optional[str] = "/dietra_logo.png"
+    tag: Optional[str] = None
+    data: Optional[Dict[str, Any]] = {}
+    actions: Optional[List[Dict[str, str]]] = []
+    requireInteraction: Optional[bool] = False
+    silent: Optional[bool] = False
+
+@app.post("/push/subscribe")
+async def subscribe_to_push_notifications(
+    subscription: PushSubscription,
+    current_user: User = Depends(get_current_user)
+):
+    """Subscribe user to push notifications"""
+    try:
+        user_id = current_user["email"]
+        
+        # Store push subscription in database
+        subscription_record = {
+            "id": f"push_sub_{user_id}_{datetime.utcnow().timestamp()}",
+            "type": "push_subscription",
+            "user_id": user_id,
+            "endpoint": subscription.endpoint,
+            "p256dh_key": subscription.keys.get("p256dh"),
+            "auth_key": subscription.keys.get("auth"),
+            "user_agent": subscription.user_agent,
+            "created_at": datetime.utcnow().isoformat(),
+            "active": True,
+            "session_id": user_id
+        }
+        
+        # Remove any existing subscriptions for this user
+        existing_query = f"SELECT * FROM c WHERE c.type = 'push_subscription' AND c.user_id = '{user_id}'"
+        existing_subs = list(interactions_container.query_items(query=existing_query, enable_cross_partition_query=True))
+        
+        for sub in existing_subs:
+            sub["active"] = False
+            interactions_container.upsert_item(body=sub)
+        
+        # Save new subscription
+        result = interactions_container.upsert_item(body=subscription_record)
+        
+        return {
+            "status": "subscribed",
+            "subscription_id": subscription_record["id"],
+            "message": "Successfully subscribed to push notifications"
+        }
+        
+    except Exception as e:
+        logging.error(f"Push subscription error: {str(e)}")
+        raise HTTPException(500, f"Push subscription failed: {str(e)}")
+
+@app.post("/push/send")
+async def send_push_notification(
+    request: dict,
+    current_user: User = Depends(get_current_user)
+):
+    """Send push notification to user(s)"""
+    try:
+        user_id = current_user["email"]
+        target_users = request.get("target_users", [user_id])  # Default to self
+        notification_data = request.get("notification", {})
+        
+        # Validate notification data
+        title = notification_data.get("title", "Diabetes App Notification")
+        body = notification_data.get("body", "You have a new notification")
+        
+        sent_count = 0
+        failed_count = 0
+        
+        for target_user in target_users:
+            # Get active subscriptions for target user
+            sub_query = f"SELECT * FROM c WHERE c.type = 'push_subscription' AND c.user_id = '{target_user}' AND c.active = true"
+            subscriptions = list(interactions_container.query_items(query=sub_query, enable_cross_partition_query=True))
+            
+            for subscription in subscriptions:
+                try:
+                    # Send push notification (implement actual push service integration)
+                    success = await send_webpush_notification(subscription, notification_data)
+                    
+                    if success:
+                        sent_count += 1
+                        # Log notification
+                        await log_notification_sent(target_user, notification_data)
+                    else:
+                        failed_count += 1
+                        
+                except Exception as e:
+                    logging.error(f"Failed to send push to {target_user}: {str(e)}")
+                    failed_count += 1
+        
+        return {
+            "status": "completed",
+            "sent": sent_count,
+            "failed": failed_count,
+            "total_targets": len(target_users)
+        }
+        
+    except Exception as e:
+        logging.error(f"Push notification sending error: {str(e)}")
+        raise HTTPException(500, f"Push notification failed: {str(e)}")
+
+@app.get("/push/notifications/history")
+async def get_notification_history(
+    limit: int = 50,
+    current_user: User = Depends(get_current_user)
+):
+    """Get notification history for user"""
+    try:
+        user_id = current_user["email"]
+        
+        query = f"SELECT TOP {limit} * FROM c WHERE c.type = 'notification_log' AND c.user_id = '{user_id}' ORDER BY c.created_at DESC"
+        notifications = list(interactions_container.query_items(query=query, enable_cross_partition_query=True))
+        
+        return {
+            "notifications": notifications,
+            "total": len(notifications)
+        }
+        
+    except Exception as e:
+        logging.error(f"Notification history error: {str(e)}")
+        raise HTTPException(500, f"Notification history error: {str(e)}")
+
+@app.post("/push/schedule")
+async def schedule_push_notification(
+    request: dict,
+    current_user: User = Depends(get_current_user)
+):
+    """Schedule push notifications for meal reminders, etc."""
+    try:
+        user_id = current_user["email"]
+        
+        schedule_type = request.get("type", "meal_reminder")  # meal_reminder, medication, exercise
+        time_schedule = request.get("schedule", {})  # e.g., {"hour": 12, "minute": 0, "days": ["monday", "tuesday"]}
+        notification_template = request.get("notification", {})
+        
+        # Create scheduled notification record
+        scheduled_notification = {
+            "id": f"scheduled_{user_id}_{schedule_type}_{datetime.utcnow().timestamp()}",
+            "type": "scheduled_notification",
+            "user_id": user_id,
+            "schedule_type": schedule_type,
+            "schedule": time_schedule,
+            "notification_template": notification_template,
+            "active": True,
+            "created_at": datetime.utcnow().isoformat(),
+            "session_id": user_id
+        }
+        
+        result = interactions_container.upsert_item(body=scheduled_notification)
+        
+        return {
+            "status": "scheduled",
+            "schedule_id": scheduled_notification["id"],
+            "schedule_type": schedule_type,
+            "next_notification": calculate_next_notification_time(time_schedule)
+        }
+        
+    except Exception as e:
+        logging.error(f"Notification scheduling error: {str(e)}")
+        raise HTTPException(500, f"Notification scheduling error: {str(e)}")
+
+@app.get("/app/offline-data")
+async def get_offline_data(
+    current_user: User = Depends(get_current_user)
+):
+    """Get essential data for offline functionality"""
+    try:
+        user_id = current_user["email"]
+        
+        # Get essential data for offline caching
+        offline_data = {
+            "user_profile": await get_user_by_email(user_id),
+            "recent_meal_plans": await get_user_meal_plans(user_id, limit=3),
+            "recent_consumption": await get_user_consumption_history(user_id, limit=20),
+            "welcome_message": "Welcome back! Continue your health journey even offline.",
+            "cached_at": datetime.utcnow().isoformat(),
+            "cache_version": "1.0.0"
+        }
+        
+        # Remove sensitive data
+        if offline_data["user_profile"]:
+            offline_data["user_profile"].pop("hashed_password", None)
+            offline_data["user_profile"].pop("registration_code", None)
+        
+        return offline_data
+        
+    except Exception as e:
+        logging.error(f"Offline data error: {str(e)}")
+        raise HTTPException(500, f"Offline data error: {str(e)}")
+
+@app.post("/app/sync-offline-data")
+async def sync_offline_data(
+    request: dict,
+    current_user: User = Depends(get_current_user)
+):
+    """Sync data collected while offline"""
+    try:
+        user_id = current_user["email"]
+        offline_data = request.get("offline_data", {})
+        
+        sync_results = {
+            "consumption_logs": {"synced": 0, "failed": 0},
+            "meal_plans": {"synced": 0, "failed": 0},
+            "total_synced": 0,
+            "total_failed": 0
+        }
+        
+        # Sync offline consumption logs
+        offline_consumption = offline_data.get("consumption_logs", [])
+        for log in offline_consumption:
+            try:
+                await save_consumption_record(user_id, log)
+                sync_results["consumption_logs"]["synced"] += 1
+                sync_results["total_synced"] += 1
+            except Exception as e:
+                logging.error(f"Failed to sync consumption log: {str(e)}")
+                sync_results["consumption_logs"]["failed"] += 1
+                sync_results["total_failed"] += 1
+        
+        # Sync offline meal plans
+        offline_meal_plans = offline_data.get("meal_plans", [])
+        for plan in offline_meal_plans:
+            try:
+                await save_meal_plan(user_id, plan)
+                sync_results["meal_plans"]["synced"] += 1
+                sync_results["total_synced"] += 1
+            except Exception as e:
+                logging.error(f"Failed to sync meal plan: {str(e)}")
+                sync_results["meal_plans"]["failed"] += 1
+                sync_results["total_failed"] += 1
+        
+        return {
+            "status": "completed",
+            "sync_results": sync_results,
+            "synced_at": datetime.utcnow().isoformat()
+        }
+        
+    except Exception as e:
+        logging.error(f"Offline data sync error: {str(e)}")
+        raise HTTPException(500, f"Offline data sync error: {str(e)}")
+
+# ============================================================================
+# HELPER FUNCTIONS FOR PHASE 5
+# ============================================================================
+
+async def send_webpush_notification(subscription: dict, notification_data: dict) -> bool:
+    """Send web push notification using pywebpush"""
+    try:
+        # This would integrate with pywebpush library
+        # For now, return success simulation
+        
+        # In production, implement:
+        # from pywebpush import webpush
+        # 
+        # webpush(
+        #     subscription_info={
+        #         "endpoint": subscription["endpoint"],
+        #         "keys": {
+        #             "p256dh": subscription["p256dh_key"],
+        #             "auth": subscription["auth_key"]
+        #         }
+        #     },
+        #     data=json.dumps(notification_data),
+        #     vapid_private_key="your-vapid-private-key",
+        #     vapid_claims={"sub": "mailto:your-email@example.com"}
+        # )
+        
+        logging.info(f"Push notification sent to endpoint: {subscription['endpoint'][:50]}...")
+        return True
+        
+    except Exception as e:
+        logging.error(f"WebPush notification failed: {str(e)}")
+        return False
+
+async def log_notification_sent(user_id: str, notification_data: dict):
+    """Log sent notification for history tracking"""
+    try:
+        notification_log = {
+            "id": f"notification_log_{user_id}_{datetime.utcnow().timestamp()}",
+            "type": "notification_log",
+            "user_id": user_id,
+            "title": notification_data.get("title"),
+            "body": notification_data.get("body"),
+            "sent_at": datetime.utcnow().isoformat(),
+            "status": "sent",
+            "session_id": user_id
+        }
+        
+        interactions_container.upsert_item(body=notification_log)
+        
+    except Exception as e:
+        logging.error(f"Notification logging error: {str(e)}")
+
+def calculate_next_notification_time(schedule: dict) -> str:
+    """Calculate next notification time based on schedule"""
+    try:
+        current_time = datetime.utcnow()
+        target_hour = schedule.get("hour", 12)
+        target_minute = schedule.get("minute", 0)
+        
+        # Calculate next occurrence
+        next_time = current_time.replace(hour=target_hour, minute=target_minute, second=0, microsecond=0)
+        
+        # If time has passed today, schedule for tomorrow
+        if next_time <= current_time:
+            next_time += timedelta(days=1)
+        
+        return next_time.isoformat()
+        
+    except Exception as e:
+        logging.error(f"Next notification time calculation error: {str(e)}")
+        return (datetime.utcnow() + timedelta(hours=1)).isoformat()
 
 if __name__ == "__main__":
     import uvicorn

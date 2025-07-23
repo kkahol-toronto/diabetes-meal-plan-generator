@@ -18,7 +18,9 @@
   },
   "homepage": "https://github.com/kkahol-toronto/diabetes-meal-plan-generator#readme",
   "dependencies": {
+    "@types/workbox-sw": "^4.3.7",
     "express": "^5.1.0",
-    "openai": "^5.0.1"
+    "openai": "^5.0.1",
+    "workbox-webpack-plugin": "^7.3.0"
   }
 }

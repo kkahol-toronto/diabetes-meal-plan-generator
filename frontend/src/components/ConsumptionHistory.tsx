@@ -31,7 +31,17 @@ import {
   Tooltip,
   IconButton,
   Stack,
-  Container
+  Container,
+  Checkbox,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Snackbar,
+  FormControlLabel,
+  Switch,
+  Fab,
+  TextField
 } from '@mui/material';
 import { 
   filterRecordsByDateRange,
@@ -65,7 +75,18 @@ import {
   Schedule as TimeIcon,
   Analytics as AnalyticsIcon,
   TrendingDown as TrendingDownIcon,
-  Assessment as AssessmentIcon
+  Assessment as AssessmentIcon,
+  // Phase 1: Deletion capabilities icons
+  Delete as DeleteIcon,
+  DeleteForever as DeleteForeverIcon,
+  Restore as RestoreIcon,
+  SelectAll as SelectAllIcon,
+  Clear as ClearIcon,
+  Undo as UndoIcon,
+  Visibility as VisibilityIcon,
+  VisibilityOff as VisibilityOffIcon,
+  // Edit functionality icons
+  Edit as EditIcon
 } from '@mui/icons-material';
 import {
   Chart as ChartJS,
@@ -152,6 +173,11 @@ interface ConsumptionRecord {
   medical_rating: MedicalRating;
   image_analysis: string;
   meal_type: string;
+  // Phase 1: Deletion capabilities
+  deleted_at?: string;
+  deleted_by?: string;
+  deletion_reason?: string;
+  soft_delete?: boolean;
 }
 
 interface ConsumptionAnalytics {
@@ -269,6 +295,26 @@ const ConsumptionHistory: React.FC = () => {
   const [expandedSections, setExpandedSections] = useState<string[]>(['overview']);
   const [fixingMealTypes, setFixingMealTypes] = useState(false);
 
+  // Phase 1: Deletion capabilities state
+  const [selectedItems, setSelectedItems] = useState<string[]>([]);
+  const [deleteDialog, setDeleteDialog] = useState(false);
+  const [bulkDelete, setBulkDelete] = useState(false);
+  const [showDeleted, setShowDeleted] = useState(false);
+  const [undoSnackbar, setUndoSnackbar] = useState(false);
+  const [lastDeleted, setLastDeleted] = useState<string[]>([]);
+  const [deletionLoading, setDeletionLoading] = useState(false);
+  const [snackbarMessage, setSnackbarMessage] = useState('');
+
+  // Edit functionality state
+  const [editDialog, setEditDialog] = useState(false);
+  const [editingRecord, setEditingRecord] = useState<ConsumptionRecord | null>(null);
+  const [editFormData, setEditFormData] = useState({
+    food_name: '',
+    estimated_portion: '',
+    meal_type: ''
+  });
+  const [editLoading, setEditLoading] = useState(false);
+
   // Time range options
   const timeRanges: TimeRange[] = [
     { value: '1', label: 'Today', days: 1 },
@@ -292,7 +338,7 @@ const ConsumptionHistory: React.FC = () => {
 
   useEffect(() => {
     loadConsumptionData();
-  }, [selectedTimeRange]);
+  }, [selectedTimeRange, showDeleted]);
 
   useEffect(() => {
     if (comparisonMode) {
@@ -486,7 +532,6 @@ const ConsumptionHistory: React.FC = () => {
       setLoading(true);
       setError(null);
 
-      // Debug timezone information
       debugTimezone();
 
       const selectedDays = parseInt(selectedTimeRange);
@@ -506,9 +551,13 @@ const ConsumptionHistory: React.FC = () => {
         'Content-Type': 'application/json'
       };
 
-      // Load raw data (we'll filter client-side for timezone accuracy)
+      // Use the new endpoint that supports showing deleted records
+      const endpoint = showDeleted 
+        ? `/consumption/history-with-deleted?include_deleted=true&limit=${fetchLimit}`
+        : `/consumption/history?limit=${fetchLimit}`;
+
       const [historyResponse, insightsResponse] = await Promise.all([
-        fetch(`${config.API_URL}/consumption/history?limit=${fetchLimit}`, { headers }),
+        fetch(`${config.API_URL}${endpoint}`, { headers }),
         fetch(`${config.API_URL}/coach/daily-insights`, { headers })
       ]);
 
@@ -519,13 +568,19 @@ const ConsumptionHistory: React.FC = () => {
         throw new Error(`Failed to load daily insights: ${insightsResponse.statusText}`);
       }
 
-      const allHistoryData = await historyResponse.json();
+      const historyData = await historyResponse.json();
       const insightsData = await insightsResponse.json();
+
+      // Extract consumption history from response
+      const allHistoryData = showDeleted 
+        ? historyData.consumption_history 
+        : historyData;
 
       console.log('Loaded raw consumption data:', { 
         totalRecords: allHistoryData.length, 
         selectedDays, 
-        timezone: getUserTimezone()
+        timezone: getUserTimezone(),
+        showDeleted
       });
 
       // Client-side timezone-aware filtering with debugging
@@ -633,6 +688,200 @@ const ConsumptionHistory: React.FC = () => {
     }
   };
 
+  // Phase 1: Deletion capability functions
+  const handleSingleDelete = async (itemId: string) => {
+    try {
+      setDeletionLoading(true);
+      const token = localStorage.getItem('token');
+      
+      const response = await fetch(`${config.API_URL}/consumption/${itemId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to delete item');
+      }
+
+      setLastDeleted([itemId]);
+      setSnackbarMessage('Item deleted successfully');
+      setUndoSnackbar(true);
+      
+      // Refresh consumption history
+      await loadConsumptionData();
+    } catch (error) {
+      console.error('Delete failed:', error);
+      setError('Failed to delete item');
+    } finally {
+      setDeletionLoading(false);
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    try {
+      setDeletionLoading(true);
+      const token = localStorage.getItem('token');
+      
+      const response = await fetch(`${config.API_URL}/consumption/bulk`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ consumption_ids: selectedItems })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to delete items');
+      }
+
+      const result = await response.json();
+      
+      setLastDeleted(selectedItems);
+      setSnackbarMessage(`${result.deleted_count} items deleted successfully`);
+      setUndoSnackbar(true);
+      setSelectedItems([]);
+      setDeleteDialog(false);
+      
+      if (result.failed_deletions.length > 0) {
+        console.warn('Some deletions failed:', result.failed_deletions);
+      }
+      
+      await loadConsumptionData();
+    } catch (error) {
+      console.error('Bulk delete failed:', error);
+      setError('Failed to delete items');
+    } finally {
+      setDeletionLoading(false);
+    }
+  };
+
+  const handleRestore = async (itemId: string) => {
+    try {
+      setDeletionLoading(true);
+      const token = localStorage.getItem('token');
+      
+      const response = await fetch(`${config.API_URL}/consumption/${itemId}/restore`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to restore item');
+      }
+
+      setSnackbarMessage('Item restored successfully');
+      setUndoSnackbar(true);
+      await loadConsumptionData();
+    } catch (error) {
+      console.error('Restore failed:', error);
+      setError('Failed to restore item');
+    } finally {
+      setDeletionLoading(false);
+    }
+  };
+
+  const handleUndo = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      
+      for (const itemId of lastDeleted) {
+        await fetch(`${config.API_URL}/consumption/${itemId}/restore`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        });
+      }
+      
+      setUndoSnackbar(false);
+      setSnackbarMessage('Items restored successfully');
+      await loadConsumptionData();
+    } catch (error) {
+      console.error('Undo failed:', error);
+      setError('Failed to undo deletion');
+    }
+  };
+
+  const handleSelectAll = () => {
+    if (selectedItems.length === consumptionHistory.length) {
+      setSelectedItems([]);
+    } else {
+      setSelectedItems(consumptionHistory.map(item => item.id));
+    }
+  };
+
+  const handleItemSelect = (itemId: string) => {
+    if (selectedItems.includes(itemId)) {
+      setSelectedItems(selectedItems.filter(id => id !== itemId));
+    } else {
+      setSelectedItems([...selectedItems, itemId]);
+    }
+  };
+
+  // Edit functionality functions
+  const handleEdit = (record: ConsumptionRecord) => {
+    setEditingRecord(record);
+    setEditFormData({
+      food_name: record.food_name,
+      estimated_portion: record.estimated_portion,
+      meal_type: record.meal_type
+    });
+    setEditDialog(true);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingRecord) return;
+    
+    try {
+      setEditLoading(true);
+      const token = localStorage.getItem('token');
+      
+      const response = await fetch(`${config.API_URL}/consumption/${editingRecord.id}/edit`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(editFormData)
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to update item');
+      }
+
+      setSnackbarMessage('Item updated successfully');
+      setUndoSnackbar(true);
+      setEditDialog(false);
+      setEditingRecord(null);
+      
+      // Refresh consumption history
+      await loadConsumptionData();
+    } catch (error) {
+      console.error('Edit failed:', error);
+      setError('Failed to update item');
+    } finally {
+      setEditLoading(false);
+    }
+  };
+
+  const handleCancelEdit = () => {
+    setEditDialog(false);
+    setEditingRecord(null);
+    setEditFormData({
+      food_name: '',
+      estimated_portion: '',
+      meal_type: ''
+    });
+  };
+
   const loadComparisonData = async () => {
     try {
       const selectedDays = parseInt(comparisonTimeRange);
@@ -646,7 +895,6 @@ const ConsumptionHistory: React.FC = () => {
         'Content-Type': 'application/json'
       };
 
-      // Load comparison analytics data
       const analyticsResponse = await fetch(`${config.API_URL}/consumption/analytics?days=${selectedDays}`, { headers });
       
       if (!analyticsResponse.ok) {
@@ -1072,7 +1320,23 @@ const ConsumptionHistory: React.FC = () => {
                 </Typography>
           </Box>
           <Stack direction="row" spacing={2} alignItems="center">
-                  <Button
+                  {/* Phase 1: Show/Hide Deleted Toggle */}
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={showDeleted}
+                  onChange={(e) => setShowDeleted(e.target.checked)}
+                  sx={{ 
+                    '& .MuiSwitch-switchBase.Mui-checked': { 
+                      color: 'rgba(255,255,255,0.8)' 
+                    }
+                  }}
+                />
+              }
+              label="Show Deleted"
+              sx={{ color: 'rgba(255,255,255,0.9)' }}
+            />
+            <Button
               variant="contained"
               onClick={loadConsumptionData}
               startIcon={<RefreshIcon />}
@@ -1083,6 +1347,40 @@ const ConsumptionHistory: React.FC = () => {
           </Stack>
         </Box>
       </Paper>
+
+      {/* Phase 1: Bulk Actions Bar */}
+      {selectedItems.length > 0 && (
+        <Paper elevation={2} sx={{ p: 2, mb: 3, bgcolor: 'primary.light', color: 'primary.contrastText' }}>
+          <Box display="flex" justifyContent="space-between" alignItems="center">
+            <Typography variant="h6">
+              {selectedItems.length} item{selectedItems.length !== 1 ? 's' : ''} selected
+            </Typography>
+            <Stack direction="row" spacing={2}>
+              <Button
+                variant="outlined"
+                onClick={handleSelectAll}
+                startIcon={selectedItems.length === consumptionHistory.length ? <ClearIcon /> : <SelectAllIcon />}
+                sx={{ 
+                  borderColor: 'primary.contrastText', 
+                  color: 'primary.contrastText',
+                  '&:hover': { bgcolor: 'rgba(255,255,255,0.1)' }
+                }}
+              >
+                {selectedItems.length === consumptionHistory.length ? 'Clear All' : 'Select All'}
+              </Button>
+              <Button
+                variant="contained"
+                color="error"
+                onClick={() => setDeleteDialog(true)}
+                startIcon={<DeleteIcon />}
+                disabled={deletionLoading}
+              >
+                Delete Selected
+              </Button>
+            </Stack>
+          </Box>
+        </Paper>
+      )}
 
       {/* Advanced Controls Panel */}
       <Paper elevation={1} sx={{ p: 3, mb: 3 }}>
@@ -1210,7 +1508,7 @@ const ConsumptionHistory: React.FC = () => {
             iconPosition="start"
           />
           <Tab 
-            label="�� Advanced Analytics" 
+            label="📈 Advanced Analytics" 
             icon={<AnalyticsIcon />}
             iconPosition="start"
           />
@@ -1310,87 +1608,149 @@ const ConsumptionHistory: React.FC = () => {
           )}
         </TabPanel>
 
-        {/* Meal History Tab */}
-        <TabPanel value={activeTab} index={1}>
-          {consumptionHistory.length === 0 ? (
+        {/* Enhanced Meal History Tab with Deletion Capabilities */}
+        {activeTab === 1 && (
+          <TabPanel value={activeTab} index={1}>
+            {consumptionHistory.length === 0 ? (
               <Card>
                 <CardContent>
-                <Box textAlign="center" py={4}>
-                  <AppleIcon sx={{ fontSize: 60, color: 'text.secondary', mb: 2 }} />
-                  <Typography variant="h6" gutterBottom>
-                    No meals logged yet
-                  </Typography>
-                  <Typography color="textSecondary">
-                    Start logging your meals to see your consumption history here.
-                  </Typography>
-                </Box>
+                  <Box textAlign="center" py={4}>
+                    <AppleIcon sx={{ fontSize: 60, color: 'text.secondary', mb: 2 }} />
+                    <Typography variant="h6" gutterBottom>
+                      {showDeleted ? 'No records found' : 'No meals logged yet'}
+                    </Typography>
+                    <Typography color="textSecondary">
+                      {showDeleted 
+                        ? 'No consumption records found for the selected time period.' 
+                        : 'Start logging your meals to see your consumption history here.'
+                      }
+                    </Typography>
+                  </Box>
                 </CardContent>
               </Card>
-          ) : (
-            <Box>
-              {consumptionHistory.map((record) => (
-                <Card key={record.id} sx={{ mb: 2 }}>
-                  <CardContent>
-                    <Box display="flex" alignItems="center" gap={1} mb={1}>
-                      <Typography variant="h6" component="span">
-                        {getMealTypeIcon(record.meal_type)} {record.food_name}
+            ) : (
+              <Box>
+                {consumptionHistory.map((record) => (
+                  <Card 
+                    key={record.id} 
+                    sx={{ 
+                      mb: 2,
+                      opacity: record.soft_delete ? 0.6 : 1,
+                      border: record.soft_delete ? '1px dashed' : 'none',
+                      borderColor: 'error.main'
+                    }}
+                  >
+                    <CardContent>
+                      <Box display="flex" alignItems="center" gap={1} mb={1}>
+                        {/* Phase 1: Selection Checkbox */}
+                        <Checkbox
+                          checked={selectedItems.includes(record.id)}
+                          onChange={() => handleItemSelect(record.id)}
+                          disabled={record.soft_delete}
+                        />
+                        
+                        <Typography variant="h6" component="span" sx={{ flexGrow: 1 }}>
+                          {getMealTypeIcon(record.meal_type)} {record.food_name}
+                          {record.soft_delete && (
+                            <Chip 
+                              label="DELETED" 
+                              color="error" 
+                              size="small" 
+                              sx={{ ml: 1 }}
+                            />
+                          )}
+                        </Typography>
+                        
+                        <Chip label={record.meal_type} variant="outlined" size="small" />
+                        
+                        {/* Phase 1: Action Buttons */}
+                        <Box display="flex" gap={1}>
+                          {record.soft_delete ? (
+                            <Tooltip title="Restore">
+                              <IconButton 
+                                onClick={() => handleRestore(record.id)}
+                                color="success"
+                                disabled={deletionLoading}
+                              >
+                                <RestoreIcon />
+                              </IconButton>
+                            </Tooltip>
+                          ) : (
+                            <>
+                              <Tooltip title="Edit">
+                                <IconButton 
+                                  onClick={() => handleEdit(record)}
+                                  color="primary"
+                                  disabled={editLoading}
+                                >
+                                  <EditIcon />
+                                </IconButton>
+                              </Tooltip>
+                              <Tooltip title="Delete">
+                                <IconButton 
+                                  onClick={() => handleSingleDelete(record.id)}
+                                  color="error"
+                                  disabled={deletionLoading}
+                                >
+                                  <DeleteIcon />
+                                </IconButton>
+                              </Tooltip>
+                            </>
+                          )}
+                        </Box>
+                      </Box>
+                      
+                      <Typography variant="body2" color="textSecondary" gutterBottom>
+                        {record.estimated_portion} • {formatConsumptionTimestamp(record.timestamp)}
+                        {record.deleted_at && (
+                          <span style={{ color: 'red', marginLeft: 8 }}>
+                            • Deleted: {formatConsumptionTimestamp(record.deleted_at)}
+                          </span>
+                        )}
                       </Typography>
-                      <Chip label={record.meal_type} variant="outlined" size="small" />
-                    </Box>
-                    
-                    <Typography variant="body2" color="textSecondary" gutterBottom>
-                      {record.estimated_portion} • {formatConsumptionTimestamp(record.timestamp)}
-                    </Typography>
 
-                    <Grid container spacing={2} sx={{ mb: 2 }}>
-                      <Grid item xs={6} sm={3}>
-                        <Paper sx={{ p: 1, textAlign: 'center', bgcolor: 'primary.light', color: 'primary.contrastText' }}>
-                          <Typography variant="h6">{Math.round(record.nutritional_info.calories)}</Typography>
-                          <Typography variant="caption">Calories</Typography>
-                        </Paper>
-            </Grid>
-                      <Grid item xs={6} sm={3}>
-                        <Paper sx={{ p: 1, textAlign: 'center', bgcolor: 'success.light', color: 'success.contrastText' }}>
-                          <Typography variant="h6">{Math.round(record.nutritional_info.protein)}g</Typography>
-                          <Typography variant="caption">Protein</Typography>
-                        </Paper>
+                      <Grid container spacing={2} sx={{ mb: 2 }}>
+                        <Grid item xs={6} sm={3}>
+                          <Paper sx={{ p: 1, textAlign: 'center', bgcolor: 'primary.light', color: 'primary.contrastText' }}>
+                            <Typography variant="h6">{Math.round(record.nutritional_info.calories)}</Typography>
+                            <Typography variant="caption">Calories</Typography>
+                          </Paper>
+                        </Grid>
+                        <Grid item xs={6} sm={3}>
+                          <Paper sx={{ p: 1, textAlign: 'center', bgcolor: 'success.light', color: 'success.contrastText' }}>
+                            <Typography variant="h6">{Math.round(record.nutritional_info.protein)}g</Typography>
+                            <Typography variant="caption">Protein</Typography>
+                          </Paper>
+                        </Grid>
+                        <Grid item xs={6} sm={3}>
+                          <Paper sx={{ p: 1, textAlign: 'center', bgcolor: 'warning.light', color: 'warning.contrastText' }}>
+                            <Typography variant="h6">{Math.round(record.nutritional_info.carbohydrates)}g</Typography>
+                            <Typography variant="caption">Carbs</Typography>
+                          </Paper>
+                        </Grid>
+                        <Grid item xs={6} sm={3}>
+                          <Paper sx={{ p: 1, textAlign: 'center', bgcolor: 'info.light', color: 'info.contrastText' }}>
+                            <Typography variant="h6">{Math.round(record.nutritional_info.fat)}g</Typography>
+                            <Typography variant="caption">Fat</Typography>
+                          </Paper>
+                        </Grid>
                       </Grid>
-                      <Grid item xs={6} sm={3}>
-                        <Paper sx={{ p: 1, textAlign: 'center', bgcolor: 'warning.light', color: 'warning.contrastText' }}>
-                          <Typography variant="h6">{Math.round(record.nutritional_info.carbohydrates)}g</Typography>
-                          <Typography variant="caption">Carbs</Typography>
-                        </Paper>
-                      </Grid>
-                      <Grid item xs={6} sm={3}>
-                        <Paper sx={{ p: 1, textAlign: 'center', bgcolor: 'secondary.light', color: 'secondary.contrastText' }}>
-                          <Typography variant="h6">{Math.round(record.nutritional_info.fat)}g</Typography>
-                          <Typography variant="caption">Fat</Typography>
-                        </Paper>
-                      </Grid>
-                    </Grid>
 
-                    <Box display="flex" gap={1}>
-                      {record.medical_rating?.diabetes_suitability && (
+                      {record.medical_rating && (
                         <Chip
-                          label={`${record.medical_rating.diabetes_suitability} diabetes suitability`}
-                          color={getDiabetesSuitabilityColor(record.medical_rating.diabetes_suitability) as any}
+                          label={`Diabetes Suitability: ${record.medical_rating.diabetes_suitability || 'N/A'}`}
+                          color={getDiabetesSuitabilityColor(record.medical_rating.diabetes_suitability)}
                           size="small"
+                          sx={{ mt: 1 }}
                         />
                       )}
-                      {record.medical_rating?.glycemic_impact && (
-                        <Chip
-                          label={`${record.medical_rating.glycemic_impact} glycemic impact`}
-                          variant="outlined"
-                          size="small"
-                        />
-                      )}
-                    </Box>
-                  </CardContent>
-                </Card>
-              ))}
-            </Box>
-          )}
-        </TabPanel>
+                    </CardContent>
+                  </Card>
+                ))}
+              </Box>
+            )}
+          </TabPanel>
+        )}
 
         {/* Advanced Analytics Tab */}
         <TabPanel value={activeTab} index={2}>
@@ -1826,7 +2186,103 @@ const ConsumptionHistory: React.FC = () => {
             </Box>
         </TabPanel>
       </Paper>
-      </Container>
+
+      {/* Edit Dialog */}
+      <Dialog open={editDialog} onClose={handleCancelEdit} maxWidth="sm" fullWidth>
+        <DialogTitle>Edit Food Log</DialogTitle>
+        <DialogContent>
+          <Box sx={{ pt: 1 }}>
+            <TextField
+              fullWidth
+              label="Food Name"
+              value={editFormData.food_name}
+              onChange={(e) => setEditFormData({ ...editFormData, food_name: e.target.value })}
+              margin="normal"
+              required
+            />
+            <TextField
+              fullWidth
+              label="Portion"
+              value={editFormData.estimated_portion}
+              onChange={(e) => setEditFormData({ ...editFormData, estimated_portion: e.target.value })}
+              margin="normal"
+              required
+              placeholder="e.g., 1 cup, 200g, medium portion"
+            />
+            <FormControl fullWidth margin="normal">
+              <InputLabel>Meal Type</InputLabel>
+              <Select
+                value={editFormData.meal_type}
+                onChange={(e) => setEditFormData({ ...editFormData, meal_type: e.target.value })}
+                label="Meal Type"
+                required
+              >
+                <MenuItem value="breakfast">Breakfast</MenuItem>
+                <MenuItem value="lunch">Lunch</MenuItem>
+                <MenuItem value="dinner">Dinner</MenuItem>
+                <MenuItem value="snack">Snack</MenuItem>
+              </Select>
+            </FormControl>
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCancelEdit}>Cancel</Button>
+          <Button 
+            onClick={handleSaveEdit} 
+            variant="contained"
+            disabled={editLoading || !editFormData.food_name.trim()}
+          >
+            {editLoading ? <CircularProgress size={20} /> : 'Save Changes'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Phase 1: Delete Confirmation Dialog */}
+      <Dialog open={deleteDialog} onClose={() => setDeleteDialog(false)}>
+        <DialogTitle>Delete Selected Items</DialogTitle>
+        <DialogContent>
+          <Typography>
+            Are you sure you want to delete {selectedItems.length} item{selectedItems.length !== 1 ? 's' : ''}?
+          </Typography>
+          <Typography variant="body2" color="textSecondary" sx={{ mt: 1 }}>
+            This action can be undone within the current session.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteDialog(false)}>Cancel</Button>
+          <Button 
+            onClick={handleBulkDelete} 
+            color="error" 
+            variant="contained"
+            disabled={deletionLoading}
+          >
+            {deletionLoading ? <CircularProgress size={20} /> : 'Delete'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Phase 1: Undo Snackbar */}
+      <Snackbar 
+        open={undoSnackbar} 
+        autoHideDuration={10000}
+        onClose={() => setUndoSnackbar(false)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert 
+          severity="info" 
+          action={
+            lastDeleted.length > 0 ? (
+              <Button color="inherit" onClick={handleUndo} startIcon={<UndoIcon />}>
+                UNDO
+              </Button>
+            ) : null
+          }
+          onClose={() => setUndoSnackbar(false)}
+        >
+          {snackbarMessage}
+        </Alert>
+      </Snackbar>
+    </Container>
   );
 };
 

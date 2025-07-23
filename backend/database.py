@@ -45,6 +45,340 @@ def generate_session_id():
     """Generate a unique session ID"""
     return str(uuid.uuid4())
 
+# ============================================================================
+# DELETION CAPABILITIES SYSTEM (Phase 1)
+# ============================================================================
+
+async def soft_delete_consumption(consumption_id: str, user_id: str, deletion_reason: str = None):
+    """
+    Soft delete a consumption record by adding deletion metadata
+    """
+    try:
+        print(f"[soft_delete_consumption] Soft deleting consumption {consumption_id} for user {user_id}")
+        
+        # Get the consumption record
+        query = f"SELECT * FROM c WHERE c.id = '{consumption_id}' AND c.user_id = '{user_id}' AND c.type = 'consumption_record'"
+        items = list(interactions_container.query_items(query=query, enable_cross_partition_query=True))
+        
+        if not items:
+            raise ValueError(f"Consumption record {consumption_id} not found or not owned by user")
+        
+        consumption_record = items[0]
+        
+        # Add deletion metadata
+        consumption_record["deleted_at"] = datetime.utcnow().isoformat()
+        consumption_record["deleted_by"] = user_id
+        consumption_record["deletion_reason"] = deletion_reason
+        consumption_record["soft_delete"] = True
+        consumption_record["restoration_data"] = {
+            "original_timestamp": consumption_record.get("timestamp"),
+            "original_meal_type": consumption_record.get("meal_type")
+        }
+        
+        # Update the record
+        result = interactions_container.upsert_item(body=consumption_record)
+        print(f"[soft_delete_consumption] Successfully soft deleted consumption {consumption_id}")
+        
+        return result
+        
+    except Exception as e:
+        print(f"[soft_delete_consumption] Error: {str(e)}")
+        raise Exception(f"Failed to soft delete consumption: {str(e)}")
+
+async def bulk_delete_consumption(consumption_ids: list, user_id: str):
+    """
+    Bulk soft delete multiple consumption records
+    """
+    try:
+        print(f"[bulk_delete_consumption] Bulk deleting {len(consumption_ids)} records for user {user_id}")
+        
+        deleted_count = 0
+        failed_deletions = []
+        
+        for consumption_id in consumption_ids:
+            try:
+                await soft_delete_consumption(consumption_id, user_id)
+                deleted_count += 1
+            except Exception as e:
+                failed_deletions.append({
+                    "id": consumption_id,
+                    "error": str(e)
+                })
+        
+        return {
+            "deleted_count": deleted_count,
+            "failed_deletions": failed_deletions,
+            "total_requested": len(consumption_ids)
+        }
+        
+    except Exception as e:
+        print(f"[bulk_delete_consumption] Error: {str(e)}")
+        raise Exception(f"Failed to bulk delete consumption: {str(e)}")
+
+async def restore_consumption(consumption_id: str, user_id: str):
+    """
+    Restore a soft-deleted consumption record
+    """
+    try:
+        print(f"[restore_consumption] Restoring consumption {consumption_id} for user {user_id}")
+        
+        # Get the consumption record
+        query = f"SELECT * FROM c WHERE c.id = '{consumption_id}' AND c.user_id = '{user_id}' AND c.type = 'consumption_record' AND c.soft_delete = true"
+        items = list(interactions_container.query_items(query=query, enable_cross_partition_query=True))
+        
+        if not items:
+            raise ValueError(f"Deleted consumption record {consumption_id} not found")
+        
+        consumption_record = items[0]
+        
+        # Remove deletion metadata
+        consumption_record.pop("deleted_at", None)
+        consumption_record.pop("deleted_by", None)
+        consumption_record.pop("deletion_reason", None)
+        consumption_record.pop("soft_delete", None)
+        consumption_record.pop("restoration_data", None)
+        
+        # Update the record
+        result = interactions_container.upsert_item(body=consumption_record)
+        print(f"[restore_consumption] Successfully restored consumption {consumption_id}")
+        
+        return result
+        
+    except Exception as e:
+        print(f"[restore_consumption] Error: {str(e)}")
+        raise Exception(f"Failed to restore consumption: {str(e)}")
+
+async def soft_delete_meal_plan(meal_plan_id: str, user_id: str, cascade_shopping_list: bool = True):
+    """
+    Soft delete a meal plan with dependency handling
+    """
+    try:
+        print(f"[soft_delete_meal_plan] Soft deleting meal plan {meal_plan_id} for user {user_id}")
+        
+        # Get the meal plan
+        query = f"SELECT * FROM c WHERE c.id = '{meal_plan_id}' AND c.user_id = '{user_id}' AND c.type = 'meal_plan'"
+        items = list(interactions_container.query_items(query=query, enable_cross_partition_query=True))
+        
+        if not items:
+            raise ValueError(f"Meal plan {meal_plan_id} not found or not owned by user")
+        
+        meal_plan = items[0]
+        
+        # Check dependencies (shopping lists)
+        dependencies = await check_meal_plan_dependencies(meal_plan_id)
+        
+        if dependencies.get("shopping_lists") and cascade_shopping_list:
+            # Delete associated shopping lists
+            for shopping_list in dependencies["shopping_lists"]:
+                await soft_delete_shopping_list(shopping_list["id"], user_id)
+        
+        # Add deletion metadata
+        meal_plan["deleted_at"] = datetime.utcnow().isoformat()
+        meal_plan["deleted_by"] = user_id
+        meal_plan["soft_delete"] = True
+        meal_plan["cascade_deletions"] = dependencies if cascade_shopping_list else []
+        
+        # Update the record
+        result = interactions_container.upsert_item(body=meal_plan)
+        print(f"[soft_delete_meal_plan] Successfully soft deleted meal plan {meal_plan_id}")
+        
+        return {
+            "status": "deleted",
+            "meal_plan_id": meal_plan_id,
+            "cascade_deletions": dependencies if cascade_shopping_list else []
+        }
+        
+    except Exception as e:
+        print(f"[soft_delete_meal_plan] Error: {str(e)}")
+        raise Exception(f"Failed to soft delete meal plan: {str(e)}")
+
+async def check_meal_plan_dependencies(meal_plan_id: str):
+    """
+    Check for dependencies of a meal plan (shopping lists, etc.)
+    """
+    try:
+        dependencies = {"shopping_lists": []}
+        
+        # Check for associated shopping lists
+        query = f"SELECT * FROM c WHERE c.type = 'shopping_list' AND c.meal_plan_id = '{meal_plan_id}'"
+        shopping_lists = list(interactions_container.query_items(query=query, enable_cross_partition_query=True))
+        
+        dependencies["shopping_lists"] = shopping_lists
+        
+        return dependencies
+        
+    except Exception as e:
+        print(f"[check_meal_plan_dependencies] Error: {str(e)}")
+        return {"shopping_lists": []}
+
+async def soft_delete_shopping_list(shopping_list_id: str, user_id: str):
+    """
+    Soft delete a shopping list
+    """
+    try:
+        print(f"[soft_delete_shopping_list] Soft deleting shopping list {shopping_list_id}")
+        
+        # Get the shopping list
+        query = f"SELECT * FROM c WHERE c.id = '{shopping_list_id}' AND c.user_id = '{user_id}' AND c.type = 'shopping_list'"
+        items = list(interactions_container.query_items(query=query, enable_cross_partition_query=True))
+        
+        if not items:
+            raise ValueError(f"Shopping list {shopping_list_id} not found")
+        
+        shopping_list = items[0]
+        
+        # Add deletion metadata
+        shopping_list["deleted_at"] = datetime.utcnow().isoformat()
+        shopping_list["deleted_by"] = user_id
+        shopping_list["soft_delete"] = True
+        
+        # Update the record
+        result = interactions_container.upsert_item(body=shopping_list)
+        print(f"[soft_delete_shopping_list] Successfully soft deleted shopping list {shopping_list_id}")
+        
+        return result
+        
+    except Exception as e:
+        print(f"[soft_delete_shopping_list] Error: {str(e)}")
+        raise Exception(f"Failed to soft delete shopping list: {str(e)}")
+
+async def delete_user_account(user_id: str, confirmation_code: str = None):
+    """
+    GDPR-compliant complete user account deletion
+    """
+    try:
+        print(f"[delete_user_account] Starting complete account deletion for user {user_id}")
+        
+        # Verify confirmation code if provided
+        if confirmation_code:
+            is_valid = await verify_deletion_code(user_id, confirmation_code)
+            if not is_valid:
+                raise ValueError("Invalid confirmation code")
+        
+        # Complete data purge
+        deletion_summary = await purge_user_data(user_id)
+        
+        return {
+            "status": "account_deleted", 
+            "summary": deletion_summary,
+            "deletion_timestamp": datetime.utcnow().isoformat()
+        }
+        
+    except Exception as e:
+        print(f"[delete_user_account] Error: {str(e)}")
+        raise Exception(f"Account deletion failed: {str(e)}")
+
+async def verify_deletion_code(user_id: str, confirmation_code: str):
+    """
+    Verify email confirmation code for account deletion
+    """
+    try:
+        # In a production system, this would verify against a stored code
+        # For now, we'll use a simple verification
+        expected_code = f"DELETE_{user_id.split('@')[0].upper()}_CONFIRM"
+        return confirmation_code == expected_code
+    except Exception as e:
+        print(f"[verify_deletion_code] Error: {str(e)}")
+        return False
+
+async def purge_user_data(user_id: str):
+    """
+    Purge all user data across all collections
+    """
+    try:
+        deletion_summary = {
+            "user_profile": 0,
+            "consumption_records": 0,
+            "meal_plans": 0,
+            "shopping_lists": 0,
+            "chat_messages": 0,
+            "recipes": 0,
+            "total_records_deleted": 0
+        }
+        
+        # Delete from user_information container
+        user_query = f"SELECT * FROM c WHERE c.id = '{user_id}' OR c.email = '{user_id}'"
+        user_items = list(user_container.query_items(query=user_query, enable_cross_partition_query=True))
+        
+        for item in user_items:
+            user_container.delete_item(item=item["id"], partition_key=item["id"])
+            deletion_summary["user_profile"] += 1
+        
+        # Delete from interactions container
+        data_types = [
+            ("consumption_record", "consumption_records"),
+            ("meal_plan", "meal_plans"),
+            ("shopping_list", "shopping_lists"),
+            ("chat_message", "chat_messages"),
+            ("recipe", "recipes")
+        ]
+        
+        for data_type, summary_key in data_types:
+            query = f"SELECT * FROM c WHERE c.user_id = '{user_id}' AND c.type = '{data_type}'"
+            items = list(interactions_container.query_items(query=query, enable_cross_partition_query=True))
+            
+            for item in items:
+                interactions_container.delete_item(item=item["id"], partition_key=item["session_id"])
+                deletion_summary[summary_key] += 1
+        
+        # Calculate total
+        deletion_summary["total_records_deleted"] = sum(
+            v for k, v in deletion_summary.items() if k != "total_records_deleted"
+        )
+        
+        print(f"[purge_user_data] Deletion summary: {deletion_summary}")
+        return deletion_summary
+        
+    except Exception as e:
+        print(f"[purge_user_data] Error: {str(e)}")
+        raise Exception(f"Data purge failed: {str(e)}")
+
+async def get_user_consumption_history_with_deleted(user_id: str, include_deleted: bool = False, limit: int = 50):
+    """
+    Get consumption history with option to include soft-deleted records
+    """
+    try:
+        if not user_id:
+            raise ValueError("User ID is required")
+
+        print(f"[get_user_consumption_history_with_deleted] Querying consumption records for user {user_id}, include_deleted={include_deleted}")
+        
+        # Build query based on whether to include deleted records
+        if include_deleted:
+            query = (
+                f"SELECT TOP {limit} c.id, c.timestamp, c.food_name, c.estimated_portion, "
+                "c.nutritional_info, c.medical_rating, c.image_analysis, c.image_url, c.meal_type, "
+                "c.deleted_at, c.deleted_by, c.deletion_reason, c.soft_delete "
+                "FROM c WHERE c.type = 'consumption_record' "
+                f"AND c.user_id = '{user_id}' "
+                "ORDER BY c.timestamp DESC"
+            )
+        else:
+            query = (
+                f"SELECT TOP {limit} c.id, c.timestamp, c.food_name, c.estimated_portion, "
+                "c.nutritional_info, c.medical_rating, c.image_analysis, c.image_url, c.meal_type "
+                "FROM c WHERE c.type = 'consumption_record' "
+                f"AND c.user_id = '{user_id}' "
+                "AND (c.soft_delete != true OR c.soft_delete IS NULL) "
+                "ORDER BY c.timestamp DESC"
+            )
+        
+        consumption_records = list(interactions_container.query_items(
+            query=query,
+            enable_cross_partition_query=True
+        ))
+        
+        print(f"[get_user_consumption_history_with_deleted] Retrieved {len(consumption_records)} records")
+        return consumption_records
+        
+    except Exception as e:
+        print(f"[get_user_consumption_history_with_deleted] Error: {str(e)}")
+        raise Exception(f"Failed to get consumption history: {str(e)}")
+
+# ============================================================================
+# EXISTING FUNCTIONS (unchanged)
+# ============================================================================
+
 async def create_user(user_data: dict):
     """Create a new user in the database"""
     try:
@@ -770,18 +1104,18 @@ async def get_user_consumption_history(user_id: str, limit: int = 50):
         # Build query with optional TOP clause for database-level limiting
         if limit:
             query = (
-                f"SELECT TOP {limit} c.id, c.timestamp, c.food_name, c.estimated_portion, "
-                "c.nutritional_info, c.medical_rating, c.image_analysis, c.image_url, c.meal_type "
+                f"SELECT TOP {limit} * "
                 "FROM c WHERE c.type = 'consumption_record' "
                 f"AND c.user_id = '{user_id}' "
+                "AND (NOT IS_DEFINED(c.soft_delete) OR c.soft_delete != true) "
                 "ORDER BY c.timestamp DESC"
             )
         else:
             query = (
-                "SELECT c.id, c.timestamp, c.food_name, c.estimated_portion, "
-                "c.nutritional_info, c.medical_rating, c.image_analysis, c.image_url, c.meal_type "
+                "SELECT * "
                 "FROM c WHERE c.type = 'consumption_record' "
                 f"AND c.user_id = '{user_id}' "
+                "AND (NOT IS_DEFINED(c.soft_delete) OR c.soft_delete != true) "
                 "ORDER BY c.timestamp DESC"
             )
         print(f"[get_user_consumption_history] Query: {query}")
