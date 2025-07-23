@@ -176,20 +176,26 @@ const Login = () => {
   };
 
   return (
-    <Container maxWidth="sm" sx={{ py: 6, display: 'flex', alignItems: 'center', minHeight: '100vh' }}>
+    <Container maxWidth="sm" sx={{ 
+      py: { xs: 3, sm: 6 }, 
+      px: { xs: 2, sm: 3 },
+      display: 'flex', 
+      alignItems: 'center', 
+      minHeight: '100vh' 
+    }}>
       <Paper 
         elevation={8} 
         sx={{ 
-          p: 5,
+          p: { xs: 3, sm: 5 },
           width: '100%',
           background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
           color: 'white',
-          borderRadius: 3,
+          borderRadius: { xs: 2, sm: 3 },
           boxShadow: '0 10px 40px rgba(0,0,0,0.2)'
         }}
       >
         {/* Header Section */}
-        <Box sx={{ textAlign: 'center', mb: 4 }}>
+        <Box sx={{ textAlign: 'center', mb: { xs: 3, sm: 4 } }}>
           <Typography 
             variant="h3" 
             component="h1" 
@@ -198,7 +204,8 @@ const Login = () => {
               fontWeight: 'bold',
               letterSpacing: '2px',
               mb: 1,
-              textShadow: '2px 2px 4px rgba(0,0,0,0.3)'
+              textShadow: '2px 2px 4px rgba(0,0,0,0.3)',
+              fontSize: { xs: '1.8rem', sm: '2.5rem', md: '3rem' }
             }}
           >
             YOUR DIET MANAGER
@@ -208,14 +215,15 @@ const Login = () => {
             sx={{ 
               color: 'rgba(255,255,255,0.9)',
               fontWeight: 300,
-              letterSpacing: '0.5px'
+              letterSpacing: '0.5px',
+              fontSize: { xs: '0.9rem', sm: '1rem' }
             }}
           >
             Welcome back! Please sign in to your account
           </Typography>
         </Box>
 
-        <Divider sx={{ mb: 4, borderColor: 'rgba(255,255,255,0.2)' }} />
+        <Divider sx={{ mb: { xs: 3, sm: 4 }, borderColor: 'rgba(255,255,255,0.2)' }} />
 
         {error && (
           <Alert 

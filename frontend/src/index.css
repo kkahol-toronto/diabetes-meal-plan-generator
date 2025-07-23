@@ -5,9 +5,63 @@ body {
     sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  /* Mobile-first responsive improvements */
+  font-size: 16px; /* Prevents zoom on iOS when input fields are focused */
+  line-height: 1.5;
+  overflow-x: hidden; /* Prevent horizontal scroll */
 }
 
 code {
   font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
     monospace;
+}
+
+/* Mobile-responsive global utilities */
+* {
+  box-sizing: border-box;
+}
+
+/* Improved mobile scrolling */
+html {
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Mobile-responsive images */
+img {
+  max-width: 100%;
+  height: auto;
+}
+
+/* Better mobile touch targets */
+button, input, select, textarea {
+  min-height: 44px; /* iOS accessibility guideline */
+}
+
+/* Mobile-optimized focus states */
+button:focus, input:focus, select:focus, textarea:focus {
+  outline: 2px solid #667eea;
+  outline-offset: 2px;
+}
+
+/* Responsive text selections */
+::selection {
+  background-color: rgba(102, 126, 234, 0.2);
+}
+
+/* Better mobile table scrolling */
+.mobile-scroll-table {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Mobile-friendly spacing utilities */
+@media (max-width: 600px) {
+  .mobile-padding {
+    padding: 16px !important;
+  }
+  
+  .mobile-margin {
+    margin: 8px !important;
+  }
 } 

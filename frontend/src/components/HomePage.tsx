@@ -1868,32 +1868,55 @@ const HomePage: React.FC = () => {
 
   if (!isLoggedIn) {
     return (
-      <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
-        <Paper elevation={3} sx={{ p: 4, textAlign: 'center', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', mb: 2 }}>
+      <Container maxWidth="lg" sx={{ mt: { xs: 2, md: 4 }, mb: 4, px: { xs: 2, sm: 3 } }}>
+        <Paper elevation={3} sx={{ 
+          p: { xs: 3, sm: 4 }, 
+          textAlign: 'center', 
+          background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+          borderRadius: { xs: 2, sm: 3 }
+        }}>
+          <Box sx={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            justifyContent: 'center', 
+            mb: 2,
+            flexDirection: { xs: 'column', sm: 'row' },
+            gap: { xs: 1, sm: 0 }
+          }}>
             <img 
               src="/dietra_logo.png" 
               alt="Dietra Logo" 
               style={{ 
-                height: '80px', 
+                height: window.innerWidth < 600 ? '60px' : '80px', 
                 width: 'auto', 
-                marginRight: '20px' 
+                marginRight: window.innerWidth < 600 ? '0' : '20px',
+                marginBottom: window.innerWidth < 600 ? '8px' : '0'
               }} 
             />
-            <Typography variant="h3" component="h1" sx={{ color: 'white', fontWeight: 'bold' }}>
+            <Typography 
+              variant="h3" 
+              component="h1" 
+              sx={{ 
+                color: 'white', 
+                fontWeight: 'bold',
+                fontSize: { xs: '1.8rem', sm: '2.5rem', md: '3rem' },
+                textAlign: 'center'
+              }}
+            >
               AI Nutrition Coach
             </Typography>
           </Box>
           
           {/* Image Carousel */}
-          <Box sx={{ mb: 4, display: 'flex', justifyContent: 'center' }}>
+          <Box sx={{ mb: 4, display: 'flex', justifyContent: 'center', px: { xs: 0, sm: 2 } }}>
             <Box sx={{ 
-              width: '600px', 
-              height: '300px', 
+              width: { xs: '100%', sm: '500px', md: '600px' }, 
+              height: { xs: '200px', sm: '250px', md: '300px' }, 
               borderRadius: 3, 
               overflow: 'hidden',
               boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)',
-              position: 'relative'
+              position: 'relative',
+              maxWidth: '100%'
             }}>
               <img
                 src={carouselImages[currentImageIndex]}
@@ -1908,7 +1931,7 @@ const HomePage: React.FC = () => {
               {/* Carousel indicators */}
               <Box sx={{ 
                 position: 'absolute', 
-                bottom: 16, 
+                bottom: { xs: 12, sm: 16 }, 
                 left: '50%', 
                 transform: 'translateX(-50%)',
                 display: 'flex',
@@ -1918,8 +1941,8 @@ const HomePage: React.FC = () => {
                   <Box
                     key={index}
                     sx={{
-                      width: 12,
-                      height: 12,
+                      width: { xs: 10, sm: 12 },
+                      height: { xs: 10, sm: 12 },
                       borderRadius: '50%',
                       backgroundColor: currentImageIndex === index ? 'white' : alpha('#fff', 0.5),
                       cursor: 'pointer',
@@ -1932,11 +1955,31 @@ const HomePage: React.FC = () => {
             </Box>
           </Box>
           
-          <Typography variant="h6" sx={{ color: 'white', mb: 3, opacity: 0.9, maxWidth: '800px', mx: 'auto', lineHeight: 1.6 }}>
+          <Typography 
+            variant="h6" 
+            sx={{ 
+              color: 'white', 
+              mb: 3, 
+              opacity: 0.9, 
+              maxWidth: { xs: '100%', sm: '700px', md: '800px' }, 
+              mx: 'auto', 
+              lineHeight: 1.6,
+              fontSize: { xs: '1rem', sm: '1.1rem', md: '1.25rem' },
+              px: { xs: 1, sm: 2 }
+            }}
+          >
             Welcome to Dietra. Track your nutrition instantly - no meal plan required! Simply snap photos of your meals or log food manually, and our AI automatically analyzes nutritional intake and calculates your diabetes health score. Optional personalized meal plans available. With continuous tracking and an AI-powered Nutrition Coach to answer your dietary questions, Dietra makes achieving health goals effortless and smart.
           </Typography>
           
-          <Box sx={{ display: 'flex', gap: 2, justifyContent: 'center', flexWrap: 'wrap' }}>
+          <Box sx={{ 
+            display: 'flex', 
+            gap: { xs: 2, sm: 2 }, 
+            justifyContent: 'center', 
+            flexWrap: 'wrap',
+            flexDirection: { xs: 'column', sm: 'row' },
+            alignItems: 'center',
+            px: { xs: 2, sm: 0 }
+          }}>
             <Button
               variant="contained"
               size="large"
@@ -2093,50 +2136,101 @@ const HomePage: React.FC = () => {
       )}
 
       {/* Tabs Navigation */}
-      <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
-        <Tabs value={tabValue} onChange={(e, newValue) => setTabValue(newValue)} aria-label="dashboard tabs">
-          <Tab icon={<AnalyticsIcon />} label="Overview" />
-          <Tab icon={<TimelineIcon />} label="Analytics" />
-          <Tab icon={<CoachIcon />} label="AI Insights" />
-          <Tab icon={<NotificationIcon />} label={`Notifications ${notifications.length > 0 ? `(${notifications.length})` : ''}`} />
+      <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3, overflow: 'auto' }}>
+        <Tabs 
+          value={tabValue} 
+          onChange={(e, newValue) => setTabValue(newValue)} 
+          aria-label="dashboard tabs"
+          variant="scrollable"
+          scrollButtons="auto"
+          sx={{
+            '& .MuiTab-root': {
+              minWidth: { xs: 'auto', sm: 160 },
+              fontSize: { xs: '0.75rem', sm: '0.875rem' },
+              '@media (max-width: 600px)': {
+                '& .MuiSvgIcon-root': {
+                  fontSize: '1rem'
+                }
+              }
+            }
+          }}
+        >
+          <Tab 
+            icon={<AnalyticsIcon />} 
+            label={window.innerWidth < 600 ? "Overview" : "Overview"}
+            iconPosition="start"
+          />
+          <Tab 
+            icon={<TimelineIcon />} 
+            label={window.innerWidth < 600 ? "Analytics" : "Analytics"}
+            iconPosition="start"
+          />
+          <Tab 
+            icon={<CoachIcon />} 
+            label={window.innerWidth < 600 ? "AI" : "AI Insights"}
+            iconPosition="start"
+          />
+          <Tab 
+            icon={<NotificationIcon />} 
+            label={window.innerWidth < 600 ? 
+              `Notifs${notifications.length > 0 ? ` (${notifications.length})` : ''}` : 
+              `Notifications ${notifications.length > 0 ? `(${notifications.length})` : ''}`
+            }
+            iconPosition="start"
+          />
         </Tabs>
       </Box>
 
       {/* Overview Tab */}
       <CustomTabPanel value={tabValue} index={0}>
-        <Grid container spacing={3}>
+        <Grid container spacing={{ xs: 2, md: 3 }}>
           {/* Today's Summary Cards */}
-          <Grid item xs={12} md={3}>
+          <Grid item xs={12} sm={6} md={3}>
             <Card sx={{ 
               background: 'linear-gradient(135deg, #FF6B6B, #FF8E53)',
               color: 'white',
-              height: '100%'
+              height: '100%',
+              minHeight: { xs: '140px', sm: '160px' }
             }}>
-              <CardContent>
-                <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                  <CaloriesIcon sx={{ mr: 1 }} />
-                  <Typography variant="h6">Calories Today</Typography>
+              <CardContent sx={{ p: { xs: 2, sm: 3 } }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', mb: { xs: 1, sm: 2 } }}>
+                  <CaloriesIcon sx={{ mr: 1, fontSize: { xs: '1.2rem', sm: '1.5rem' } }} />
+                  <Typography variant="h6" sx={{ fontSize: { xs: '1rem', sm: '1.25rem' } }}>
+                    Calories Today
+                  </Typography>
                 </Box>
-                <Typography variant="h3" sx={{ fontWeight: 'bold' }}>
+                <Typography variant="h3" sx={{ 
+                  fontWeight: 'bold',
+                  fontSize: { xs: '1.8rem', sm: '2.5rem', md: '3rem' }
+                }}>
                   {dashboardData?.today_totals?.calories || 0}
                 </Typography>
-                <Typography variant="body2" sx={{ opacity: 0.8 }}>
+                <Typography variant="body2" sx={{ 
+                  opacity: 0.8,
+                  fontSize: { xs: '0.75rem', sm: '0.875rem' }
+                }}>
                   Goal: {dashboardData?.goals?.calories || 2000}
                 </Typography>
                 <LinearProgress 
                   variant="determinate" 
                   value={Math.min(((dashboardData?.today_totals?.calories || 0) / (dashboardData?.goals?.calories || 2000)) * 100, 100)}
-                  sx={{ mt: 1, bgcolor: alpha('#fff', 0.3), '& .MuiLinearProgress-bar': { bgcolor: 'white' } }}
+                  sx={{ 
+                    mt: 1, 
+                    bgcolor: alpha('#fff', 0.3), 
+                    '& .MuiLinearProgress-bar': { bgcolor: 'white' },
+                    height: { xs: 6, sm: 8 }
+                  }}
                 />
               </CardContent>
             </Card>
           </Grid>
 
-          <Grid item xs={12} md={3}>
+          <Grid item xs={12} sm={6} md={3}>
             <Card sx={{ 
               background: 'linear-gradient(135deg, #4ECDC4, #44A08D)',
               color: 'white',
-              height: '100%'
+              height: '100%',
+              minHeight: { xs: '140px', sm: '160px' }
             }}>
               <CardContent>
                 <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
@@ -2158,11 +2252,12 @@ const HomePage: React.FC = () => {
             </Card>
           </Grid>
 
-          <Grid item xs={12} md={3}>
+          <Grid item xs={12} sm={6} md={3}>
             <Card sx={{ 
               background: 'linear-gradient(135deg, #A8EDEA, #FED6E3)',
               color: '#333',
-              height: '100%'
+              height: '100%',
+              minHeight: { xs: '140px', sm: '160px' }
             }}>
               <CardContent>
                 <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
@@ -2187,11 +2282,12 @@ const HomePage: React.FC = () => {
             </Card>
           </Grid>
 
-          <Grid item xs={12} md={3}>
+          <Grid item xs={12} sm={6} md={3}>
             <Card sx={{ 
               background: 'linear-gradient(135deg, #667eea, #764ba2)',
               color: 'white',
-              height: '100%'
+              height: '100%',
+              minHeight: { xs: '140px', sm: '160px' }
             }}>
               <CardContent>
                 <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>

@@ -136,7 +136,7 @@ const Navigation = () => {
   };
 
   const NavigationList = () => (
-    <List>
+    <List sx={{ py: 0 }}>
       {menuItems.map((item) => (
         <ListItem
           button
@@ -149,37 +149,105 @@ const Navigation = () => {
           selected={location.pathname === item.path}
           sx={{
             color: 'white',
-            '&:hover': { backgroundColor: 'rgba(255,255,255,0.1)' },
-            '&.Mui-selected': { backgroundColor: 'rgba(255,255,255,0.2)' }
+            py: 1.5,
+            px: 2,
+            borderRadius: 0,
+            '&:hover': { 
+              backgroundColor: 'rgba(255,255,255,0.1)',
+              '& .MuiListItemText-primary': {
+                fontWeight: 'bold'
+              }
+            },
+            '&.Mui-selected': { 
+              backgroundColor: 'rgba(255,255,255,0.2)',
+              borderRight: '4px solid white',
+              '& .MuiListItemText-primary': {
+                fontWeight: 'bold'
+              }
+            }
           }}
         >
-          <ListItemIcon sx={{ color: 'white' }}>{item.icon}</ListItemIcon>
-          <ListItemText primary={item.text} />
+          <ListItemIcon sx={{ 
+            color: 'white', 
+            minWidth: 40,
+            '& .MuiSvgIcon-root': {
+              fontSize: '1.2rem'
+            }
+          }}>
+            {item.icon}
+          </ListItemIcon>
+          <ListItemText 
+            primary={item.text}
+            primaryTypographyProps={{
+              fontSize: '0.95rem',
+              fontWeight: location.pathname === item.path ? 'bold' : 'normal'
+            }}
+          />
         </ListItem>
       ))}
-      {userInfo ? (
-        <ListItem 
-          button 
-          onClick={handleLogout}
-          sx={{
-            color: 'white',
-            '&:hover': { backgroundColor: 'rgba(255,255,255,0.1)' }
-          }}
-        >
-          <ListItemText primary="Logout" />
-        </ListItem>
-      ) : (
-        <ListItem 
-          button 
-          onClick={() => navigate('/login')}
-          sx={{
-            color: 'white',
-            '&:hover': { backgroundColor: 'rgba(255,255,255,0.1)' }
-          }}
-        >
-          <ListItemText primary="Login" />
-        </ListItem>
-      )}
+      
+      {/* Divider before auth actions */}
+      <Box sx={{ borderTop: '1px solid rgba(255,255,255,0.2)', mt: 1, pt: 1 }}>
+        {userInfo ? (
+          <ListItem 
+            button 
+            onClick={() => {
+              handleLogout();
+              setDrawerOpen(false);
+            }}
+            sx={{
+              color: 'white',
+              py: 1.5,
+              px: 2,
+              '&:hover': { 
+                backgroundColor: 'rgba(255,255,255,0.1)',
+                '& .MuiListItemText-primary': {
+                  fontWeight: 'bold'
+                }
+              }
+            }}
+          >
+            <ListItemIcon sx={{ color: 'white', minWidth: 40 }}>
+              <AccountCircleIcon />
+            </ListItemIcon>
+            <ListItemText 
+              primary="Logout" 
+              primaryTypographyProps={{
+                fontSize: '0.95rem'
+              }}
+            />
+          </ListItem>
+        ) : (
+          <ListItem 
+            button 
+            onClick={() => {
+              navigate('/login');
+              setDrawerOpen(false);
+            }}
+            sx={{
+              color: 'white',
+              py: 1.5,
+              px: 2,
+              '&:hover': { 
+                backgroundColor: 'rgba(255,255,255,0.1)',
+                '& .MuiListItemText-primary': {
+                  fontWeight: 'bold'
+                }
+              }
+            }}
+          >
+            <ListItemIcon sx={{ color: 'white', minWidth: 40 }}>
+              <AccountCircleIcon />
+            </ListItemIcon>
+            <ListItemText 
+              primary="Login" 
+              primaryTypographyProps={{
+                fontSize: '0.95rem'
+              }}
+            />
+          </ListItem>
+        )}
+      </Box>
     </List>
   );
 
@@ -208,17 +276,24 @@ const Navigation = () => {
             src="/dietra_logo.png" 
             alt="Dietra Logo" 
             style={{ 
-              height: '48px', 
+              height: isMobile ? '40px' : '48px', 
               width: 'auto', 
-              marginRight: '16px' 
+              marginRight: isMobile ? '8px' : '16px' 
             }} 
           />
-          <Typography variant="h6" component="div">
+          <Typography 
+            variant={isMobile ? "h6" : "h6"} 
+            component="div"
+            sx={{
+              fontSize: isMobile ? '1.1rem' : '1.25rem',
+              fontWeight: 'bold'
+            }}
+          >
             Dietra
           </Typography>
         </Box>
         {!isMobile && (
-          <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+          <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
             {menuItems.map((item) => (
               <Button
                 key={item.text}
@@ -229,8 +304,10 @@ const Navigation = () => {
                   backgroundColor: location.pathname === item.path ? 'rgba(255, 255, 255, 0.2)' : 'transparent',
                   '&:hover': { backgroundColor: 'rgba(255, 255, 255, 0.1)' },
                   borderRadius: 2,
-                  px: 2,
+                  px: 1.5,
                   py: 1,
+                  fontSize: '0.85rem',
+                  minWidth: 'unset',
                   transition: 'all 0.3s ease'
                 }}
               >
@@ -239,15 +316,25 @@ const Navigation = () => {
             ))}
             {userInfo ? (
               <>
-                <Typography variant="body1" sx={{ mr: 2 }}>
-                  Welcome, {userInfo.name || userInfo.username}!
+                <Typography variant="body2" sx={{ mr: 1, display: { xs: 'none', md: 'block' } }}>
+                  {userInfo.name || userInfo.username}
                 </Typography>
-                <Button color="inherit" onClick={handleLogout}>
+                <Button 
+                  color="inherit" 
+                  size="small"
+                  onClick={handleLogout}
+                  sx={{ fontSize: '0.85rem' }}
+                >
                   Logout
                 </Button>
               </>
             ) : (
-              <Button color="inherit" onClick={() => navigate('/login')}>
+              <Button 
+                color="inherit" 
+                size="small"
+                onClick={() => navigate('/login')}
+                sx={{ fontSize: '0.85rem' }}
+              >
                 Login
               </Button>
             )}
@@ -257,16 +344,56 @@ const Navigation = () => {
       <Drawer anchor="left" open={drawerOpen} onClose={toggleDrawer(false)}>
         <Box
           sx={{ 
-            width: 250,
+            width: 280,
             background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
             height: '100%',
-            color: 'white'
+            color: 'white',
+            display: 'flex',
+            flexDirection: 'column'
           }}
           role="presentation"
-          onClick={toggleDrawer(false)}
-          onKeyDown={toggleDrawer(false)}
         >
-          <NavigationList />
+          {/* Drawer Header */}
+          <Box sx={{ 
+            p: 2, 
+            borderBottom: '1px solid rgba(255,255,255,0.2)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 2
+          }}>
+            <img 
+              src="/dietra_logo.png" 
+              alt="Dietra Logo" 
+              style={{ 
+                height: '32px', 
+                width: 'auto'
+              }} 
+            />
+            <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
+              Dietra
+            </Typography>
+          </Box>
+          
+          {/* User Info Section */}
+          {userInfo && (
+            <Box sx={{ 
+              p: 2, 
+              borderBottom: '1px solid rgba(255,255,255,0.2)',
+              bgcolor: 'rgba(255,255,255,0.1)'
+            }}>
+              <Typography variant="body1" sx={{ fontWeight: 'bold' }}>
+                {userInfo.name || userInfo.username}
+              </Typography>
+              <Typography variant="body2" sx={{ opacity: 0.8 }}>
+                {userInfo.is_admin ? 'Administrator' : 'User'}
+              </Typography>
+            </Box>
+          )}
+          
+          {/* Navigation Items */}
+          <Box sx={{ flex: 1, overflow: 'auto' }}>
+            <NavigationList />
+          </Box>
         </Box>
       </Drawer>
     </AppBar>

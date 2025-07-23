@@ -1342,29 +1342,69 @@ const ConsumptionHistory: React.FC = () => {
                       {record.estimated_portion} • {formatConsumptionTimestamp(record.timestamp)}
                     </Typography>
 
-                    <Grid container spacing={2} sx={{ mb: 2 }}>
+                    <Grid container spacing={{ xs: 1, sm: 2 }} sx={{ mb: 2 }}>
                       <Grid item xs={6} sm={3}>
-                        <Paper sx={{ p: 1, textAlign: 'center', bgcolor: 'primary.light', color: 'primary.contrastText' }}>
-                          <Typography variant="h6">{Math.round(record.nutritional_info.calories)}</Typography>
-                          <Typography variant="caption">Calories</Typography>
+                        <Paper sx={{ 
+                          p: { xs: 1, sm: 1 }, 
+                          textAlign: 'center', 
+                          bgcolor: 'primary.light', 
+                          color: 'primary.contrastText',
+                          minHeight: { xs: 60, sm: 'auto' }
+                        }}>
+                          <Typography variant="h6" sx={{ fontSize: { xs: '1rem', sm: '1.25rem' } }}>
+                            {Math.round(record.nutritional_info.calories)}
+                          </Typography>
+                          <Typography variant="caption" sx={{ fontSize: { xs: '0.65rem', sm: '0.75rem' } }}>
+                            Calories
+                          </Typography>
                         </Paper>
             </Grid>
                       <Grid item xs={6} sm={3}>
-                        <Paper sx={{ p: 1, textAlign: 'center', bgcolor: 'success.light', color: 'success.contrastText' }}>
-                          <Typography variant="h6">{Math.round(record.nutritional_info.protein)}g</Typography>
-                          <Typography variant="caption">Protein</Typography>
+                        <Paper sx={{ 
+                          p: { xs: 1, sm: 1 }, 
+                          textAlign: 'center', 
+                          bgcolor: 'success.light', 
+                          color: 'success.contrastText',
+                          minHeight: { xs: 60, sm: 'auto' }
+                        }}>
+                          <Typography variant="h6" sx={{ fontSize: { xs: '1rem', sm: '1.25rem' } }}>
+                            {Math.round(record.nutritional_info.protein)}g
+                          </Typography>
+                          <Typography variant="caption" sx={{ fontSize: { xs: '0.65rem', sm: '0.75rem' } }}>
+                            Protein
+                          </Typography>
                         </Paper>
                       </Grid>
                       <Grid item xs={6} sm={3}>
-                        <Paper sx={{ p: 1, textAlign: 'center', bgcolor: 'warning.light', color: 'warning.contrastText' }}>
-                          <Typography variant="h6">{Math.round(record.nutritional_info.carbohydrates)}g</Typography>
-                          <Typography variant="caption">Carbs</Typography>
+                        <Paper sx={{ 
+                          p: { xs: 1, sm: 1 }, 
+                          textAlign: 'center', 
+                          bgcolor: 'warning.light', 
+                          color: 'warning.contrastText',
+                          minHeight: { xs: 60, sm: 'auto' }
+                        }}>
+                          <Typography variant="h6" sx={{ fontSize: { xs: '1rem', sm: '1.25rem' } }}>
+                            {Math.round(record.nutritional_info.carbohydrates)}g
+                          </Typography>
+                          <Typography variant="caption" sx={{ fontSize: { xs: '0.65rem', sm: '0.75rem' } }}>
+                            Carbs
+                          </Typography>
                         </Paper>
                       </Grid>
                       <Grid item xs={6} sm={3}>
-                        <Paper sx={{ p: 1, textAlign: 'center', bgcolor: 'secondary.light', color: 'secondary.contrastText' }}>
-                          <Typography variant="h6">{Math.round(record.nutritional_info.fat)}g</Typography>
-                          <Typography variant="caption">Fat</Typography>
+                        <Paper sx={{ 
+                          p: { xs: 1, sm: 1 }, 
+                          textAlign: 'center', 
+                          bgcolor: 'secondary.light', 
+                          color: 'secondary.contrastText',
+                          minHeight: { xs: 60, sm: 'auto' }
+                        }}>
+                          <Typography variant="h6" sx={{ fontSize: { xs: '1rem', sm: '1.25rem' } }}>
+                            {Math.round(record.nutritional_info.fat)}g
+                          </Typography>
+                          <Typography variant="caption" sx={{ fontSize: { xs: '0.65rem', sm: '0.75rem' } }}>
+                            Fat
+                          </Typography>
                         </Paper>
                       </Grid>
                     </Grid>

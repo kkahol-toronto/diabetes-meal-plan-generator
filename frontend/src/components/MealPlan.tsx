@@ -255,11 +255,14 @@ const MealPlan = ({ mealPlan, selectedDays = 7 }: MealPlanProps) => {
           }}
         >
           <Box sx={{ overflow: 'auto' }}>
-            <table style={{ 
-              width: '100%', 
-              borderCollapse: 'collapse',
-              minWidth: `${Math.max(700, selectedDays * 150)}px`
-            }}>
+            <table 
+              className="mobile-scroll-table"
+              style={{ 
+                width: '100%', 
+                borderCollapse: 'collapse',
+                minWidth: `${Math.max(700, selectedDays * 150)}px`
+              }}
+            >
               {/* Header Row */}
               <thead>
                 <tr>

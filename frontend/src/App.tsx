@@ -22,7 +22,7 @@ import ConsumptionHistory from './components/ConsumptionHistory';
 import NotificationSystem from './components/NotificationSystem';
 import ComplianceFooter from './components/ComplianceFooter';
 
-// Create a theme instance with purple gradient theme
+// Create a theme instance with purple gradient theme and mobile responsiveness
 const theme = createTheme({
   palette: {
     primary: {
@@ -44,30 +44,104 @@ const theme = createTheme({
       secondary: '#667eea',
     },
   },
+  breakpoints: {
+    values: {
+      xs: 0,
+      sm: 600,
+      md: 900,
+      lg: 1200,
+      xl: 1536,
+    },
+  },
   typography: {
     fontFamily: '"Roboto", "Helvetica", "Arial", sans-serif',
+    // Mobile-responsive typography
+    h1: {
+      fontSize: '2.5rem',
+      '@media (max-width:600px)': {
+        fontSize: '2rem',
+      },
+    },
+    h2: {
+      fontSize: '2rem',
+      '@media (max-width:600px)': {
+        fontSize: '1.75rem',
+      },
+    },
+    h3: {
+      fontSize: '1.75rem',
+      '@media (max-width:600px)': {
+        fontSize: '1.5rem',
+      },
+    },
     h4: {
       fontWeight: 600,
       background: 'linear-gradient(45deg, #667eea, #764ba2)',
       WebkitBackgroundClip: 'text',
       WebkitTextFillColor: 'transparent',
+      fontSize: '1.5rem',
+      '@media (max-width:600px)': {
+        fontSize: '1.25rem',
+      },
     },
     h5: {
       fontWeight: 500,
+      fontSize: '1.25rem',
+      '@media (max-width:600px)': {
+        fontSize: '1.1rem',
+      },
     },
     h6: {
       fontWeight: 500,
+      fontSize: '1rem',
+      '@media (max-width:600px)': {
+        fontSize: '0.95rem',
+      },
+    },
+    body1: {
+      fontSize: '1rem',
+      '@media (max-width:600px)': {
+        fontSize: '0.9rem',
+      },
+    },
+    body2: {
+      fontSize: '0.875rem',
+      '@media (max-width:600px)': {
+        fontSize: '0.8rem',
+      },
     },
   },
+  spacing: 8, // Default spacing unit
   components: {
     MuiButton: {
       styleOverrides: {
         contained: {
           background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
           boxShadow: '0 4px 15px rgba(102, 126, 234, 0.3)',
+          minHeight: '44px', // Better mobile touch target
+          fontSize: '1rem',
+          '@media (max-width:600px)': {
+            fontSize: '0.9rem',
+            padding: '10px 16px',
+            minHeight: '48px', // Slightly larger on mobile
+          },
           '&:hover': {
             background: 'linear-gradient(135deg, #5a6fd8 0%, #6a4190 100%)',
             boxShadow: '0 6px 20px rgba(102, 126, 234, 0.4)',
+          },
+        },
+        outlined: {
+          minHeight: '44px',
+          '@media (max-width:600px)': {
+            minHeight: '48px',
+            fontSize: '0.9rem',
+          },
+        },
+        text: {
+          minHeight: '44px',
+          '@media (max-width:600px)': {
+            minHeight: '48px',
+            fontSize: '0.9rem',
           },
         },
       },
@@ -77,11 +151,20 @@ const theme = createTheme({
         root: {
           boxShadow: '0 4px 20px rgba(102, 126, 234, 0.1)',
           borderRadius: 12,
+          '@media (max-width:600px)': {
+            borderRadius: 8,
+            margin: '8px',
+          },
         },
       },
     },
     MuiPaper: {
       styleOverrides: {
+        root: {
+          '@media (max-width:600px)': {
+            borderRadius: 8,
+          },
+        },
         elevation1: {
           boxShadow: '0 2px 10px rgba(102, 126, 234, 0.1)',
         },
@@ -90,6 +173,61 @@ const theme = createTheme({
         },
         elevation3: {
           boxShadow: '0 6px 20px rgba(102, 126, 234, 0.2)',
+        },
+      },
+    },
+    MuiContainer: {
+      styleOverrides: {
+        root: {
+          '@media (max-width:600px)': {
+            paddingLeft: '16px',
+            paddingRight: '16px',
+          },
+        },
+      },
+    },
+    MuiTextField: {
+      styleOverrides: {
+        root: {
+          '& .MuiInputBase-root': {
+            minHeight: '44px',
+            '@media (max-width:600px)': {
+              minHeight: '48px',
+              fontSize: '16px', // Prevents zoom on iOS
+            },
+          },
+        },
+      },
+    },
+    MuiTab: {
+      styleOverrides: {
+        root: {
+          '@media (max-width:600px)': {
+            fontSize: '0.8rem',
+            minHeight: '48px',
+            padding: '6px 8px',
+          },
+        },
+      },
+    },
+    MuiDialog: {
+      styleOverrides: {
+        paper: {
+          '@media (max-width:600px)': {
+            margin: '16px',
+            width: 'calc(100% - 32px)',
+            maxHeight: 'calc(100% - 32px)',
+            borderRadius: 8,
+          },
+        },
+      },
+    },
+    MuiDrawer: {
+      styleOverrides: {
+        paper: {
+          '@media (max-width:600px)': {
+            width: '280px', // Slightly narrower on mobile
+          },
         },
       },
     },

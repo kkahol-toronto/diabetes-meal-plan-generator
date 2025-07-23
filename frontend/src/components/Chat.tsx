@@ -775,10 +775,29 @@ const Chat = () => {
   };
 
   return (
-    <Container maxWidth="lg" sx={{ height: '100vh', display: 'flex', flexDirection: 'column', py: 2 }}>
+    <Container maxWidth="lg" sx={{ 
+      height: '100vh', 
+      display: 'flex', 
+      flexDirection: 'column', 
+      py: { xs: 1, sm: 2 },
+      px: { xs: 1, sm: 3 }
+    }}>
       {/* Header */}
-      <Paper elevation={2} sx={{ p: 2, mb: 2, background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: 'white' }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 2 }}>
+      <Paper elevation={2} sx={{ 
+        p: { xs: 1.5, sm: 2 }, 
+        mb: { xs: 1, sm: 2 }, 
+        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', 
+        color: 'white',
+        borderRadius: { xs: 1, sm: 2 }
+      }}>
+        <Box sx={{ 
+          display: 'flex', 
+          alignItems: 'center', 
+          justifyContent: 'space-between', 
+          flexWrap: 'wrap', 
+          gap: { xs: 1, sm: 2 },
+          flexDirection: { xs: 'column', sm: 'row' }
+        }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
             <Avatar sx={{ bgcolor: 'white', color: 'primary.main' }}>
               <SmartToyIcon />
@@ -793,57 +812,61 @@ const Chat = () => {
             </Box>
           </Box>
           
-          {userStats && (
-            <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-              <Chip 
-                icon={<LocalFireDepartmentIcon />} 
-                label={`${userStats.today_totals?.calories || 0} cal`}
-                sx={{ bgcolor: alpha('#fff', 0.2), color: 'white' }}
-              />
-              <Chip 
-                icon={<FavoriteIcon />} 
-                label={`${Math.round(userStats.diabetes_adherence || 0)}% score`}
-                sx={{ bgcolor: alpha('#fff', 0.2), color: 'white' }}
-              />
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+            {userStats && (
+              <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+                <Chip 
+                  icon={<LocalFireDepartmentIcon />} 
+                  label={`${userStats.today_totals?.calories || 0} cal`}
+                  sx={{ bgcolor: alpha('#fff', 0.2), color: 'white' }}
+                />
+                <Chip 
+                  icon={<FavoriteIcon />} 
+                  label={`${Math.round(userStats.diabetes_adherence || 0)}% score`}
+                  sx={{ bgcolor: alpha('#fff', 0.2), color: 'white' }}
+                />
+              </Box>
+            )}
+            
+            <Box sx={{ 
+              bgcolor: 'white', 
+              borderRadius: 1, 
+              p: 0.5,
+              boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+            }}>
+              <ButtonGroup 
+                variant="contained" 
+                size="small" 
+                sx={{ 
+                  '& .MuiButton-root': { 
+                    bgcolor: 'white', 
+                    color: '#333', 
+                    fontWeight: 'bold',
+                    border: '1px solid #e0e0e0',
+                    boxShadow: 'none',
+                    '&:hover': { 
+                      bgcolor: '#f5f5f5',
+                      border: '1px solid #d0d0d0'
+                    },
+                    '&:not(:last-child)': {
+                      borderRight: '1px solid #d0d0d0'
+                    }
+                  } 
+                }}
+              >
+                <Button startIcon={<AddCommentIcon />} onClick={handleNewChat}>
+                  New Chat
+                </Button>
+                <Button startIcon={<CloseIcon />} onClick={handleClearHistory}>
+                  Clear
+                </Button>
+              </ButtonGroup>
             </Box>
-          )}
-        </Box>
-      </Paper>
-
-      {/* Chat Controls */}
-      <Paper elevation={1} sx={{ p: 2, mb: 2 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
-          <FormControl size="small" sx={{ minWidth: 200 }}>
-            <InputLabel>Chat Session</InputLabel>
-            <Select
-              value={currentSession}
-              onChange={handleSessionChange}
-              label="Chat Session"
-            >
-              {sessions.map((session) => {
-                const messageCount = session.session_id === currentSession ? messages.length : (session.messages?.length || 0);
-                return (
-                  <MenuItem key={session.session_id} value={session.session_id}>
-                    {new Date(session.timestamp).toLocaleDateString()} - {messageCount} messages
-                  </MenuItem>
-                );
-              })}
-            </Select>
-          </FormControl>
-          
-          <ButtonGroup variant="outlined" size="small">
-            <Button startIcon={<AddCommentIcon />} onClick={handleNewChat}>
-              New Chat
-            </Button>
-            <Button startIcon={<CloseIcon />} onClick={handleClearHistory}>
-              Clear
-            </Button>
-          </ButtonGroup>
-
-          <Box sx={{ ml: 'auto', display: 'flex', gap: 1 }}>
           </Box>
         </Box>
       </Paper>
+
+
 
       {/* Quick Actions */}
       {showQuickActions && messages.length === 0 && (
