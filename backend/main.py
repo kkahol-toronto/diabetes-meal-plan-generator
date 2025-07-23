@@ -44,6 +44,7 @@ from database import (
 
 # Use interactions_container as consumption_collection for consistency
 consumption_collection = interactions_container
+from pending_consumption import pending_consumption_manager
 import uuid
 from io import BytesIO
 from reportlab.lib.pagesizes import letter, landscape
@@ -5137,6 +5138,597 @@ async def get_consumption_analytics_endpoint(
         print(f"[get_consumption_analytics] Error: {str(e)}")
         print(f"[get_consumption_analytics] Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Failed to get consumption analytics: {str(e)}")
+
+# ======================================================================
+# PENDING CONSUMPTION ENDPOINTS (Accept/Edit/Delete Flow)
+# ======================================================================
+
+@app.post("/consumption/analyze-only")
+async def analyze_food_only(
+    image: UploadFile = File(...),
+    meal_type: str = Form(None),
+    current_user: User = Depends(get_current_user)
+):
+    """Analyze food image but don't save to database - returns pending_id for Accept/Edit/Delete"""
+    try:
+        print(f"[analyze_food_only] Starting analysis for user {current_user['id']}")
+        
+        # Read and validate image (same logic as analyze-and-record)
+        contents = await image.read()
+        
+        if len(contents) == 0:
+            raise HTTPException(status_code=400, detail="Empty file uploaded")
+        
+        if len(contents) > 10 * 1024 * 1024:  # 10MB limit
+            raise HTTPException(status_code=400, detail="File too large. Maximum size is 10MB")
+        
+        # Check file extension
+        allowed_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp'}
+        file_extension = image.filename.lower().split('.')[-1] if image.filename else ''
+        if not file_extension or f'.{file_extension}' not in allowed_extensions:
+            raise HTTPException(status_code=400, detail=f"Unsupported file format. Allowed formats: {', '.join(allowed_extensions)}")
+        
+        try:
+            # Process image (same logic as analyze-and-record)
+            img = Image.open(BytesIO(contents))
+            
+            if img.mode in ('RGBA', 'LA', 'P'):
+                background = Image.new('RGB', img.size, (255, 255, 255))
+                if img.mode == 'P':
+                    img = img.convert('RGBA')
+                background.paste(img, mask=img.split()[-1] if img.mode == 'RGBA' else None)
+                img = background
+            elif img.mode != 'RGB':
+                img = img.convert('RGB')
+            
+            max_size = 1024
+            if img.width > max_size or img.height > max_size:
+                img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
+            
+            buffered = BytesIO()
+            img.save(buffered, format="JPEG", quality=85, optimize=True)
+            img_str = base64.b64encode(buffered.getvalue()).decode()
+            
+        except Exception as img_error:
+            print(f"[analyze_food_only] Image processing error: {str(img_error)}")
+            raise HTTPException(status_code=400, detail="Invalid or corrupted image file.")
+        
+        # Generate structured analysis using OpenAI (same logic as analyze-and-record)
+        response = client.chat.completions.create(
+            model=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
+            messages=[
+                {
+                    "role": "system",
+                    "content": """You are a nutrition analysis expert for diabetes patients. 
+                    Analyze the food image and return a structured JSON response with the following format:
+                    {
+                        "food_name": "descriptive name of the food",
+                        "estimated_portion": "portion size estimate",
+                        "nutritional_info": {
+                            "calories": number,
+                            "carbohydrates": number (in grams),
+                            "protein": number (in grams),
+                            "fat": number (in grams),
+                            "fiber": number (in grams),
+                            "sugar": number (in grams),
+                            "sodium": number (in mg)
+                        },
+                        "medical_rating": {
+                            "diabetes_suitability": "high/medium/low",
+                            "glycemic_impact": "low/medium/high",
+                            "recommended_frequency": "daily/weekly/occasional/avoid",
+                            "portion_recommendation": "recommended portion size for diabetes patients"
+                        },
+                        "analysis_notes": "detailed explanation of nutritional analysis and diabetes considerations"
+                    }
+                    Provide realistic estimates based on visual analysis. Be conservative with diabetes suitability ratings."""
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": "Analyze this food image and provide detailed nutritional information and diabetes suitability rating."
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/jpeg;base64,{img_str}"
+                            }
+                        }
+                    ]
+                }
+            ],
+            max_tokens=800,
+            temperature=0.3
+        )
+        
+        analysis_text = response.choices[0].message.content
+        
+        # Parse JSON from response
+        try:
+            import json
+            start_idx = analysis_text.find('{')
+            end_idx = analysis_text.rfind('}') + 1
+            json_str = analysis_text[start_idx:end_idx]
+            analysis_data = json.loads(json_str)
+        except (json.JSONDecodeError, ValueError) as e:
+            print(f"[analyze_food_only] Error parsing analysis data: {str(e)}")
+            analysis_data = {
+                "food_name": "Unknown food item",
+                "estimated_portion": "Unable to determine",
+                "nutritional_info": {
+                    "calories": 0,
+                    "carbohydrates": 0,
+                    "protein": 0,
+                    "fat": 0,
+                    "fiber": 0,
+                    "sugar": 0,
+                    "sodium": 0
+                },
+                "medical_rating": {
+                    "diabetes_suitability": "unknown",
+                    "glycemic_impact": "unknown",
+                    "recommended_frequency": "consult nutritionist",
+                    "portion_recommendation": "consult nutritionist"
+                },
+                "analysis_notes": analysis_text
+            }
+        
+        # Create pending record instead of saving to database
+        pending_id = await pending_consumption_manager.create_pending_record(
+            user_email=current_user["email"],
+            user_id=current_user["id"],
+            analysis_data=analysis_data,
+            image_url=img_str,
+            meal_type=meal_type
+        )
+        
+        print(f"[analyze_food_only] Created pending record {pending_id}")
+        
+        return {
+            "pending_id": pending_id,
+            "analysis": analysis_data,
+            "message": "Food analyzed successfully. Use Accept/Edit/Delete options to proceed."
+        }
+        
+    except Exception as e:
+        print(f"[analyze_food_only] Error: {str(e)}")
+        print(f"[analyze_food_only] Full error details:", traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/consumption/pending/{pending_id}")
+async def get_pending_consumption(
+    pending_id: str,
+    current_user: User = Depends(get_current_user)
+):
+    """Get a pending consumption record"""
+    try:
+        record = pending_consumption_manager.get_pending_record(pending_id)
+        
+        if not record:
+            raise HTTPException(status_code=404, detail="Pending record not found or expired")
+        
+        # Verify user ownership
+        if record.user_email != current_user["email"]:
+            raise HTTPException(status_code=403, detail="Access denied")
+        
+        return {
+            "pending_record": record.to_dict(),
+            "analysis": {
+                "food_name": record.food_name,
+                "estimated_portion": record.estimated_portion,
+                "nutritional_info": record.nutritional_info,
+                "medical_rating": record.medical_rating,
+                "analysis_notes": record.analysis_notes
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[get_pending_consumption] Error: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to get pending record")
+
+@app.post("/consumption/pending/{pending_id}/accept")
+async def accept_pending_consumption(
+    pending_id: str,
+    current_user: User = Depends(get_current_user)
+):
+    """Accept a pending consumption record and save to database"""
+    try:
+        record = pending_consumption_manager.get_pending_record(pending_id)
+        
+        if not record:
+            raise HTTPException(status_code=404, detail="Pending record not found or expired")
+        
+        # Verify user ownership
+        if record.user_email != current_user["email"]:
+            raise HTTPException(status_code=403, detail="Access denied")
+        
+        # Prepare consumption data for saving
+        consumption_data = {
+            "food_name": record.food_name,
+            "estimated_portion": record.estimated_portion,
+            "nutritional_info": record.nutritional_info,
+            "medical_rating": record.medical_rating,
+            "image_analysis": record.analysis_notes,
+            "image_url": record.image_url,
+            "meal_type": record.meal_type or ""
+        }
+        
+        # Save to consumption history
+        consumption_record = await save_consumption_record(
+            current_user["email"], 
+            consumption_data, 
+            meal_type=record.meal_type or ""
+        )
+        
+        # Trigger meal plan recalibration
+        try:
+            profile = current_user.get("profile", {})
+            await trigger_meal_plan_recalibration(current_user["email"], profile)
+            print(f"[accept_pending_consumption] Meal plan recalibrated after accepting food")
+        except Exception as recal_error:
+            print(f"[accept_pending_consumption] Error in meal plan recalibration: {recal_error}")
+        
+        # Delete the pending record
+        pending_consumption_manager.delete_pending_record(pending_id)
+        
+        print(f"[accept_pending_consumption] Accepted and saved pending record {pending_id}")
+        
+        return {
+            "success": True,
+            "message": f"Successfully logged: {record.food_name}",
+            "consumption_record_id": consumption_record["id"],
+            "food_name": record.food_name,
+            "nutritional_summary": {
+                "calories": record.nutritional_info.get("calories", 0),
+                "carbohydrates": record.nutritional_info.get("carbohydrates", 0),
+                "protein": record.nutritional_info.get("protein", 0),
+                "fat": record.nutritional_info.get("fat", 0)
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[accept_pending_consumption] Error: {str(e)}")
+        print(f"[accept_pending_consumption] Traceback: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail="Failed to accept pending record")
+
+@app.put("/consumption/pending/{pending_id}")
+async def update_pending_consumption(
+    pending_id: str,
+    updates: Dict[str, Any],
+    current_user: User = Depends(get_current_user)
+):
+    """Update a pending consumption record during editing"""
+    try:
+        record = pending_consumption_manager.get_pending_record(pending_id)
+        
+        if not record:
+            raise HTTPException(status_code=404, detail="Pending record not found or expired")
+        
+        # Verify user ownership
+        if record.user_email != current_user["email"]:
+            raise HTTPException(status_code=403, detail="Access denied")
+        
+        # Update the pending record
+        success = pending_consumption_manager.update_pending_record(pending_id, updates)
+        
+        if not success:
+            raise HTTPException(status_code=400, detail="Failed to update pending record")
+        
+        # Get updated record
+        updated_record = pending_consumption_manager.get_pending_record(pending_id)
+        
+        return {
+            "success": True,
+            "message": "Pending record updated successfully",
+            "updated_record": updated_record.to_dict() if updated_record else None
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[update_pending_consumption] Error: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to update pending record")
+
+@app.delete("/consumption/pending/{pending_id}")
+async def delete_pending_consumption(
+    pending_id: str,
+    current_user: User = Depends(get_current_user)
+):
+    """Delete a pending consumption record"""
+    try:
+        record = pending_consumption_manager.get_pending_record(pending_id)
+        
+        if not record:
+            raise HTTPException(status_code=404, detail="Pending record not found or expired")
+        
+        # Verify user ownership
+        if record.user_email != current_user["email"]:
+            raise HTTPException(status_code=403, detail="Access denied")
+        
+        # Delete the pending record
+        success = pending_consumption_manager.delete_pending_record(pending_id)
+        
+        if not success:
+            raise HTTPException(status_code=400, detail="Failed to delete pending record")
+        
+        print(f"[delete_pending_consumption] Deleted pending record {pending_id}")
+        
+        return {
+            "success": True,
+            "message": "Food log discarded successfully"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[delete_pending_consumption] Error: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to delete pending record")
+
+@app.post("/consumption/pending/{pending_id}/chat")
+async def chat_with_pending_consumption(
+    pending_id: str,
+    chat_data: dict,
+    current_user: User = Depends(get_current_user)
+):
+    """Chat interface for editing pending consumption record using AI"""
+    try:
+        record = pending_consumption_manager.get_pending_record(pending_id)
+        
+        if not record:
+            raise HTTPException(status_code=404, detail="Pending record not found or expired")
+        
+        # Verify user ownership
+        if record.user_email != current_user["email"]:
+            raise HTTPException(status_code=403, detail="Access denied")
+        
+        user_message = chat_data.get("message", "").strip()
+        if not user_message:
+            raise HTTPException(status_code=400, detail="Message is required")
+        
+        # Create AI prompt for editing food details
+        current_food_info = f"""
+        Current Food Details:
+        - Name: {record.food_name}
+        - Portion: {record.estimated_portion}
+        - Calories: {record.nutritional_info.get('calories', 0)}
+        - Carbohydrates: {record.nutritional_info.get('carbohydrates', 0)}g
+        - Protein: {record.nutritional_info.get('protein', 0)}g
+        - Fat: {record.nutritional_info.get('fat', 0)}g
+        - Fiber: {record.nutritional_info.get('fiber', 0)}g
+        - Sugar: {record.nutritional_info.get('sugar', 0)}g
+        - Sodium: {record.nutritional_info.get('sodium', 0)}mg
+        """
+        
+        ai_prompt = f"""You are a helpful nutrition assistant helping a user edit their food log details. 
+
+{current_food_info}
+
+The user said: "{user_message}"
+
+Your task is to:
+1. Understand what the user wants to change
+2. Provide a conversational response
+3. If the user is making a specific change, return a JSON object with the updates
+
+If the user is making a clear change request, respond with:
+{{
+    "response": "conversational response to the user",
+    "updates": {{
+        "food_name": "new name if changed",
+        "estimated_portion": "new portion if changed", 
+        "nutritional_info": {{
+            "calories": number,
+            "carbohydrates": number,
+            "protein": number,
+            "fat": number,
+            "fiber": number,
+            "sugar": number,
+            "sodium": number
+        }}
+    }},
+    "has_updates": true
+}}
+
+If the user is just asking questions or being unclear, respond with:
+{{
+    "response": "helpful conversational response",
+    "has_updates": false
+}}
+
+Examples of what to detect:
+- "French Fries, 1 Cup" → Change food name to "French Fries" and portion to "1 Cup"
+- "Make it 500 calories" → Update calories to 500
+- "Change to grilled chicken" → Update food name to "grilled chicken"
+- "2 servings" → Update portion to "2 servings"
+
+Be conversational and helpful. If you make nutritional updates, recalculate all values proportionally when possible."""
+
+        # Get AI response
+        response = client.chat.completions.create(
+            model=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are a helpful nutrition assistant. Always respond with valid JSON."
+                },
+                {
+                    "role": "user", 
+                    "content": ai_prompt
+                }
+            ],
+            max_tokens=800,
+            temperature=0.3
+        )
+        
+        response_text = response.choices[0].message.content
+        
+        try:
+            # Parse AI response
+            import json
+            start_idx = response_text.find('{')
+            end_idx = response_text.rfind('}') + 1
+            json_str = response_text[start_idx:end_idx]
+            ai_response = json.loads(json_str)
+            
+            # Apply updates if any
+            if ai_response.get("has_updates", False) and ai_response.get("updates"):
+                updates = ai_response["updates"]
+                success = pending_consumption_manager.update_pending_record(pending_id, updates)
+                
+                if not success:
+                    raise HTTPException(status_code=400, detail="Failed to update pending record")
+            
+            # Get updated record for response
+            updated_record = pending_consumption_manager.get_pending_record(pending_id)
+            
+            return {
+                "response": ai_response.get("response", "I've processed your request."),
+                "has_updates": ai_response.get("has_updates", False),
+                "updated_record": updated_record.to_dict() if updated_record else None
+            }
+            
+        except (json.JSONDecodeError, ValueError) as e:
+            print(f"[chat_with_pending_consumption] Error parsing AI response: {str(e)}")
+            # Fallback response
+            return {
+                "response": "I understand you want to make changes. Could you please be more specific about what you'd like to update?",
+                "has_updates": False,
+                "updated_record": record.to_dict()
+            }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[chat_with_pending_consumption] Error: {str(e)}")
+        print(f"[chat_with_pending_consumption] Traceback: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail="Failed to process chat message")
+
+@app.post("/consumption/analyze-text-only")
+async def analyze_text_food_only(
+    food_data: dict,
+    current_user: User = Depends(get_current_user)
+):
+    """Analyze text-based food input but don't save to database - returns pending_id for Accept/Edit/Delete"""
+    try:
+        print(f"[analyze_text_food_only] Starting analysis for user {current_user['id']}")
+        print(f"[analyze_text_food_only] Food data received: {food_data}")
+        
+        food_name = food_data.get("food_name", "").strip()
+        portion = food_data.get("portion", "medium portion").strip()
+        meal_type = food_data.get("meal_type", "").strip()
+        
+        if not food_name:
+            raise HTTPException(status_code=400, detail="Food name is required")
+        
+        # Use AI to estimate nutritional values (same logic as quick-log)
+        prompt = f"""
+        Analyze the food item: {food_name} ({portion})
+        
+        Provide a comprehensive JSON response with this exact structure:
+        {{
+            "food_name": "{food_name}",
+            "estimated_portion": "{portion}",
+            "nutritional_info": {{
+                "calories": number,
+                "carbohydrates": number,
+                "protein": number,
+                "fat": number,
+                "fiber": number,
+                "sugar": number,
+                "sodium": number
+            }},
+            "medical_rating": {{
+                "diabetes_suitability": "high/medium/low",
+                "glycemic_impact": "low/medium/high",
+                "recommended_frequency": "daily/weekly/occasional/avoid",
+                "portion_recommendation": "recommended portion size for diabetes patients"
+            }},
+            "analysis_notes": "detailed explanation of nutritional analysis and diabetes considerations"
+        }}
+        
+        Provide realistic nutritional estimates. Be conservative with diabetes suitability ratings.
+        Focus on how this food affects blood sugar and overall diabetes management.
+        """
+        
+        # Generate analysis using OpenAI
+        response = client.chat.completions.create(
+            model=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are a comprehensive nutrition analysis expert specializing in diabetes management. Provide accurate nutritional estimates and diabetes-specific guidance."
+                },
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ],
+            max_tokens=800,
+            temperature=0.3
+        )
+        
+        analysis_text = response.choices[0].message.content
+        
+        # Parse JSON from response
+        try:
+            import json
+            start_idx = analysis_text.find('{')
+            end_idx = analysis_text.rfind('}') + 1
+            json_str = analysis_text[start_idx:end_idx]
+            analysis_data = json.loads(json_str)
+        except (json.JSONDecodeError, ValueError) as e:
+            print(f"[analyze_text_food_only] Error parsing analysis data: {str(e)}")
+            # Fallback data
+            analysis_data = {
+                "food_name": food_name,
+                "estimated_portion": portion,
+                "nutritional_info": {
+                    "calories": 200,
+                    "carbohydrates": 30,
+                    "protein": 10,
+                    "fat": 8,
+                    "fiber": 3,
+                    "sugar": 5,
+                    "sodium": 300
+                },
+                "medical_rating": {
+                    "diabetes_suitability": "medium",
+                    "glycemic_impact": "medium",
+                    "recommended_frequency": "weekly",
+                    "portion_recommendation": "moderate portions recommended"
+                },
+                "analysis_notes": f"Nutritional analysis for {food_name}. Please consult with your healthcare provider for personalized dietary advice."
+            }
+        
+        # Create pending record
+        pending_id = await pending_consumption_manager.create_pending_record(
+            user_email=current_user["email"],
+            user_id=current_user["id"],
+            analysis_data=analysis_data,
+            image_url=None,  # No image for text-based analysis
+            meal_type=meal_type
+        )
+        
+        print(f"[analyze_text_food_only] Created pending record {pending_id}")
+        
+        return {
+            "pending_id": pending_id,
+            "analysis": analysis_data,
+            "message": "Food analyzed successfully. Use Accept/Edit/Delete options to proceed."
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[analyze_text_food_only] Error: {str(e)}")
+        print(f"[analyze_text_food_only] Full error details:", traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Failed to analyze food: {str(e)}")
 
 @app.post("/chat/analyze-image")
 async def analyze_image(

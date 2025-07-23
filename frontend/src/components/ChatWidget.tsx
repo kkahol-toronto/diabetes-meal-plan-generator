@@ -5,6 +5,7 @@ import SendIcon from '@mui/icons-material/Send';
 import CircularProgress from '@mui/material/CircularProgress';
 import CameraAltIcon from '@mui/icons-material/CameraAlt';
 import MinimizeIcon from '@mui/icons-material/Minimize';
+import PendingConsumptionDialog from './PendingConsumptionDialog';
 import { useApp } from '../contexts/AppContext';
 import config from '../config/environment';
 
@@ -36,6 +37,12 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ userToken }) => {
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   
+  // Pending consumption dialog state
+  const [showPendingDialog, setShowPendingDialog] = useState(false);
+  const [pendingId, setPendingId] = useState<string | null>(null);
+  const [pendingAnalysis, setPendingAnalysis] = useState<any>(null);
+  const [pendingImageUrl, setPendingImageUrl] = useState<string | null>(null);
+  
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -59,6 +66,21 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ userToken }) => {
     }
   };
 
+  const handlePendingAccept = () => {
+    // Close dialog and reset state
+    setPendingId(null);
+    setPendingAnalysis(null);
+    setPendingImageUrl(null);
+    triggerFoodLogged(); // Refresh homepage data
+  };
+
+  const handlePendingDelete = () => {
+    // Reset state
+    setPendingId(null);
+    setPendingAnalysis(null);
+    setPendingImageUrl(null);
+  };
+
   const removeImage = () => {
     setSelectedImage(null);
     setImagePreview(null);
@@ -79,44 +101,88 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ userToken }) => {
     };
 
     setMessages(prev => [...prev, userMessage]);
+    const originalInput = inputMessage;
     setInputMessage('');
     setIsLoading(true);
 
     try {
-      const formData = new FormData();
-      formData.append('message', inputMessage);
-      if (selectedImage) {
-        formData.append('image', selectedImage);
-      }
-      formData.append('session_id', 'homepage_widget');
-
-      const response = await fetch(`${config.API_URL}/chat/message-with-image`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${userToken}`
-        },
-        body: formData
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to send message');
-      }
-
-      const data = await response.json();
+      // Check if this is food logging intent with an image
+      const isFoodLogging = selectedImage && originalInput.toLowerCase().includes('log') && 
+        (originalInput.toLowerCase().includes('food') || originalInput.toLowerCase().includes('meal'));
       
-      const aiMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        content: data.assistant_message || data.message || 'Sorry, I encountered an error. Please try again.',
-        isUser: false,
-        timestamp: new Date()
-      };
+      if (isFoodLogging) {
+        // Use analyze-only endpoint for food logging
+        const formData = new FormData();
+        formData.append('image', selectedImage!);
+        formData.append('meal_type', ''); // Could be parsed from message
 
-      setMessages(prev => [...prev, aiMessage]);
-      
-      // Trigger homepage refresh if this was a food logging operation
-      if (inputMessage.toLowerCase().includes('log') && (inputMessage.toLowerCase().includes('food') || inputMessage.toLowerCase().includes('meal'))) {
-        triggerFoodLogged();
+        const response = await fetch(`${config.API_URL}/consumption/analyze-only`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${userToken}`
+          },
+          body: formData
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to analyze food');
+        }
+
+        const data = await response.json();
+        
+        // Store pending data and show dialog
+        setPendingId(data.pending_id);
+        setPendingAnalysis(data.analysis);
+        setPendingImageUrl(data.analysis?.image_url || null);
+        setShowPendingDialog(true);
+        
+        const aiMessage: Message = {
+          id: (Date.now() + 1).toString(),
+          content: 'Food analyzed! Please use the Accept/Edit/Delete options to proceed with logging.',
+          isUser: false,
+          timestamp: new Date()
+        };
+
+        setMessages(prev => [...prev, aiMessage]);
+        
+      } else {
+        // Regular chat functionality
+        const formData = new FormData();
+        formData.append('message', originalInput);
+        if (selectedImage) {
+          formData.append('image', selectedImage);
+        }
+        formData.append('session_id', 'homepage_widget');
+
+        const response = await fetch(`${config.API_URL}/chat/message-with-image`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${userToken}`
+          },
+          body: formData
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to send message');
+        }
+
+        const data = await response.json();
+        
+        const aiMessage: Message = {
+          id: (Date.now() + 1).toString(),
+          content: data.assistant_message || data.message || 'Sorry, I encountered an error. Please try again.',
+          isUser: false,
+          timestamp: new Date()
+        };
+
+        setMessages(prev => [...prev, aiMessage]);
+        
+        // Trigger homepage refresh if this was a food logging operation (for text-based logging)
+        if (originalInput.toLowerCase().includes('log') && (originalInput.toLowerCase().includes('food') || originalInput.toLowerCase().includes('meal'))) {
+          triggerFoodLogged();
+        }
       }
+      
     } catch (error) {
       console.error('Error sending message:', error);
       const errorMessage: Message = {
@@ -305,6 +371,17 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ userToken }) => {
           </div>
         </div>
       </div>
+
+      {/* Pending Consumption Dialog */}
+      <PendingConsumptionDialog
+        open={showPendingDialog}
+        onClose={() => setShowPendingDialog(false)}
+        pendingId={pendingId}
+        analysisData={pendingAnalysis}
+        imageUrl={pendingImageUrl || undefined}
+        onAccept={handlePendingAccept}
+        onDelete={handlePendingDelete}
+      />
     </>
   );
 };

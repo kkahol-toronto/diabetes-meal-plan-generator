@@ -78,6 +78,7 @@ import {
   BubbleChart as ScatterPlotIcon,
   Assessment as CompareIcon,
 } from '@mui/icons-material';
+import PendingConsumptionDialog from './PendingConsumptionDialog';
 import { useApp } from '../contexts/AppContext';
 import { Line, Doughnut, Radar, Bar, Pie, Scatter } from 'react-chartjs-2';
 // Timezone utilities - temporarily commented out due to import issues
@@ -340,6 +341,11 @@ const HomePage: React.FC = () => {
   const [consumptionAnalytics, setConsumptionAnalytics] = useState<any>(null);
   const [consumptionHistory, setConsumptionHistory] = useState<any[]>([]);
   
+  // Pending consumption dialog state
+  const [showPendingDialog, setShowPendingDialog] = useState(false);
+  const [pendingId, setPendingId] = useState<string | null>(null);
+  const [pendingAnalysis, setPendingAnalysis] = useState<any>(null);
+  
   // Adaptive Plan Dialog state
   const [showAdaptivePlanDialog, setShowAdaptivePlanDialog] = useState(false);
   const [adaptivePlanDays, setAdaptivePlanDays] = useState(3);
@@ -592,9 +598,9 @@ const HomePage: React.FC = () => {
     const mealType = determineMealType();
     
     try {
-      setLoading(true, 'Analyzing and logging food...');
+      setLoading(true, 'Analyzing food...');
       
-      const response = await fetch(`${config.API_URL}/coach/quick-log`, {
+      const response = await fetch(`${config.API_URL}/consumption/analyze-text-only`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -609,28 +615,38 @@ const HomePage: React.FC = () => {
 
       if (response.ok) {
         const result = await response.json();
-        showNotification(`✅ Successfully logged: ${quickLogFood} (${mealType})`, 'success');
         
-        // Show meal plan update notification if the meal plan was updated
-        if (result.meal_plan_updated && result.remaining_calories !== undefined) {
-          showNotification(
-            `🍽️ Your meal plan has been updated! You have ${result.remaining_calories} calories remaining for today.`,
-            'info'
-          );
-        }
-        
-        setQuickLogFood('');
-        setQuickLogMealType('');
+        // Store pending data and show dialog
+        setPendingId(result.pending_id);
+        setPendingAnalysis(result.analysis);
+        setShowPendingDialog(true);
         setShowQuickLogDialog(false);
-        fetchAllData(); // Refresh all data
+        
       } else {
-        throw new Error('Failed to log food');
+        throw new Error('Failed to analyze food');
       }
     } catch (err) {
-      showNotification('Failed to log food. Please try again.', 'error');
+      showNotification('Failed to analyze food. Please try again.', 'error');
     } finally {
       setLoading(false);
     }
+  };
+
+  const handlePendingAccept = () => {
+    // Close dialog and reset quick log form
+    setQuickLogFood('');
+    setQuickLogMealType('');
+    setPendingId(null);
+    setPendingAnalysis(null);
+    fetchAllData(); // Refresh all data
+  };
+
+  const handlePendingDelete = () => {
+    // Reset quick log form
+    setQuickLogFood('');
+    setQuickLogMealType('');
+    setPendingId(null);
+    setPendingAnalysis(null);
   };
 
   const handleCreateAdaptivePlan = async () => {
@@ -3333,6 +3349,16 @@ const HomePage: React.FC = () => {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Pending Consumption Dialog */}
+      <PendingConsumptionDialog
+        open={showPendingDialog}
+        onClose={() => setShowPendingDialog(false)}
+        pendingId={pendingId}
+        analysisData={pendingAnalysis}
+        onAccept={handlePendingAccept}
+        onDelete={handlePendingDelete}
+      />
     </Container>
   );
 };
