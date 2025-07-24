@@ -190,13 +190,28 @@ const AdminPanel: React.FC = () => {
           <Typography variant="h4" component="h1">
             Admin Panel
           </Typography>
-          <Button
-            variant="contained"
-            color="primary"
-            onClick={() => setOpenDialog(true)}
-          >
-            Create New Patient
-          </Button>
+          <Box sx={{ display: 'flex', gap: 2 }}>
+            <Button
+              variant="contained"
+              color="secondary"
+              onClick={() => navigate('/admin/pias-corner')}
+              sx={{ 
+                background: 'linear-gradient(45deg, #667eea, #764ba2)',
+                '&:hover': {
+                  background: 'linear-gradient(45deg, #5a6fd8, #6a4190)',
+                }
+              }}
+            >
+              📊 Pia's Corner
+            </Button>
+            <Button
+              variant="contained"
+              color="primary"
+              onClick={() => setOpenDialog(true)}
+            >
+              Create New Patient
+            </Button>
+          </Box>
         </Box>
 
         {error && (

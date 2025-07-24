@@ -41,6 +41,381 @@ from database import (
     get_ai_suggestion,
     update_consumption_meal_type,
 )
+from nutrition_standards import (
+    get_rda_for_patient,
+    calculate_nutrient_compliance,
+    get_nutrient_recommendations,
+    extract_nutrients_from_food_data
+)
+
+# Use interactions_container as consumption_collection for consistency
+consumption_collection = interactions_container
+from pending_consumption import pending_consumption_manager
+import uuid
+from io import BytesIO
+from reportlab.lib.pagesizes import letter, landscape
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image as RLImage, PageBreak
+import pytz
+from reportlab.lib import colors
+from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib.units import inch
+import re
+import traceback
+import sys
+from fastapi import Request as FastAPIRequest
+from PIL import Image
+import base64
+from fastapi import APIRouter
+import logging
+from collections import defaultdict
+
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+# Suppress Azure CosmosDB HTTP logs
+logging.getLogger("azure.core.pipeline.policies.http_logging_policy").setLevel(logging.WARNING)
+
+# Load environment variables
+load_dotenv(override=True)
+
+#print the environment variables
+print(os.getenv("AZURE_OPENAI_KEY"))
+print(os.getenv("AZURE_OPENAI_ENDPOINT"))
+print(os.getenv("AZURE_OPENAI_API_VERSION"))
+print(os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"))
+print(os.getenv("AZURE_OPENAI_MODEL_NAME"))
+print(os.getenv("AZURE_OPENAI_MODEL_VERSION"))
+print(os.getenv("INTERACTIONS_CONTAINER"))
+
+app = FastAPI(title="Diabetes Diet Manager API")
+
+# Configure CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # In production, replace with specific origins
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Configure OpenAI for APIM Gateway
+client = AzureOpenAI(
+    api_key=os.getenv("AZURE_OPENAI_KEY"),  # This will be used as Ocp-Apim-Subscription-Key
+    azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
+    api_version=os.getenv("AZURE_OPENAI_API_VERSION"),
+    default_headers={
+        "Ocp-Apim-Subscription-Key": os.getenv("AZURE_OPENAI_KEY")
+    }
+)
+
+# Configure Twilio
+twilio_client = Client(os.getenv("SMS_API_SID"), os.getenv("SMS_KEY"))
+
+# Robust OpenAI API wrapper with retry logic and better error handling
+async def robust_openai_call(
+    messages: List[Dict[str, str]], 
+    max_tokens: int = 2000, 
+    temperature: float = 0.7,
+    response_format: Optional[Dict[str, str]] = None,
+    max_retries: int = 3,
+    timeout: int = 60,
+    context: str = "openai_call"
+) -> Dict[str, Any]:
+    """
+    Robust OpenAI API call with retry logic, timeout handling, and comprehensive error handling.
+    
+    Args:
+        messages: List of message dictionaries for the chat completion
+        max_tokens: Maximum tokens for the response
+        temperature: Temperature for response generation
+        response_format: Optional response format (e.g., {"type": "json_object"})
+        max_retries: Maximum number of retry attempts
+        timeout: Timeout in seconds for each API call
+        context: Context string for logging purposes
+        
+    Returns:
+        Dict containing the API response or error information
+    """
+    
+    for attempt in range(max_retries):
+        try:
+            print(f"[{context}] Attempt {attempt + 1}/{max_retries} - Calling OpenAI API...")
+            
+            # Prepare the API call parameters
+            api_params = {
+                "model": os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
+                "messages": messages,
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+                "timeout": timeout
+            }
+            
+            # Add response format if specified
+            if response_format:
+                api_params["response_format"] = response_format
+                
+            # Make the API call
+            response = client.chat.completions.create(**api_params)
+            
+            # Validate the response
+            if not response.choices or not response.choices[0].message:
+                raise ValueError("Empty response from OpenAI API")
+                
+            raw_content = response.choices[0].message.content
+            if not raw_content or not raw_content.strip():
+                raise ValueError("Empty content in OpenAI response")
+                
+            print(f"[{context}] API call successful on attempt {attempt + 1}")
+            
+            return {
+                "success": True,
+                "content": raw_content.strip(),
+                "usage": response.usage.model_dump() if response.usage else None,
+                "attempt": attempt + 1
+            }
+            
+        except Exception as e:
+            error_msg = str(e)
+            print(f"[{context}] Attempt {attempt + 1} failed: {error_msg}")
+            
+            # Check if this is a rate limit error
+            if "rate_limit" in error_msg.lower() or "429" in error_msg:
+                wait_time = min(2 ** attempt, 60)  # Exponential backoff, max 60 seconds
+                print(f"[{context}] Rate limit detected, waiting {wait_time} seconds...")
+                await asyncio.sleep(wait_time)
+                continue
+            
+            # Check if this is a timeout error
+            if "timeout" in error_msg.lower():
+                print(f"[{context}] Timeout detected on attempt {attempt + 1}")
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(min(2 ** attempt, 60))  # Exponential backoff, max 60 seconds
+                    continue
+            
+            # For other errors, wait a bit before retrying
+            if attempt < max_retries - 1:
+                wait_time = min(2 ** attempt, 60)  # Exponential backoff, max 60 seconds
+                print(f"[{context}] Waiting {wait_time} seconds before retry...")
+                await asyncio.sleep(wait_time)
+            else:
+                # Final attempt failed
+                print(f"[{context}] All {max_retries} attempts failed. Last error: {error_msg}")
+                return {
+                    "success": False,
+                    "error": error_msg,
+                    "error_type": type(e).__name__,
+                    "attempts": max_retries
+                }
+                
+    # This should never be reached, but just in case
+    return {
+        "success": False,
+        "error": "Maximum retries exceeded",
+        "attempts": max_retries
+    }
+
+# Helper function to parse JSON with better error handling
+def robust_json_parse(json_string: str, context: str = "json_parse") -> Dict[str, Any]:
+    """
+    Parse JSON string with better error handling and fallback mechanisms.
+    
+    Args:
+        json_string: The JSON string to parse
+        context: Context string for logging
+        
+    Returns:
+        Dict containing parsed JSON or error information
+    """
+    try:
+        # First, try to parse as-is
+        return {"success": True, "data": json.loads(json_string)}
+    except json.JSONDecodeError as e:
+        print(f"[{context}] Initial JSON parse failed: {e}")
+        
+        # Try to extract JSON from the string (in case there's extra text)
+        try:
+            # Find the first { and last }
+            start_idx = json_string.find('{')
+            end_idx = json_string.rfind('}') + 1
+            
+            if start_idx != -1 and end_idx > start_idx:
+                extracted_json = json_string[start_idx:end_idx]
+                return {"success": True, "data": json.loads(extracted_json)}
+        except:
+            pass
+            
+        # Try to clean up common JSON issues
+        try:
+            # Remove common markdown formatting
+            cleaned = json_string.replace('```json', '').replace('```', '')
+            cleaned = cleaned.strip()
+            
+            # Fix common trailing comma issues
+            cleaned = re.sub(r',\s*}', '}', cleaned)
+            cleaned = re.sub(r',\s*]', ']', cleaned)
+            
+            return {"success": True, "data": json.loads(cleaned)}
+        except:
+            pass
+            
+        # Return error if all parsing attempts failed
+        return {
+            "success": False,
+            "error": f"JSON parsing failed: {str(e)}",
+            "raw_content": json_string[:500] + "..." if len(json_string) > 500 else json_string
+        }
+
+# Fallback mechanisms for when OpenAI API fails
+def generate_fallback_meal_plan(user_profile: dict, days: int = 7) -> dict:
+    """
+    Generate a fallback meal plan when OpenAI API fails.
+    This provides a safe, diabetes-friendly meal plan based on user profile.
+    """
+    print("[FALLBACK] Generating fallback meal plan...")
+    
+    # Get dietary restrictions for safe fallback
+    dietary_restrictions = user_profile.get('dietaryRestrictions', [])
+    allergies = user_profile.get('allergies', [])
+    diet_type = user_profile.get('dietType', [])
+    
+    # Check if user is vegetarian
+    is_vegetarian = any('vegetarian' in str(restriction).lower() for restriction in dietary_restrictions + diet_type)
+    
+    # Check for allergies
+    has_egg_allergy = any('egg' in str(allergy).lower() for allergy in allergies)
+    has_dairy_allergy = any('dairy' in str(allergy).lower() or 'milk' in str(allergy).lower() for allergy in allergies)
+    has_gluten_allergy = any('gluten' in str(allergy).lower() or 'wheat' in str(allergy).lower() for allergy in allergies)
+    
+    # Safe breakfast options
+    breakfast_options = [
+        "Oatmeal with berries and cinnamon",
+        "Greek yogurt with nuts and seeds",
+        "Whole grain toast with avocado",
+        "Smoothie with spinach and banana",
+        "Chia seed pudding with fruit",
+        "Quinoa breakfast bowl with vegetables",
+        "Almond butter on whole grain toast"
+    ]
+    
+    # Safe lunch options
+    lunch_options = [
+        "Quinoa salad with mixed vegetables",
+        "Lentil soup with whole grain bread",
+        "Chickpea curry with brown rice",
+        "Vegetable stir-fry with tofu",
+        "Bean and vegetable wrap",
+        "Hummus with vegetable sticks",
+        "Stuffed bell peppers with quinoa"
+    ]
+    
+    # Safe dinner options
+    dinner_options = [
+        "Baked sweet potato with black beans",
+        "Vegetable curry with brown rice",
+        "Grilled vegetables with quinoa",
+        "Lentil dal with steamed vegetables",
+        "Stuffed zucchini with vegetables",
+        "Roasted vegetables with chickpeas",
+        "Vegetable soup with whole grain bread"
+    ]
+    
+    # Safe snack options
+    snack_options = [
+        "Mixed nuts and seeds",
+        "Apple slices with almond butter",
+        "Carrot sticks with hummus",
+        "Berries with Greek yogurt",
+        "Cucumber slices with tahini",
+        "Roasted chickpeas",
+        "Homemade trail mix"
+    ]
+    
+    # Adjust for non-vegetarian users
+    if not is_vegetarian:
+        lunch_options.extend([
+            "Grilled chicken salad with olive oil dressing",
+            "Baked salmon with steamed vegetables",
+            "Turkey and vegetable wrap"
+        ])
+        dinner_options.extend([
+            "Grilled chicken with roasted vegetables",
+            "Baked fish with quinoa and vegetables",
+            "Lean beef stir-fry with brown rice"
+        ])
+    
+    # Adjust for allergies
+    if has_egg_allergy:
+        breakfast_options = [opt for opt in breakfast_options if 'egg' not in opt.lower()]
+    
+    if has_dairy_allergy:
+        breakfast_options = [opt for opt in breakfast_options if 'yogurt' not in opt.lower()]
+        snack_options = [opt for opt in snack_options if 'yogurt' not in opt.lower()]
+    
+    if has_gluten_allergy:
+        breakfast_options = [opt for opt in breakfast_options if 'toast' not in opt.lower() and 'bread' not in opt.lower()]
+        lunch_options = [opt for opt in lunch_options if 'bread' not in opt.lower() and 'wrap' not in opt.lower()]
+        dinner_options = [opt for opt in dinner_options if 'bread' not in opt.lower()]
+    
+    # Ensure we have enough options
+    while len(breakfast_options) < days:
+        breakfast_options.extend(breakfast_options)
+    while len(lunch_options) < days:
+        lunch_options.extend(lunch_options)
+    while len(dinner_options) < days:
+        dinner_options.extend(dinner_options)
+    while len(snack_options) < days:
+        snack_options.extend(snack_options)
+    
+    # Generate meal plan
+from fastapi import FastAPI, HTTPException, Depends, status, Request, Body, File, UploadFile, Form
+from fastapi.responses import StreamingResponse, JSONResponse, FileResponse, Response
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from pydantic import BaseModel, EmailStr, Field
+from typing import List, Optional, Dict, Any
+import os
+from dotenv import load_dotenv
+from openai import AzureOpenAI
+import json
+from datetime import datetime, timedelta
+from jose import JWTError, jwt
+from passlib.context import CryptContext
+from twilio.rest import Client
+import random
+import string
+import asyncio
+from database import (
+    create_user, get_user_by_email, create_patient,
+    get_patient_by_registration_code, get_all_patients,
+    save_meal_plan, get_user_meal_plans, get_meal_plan_by_id,
+    save_shopping_list, get_user_shopping_lists,
+    save_chat_message, save_recipes, get_user_recipes,
+    get_recent_chat_history,
+    format_chat_history_for_prompt,
+    clear_chat_history,
+    get_user_sessions,
+    get_patient_by_id,
+    user_container,
+    get_context_history,
+    generate_session_id,
+    interactions_container,
+    view_meal_plans,
+    delete_meal_plan_by_id,
+    delete_all_user_meal_plans,
+    save_consumption_record,
+    get_user_consumption_history,
+    get_consumption_analytics,
+    get_user_meal_history,
+    log_meal_suggestion,
+    get_ai_suggestion,
+    update_consumption_meal_type,
+)
+from nutrition_standards import (
+    get_rda_for_patient,
+    calculate_nutrient_compliance,
+    get_nutrient_recommendations,
+    extract_nutrients_from_food_data
+)
 
 # Use interactions_container as consumption_collection for consistency
 consumption_collection = interactions_container
@@ -1710,6 +2085,1061 @@ async def get_patient_by_code(
         return patient
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+# Admin dependency helper for analytics endpoints
+async def get_admin_user(current_user: User = Depends(get_current_user)):
+    """Ensure user is admin for analytics endpoints"""
+    if not current_user.get('is_admin', False):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return current_user
+
+@app.get("/admin/analytics/patients-list")
+async def get_patients_for_analytics(current_user: User = Depends(get_admin_user)):
+    """Get all patients with basic info for analytics dropdown"""
+    try:
+        patients = await get_all_patients()
+        return [
+            {
+                "id": p["id"], 
+                "name": p["name"], 
+                "condition": p["condition"],
+                "registration_code": p["registration_code"],
+                "created_at": p["created_at"]
+            } for p in patients
+        ]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch patients: {str(e)}")
+
+@app.get("/admin/analytics/overview")
+async def get_analytics_overview(
+    view_mode: str = "cohort",
+    patient_id: str = None,
+    group_by: str = "diabetes_type",
+    current_user: User = Depends(get_admin_user)
+):
+    """Get comprehensive analytics overview for dashboard"""
+    try:
+        all_patients = await get_all_patients()
+        
+        if view_mode == "individual" and patient_id:
+            # Individual patient overview
+            patient = await get_patient_by_id(patient_id)
+            if not patient:
+                raise HTTPException(status_code=404, detail="Patient not found")
+            
+            # Check if patient is registered
+            query = f"SELECT * FROM c WHERE c.type = 'user' AND c.registration_code = '{patient['registration_code']}'"
+            users = list(user_container.query_items(query=query, enable_cross_partition_query=True))
+            
+            if not users:
+                return {
+                    "view_mode": "individual",
+                    "patient_id": patient_id,
+                    "patient_name": patient["name"],
+                    "registration_status": "not_registered",
+                    "stats": [
+                        {"label": "Registration Status", "value": "Not Registered", "icon": "person", "color": "#ff9800"},
+                        {"label": "Condition", "value": patient.get("condition", "Unknown"), "icon": "medical", "color": "#2196f3"},
+                        {"label": "Created", "value": patient.get("created_at", "Unknown")[:10] if patient.get("created_at") else "Unknown", "icon": "calendar", "color": "#4caf50"},
+                        {"label": "Data Available", "value": "No", "icon": "data", "color": "#f44336"}
+                    ],
+                    "alerts": [
+                        {"message": "Patient has not registered yet - no consumption data available", "severity": "warning"}
+                    ]
+                }
+            
+            user_email = users[0]["email"]
+            
+            # Get patient's analytics
+            consumption_analytics = await get_consumption_analytics(user_email, 30)
+            consumption_history = await get_user_consumption_history(user_email, limit=100)
+            
+            # Calculate individual stats
+            daily_averages = consumption_analytics.get("daily_averages", {})
+            total_logs = len(consumption_history)
+            
+            # Recent activity (last 7 days)
+            recent_logs = len([log for log in consumption_history[:20] if log])  # Approximation
+            
+            # Generate alerts
+            alerts = []
+            if total_logs < 10:
+                alerts.append({"message": "Low engagement - few food logs recorded", "severity": "warning"})
+            elif total_logs > 50:
+                alerts.append({"message": "Excellent engagement - consistently logging meals", "severity": "success"})
+            
+            if daily_averages.get("carbohydrates", 0) > 400:
+                alerts.append({"message": "High carbohydrate intake detected", "severity": "warning"})
+            
+            if not alerts:
+                alerts.append({"message": "Patient showing good compliance patterns", "severity": "success"})
+            
+            return {
+                "view_mode": "individual",
+                "patient_id": patient_id,
+                "patient_name": patient["name"],
+                "registration_status": "registered",
+                "stats": [
+                    {"label": "Total Food Logs", "value": str(total_logs), "icon": "assignment", "color": "#667eea"},
+                    {"label": "Recent Activity", "value": str(recent_logs), "icon": "trending_up", "color": "#764ba2"},
+                    {"label": "Avg Daily Calories", "value": f"{daily_averages.get('calories', 0):.0f}", "icon": "local_fire_department", "color": "#f093fb"},
+                    {"label": "Avg Daily Carbs", "value": f"{daily_averages.get('carbohydrates', 0):.0f}g", "icon": "grain", "color": "#f5af19"}
+                ],
+                "alerts": alerts
+            }
+            
+        else:
+            # Cohort overview
+            total_patients = len(all_patients)
+            
+            # Count registered patients
+            registered_count = 0
+            active_this_week = 0
+            total_meal_plans = 0
+            total_consumption_logs = 0
+            
+            for patient in all_patients:
+                try:
+                    query = f"SELECT * FROM c WHERE c.type = 'user' AND c.registration_code = '{patient['registration_code']}'"
+                    users = list(user_container.query_items(query=query, enable_cross_partition_query=True))
+                    
+                    if users:
+                        registered_count += 1
+                        user_email = users[0]["email"]
+                        
+                        # Check recent activity
+                        consumption_history = await get_user_consumption_history(user_email, limit=10)
+                        if consumption_history:
+                            # Check if any logs in last 7 days
+                            recent_activity = any(
+                                (datetime.utcnow() - datetime.fromisoformat(log["timestamp"].replace('Z', '+00:00'))).days <= 7 
+                                for log in consumption_history[:5]
+                            )
+                            if recent_activity:
+                                active_this_week += 1
+                            
+                            total_consumption_logs += len(consumption_history)
+                        
+                        # Count meal plans
+                        meal_plans = await get_user_meal_plans(user_email)
+                        total_meal_plans += len(meal_plans)
+                        
+                except Exception as e:
+                    print(f"Error processing patient {patient['id']}: {e}")
+                    continue
+            
+            # Calculate compliance rate (simplified)
+            compliance_rate = (active_this_week / registered_count * 100) if registered_count > 0 else 0
+            
+            # Generate cohort alerts
+            alerts = []
+            if registered_count < total_patients * 0.3:
+                alerts.append({"message": f"Low registration rate: Only {registered_count}/{total_patients} patients registered", "severity": "warning"})
+            
+            if active_this_week < registered_count * 0.5:
+                alerts.append({"message": f"Low weekly engagement: Only {active_this_week}/{registered_count} patients active", "severity": "warning"})
+            else:
+                alerts.append({"message": f"Good engagement: {active_this_week}/{registered_count} patients active this week", "severity": "success"})
+            
+            if total_consumption_logs > 100:
+                alerts.append({"message": f"Excellent data collection: {total_consumption_logs} food logs recorded", "severity": "success"})
+            
+            return {
+                "view_mode": "cohort",
+                "group_by": group_by,
+                "total_patients": total_patients,
+                "stats": [
+                    {"label": "Total Patients", "value": str(total_patients), "icon": "people", "color": "#667eea"},
+                    {"label": "Registered Users", "value": str(registered_count), "icon": "person_add", "color": "#764ba2"},
+                    {"label": "Active This Week", "value": str(active_this_week), "icon": "trending_up", "color": "#f093fb"},
+                    {"label": "Compliance Rate", "value": f"{compliance_rate:.0f}%", "icon": "check_circle", "color": "#f5af19"}
+                ],
+                "alerts": alerts,
+                "additional_metrics": {
+                    "total_meal_plans": total_meal_plans,
+                    "total_consumption_logs": total_consumption_logs,
+                    "registration_rate": (registered_count / total_patients * 100) if total_patients > 0 else 0
+                }
+            }
+            
+    except Exception as e:
+        print(f"Error in get_analytics_overview: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get overview: {str(e)}")
+
+@app.get("/admin/analytics/patient/{patient_id}/nutrient-adequacy")
+async def get_patient_nutrient_adequacy(
+    patient_id: str,
+    days: int = 30,
+    current_user: User = Depends(get_admin_user)
+):
+    """Get detailed nutrient adequacy analysis for individual patient"""
+    try:
+        # Get patient profile for RDA calculation
+        patient = await get_patient_by_id(patient_id)
+        if not patient:
+            raise HTTPException(status_code=404, detail="Patient not found")
+        
+        # Get patient's user profile if they've registered
+        profile = {}
+        try:
+            query = f"SELECT * FROM c WHERE c.type = 'user' AND c.registration_code = '{patient['registration_code']}'"
+            users = list(user_container.query_items(query=query, enable_cross_partition_query=True))
+            if users:
+                user = users[0]
+                profile_query = f"SELECT * FROM c WHERE c.type = 'user_profile' AND c.user_id = '{user['email']}'"
+                profiles = list(user_container.query_items(query=profile_query, enable_cross_partition_query=True))
+                if profiles:
+                    profile = profiles[0].get('profile', {})
+        except Exception as e:
+            print(f"Error fetching patient profile: {e}")
+        
+        # Calculate patient's RDA needs with defaults if no profile
+        rda = get_rda_for_patient(
+            age=profile.get("age", 45),  # Default middle age
+            gender=profile.get("gender", "female"),  # Default
+            condition=patient.get("condition", "Type 2 Diabetes"),
+            activity_level=profile.get("activityLevel", "moderate")
+        )
+        
+        # Get consumption data for the patient
+        patient_email = None
+        if users:
+            patient_email = users[0]["email"]
+        
+        if not patient_email:
+            # Patient hasn't registered yet - return RDA targets only
+            return {
+                "patient_id": patient_id,
+                "patient_name": patient["name"],
+                "registration_status": "not_registered",
+                "rda_targets": rda,
+                "daily_averages": {},
+                "compliance_percentages": {},
+                "deficiencies": [],
+                "overall_compliance_score": 0,
+                "period_days": days,
+                "recommendations": []
+            }
+        
+        # Get consumption analytics
+        consumption_analytics = await get_consumption_analytics(patient_email, days)
+        daily_averages = consumption_analytics.get("daily_averages", {})
+        
+        # Calculate compliance percentages
+        compliance_data = calculate_nutrient_compliance(daily_averages, rda)
+        
+        # Extract compliance percentages and identify issues
+        compliance_percentages = {}
+        deficiencies = []
+        
+        for nutrient, data in compliance_data.items():
+            compliance_percentages[nutrient] = data["compliance_percentage"]
+            
+            if data["severity"] in ["moderate", "severe"]:
+                deficiencies.append({
+                    "nutrient": nutrient,
+                    "severity": data["severity"],
+                    "actual": data["actual"],
+                    "target": data["target"],
+                    "status": data["status"],
+                    "recommendation": data["recommendation"]
+                })
+        
+        # Calculate overall compliance score
+        overall_score = sum(compliance_percentages.values()) / len(compliance_percentages) if compliance_percentages else 0
+        
+        # Generate personalized recommendations
+        recommendations = get_nutrient_recommendations(compliance_data, patient.get("condition", ""))
+        
+        return {
+            "patient_id": patient_id,
+            "patient_name": patient["name"],
+            "registration_status": "registered",
+            "rda_targets": rda,
+            "daily_averages": daily_averages,
+            "compliance_percentages": compliance_percentages,
+            "deficiencies": deficiencies,
+            "overall_compliance_score": overall_score,
+            "period_days": days,
+            "recommendations": recommendations,
+            "compliance_details": compliance_data
+        }
+        
+    except Exception as e:
+        print(f"Error in get_patient_nutrient_adequacy: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get nutrient adequacy: {str(e)}")
+
+def group_patients_by_criteria(patients: list, criteria: str) -> dict:
+    """Group patients based on specified criteria"""
+    groups = defaultdict(list)
+    
+    for patient in patients:
+        # Get patient's user profile if available
+        profile = {}
+        try:
+            query = f"SELECT * FROM c WHERE c.type = 'user' AND c.registration_code = '{patient['registration_code']}'"
+            users = list(user_container.query_items(query=query, enable_cross_partition_query=True))
+            if users:
+                user = users[0]
+                profile_query = f"SELECT * FROM c WHERE c.type = 'user_profile' AND c.user_id = '{user['email']}'"
+                profiles = list(user_container.query_items(query=profile_query, enable_cross_partition_query=True))
+                if profiles:
+                    profile = profiles[0].get('profile', {})
+        except Exception as e:
+            pass  # Continue with empty profile
+        
+        if criteria == "diabetes_type":
+            condition = patient.get("condition", "Unknown")
+            groups[condition].append(patient)
+            
+        elif criteria == "age_group":
+            age = profile.get("age", 45)  # Default middle age
+            if age < 31:
+                groups["18-30"].append(patient)
+            elif age < 51:
+                groups["31-50"].append(patient)
+            elif age < 71:
+                groups["51-70"].append(patient)
+            else:
+                groups["70+"].append(patient)
+                
+        elif criteria == "gender":
+            gender = profile.get("gender", "Unknown")
+            groups[gender].append(patient)
+            
+        elif criteria == "bmi_category":
+            bmi = profile.get("bmi", 25)  # Default normal BMI
+            if bmi < 18.5:
+                groups["Underweight"].append(patient)
+            elif bmi < 25:
+                groups["Normal Weight"].append(patient)
+            elif bmi < 30:
+                groups["Overweight"].append(patient)
+            else:
+                groups["Obese"].append(patient)
+                
+        elif criteria == "compliance_level":
+            # This would require analyzing recent compliance - simplified for now
+            groups["Average Compliance"].append(patient)
+            
+        elif criteria == "platform_usage":
+            # This would require analyzing usage patterns - simplified for now
+            groups["Regular Users"].append(patient)
+    
+    return dict(groups)
+
+@app.get("/admin/analytics/cohort/nutrient-adequacy")
+async def get_cohort_nutrient_adequacy(
+    group_by: str = "diabetes_type",
+    days: int = 30,
+    current_user: User = Depends(get_admin_user)
+):
+    """Get population-wide nutrient adequacy analysis"""
+    try:
+        # Get all patients
+        all_patients = await get_all_patients()
+        
+        # Group patients by criteria
+        grouped_patients = group_patients_by_criteria(all_patients, group_by)
+        
+        cohort_analysis = {}
+        
+        for group_name, patients in grouped_patients.items():
+            group_data = {
+                "patient_count": len(patients),
+                "registered_patients": 0,
+                "rda_compliance_stats": {},
+                "top_deficiencies": [],
+                "average_compliance_score": 0,
+                "patients_meeting_targets": {}
+            }
+            
+            # Analyze each patient in group
+            individual_scores = []
+            nutrient_totals = defaultdict(list)
+            registered_count = 0
+            
+            for patient in patients:
+                try:
+                    # Check if patient is registered
+                    query = f"SELECT * FROM c WHERE c.type = 'user' AND c.registration_code = '{patient['registration_code']}'"
+                    users = list(user_container.query_items(query=query, enable_cross_partition_query=True))
+                    
+                    if not users:
+                        continue  # Skip unregistered patients
+                    
+                    registered_count += 1
+                    user = users[0]
+                    patient_email = user["email"]
+                    
+                    # Get patient's consumption analytics
+                    analytics = await get_consumption_analytics(patient_email, days)
+                    daily_averages = analytics.get("daily_averages", {})
+                    
+                    if not daily_averages:
+                        continue  # Skip patients with no consumption data
+                    
+                    # Get patient profile
+                    profile = {}
+                    try:
+                        profile_query = f"SELECT * FROM c WHERE c.type = 'user_profile' AND c.user_id = '{patient_email}'"
+                        profiles = list(user_container.query_items(query=profile_query, enable_cross_partition_query=True))
+                        if profiles:
+                            profile = profiles[0].get('profile', {})
+                    except Exception as e:
+                        pass
+                    
+                    # Calculate RDA for this patient
+                    rda = get_rda_for_patient(
+                        age=profile.get("age", 45),
+                        gender=profile.get("gender", "female"),
+                        condition=patient.get("condition", "Type 2 Diabetes"),
+                        activity_level=profile.get("activityLevel", "moderate")
+                    )
+                    
+                    # Calculate compliance for this patient
+                    compliance_data = calculate_nutrient_compliance(daily_averages, rda)
+                    
+                    patient_compliance = {}
+                    for nutrient, data in compliance_data.items():
+                        compliance_pct = data["compliance_percentage"]
+                        patient_compliance[nutrient] = compliance_pct
+                        nutrient_totals[nutrient].append(compliance_pct)
+                    
+                    if patient_compliance:
+                        individual_scores.append(sum(patient_compliance.values()) / len(patient_compliance))
+                
+                except Exception as e:
+                    print(f"Error processing patient {patient['id']}: {e}")
+                    continue
+            
+            group_data["registered_patients"] = registered_count
+            
+            # Calculate group statistics
+            if individual_scores:
+                group_data["average_compliance_score"] = sum(individual_scores) / len(individual_scores)
+            
+            # Calculate percentage of patients meeting each RDA target
+            for nutrient, compliance_scores in nutrient_totals.items():
+                if compliance_scores:
+                    avg_compliance = sum(compliance_scores) / len(compliance_scores)
+                    # Use a lower threshold (60%) to show more meaningful data for new users
+                    patients_meeting_60pct = len([s for s in compliance_scores if s >= 60])
+                    patients_meeting_80pct = len([s for s in compliance_scores if s >= 80])
+                    
+                    print(f"[DEBUG] Group {group_name}, Nutrient {nutrient}: {len(compliance_scores)} patients, avg: {avg_compliance:.1f}%, meeting 80%: {patients_meeting_80pct}")
+                    
+                    group_data["rda_compliance_stats"][nutrient] = {
+                        "average_compliance": avg_compliance,
+                        "patients_meeting_60_percent": patients_meeting_60pct,
+                        "patients_meeting_80_percent": patients_meeting_80pct,
+                        "percentage_meeting_target": (patients_meeting_60pct / len(compliance_scores)) * 100 if compliance_scores else 0,
+                        "percentage_meeting_80_target": (patients_meeting_80pct / len(compliance_scores)) * 100 if compliance_scores else 0,
+                        "total_patients_with_data": len(compliance_scores)
+                    }
+            
+            # Identify top deficiencies (nutrients with lowest compliance)
+            if group_data["rda_compliance_stats"]:
+                deficiencies = sorted(
+                    group_data["rda_compliance_stats"].items(),
+                    key=lambda x: x[1]["average_compliance"]
+                )[:3]
+                
+                group_data["top_deficiencies"] = [
+                    {
+                        "nutrient": nutrient,
+                        "average_compliance": stats["average_compliance"],
+                        "patients_affected": stats["total_patients_with_data"] - stats["patients_meeting_80_percent"]
+                    }
+                    for nutrient, stats in deficiencies
+                ]
+            
+            cohort_analysis[group_name] = group_data
+        
+        print(f"[DEBUG] Cohort analysis summary: {len(all_patients)} total patients, {len(cohort_analysis)} groups")
+        for group_name, group_data in cohort_analysis.items():
+            print(f"[DEBUG] Group {group_name}: {group_data['patient_count']} total, {group_data['registered_patients']} registered")
+            if group_data.get('rda_compliance_stats'):
+                for nutrient, stats in group_data['rda_compliance_stats'].items():
+                    print(f"[DEBUG]   {nutrient}: {stats['percentage_meeting_target']:.1f}% meeting target")
+            
+        return {
+            "grouping_criteria": group_by,
+            "total_patients": len(all_patients),
+            "groups": cohort_analysis,
+            "period_days": days,
+            "analysis_timestamp": datetime.utcnow().isoformat()
+        }
+        
+    except Exception as e:
+        print(f"Error in get_cohort_nutrient_adequacy: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get cohort nutrient adequacy: {str(e)}")
+
+@app.get("/admin/analytics/outlier-detection")
+async def get_outlier_detection(
+    view_mode: str = "cohort",
+    patient_id: str = None,
+    group_by: str = "diabetes_type",
+    current_user: User = Depends(get_admin_user)
+):
+    """Get outlier detection and risk analysis for patients"""
+    try:
+        if view_mode == "individual" and patient_id:
+            # Individual patient outlier analysis
+            patient = await get_patient_by_id(patient_id)
+            if not patient:
+                raise HTTPException(status_code=404, detail="Patient not found")
+            
+            # Check if patient is registered
+            query = f"SELECT * FROM c WHERE c.type = 'user' AND c.registration_code = '{patient['registration_code']}'"
+            users = list(user_container.query_items(query=query, enable_cross_partition_query=True))
+            
+            if not users:
+                return {
+                    "view_mode": "individual",
+                    "patient_id": patient_id,
+                    "patient_name": patient["name"],
+                    "registration_status": "not_registered",
+                    "outliers": [],
+                    "alerts": [],
+                    "risk_score": 0
+                }
+            
+            user_email = users[0]["email"]
+            
+            # Get patient's consumption data for analysis
+            consumption_analytics = await get_consumption_analytics(user_email, 30)
+            consumption_history = await get_user_consumption_history(user_email, limit=100)
+            
+            # Analyze for outliers/anomalies
+            outliers = []
+            alerts = []
+            risk_factors = []
+            
+            daily_averages = consumption_analytics.get("daily_averages", {})
+            
+            # Check for nutritional outliers
+            if daily_averages.get("carbohydrates", 0) > 400:  # Very high carb intake
+                risk_factors.append("high_carb_intake")
+                outliers.append({
+                    "type": "nutrition",
+                    "anomaly": "Consistently high carbohydrate intake",
+                    "severity": "high",
+                    "value": daily_averages["carbohydrates"],
+                    "threshold": 300,
+                    "recommendation": "Reduce carbohydrate intake to improve blood sugar control"
+                })
+            
+            if daily_averages.get("sodium", 0) > 3000:  # High sodium
+                risk_factors.append("high_sodium")
+                outliers.append({
+                    "type": "nutrition",
+                    "anomaly": "Excessive sodium intake",
+                    "severity": "medium",
+                    "value": daily_averages["sodium"],
+                    "threshold": 2300,
+                    "recommendation": "Reduce processed foods and added salt"
+                })
+            
+            if daily_averages.get("fiber", 0) < 15:  # Low fiber
+                risk_factors.append("low_fiber")
+                outliers.append({
+                    "type": "nutrition",
+                    "anomaly": "Insufficient fiber intake",
+                    "severity": "medium",
+                    "value": daily_averages["fiber"],
+                    "threshold": 25,
+                    "recommendation": "Increase whole grains, vegetables, and fruits"
+                })
+            
+            # Check logging patterns
+            if len(consumption_history) < 20:  # Very few logs in last 100 records
+                risk_factors.append("poor_engagement")
+                outliers.append({
+                    "type": "engagement",
+                    "anomaly": "Infrequent food logging",
+                    "severity": "medium",
+                    "value": len(consumption_history),
+                    "threshold": 50,
+                    "recommendation": "Increase logging frequency for better health monitoring"
+                })
+            
+            # Calculate overall risk score
+            risk_score = min(100, len(risk_factors) * 25 + sum([
+                30 if o["severity"] == "high" else 15 for o in outliers
+            ]))
+            
+            # Generate alerts
+            if risk_score > 70:
+                alerts.append({
+                    "type": "critical",
+                    "message": f"High risk patient requiring immediate attention",
+                    "patient_count": 1
+                })
+            elif risk_score > 40:
+                alerts.append({
+                    "type": "warning", 
+                    "message": f"Moderate risk patient needs follow-up",
+                    "patient_count": 1
+                })
+            else:
+                alerts.append({
+                    "type": "info",
+                    "message": f"Patient showing good compliance patterns",
+                    "patient_count": 1
+                })
+            
+            return {
+                "view_mode": "individual",
+                "patient_id": patient_id,
+                "patient_name": patient["name"],
+                "registration_status": "registered",
+                "outliers": outliers,
+                "alerts": alerts,
+                "risk_score": risk_score,
+                "risk_factors": risk_factors
+            }
+            
+        else:
+            # Cohort outlier analysis
+            all_patients = await get_all_patients()
+            grouped_patients = group_patients_by_criteria(all_patients, group_by)
+            
+            outlier_patients = []
+            alert_summary = {"critical": 0, "warning": 0, "info": 0}
+            
+            for group_name, patients in grouped_patients.items():
+                for patient in patients:
+                    try:
+                        # Check if patient is registered
+                        query = f"SELECT * FROM c WHERE c.type = 'user' AND c.registration_code = '{patient['registration_code']}'"
+                        users = list(user_container.query_items(query=query, enable_cross_partition_query=True))
+                        
+                        if not users:
+                            continue
+                        
+                        user_email = users[0]["email"]
+                        
+                        # Get consumption data
+                        consumption_analytics = await get_consumption_analytics(user_email, 30)
+                        consumption_history = await get_user_consumption_history(user_email, limit=50)
+                        
+                        daily_averages = consumption_analytics.get("daily_averages", {})
+                        
+                        # Identify outliers
+                        anomalies = []
+                        risk_score = 0
+                        
+                        # High carb intake
+                        if daily_averages.get("carbohydrates", 0) > 400:
+                            anomalies.append("High carbohydrate intake")
+                            risk_score += 30
+                        
+                        # High sodium
+                        if daily_averages.get("sodium", 0) > 3000:
+                            anomalies.append("Excessive sodium intake")
+                            risk_score += 25
+                        
+                        # Low fiber
+                        if daily_averages.get("fiber", 0) < 15:
+                            anomalies.append("Low fiber intake")
+                            risk_score += 20
+                        
+                        # Poor logging
+                        if len(consumption_history) < 15:
+                            anomalies.append("Infrequent logging")
+                            risk_score += 25
+                        
+                        # Irregular patterns (check for large gaps in logging)
+                        if consumption_history:
+                            last_log = datetime.fromisoformat(consumption_history[0]["timestamp"].replace('Z', '+00:00'))
+                            days_since_last = (datetime.utcnow().replace(tzinfo=last_log.tzinfo) - last_log).days
+                            if days_since_last > 7:
+                                anomalies.append("Extended periods without logging")
+                                risk_score += 30
+                        
+                        # If patient has significant issues, add to outlier list
+                        if risk_score > 40 or len(anomalies) >= 2:
+                            severity = "high" if risk_score > 70 else "medium" if risk_score > 40 else "low"
+                            
+                            outlier_patients.append({
+                                "id": patient["id"],
+                                "name": patient["name"],
+                                "condition": patient.get("condition", "Unknown"),
+                                "anomaly": "; ".join(anomalies[:2]),  # Show top 2 anomalies
+                                "severity": severity,
+                                "last_active": f"{days_since_last} days ago" if consumption_history else "No activity",
+                                "risk_score": min(100, risk_score),
+                                "group": group_name
+                            })
+                            
+                            # Update alert summary
+                            if severity == "high":
+                                alert_summary["critical"] += 1
+                            elif severity == "medium":
+                                alert_summary["warning"] += 1
+                            else:
+                                alert_summary["info"] += 1
+                    
+                    except Exception as e:
+                        print(f"Error analyzing patient {patient['id']}: {e}")
+                        continue
+            
+            # Generate summary alerts
+            alerts = []
+            if alert_summary["critical"] > 0:
+                alerts.append({
+                    "type": "critical",
+                    "message": f"{alert_summary['critical']} patients with high-risk patterns requiring immediate attention",
+                    "count": alert_summary["critical"]
+                })
+            
+            if alert_summary["warning"] > 0:
+                alerts.append({
+                    "type": "warning", 
+                    "message": f"{alert_summary['warning']} patients with concerning patterns needing follow-up",
+                    "count": alert_summary["warning"]
+                })
+            
+            if alert_summary["info"] > 0:
+                alerts.append({
+                    "type": "info",
+                    "message": f"{alert_summary['info']} patients showing improved compliance patterns",
+                    "count": alert_summary["info"]
+                })
+            
+            return {
+                "view_mode": "cohort",
+                "group_by": group_by,
+                "total_patients": len(all_patients),
+                "outlier_patients": outlier_patients,
+                "alerts": alerts,
+                "alert_summary": alert_summary,
+                "analysis_timestamp": datetime.utcnow().isoformat()
+            }
+            
+    except Exception as e:
+        print(f"Error in get_outlier_detection: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get outlier detection: {str(e)}")
+
+@app.get("/admin/analytics/compliance-analysis")
+async def get_compliance_analysis(
+    view_mode: str = "cohort",
+    patient_id: str = None,
+    group_by: str = "diabetes_type",
+    current_user: User = Depends(get_admin_user)
+):
+    """Get comprehensive compliance analysis for patients"""
+    try:
+        if view_mode == "individual" and patient_id:
+            # Individual patient compliance analysis
+            patient = await get_patient_by_id(patient_id)
+            if not patient:
+                raise HTTPException(status_code=404, detail="Patient not found")
+            
+            # Check if patient is registered
+            query = f"SELECT * FROM c WHERE c.type = 'user' AND c.registration_code = '{patient['registration_code']}'"
+            users = list(user_container.query_items(query=query, enable_cross_partition_query=True))
+            
+            if not users:
+                return {
+                    "view_mode": "individual",
+                    "patient_id": patient_id,
+                    "patient_name": patient["name"],
+                    "registration_status": "not_registered",
+                    "compliance_metrics": [],
+                    "patient_details": {},
+                    "recommendations": ["Patient needs to register to start tracking compliance"]
+                }
+            
+            user_email = users[0]["email"]
+            
+            # Get patient data for compliance analysis
+            consumption_analytics = await get_consumption_analytics(user_email, 30)
+            consumption_history = await get_user_consumption_history(user_email, limit=100)
+            meal_plans = await get_user_meal_plans(user_email)
+            
+            # Calculate compliance metrics
+            daily_averages = consumption_analytics.get("daily_averages", {})
+            total_logs = len(consumption_history)
+            
+            # Meal plan adherence (simplified - based on logging frequency)
+            target_logs_per_month = 90  # 3 meals per day for 30 days
+            meal_plan_adherence = min(100, (total_logs / target_logs_per_month) * 100) if target_logs_per_month > 0 else 0
+            
+            # Nutrition compliance (based on RDA from nutrition adequacy)
+            profile = {}
+            try:
+                profile_query = f"SELECT * FROM c WHERE c.type = 'user_profile' AND c.user_id = '{user_email}'"
+                profiles = list(user_container.query_items(query=profile_query, enable_cross_partition_query=True))
+                if profiles:
+                    profile = profiles[0].get('profile', {})
+            except Exception as e:
+                pass
+            
+            rda = get_rda_for_patient(
+                age=profile.get("age", 45),
+                gender=profile.get("gender", "female"),
+                condition=patient.get("condition", "Type 2 Diabetes"),
+                activity_level=profile.get("activityLevel", "moderate")
+            )
+            
+            compliance_data = calculate_nutrient_compliance(daily_averages, rda)
+            nutrition_compliance = sum(data["compliance_percentage"] for data in compliance_data.values()) / len(compliance_data) if compliance_data else 0
+            
+            # Logging consistency (based on regular logging pattern)
+            logging_consistency = min(100, (total_logs / 30) * 10) if total_logs > 0 else 0  # Simplified calculation
+            
+            # Exercise completion (placeholder - would need exercise tracking data)
+            exercise_completion = 75  # Placeholder since we don't have exercise tracking yet
+            
+            # Calculate overall compliance
+            overall_compliance = (meal_plan_adherence + nutrition_compliance + logging_consistency + exercise_completion) / 4
+            
+            # Calculate streak (consecutive days with logs)
+            streak = 0
+            if consumption_history:
+                current_date = datetime.utcnow().date()
+                for log in consumption_history:
+                    log_date = datetime.fromisoformat(log["timestamp"].replace('Z', '+00:00')).date()
+                    if (current_date - log_date).days <= streak:
+                        streak += 1
+                    else:
+                        break
+            
+            # Determine status
+            if overall_compliance >= 85:
+                status = "excellent"
+            elif overall_compliance >= 70:
+                status = "good"
+            else:
+                status = "needs-improvement"
+            
+            compliance_metrics = [
+                {"metric": "Overall Compliance Rate", "value": round(overall_compliance), "target": 85, "trend": "stable"},
+                {"metric": "Meal Plan Adherence", "value": round(meal_plan_adherence), "target": 90, "trend": "up" if meal_plan_adherence > 80 else "down"},
+                {"metric": "Nutrition Compliance", "value": round(nutrition_compliance), "target": 80, "trend": "stable"},
+                {"metric": "Logging Consistency", "value": round(logging_consistency), "target": 95, "trend": "up" if total_logs > 60 else "down"}
+            ]
+            
+            patient_details = {
+                "id": patient_id,
+                "name": patient["name"],
+                "overall": round(overall_compliance),
+                "meal_plan": round(meal_plan_adherence),
+                "nutrition": round(nutrition_compliance),
+                "logging": round(logging_consistency),
+                "streak": streak,
+                "status": status,
+                "total_logs": total_logs,
+                "meal_plans_count": len(meal_plans)
+            }
+            
+            recommendations = []
+            if meal_plan_adherence < 70:
+                recommendations.append("Improve meal logging frequency - aim for 3 logs per day")
+            if nutrition_compliance < 70:
+                recommendations.append("Focus on meeting daily nutritional targets")
+            if logging_consistency < 80:
+                recommendations.append("Establish a regular logging routine")
+            if not recommendations:
+                recommendations.append("Excellent compliance! Keep up the great work!")
+            
+            return {
+                "view_mode": "individual",
+                "patient_id": patient_id,
+                "patient_name": patient["name"],
+                "registration_status": "registered",
+                "compliance_metrics": compliance_metrics,
+                "patient_details": patient_details,
+                "recommendations": recommendations
+            }
+            
+        else:
+            # Cohort compliance analysis
+            all_patients = await get_all_patients()
+            grouped_patients = group_patients_by_criteria(all_patients, group_by)
+            
+            # Calculate cohort-wide compliance metrics
+            all_compliance_data = []
+            
+            for group_name, patients in grouped_patients.items():
+                for patient in patients:
+                    try:
+                        # Check if patient is registered
+                        query = f"SELECT * FROM c WHERE c.type = 'user' AND c.registration_code = '{patient['registration_code']}'"
+                        users = list(user_container.query_items(query=query, enable_cross_partition_query=True))
+                        
+                        if not users:
+                            continue
+                        
+                        user_email = users[0]["email"]
+                        
+                        # Get patient compliance data
+                        consumption_analytics = await get_consumption_analytics(user_email, 30)
+                        consumption_history = await get_user_consumption_history(user_email, limit=100)
+                        meal_plans = await get_user_meal_plans(user_email)
+                        
+                        daily_averages = consumption_analytics.get("daily_averages", {})
+                        total_logs = len(consumption_history)
+                        
+                        # Calculate individual compliance metrics
+                        meal_plan_adherence = min(100, (total_logs / 90) * 100)
+                        
+                        # Get nutrition compliance
+                        profile = {}
+                        try:
+                            profile_query = f"SELECT * FROM c WHERE c.type = 'user_profile' AND c.user_id = '{user_email}'"
+                            profiles = list(user_container.query_items(query=profile_query, enable_cross_partition_query=True))
+                            if profiles:
+                                profile = profiles[0].get('profile', {})
+                        except Exception as e:
+                            pass
+                        
+                        rda = get_rda_for_patient(
+                            age=profile.get("age", 45),
+                            gender=profile.get("gender", "female"),
+                            condition=patient.get("condition", "Type 2 Diabetes"),
+                            activity_level=profile.get("activityLevel", "moderate")
+                        )
+                        
+                        compliance_data = calculate_nutrient_compliance(daily_averages, rda)
+                        nutrition_compliance = sum(data["compliance_percentage"] for data in compliance_data.values()) / len(compliance_data) if compliance_data else 0
+                        
+                        logging_consistency = min(100, (total_logs / 30) * 10)
+                        exercise_completion = 75  # Placeholder
+                        
+                        overall_compliance = (meal_plan_adherence + nutrition_compliance + logging_consistency + exercise_completion) / 4
+                        
+                        # Calculate streak
+                        streak = 0
+                        if consumption_history:
+                            current_date = datetime.utcnow().date()
+                            for log in consumption_history:
+                                log_date = datetime.fromisoformat(log["timestamp"].replace('Z', '+00:00')).date()
+                                if (current_date - log_date).days <= streak:
+                                    streak += 1
+                                else:
+                                    break
+                        
+                        status = "excellent" if overall_compliance >= 85 else "good" if overall_compliance >= 70 else "needs-improvement"
+                        
+                        patient_detail = {
+                            "id": patient["id"],
+                            "name": patient["name"],
+                            "overall": round(overall_compliance),
+                            "meal_plan": round(meal_plan_adherence),
+                            "nutrition": round(nutrition_compliance),
+                            "logging": round(logging_consistency),
+                            "streak": streak,
+                            "status": status,
+                            "group": group_name
+                        }
+                        
+                        all_compliance_data.append(patient_detail)
+                        
+                    except Exception as e:
+                        print(f"Error processing patient {patient['id']}: {e}")
+                        continue
+            
+            # Calculate overall cohort metrics
+            all_scores = [p["overall"] for p in all_compliance_data]
+            meal_plan_scores = [p["meal_plan"] for p in all_compliance_data]
+            nutrition_scores = [p["nutrition"] for p in all_compliance_data]
+            logging_scores = [p["logging"] for p in all_compliance_data]
+            
+            cohort_metrics = [
+                {
+                    "metric": "Overall Compliance Rate",
+                    "value": round(sum(all_scores) / len(all_scores)) if all_scores else 0,
+                    "target": 85,
+                    "trend": "stable"
+                },
+                {
+                    "metric": "Meal Plan Adherence",
+                    "value": round(sum(meal_plan_scores) / len(meal_plan_scores)) if meal_plan_scores else 0,
+                    "target": 90,
+                    "trend": "up"
+                },
+                {
+                    "metric": "Nutrition Compliance",
+                    "value": round(sum(nutrition_scores) / len(nutrition_scores)) if nutrition_scores else 0,
+                    "target": 80,
+                    "trend": "stable"
+                },
+                {
+                    "metric": "Logging Consistency",
+                    "value": round(sum(logging_scores) / len(logging_scores)) if logging_scores else 0,
+                    "target": 95,
+                    "trend": "down"
+                }
+            ]
+            
+            # Top performers and needs attention
+            top_performers = sorted(all_compliance_data, key=lambda x: x["overall"], reverse=True)[:3]
+            needs_attention = [p for p in all_compliance_data if p["overall"] < 70]
+            
+            return {
+                "view_mode": "cohort",
+                "group_by": group_by,
+                "total_patients": len(all_patients),
+                "registered_patients": len(all_compliance_data),
+                "compliance_metrics": cohort_metrics,
+                "patient_compliance": all_compliance_data,
+                "top_performers": top_performers,
+                "needs_attention": needs_attention,
+                "analysis_timestamp": datetime.utcnow().isoformat()
+            }
+            
+    except Exception as e:
+        print(f"Error in get_compliance_analysis: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get compliance analysis: {str(e)}")
+
+@app.get("/admin/analytics/debug-charts")
+async def debug_charts_data(current_user: User = Depends(get_admin_user)):
+    """Debug endpoint to check chart data"""
+    try:
+        # Get a simple test of the cohort data
+        all_patients = await get_all_patients()
+        grouped_patients = group_patients_by_criteria(all_patients, "diabetes_type")
+        
+        result = {
+            "total_patients": len(all_patients),
+            "groups": {}
+        }
+        
+        for group_name, patients in grouped_patients.items():
+            registered_count = 0
+            patients_with_data = 0
+            
+            for patient in patients:
+                try:
+                    query = f"SELECT * FROM c WHERE c.type = 'user' AND c.registration_code = '{patient['registration_code']}'"
+                    users = list(user_container.query_items(query=query, enable_cross_partition_query=True))
+                    
+                    if users:
+                        registered_count += 1
+                        user_email = users[0]["email"]
+                        
+                        # Check if they have consumption data
+                        consumption_history = await get_user_consumption_history(user_email, limit=10)
+                        if consumption_history:
+                            patients_with_data += 1
+                            
+                except Exception as e:
+                    continue
+            
+            result["groups"][group_name] = {
+                "total_patients": len(patients),
+                "registered_patients": registered_count,
+                "patients_with_consumption_data": patients_with_data
+            }
+            
+        return result
+        
+    except Exception as e:
+        print(f"Error in debug_charts_data: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get debug data: {str(e)}")
 
 @app.get("/admin/patient-profile/{registration_code}")
 async def get_patient_profile(
