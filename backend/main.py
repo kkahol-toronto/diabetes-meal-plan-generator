@@ -6370,44 +6370,34 @@ async def chat_message_with_image(
 Would you like me to create a detailed recipe for any of these meal suggestions?"""
 
     elif analysis_mode == "logging" and analysis_data:
-        # Food logging mode - save to consumption history
-        food_data = analysis_data
-        consumption_data = {
-            "food_name": food_data.get("food_name"),
-            "estimated_portion": food_data.get("estimated_portion"),
-            "nutritional_info": food_data.get("nutritional_info", {}),
-            "image_analysis": food_data.get("analysis_notes"),
-            "image_url": img_str
-        }
-        await save_consumption_record(current_user["email"], consumption_data, meal_type=meal_type)
-
-        # Trigger meal plan recalibration after logging food
-        try:
-            profile = current_user.get("profile", {})
-            await trigger_meal_plan_recalibration(current_user["email"], profile)
-            print(f"[chat_message_with_image] Meal plan recalibrated after food logging")
-        except Exception as recal_error:
-            print(f"[chat_message_with_image] Error in meal plan recalibration: {recal_error}")
-
+        # Food logging mode - create pending record for review instead of directly saving
+        pending_id = await pending_consumption_manager.create_pending_record(
+            user_email=current_user["email"],
+            user_id=current_user["id"],
+            analysis_data=analysis_data,
+            image_url=img_str,
+            meal_type=meal_type
+        )
+        
+        print(f"[chat_message_with_image] Created pending record {pending_id} for food logging review")
+        
         meal_type_text = f" as your **{meal_type}**" if meal_type else ""
         
-        assistant_message = f"""🍽️ **Food Logged{meal_type_text}: {food_data.get('food_name')}**
+        assistant_message = f"""🍽️ **Food Analyzed for Logging{meal_type_text}: {analysis_data.get('food_name')}**
 
-📊 **Nutritional Info** (per {food_data.get('estimated_portion')}):
-• Calories: {food_data.get('nutritional_info', {}).get('calories', 'N/A')}
-• Carbs: {food_data.get('nutritional_info', {}).get('carbohydrates', 'N/A')}g
-• Protein: {food_data.get('nutritional_info', {}).get('protein', 'N/A')}g
-• Fat: {food_data.get('nutritional_info', {}).get('fat', 'N/A')}g
-• Fiber: {food_data.get('nutritional_info', {}).get('fiber', 'N/A')}g
+📊 **Nutritional Info** (per {analysis_data.get('estimated_portion')}):
+• Calories: {analysis_data.get('nutritional_info', {}).get('calories', 'N/A')}
+• Carbs: {analysis_data.get('nutritional_info', {}).get('carbohydrates', 'N/A')}g
+• Protein: {analysis_data.get('nutritional_info', {}).get('protein', 'N/A')}g
+• Fat: {analysis_data.get('nutritional_info', {}).get('fat', 'N/A')}g
+• Fiber: {analysis_data.get('nutritional_info', {}).get('fiber', 'N/A')}g
 
-🩺 **Diabetes Suitability:** {food_data.get('medical_rating', {}).get('diabetes_suitability', 'N/A').title()}
-📈 **Glycemic Impact:** {food_data.get('medical_rating', {}).get('glycemic_impact', 'N/A').title()}
+🩺 **Diabetes Suitability:** {analysis_data.get('medical_rating', {}).get('diabetes_suitability', 'N/A').title()}
+📈 **Glycemic Impact:** {analysis_data.get('medical_rating', {}).get('glycemic_impact', 'N/A').title()}
 
-✅ **Successfully logged to your consumption history!**
+🔍 **Please review the analysis above and use the Accept/Edit/Delete options to proceed with logging.**
 
-💡 **Analysis Notes:** {food_data.get('analysis_notes', 'No additional notes available.')}
-
-Your daily tracking and meal planning will be updated to reflect this logged meal."""
+💡 **Analysis Notes:** {analysis_data.get('analysis_notes', 'No additional notes available.')}"""
 
     elif analysis_mode == "question" and analysis_data:
         # Question mode - provide specific answer based on the user's question
@@ -6609,7 +6599,16 @@ How can I help you today?
     import json as _json
 
     def _event_stream():
-        chunk = _json.dumps({"content": assistant_message})
+        # Include pending data if this was a logging operation
+        if analysis_mode == "logging" and analysis_data:
+            # Include pending data for frontend to show review dialog
+            chunk = _json.dumps({
+                "content": assistant_message,
+                "pending_id": pending_id,
+                "analysis": analysis_data
+            })
+        else:
+            chunk = _json.dumps({"content": assistant_message})
         yield f"data: {chunk}\n\n"
 
     return StreamingResponse(_event_stream(), media_type="text/event-stream")
