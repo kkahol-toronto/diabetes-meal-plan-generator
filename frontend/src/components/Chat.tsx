@@ -63,6 +63,7 @@ import { useNavigate } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import { v4 as uuidv4 } from 'uuid';
 import config from '../config/environment';
+import PendingConsumptionDialog from './PendingConsumptionDialog'; // Import the dialog
 
 // Animations
 const float = keyframes`
@@ -164,6 +165,130 @@ const Chat = () => {
   const [selectedMealType, setSelectedMealType] = useState<string>('');
   const [showMealTypeSelector, setShowMealTypeSelector] = useState(false);
 
+  // State for PendingConsumptionDialog
+  const [showPendingDialog, setShowPendingDialog] = useState(false);
+  const [pendingId, setPendingId] = useState<string | null>(null);
+  const [pendingAnalysis, setPendingAnalysis] = useState<any>(null);
+  const [pendingImageUrl, setPendingImageUrl] = useState<string | undefined>(undefined);
+
+  // Handlers for PendingConsumptionDialog
+  const handlePendingAccept = async () => {
+    // This will be called when the user accepts the food log in the dialog
+    if (!pendingId) return;
+
+    setIsLoading(true);
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        navigate('/login');
+        return;
+      }
+
+      console.log(`Attempting to accept pending ID: ${pendingId}`);
+      const response = await fetch(`${config.API_URL}/consumption/pending/${pendingId}/accept`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to accept food log');
+      }
+
+      console.log('Food log accepted and saved successfully!');
+      // Optionally, you might want to show a success message to the user
+
+      // Update the chat with a confirmation message (optional, but good for user feedback)
+      const confirmationMessage: Message = {
+        id: uuidv4(),
+        message: 'Your food has been successfully logged to your consumption history!',
+        is_user: false,
+        timestamp: new Date().toISOString(),
+        session_id: currentSession,
+        metadata: {
+          type: 'food_logging',
+          analysis_mode: 'logging'
+        }
+      };
+      setMessages(prev => [...prev, confirmationMessage]);
+
+    } catch (error) {
+      console.error('Error accepting food log:', error);
+      const errorMessage: Message = {
+        id: uuidv4(),
+        message: 'Failed to log food. Please try again.',
+        is_user: false,
+        timestamp: new Date().toISOString(),
+        session_id: currentSession,
+      };
+      setMessages(prev => [...prev, errorMessage]);
+    } finally {
+      setShowPendingDialog(false);
+      setPendingId(null);
+      setPendingAnalysis(null);
+      setPendingImageUrl(undefined);
+      triggerFoodLogged(); // Refresh homepage data
+      setIsLoading(false);
+    }
+  };
+
+  const handlePendingDelete = async () => {
+    // This will be called when the user deletes/discards the food log in the dialog
+    if (!pendingId) return;
+
+    setIsLoading(true);
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        navigate('/login');
+        return;
+      }
+
+      const response = await fetch(`${config.API_URL}/consumption/pending/${pendingId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to delete pending food log');
+      }
+
+      console.log('Pending food log deleted successfully!');
+      // Optionally, show a confirmation message to the user
+      const confirmationMessage: Message = {
+        id: uuidv4(),
+        message: 'Food log discarded.',
+        is_user: false,
+        timestamp: new Date().toISOString(),
+        session_id: currentSession,
+      };
+      setMessages(prev => [...prev, confirmationMessage]);
+
+    } catch (error) {
+      console.error('Error deleting pending food log:', error);
+      const errorMessage: Message = {
+        id: uuidv4(),
+        message: 'Failed to discard food log. Please try again.',
+        is_user: false,
+        timestamp: new Date().toISOString(),
+        session_id: currentSession,
+      };
+      setMessages(prev => [...prev, errorMessage]);
+    } finally {
+      setShowPendingDialog(false);
+      setPendingId(null);
+      setPendingAnalysis(null);
+      setPendingImageUrl(undefined);
+      // No need to triggerFoodLogged here as it's discarded
+      setIsLoading(false);
+    }
+  };
+
   // Auto-detect meal type based on current time
   const autoDetectMealType = () => {
     const hour = new Date().getHours();
@@ -247,6 +372,45 @@ const Chat = () => {
       action: (file: File) => handleImageAnalysisSelection('fridge', file)
     }
   ];
+
+  const handleImageAnalysisSelection = (mode: 'logging' | 'analysis' | 'question' | 'fridge', file: File) => {
+    setSelectedAnalysisMode(mode);
+    setSelectedImage(file);
+    
+    // Clean up previous preview URL to prevent memory leaks
+    if (imagePreviewUrl) {
+      URL.revokeObjectURL(imagePreviewUrl);
+    }
+    
+    // Create preview URL
+    const previewUrl = URL.createObjectURL(file);
+    setImagePreviewUrl(previewUrl);
+    
+    // Close dialogs
+    setImageOptionsDialog(false);
+    setPendingImageFile(null);
+    
+    // Set appropriate input based on mode
+    switch (mode) {
+      case 'logging':
+        setInput('Please analyze this food and log it to my consumption history.');
+        setShowMealTypeSelector(true);
+        setSelectedMealType(''); // Reset meal type
+        break;
+      case 'analysis':
+        setInput('Please provide a detailed nutritional analysis of this food.');
+        setShowMealTypeSelector(false);
+        break;
+      case 'question':
+        setInput('I have a question about this food: ');
+        setShowMealTypeSelector(false);
+        break;
+      case 'fridge':
+        setInput('Please analyze my fridge contents and suggest what I can cook.');
+        setShowMealTypeSelector(false);
+        break;
+    }
+  };
 
   const handleNewChat = () => {
     const newSessionId = uuidv4();
@@ -494,27 +658,85 @@ const Chat = () => {
 
     try {
       let response;
-      
+
       if (selectedImage) {
-        // Handle image + message with enhanced analysis mode
-        const formData = new FormData();
-        formData.append('message', input);
-        formData.append('image', selectedImage);
-        formData.append('session_id', currentSession);
-        formData.append('analysis_mode', currentAnalysisMode || 'analysis');
-        
-        // Add meal type if in logging mode
+        // If food logging with image, use the analyze-only endpoint
         if (currentAnalysisMode === 'logging') {
-          formData.append('meal_type', currentMealType);
+          const formData = new FormData();
+          formData.append('image', selectedImage);
+          // Optionally add meal_type if it's relevant for analyze-only, but current backend doesn't seem to use it for image analysis directly
+
+          response = await fetch(`${config.API_URL}/consumption/analyze-only`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${token}`,
+            },
+            body: formData,
+          });
+
+          if (!response.ok) {
+            throw new Error('Failed to analyze food for logging');
+          }
+
+          const data = await response.json();
+
+          // Store pending data and show dialog
+          setPendingId(data.pending_id);
+          setPendingAnalysis(data.analysis);
+          setPendingImageUrl(data.analysis?.image_url || undefined);
+          setShowPendingDialog(true);
+
+          // Format the detailed report for the chat message
+          const analysis = data.analysis;
+          let detailedMessage = `### Food Analysis Report: ${analysis.food_name || 'N/A'}\n\n`;
+          detailedMessage += `- **Portion:** ${analysis.estimated_portion || 'N/A'}\n`;
+          detailedMessage += `- **Calories:** ${Math.round(analysis.nutritional_info?.calories || 0)} kcal\n`;
+          detailedMessage += `- **Protein:** ${analysis.nutritional_info?.protein || 'N/A'}g\n`;
+          detailedMessage += `- **Carbohydrates:** ${analysis.nutritional_info?.carbohydrates || 'N/A'}g\n`;
+          detailedMessage += `- **Fat:** ${analysis.nutritional_info?.fat || 'N/A'}g\n\n`;
+          
+          if (analysis.medical_rating?.diabetes_suitability) {
+            detailedMessage += `**Diabetes Suitability:** ${analysis.medical_rating.diabetes_suitability}\n\n`;
+          }
+          if (analysis.medical_rating?.diabetes_notes) {
+            detailedMessage += `**Notes:** ${analysis.medical_rating.diabetes_notes}\n\n`;
+          }
+          detailedMessage += `Please use the **Accept**, **Edit**, or **Delete** options in the dialog to proceed with logging.`;
+
+          const aiMessage: Message = {
+            id: uuidv4(),
+            message: detailedMessage,
+            is_user: false,
+            timestamp: new Date().toISOString(),
+            session_id: currentSession,
+            metadata: {
+              type: 'food_analysis',
+              image_type: 'food',
+              analysis_mode: 'logging'
+            }
+          };
+          setMessages(prev => [...prev, aiMessage]);
+
+          setIsLoading(false); // Stop loading here as dialog takes over and AI message is shown
+          return; // Exit function, as pending dialog will handle further actions
+
+        } else {
+          // Handle other image + message analysis modes (analysis, question, fridge)
+          const formData = new FormData();
+          formData.append('message', input);
+          formData.append('image', selectedImage);
+          formData.append('session_id', currentSession);
+          formData.append('analysis_mode', currentAnalysisMode || 'analysis');
+
+          response = await fetch(`${config.API_URL}/chat/message-with-image`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${token}`,
+            },
+            body: formData,
+          });
         }
 
-        response = await fetch(`${config.API_URL}/chat/message-with-image`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-          },
-          body: formData,
-        });
       } else {
         // Handle text-only message
         const messageBody: any = {
@@ -538,6 +760,49 @@ const Chat = () => {
       }
 
       if (response.ok) {
+        // If food logging with image, show pending dialog instead of regular chat message
+        if (selectedAnalysisMode === 'logging' && selectedImage) {
+          const data = await response.json();
+          setPendingId(data.pending_id);
+          setPendingAnalysis(data.analysis);
+          setPendingImageUrl(data.analysis?.image_url || undefined);
+          setShowPendingDialog(true);
+
+          // Format the detailed report for the chat message
+          const analysis = data.analysis;
+          let detailedMessage = `### Food Analysis Report: ${analysis.food_name || 'N/A'}\n\n`;
+          detailedMessage += `- **Portion:** ${analysis.estimated_portion || 'N/A'}\n`;
+          detailedMessage += `- **Calories:** ${Math.round(analysis.nutritional_info?.calories || 0)} kcal\n`;
+          detailedMessage += `- **Protein:** ${analysis.nutritional_info?.protein || 'N/A'}g\n`;
+          detailedMessage += `- **Carbohydrates:** ${analysis.nutritional_info?.carbohydrates || 'N/A'}g\n`;
+          detailedMessage += `- **Fat:** ${analysis.nutritional_info?.fat || 'N/A'}g\n\n`;
+          
+          if (analysis.medical_rating?.diabetes_suitability) {
+            detailedMessage += `**Diabetes Suitability:** ${analysis.medical_rating.diabetes_suitability}\n\n`;
+          }
+          if (analysis.medical_rating?.diabetes_notes) {
+            detailedMessage += `**Notes:** ${analysis.medical_rating.diabetes_notes}\n\n`;
+          }
+          detailedMessage += `Please use the **Accept**, **Edit**, or **Delete** options in the dialog to proceed with logging.`;
+
+          const aiMessage: Message = {
+            id: uuidv4(),
+            message: detailedMessage,
+            is_user: false,
+            timestamp: new Date().toISOString(),
+            session_id: currentSession,
+            metadata: {
+              type: 'food_analysis',
+              image_type: 'food',
+              analysis_mode: 'logging'
+            }
+          };
+          setMessages(prev => [...prev, aiMessage]);
+
+          setIsLoading(false); // Stop loading here as dialog takes over and AI message is shown
+          return; // Exit function, as pending dialog will handle further actions
+        }
+
         const reader = response.body?.getReader();
         const decoder = new TextDecoder();
         let aiResponse = '';
@@ -679,45 +944,6 @@ const Chat = () => {
     // Store the file and show options dialog
     setPendingImageFile(file);
     setImageOptionsDialog(true);
-  };
-
-  const handleImageAnalysisSelection = (mode: 'logging' | 'analysis' | 'question' | 'fridge', file: File) => {
-    setSelectedAnalysisMode(mode);
-    setSelectedImage(file);
-    
-    // Clean up previous preview URL to prevent memory leaks
-    if (imagePreviewUrl) {
-      URL.revokeObjectURL(imagePreviewUrl);
-    }
-    
-    // Create preview URL
-    const previewUrl = URL.createObjectURL(file);
-    setImagePreviewUrl(previewUrl);
-    
-    // Close dialogs
-    setImageOptionsDialog(false);
-    setPendingImageFile(null);
-    
-    // Set appropriate input based on mode
-    switch (mode) {
-      case 'logging':
-        setInput('Please analyze this food and log it to my consumption history.');
-        setShowMealTypeSelector(true);
-        setSelectedMealType(''); // Reset meal type
-        break;
-      case 'analysis':
-        setInput('Please provide a detailed nutritional analysis of this food.');
-        setShowMealTypeSelector(false);
-        break;
-      case 'question':
-        setInput('I have a question about this food: ');
-        setShowMealTypeSelector(false);
-        break;
-      case 'fridge':
-        setInput('Please analyze my fridge contents and suggest what I can cook.');
-        setShowMealTypeSelector(false);
-        break;
-    }
   };
 
   const handleRecordFoodButtonClick = () => {
@@ -1368,6 +1594,17 @@ const Chat = () => {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Pending Consumption Dialog */}
+      <PendingConsumptionDialog
+        open={showPendingDialog}
+        onClose={() => setShowPendingDialog(false)}
+        pendingId={pendingId}
+        analysisData={pendingAnalysis} // Correct prop name
+        imageUrl={pendingImageUrl}
+        onAccept={handlePendingAccept}
+        onDelete={handlePendingDelete}
+      />
     </Container>
   );
 };

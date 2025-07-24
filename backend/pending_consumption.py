@@ -85,14 +85,21 @@ class PendingConsumptionManager:
     
     def get_pending_record(self, pending_id: str) -> Optional[PendingConsumption]:
         """Get a pending record by ID"""
+        print(f"[PendingConsumptionManager] Attempting to get pending record with ID: {pending_id}")
         record = self._pending_records.get(pending_id)
         
-        if record and record.is_expired():
-            # Remove expired record
-            self._pending_records.pop(pending_id, None)
-            print(f"[PendingConsumption] Removed expired record {pending_id}")
-            return None
-            
+        if record:
+            print(f"[PendingConsumptionManager] Found record for ID: {pending_id}. Expires at: {record.expires_at.isoformat()}. Current UTC: {datetime.utcnow().isoformat()}")
+            if record.is_expired():
+                # Remove expired record
+                self._pending_records.pop(pending_id, None)
+                print(f"[PendingConsumptionManager] Removed expired record {pending_id} due to expiry.")
+                return None
+                
+            print(f"[PendingConsumptionManager] Record {pending_id} is valid and not expired.")
+            return record
+        
+        print(f"[PendingConsumptionManager] Record with ID: {pending_id} not found.")
         return record
     
     def update_pending_record(
