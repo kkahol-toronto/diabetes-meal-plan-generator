@@ -37,6 +37,7 @@ import {
 } from '@mui/icons-material';
 import config from '../config/environment';
 import { useApp } from '../contexts/AppContext';
+import { useNavigate } from 'react-router-dom';
 
 interface NutritionalInfo {
   calories: number;
@@ -105,6 +106,7 @@ const PendingConsumptionDialog: React.FC<PendingConsumptionDialogProps> = ({
   onDelete
 }) => {
   const { showNotification, triggerFoodLogged } = useApp();
+  const navigate = useNavigate();
   const [mode, setMode] = useState<'review' | 'edit'>('review');
   const [loading, setLoading] = useState(false);
   const [editMessages, setEditMessages] = useState<EditMessage[]>([]);
@@ -142,6 +144,12 @@ const PendingConsumptionDialog: React.FC<PendingConsumptionDialogProps> = ({
         }
       });
 
+      if (response.status === 401) {
+        localStorage.removeItem('token');
+        navigate('/login');
+        return;
+      }
+
       if (response.ok) {
         const result = await response.json();
         showNotification(`Successfully logged: ${result.food_name}`, 'success');
@@ -172,6 +180,12 @@ const PendingConsumptionDialog: React.FC<PendingConsumptionDialogProps> = ({
           'Authorization': `Bearer ${token}`
         }
       });
+
+      if (response.status === 401) {
+        localStorage.removeItem('token');
+        navigate('/login');
+        return;
+      }
 
       if (response.ok) {
         showNotification('Food log discarded', 'info');
@@ -235,6 +249,12 @@ What would you like to update?`,
           message: userInput 
         })
       });
+
+      if (response.status === 401) {
+        localStorage.removeItem('token');
+        navigate('/login');
+        return;
+      }
 
       if (!response.ok) {
         throw new Error('Failed to process message');

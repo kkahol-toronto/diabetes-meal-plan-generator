@@ -63,6 +63,7 @@ import { useNavigate } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import { v4 as uuidv4 } from 'uuid';
 import config from '../config/environment';
+import PendingConsumptionDialog from './PendingConsumptionDialog';
 
 // Animations
 const float = keyframes`
@@ -163,6 +164,12 @@ const Chat = () => {
   // Meal type selection for food logging
   const [selectedMealType, setSelectedMealType] = useState<string>('');
   const [showMealTypeSelector, setShowMealTypeSelector] = useState(false);
+
+  // Pending consumption dialog state (same as HomePage)
+  const [showPendingDialog, setShowPendingDialog] = useState(false);
+  const [pendingId, setPendingId] = useState<string | null>(null);
+  const [pendingAnalysis, setPendingAnalysis] = useState<any>(null);
+  const [pendingImageUrl, setPendingImageUrl] = useState<string | null>(null);
 
   // Auto-detect meal type based on current time
   const autoDetectMealType = () => {
@@ -542,6 +549,7 @@ const Chat = () => {
         const decoder = new TextDecoder();
         let aiResponse = '';
         let aiMessageId = uuidv4();
+        let pendingData: any = null;
 
         // Add placeholder AI message
         const aiMessage: Message = {
@@ -577,6 +585,10 @@ const Chat = () => {
                     aiResponse += data.content;
                     parsedContent = true;
                   }
+                  // Check for pending consumption data
+                  if (data.pending_id && data.analysis) {
+                    pendingData = data;
+                  }
                 } catch (e) {
                   // Not JSON, treat remainder as plain text
                   aiResponse += line.slice(6);
@@ -600,10 +612,24 @@ const Chat = () => {
             );
           }
           
-          // Trigger homepage refresh if this was a food logging operation
-          if (selectedAnalysisMode === 'logging' || (showMealTypeSelector && checkForFoodLogging(userMessage.message))) {
+          // Show pending consumption dialog if this was a food logging operation
+          if (currentAnalysisMode === 'logging' && pendingData) {
+            setPendingId(pendingData.pending_id);
+            setPendingAnalysis(pendingData.analysis);
+            setPendingImageUrl(pendingData.image_url || null);
+            setShowPendingDialog(true);
+          } else if (currentAnalysisMode === 'logging' || (currentShowMealTypeSelector && checkForFoodLogging(userMessage.message))) {
+            // Trigger homepage refresh for other food logging operations
             triggerFoodLogged();
-            // Note: Meal plan update notifications are handled by the AI response message
+          }
+        } else {
+          // Handle non-streamed response (fallback)
+          const responseData = await response.json();
+          if (responseData.pending_id && responseData.analysis && currentAnalysisMode === 'logging') {
+            setPendingId(responseData.pending_id);
+            setPendingAnalysis(responseData.analysis);
+            setPendingImageUrl(responseData.image_url || null);
+            setShowPendingDialog(true);
           }
         }
       } else if (response.status === 401) {
@@ -739,6 +765,25 @@ const Chat = () => {
         inputElement.setSelectionRange(inputElement.value.length, inputElement.value.length);
       }
     }, 100);
+  };
+
+  // Pending consumption dialog handlers (same as HomePage)
+  const handlePendingAccept = () => {
+    // Close dialog and refresh data
+    setShowPendingDialog(false);
+    setPendingId(null);
+    setPendingAnalysis(null);
+    setPendingImageUrl(null);
+    // Refresh user stats
+    fetchUserStats();
+  };
+
+  const handlePendingDelete = () => {
+    // Close dialog and clean up
+    setShowPendingDialog(false);
+    setPendingId(null);
+    setPendingAnalysis(null);
+    setPendingImageUrl(null);
   };
 
   const formatMessage = (message: string) => {
@@ -1368,6 +1413,17 @@ const Chat = () => {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Pending Consumption Dialog */}
+      <PendingConsumptionDialog
+        open={showPendingDialog}
+        onClose={() => setShowPendingDialog(false)}
+        pendingId={pendingId}
+        analysisData={pendingAnalysis}
+        imageUrl={pendingImageUrl || undefined}
+        onAccept={handlePendingAccept}
+        onDelete={handlePendingDelete}
+      />
     </Container>
   );
 };
