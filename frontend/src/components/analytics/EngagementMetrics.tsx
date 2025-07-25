@@ -1,8 +1,8 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Grid, Card, CardContent, Typography, Alert, Box,
   LinearProgress, Avatar, List, ListItem, ListItemText,
-  ListItemAvatar, Chip
+  ListItemAvatar, Chip, CircularProgress
 } from '@mui/material';
 import {
   AccessTime as TimeIcon,
@@ -12,6 +12,7 @@ import {
   TrendingUp as TrendingUpIcon,
   TrendingDown as TrendingDownIcon
 } from '@mui/icons-material';
+import config from '../../config/environment';
 
 interface AnalyticsViewProps {
   viewMode: 'individual' | 'cohort';
@@ -24,6 +25,45 @@ const EngagementMetrics: React.FC<AnalyticsViewProps> = ({
   selectedPatient, 
   groupingCriteria 
 }) => {
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchEngagementData();
+  }, [viewMode, selectedPatient, groupingCriteria]);
+
+  const fetchEngagementData = async () => {
+    try {
+      setLoading(true);
+      const params = new URLSearchParams({
+        view_mode: viewMode,
+        group_by: groupingCriteria || 'diabetes_type'
+      });
+
+      if (viewMode === 'individual' && selectedPatient) {
+        params.append('patient_id', selectedPatient);
+      }
+
+      const response = await fetch(`${config.API_URL}/admin/analytics/engagement-metrics?${params}`, {
+        headers: { 
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch engagement data');
+      }
+      
+      const result = await response.json();
+      setData(result);
+      setLoading(false);
+    } catch (error) {
+      console.error('Failed to fetch engagement data:', error);
+      setLoading(false);
+    }
+  };
+
   const getViewModeDescription = () => {
     if (viewMode === 'individual') {
       return selectedPatient 
@@ -33,19 +73,29 @@ const EngagementMetrics: React.FC<AnalyticsViewProps> = ({
     return `Cohort engagement metrics grouped by ${groupingCriteria?.replace('_', ' ')}`;
   };
 
-  const mockEngagementData = [
-    { metric: 'Daily Active Users', value: '67%', trend: 'up', change: '+5%' },
-    { metric: 'Avg. Session Duration', value: '12.5 min', trend: 'up', change: '+2.3 min' },
-    { metric: 'Meal Logging Rate', value: '78%', trend: 'stable', change: '±0%' },
-    { metric: 'Chat Interactions', value: '145/week', trend: 'up', change: '+12%' },
-  ];
+  if (loading) {
+    return (
+      <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+        <CircularProgress />
+      </Box>
+    );
+  }
 
-  const mockUserActivity = [
-    { name: 'Morning Logins', percentage: 85, color: '#ff9800' },
-    { name: 'Meal Photo Uploads', percentage: 65, color: '#4caf50' },
-    { name: 'Chat Usage', percentage: 45, color: '#2196f3' },
-    { name: 'Recipe Views', percentage: 72, color: '#9c27b0' },
-  ];
+  if (!data) {
+    return (
+      <Alert severity="error">
+        Failed to load engagement metrics.
+      </Alert>
+    );
+  }
+
+  if (data.registration_status === 'not_registered') {
+    return (
+      <Alert severity="info">
+        {data.message}
+      </Alert>
+    );
+  }
 
   return (
     <Box>
@@ -65,8 +115,13 @@ const EngagementMetrics: React.FC<AnalyticsViewProps> = ({
               <Typography variant="h6" gutterBottom>
                 📊 Key Engagement Indicators
               </Typography>
+              {viewMode === 'individual' && (
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                  Analysis period: {data.period_days} days
+                </Typography>
+              )}
               <Grid container spacing={2} sx={{ mt: 1 }}>
-                {mockEngagementData.map((item, index) => (
+                {data.engagement_metrics?.map((item: any, index: number) => (
                   <Grid item xs={12} sm={6} md={3} key={index}>
                     <Card variant="outlined">
                       <CardContent>
@@ -80,19 +135,20 @@ const EngagementMetrics: React.FC<AnalyticsViewProps> = ({
                             <TrendingDownIcon color="error" />
                           ) : null}
                         </Box>
-                        <Typography variant="body2" color="text.secondary">
+                        
+                        <Typography variant="body2" fontWeight="bold" gutterBottom>
                           {item.metric}
                         </Typography>
+                        
                         <Chip 
                           label={item.change} 
                           size="small" 
                           color={item.trend === 'up' ? 'success' : item.trend === 'down' ? 'error' : 'default'}
-                          sx={{ mt: 1 }}
                         />
                       </CardContent>
                     </Card>
                   </Grid>
-                ))}
+                )) || []}
               </Grid>
             </CardContent>
           </Card>
@@ -110,15 +166,15 @@ const EngagementMetrics: React.FC<AnalyticsViewProps> = ({
               </Typography>
               
               <Box sx={{ mt: 2 }}>
-                {mockUserActivity.map((activity, index) => (
+                {(viewMode === 'individual' ? data.activity_breakdown : data.activity_summary)?.map((activity: any, index: number) => (
                   <Box key={index} sx={{ mb: 2 }}>
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
                       <Typography variant="body2">{activity.name}</Typography>
-                      <Typography variant="body2" fontWeight="bold">{activity.percentage}%</Typography>
+                      <Typography variant="body2" fontWeight="bold">{activity.percentage.toFixed(1)}%</Typography>
                     </Box>
                     <LinearProgress 
                       variant="determinate" 
-                      value={activity.percentage} 
+                      value={Math.min(activity.percentage, 100)} 
                       sx={{ 
                         height: 8, 
                         borderRadius: 4,
@@ -128,72 +184,113 @@ const EngagementMetrics: React.FC<AnalyticsViewProps> = ({
                       }}
                     />
                   </Box>
-                ))}
+                )) || []}
               </Box>
             </CardContent>
           </Card>
         </Grid>
 
-        {/* Feature Usage */}
-        <Grid item xs={12} md={6}>
-          <Card>
-            <CardContent>
-              <Typography variant="h6" gutterBottom>
-                🔧 Feature Usage Ranking
-              </Typography>
-              <Typography variant="body2" color="text.secondary" paragraph>
-                Most and least used platform features.
-              </Typography>
-              
-              <List dense>
-                {[
-                  { name: 'Meal Plan Generation', usage: '95%', icon: <RestaurantIcon /> },
-                  { name: 'Food Logging', usage: '78%', icon: <PhoneIcon /> },
-                  { name: 'AI Chat Assistant', usage: '65%', icon: <ChatIcon /> },
-                  { name: 'Progress Tracking', usage: '52%', icon: <TrendingUpIcon /> },
-                  { name: 'Social Features', usage: '23%', icon: <TimeIcon /> },
-                ].map((feature, index) => (
-                  <ListItem key={index}>
-                    <ListItemAvatar>
-                      <Avatar sx={{ bgcolor: 'primary.main' }}>
-                        {feature.icon}
-                      </Avatar>
-                    </ListItemAvatar>
-                    <ListItemText 
-                      primary={feature.name}
-                      secondary={`${feature.usage} of users`}
-                    />
-                  </ListItem>
-                ))}
-              </List>
-            </CardContent>
-          </Card>
-        </Grid>
+        {/* Cohort Group Details */}
+        {viewMode === 'cohort' && data.groups && (
+          <Grid item xs={12} md={6}>
+            <Card>
+              <CardContent>
+                <Typography variant="h6" gutterBottom>
+                  📊 Group Summary
+                </Typography>
+                <Typography variant="body2" color="text.secondary" paragraph>
+                  Engagement metrics by patient group
+                </Typography>
+                
+                <List>
+                  {Object.entries(data.groups).map(([groupName, groupData]: [string, any]) => (
+                    <ListItem key={groupName}>
+                      <ListItemAvatar>
+                        <Avatar sx={{ bgcolor: 'primary.main' }}>
+                          {groupName.charAt(0).toUpperCase()}
+                        </Avatar>
+                      </ListItemAvatar>
+                      <ListItemText
+                        primary={groupName}
+                        secondary={
+                          <Box>
+                            <Typography variant="caption" display="block">
+                              {groupData.registered_patients} registered of {groupData.total_patients} total
+                            </Typography>
+                            <Typography variant="caption" display="block">
+                              {groupData.avg_daily_active_rate.toFixed(1)}% daily active rate
+                            </Typography>
+                          </Box>
+                        }
+                      />
+                    </ListItem>
+                  ))}
+                </List>
+              </CardContent>
+            </Card>
+          </Grid>
+        )}
 
-        {/* Engagement Insights */}
+        {/* Engagement Summary */}
         <Grid item xs={12}>
           <Card>
             <CardContent>
               <Typography variant="h6" gutterBottom>
-                💡 Engagement Insights & Actions
+                💡 Engagement Summary
               </Typography>
-              <Grid container spacing={2}>
-                <Grid item xs={12} md={4}>
-                  <Alert severity="success">
-                    <strong>High Engagement:</strong> Morning users show 85% higher compliance rates
-                  </Alert>
+              
+              {viewMode === 'cohort' ? (
+                <Grid container spacing={2}>
+                  <Grid item xs={12} md={3}>
+                    <Box sx={{ textAlign: 'center', p: 2 }}>
+                      <Typography variant="h3" color="primary.main" fontWeight="bold">
+                        {data.total_patients}
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        Total Patients
+                      </Typography>
+                    </Box>
+                  </Grid>
+                  
+                  <Grid item xs={12} md={3}>
+                    <Box sx={{ textAlign: 'center', p: 2 }}>
+                      <Typography variant="h3" color="success.main" fontWeight="bold">
+                        {Object.values(data.groups).reduce((sum: number, group: any) => sum + group.registered_patients, 0)}
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        Registered Users
+                      </Typography>
+                    </Box>
+                  </Grid>
+                  
+                  <Grid item xs={12} md={3}>
+                    <Box sx={{ textAlign: 'center', p: 2 }}>
+                      <Typography variant="h3" color="warning.main" fontWeight="bold">
+                        {(Object.values(data.groups).reduce((sum: number, group: any) => sum + group.avg_daily_active_rate, 0) / Math.max(Object.keys(data.groups).length, 1)).toFixed(1)}%
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        Avg Daily Activity
+                      </Typography>
+                    </Box>
+                  </Grid>
+                  
+                  <Grid item xs={12} md={3}>
+                    <Box sx={{ textAlign: 'center', p: 2 }}>
+                      <Typography variant="h3" color="info.main" fontWeight="bold">
+                        {(Object.values(data.groups).reduce((sum: number, group: any) => sum + group.avg_meal_logging_rate, 0) / Math.max(Object.keys(data.groups).length, 1)).toFixed(1)}%
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        Avg Meal Logging
+                      </Typography>
+                    </Box>
+                  </Grid>
                 </Grid>
-                <Grid item xs={12} md={4}>
-                  <Alert severity="warning">
-                    <strong>Opportunity:</strong> Only 23% use social features - potential for community building
-                  </Alert>
-                </Grid>
-                <Grid item xs={12} md={4}>
-                  <Alert severity="info">
-                    <strong>Trending:</strong> Chat interactions up 12% this week - users seeking more guidance
-                  </Alert>
-                </Grid>
-              </Grid>
+              ) : (
+                <Alert severity="info">
+                  Individual patient engagement analysis for {data.patient_name}. 
+                  Based on {data.period_days} days of activity data.
+                </Alert>
+              )}
             </CardContent>
           </Card>
         </Grid>

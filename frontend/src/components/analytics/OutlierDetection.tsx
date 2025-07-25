@@ -1,20 +1,49 @@
 import React, { useState, useEffect } from 'react';
 import {
   Grid, Card, CardContent, Typography, Alert, Box,
-  Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
-  Chip, Avatar, IconButton, Tooltip, CircularProgress
+  LinearProgress, Chip, Avatar, List, ListItem, ListItemText,
+  ListItemAvatar, CircularProgress, Dialog, DialogTitle, DialogContent,
+  DialogActions, Button, ListItemIcon, FormControl, InputLabel,
+  Select, MenuItem, Table, TableBody, TableCell, TableContainer,
+  TableHead, TableRow, Paper, IconButton, Tooltip
 } from '@mui/material';
 import {
   Warning as WarningIcon,
-  ErrorOutline as ErrorIcon,
+  Error as ErrorIcon,
   Info as InfoIcon,
-  Visibility as ViewIcon,
-  Flag as FlagIcon,
-  TrendingDown as TrendingDownIcon,
+  Person as PersonIcon,
   TrendingUp as TrendingUpIcon,
-  AccessTime as TimeIcon
+  Visibility as VisibilityIcon,
+  Flag as FlagIcon,
+  Notifications as NotificationIcon
 } from '@mui/icons-material';
+import { Line, Doughnut, Bar, Chart } from 'react-chartjs-2';
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  BarElement,
+  ArcElement,
+  Title,
+  Tooltip as ChartTooltip,
+  Legend,
+} from 'chart.js';
 import config from '../../config/environment';
+
+// Register Chart.js components
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  BarElement,
+  ArcElement,
+  Title,
+  ChartTooltip,
+  Legend
+);
 
 interface AnalyticsViewProps {
   viewMode: 'individual' | 'cohort';
@@ -22,31 +51,23 @@ interface AnalyticsViewProps {
   groupingCriteria?: string;
 }
 
-const OutlierDetection: React.FC<AnalyticsViewProps> = ({ 
-  viewMode, 
-  selectedPatient, 
-  groupingCriteria 
-}) => {
+// Individual Patient Outlier Analysis Component
+const IndividualOutlierAnalysis: React.FC<{selectedPatient: string}> = ({ selectedPatient }) => {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [selectedOutlier, setSelectedOutlier] = useState<any>(null);
+  const [dialogOpen, setDialogOpen] = useState(false);
 
   useEffect(() => {
-    fetchOutlierData();
-  }, [viewMode, selectedPatient, groupingCriteria]);
+    if (selectedPatient) {
+      fetchIndividualOutliers();
+    }
+  }, [selectedPatient]);
 
-  const fetchOutlierData = async () => {
+  const fetchIndividualOutliers = async () => {
     try {
       setLoading(true);
-      const params = new URLSearchParams({
-        view_mode: viewMode,
-        group_by: groupingCriteria || 'diabetes_type'
-      });
-
-      if (viewMode === 'individual' && selectedPatient) {
-        params.append('patient_id', selectedPatient);
-      }
-
-      const response = await fetch(`${config.API_URL}/admin/analytics/outlier-detection?${params}`, {
+      const response = await fetch(`${config.API_URL}/admin/analytics/patient/${selectedPatient}/outliers`, {
         headers: { 
           'Authorization': `Bearer ${localStorage.getItem('token')}`,
           'Content-Type': 'application/json'
@@ -61,36 +82,90 @@ const OutlierDetection: React.FC<AnalyticsViewProps> = ({
       setData(result);
       setLoading(false);
     } catch (error) {
-      console.error('Failed to fetch outlier data:', error);
+      console.error('Failed to fetch individual outlier data:', error);
       setLoading(false);
     }
   };
 
-  const getViewModeDescription = () => {
-    if (viewMode === 'individual') {
-      return selectedPatient 
-        ? `Outlier detection for patient ${selectedPatient}`
-        : 'Please select a patient to view individual outlier analysis';
-    }
-    return `Cohort outlier detection grouped by ${groupingCriteria?.replace('_', ' ')}`;
-  };
-
   const getSeverityColor = (severity: string) => {
     switch (severity) {
+      case 'extreme': return 'error';
       case 'high': return 'error';
-      case 'medium': return 'warning';
-      case 'low': return 'info';
-      default: return 'default';
+      case 'moderate': return 'warning';
+      default: return 'info';
     }
   };
 
-  const getAlertIcon = (type: string) => {
-    switch (type) {
-      case 'critical': return <ErrorIcon color="error" />;
-      case 'warning': return <WarningIcon color="warning" />;
-      case 'info': return <InfoIcon color="info" />;
-      default: return <InfoIcon />;
+  const getSeverityIcon = (severity: string) => {
+    switch (severity) {
+      case 'extreme': return '🚨';
+      case 'high': return '⚠️';
+      case 'moderate': return '⚡';
+      default: return 'ℹ️';
     }
+  };
+
+  const getOutlierTypeLabel = (type: string) => {
+    const labels = {
+      'nutritional_outlier': 'Nutritional Extreme',
+      'binge_eating': 'Binge Eating',
+      'under_eating': 'Under-eating',
+      'excessive_meal_frequency': 'Too Many Meals',
+      'late_night_eating': 'Late Night Eating'
+    };
+    return labels[type as keyof typeof labels] || type;
+  };
+
+  const createOutlierTimelineChart = () => {
+    if (!data || !data.outliers) return null;
+    
+    // Group outliers by date
+    const outliersByDate = data.outliers.reduce((acc: any, outlier: any) => {
+      const date = outlier.date;
+      if (!acc[date]) acc[date] = 0;
+      acc[date] += outlier.severity === 'high' || outlier.severity === 'extreme' ? 2 : 1;
+      return acc;
+    }, {});
+    
+    // Create date range for last 30 days
+    const dates = Array.from({length: 30}, (_, i) => {
+      const date = new Date();
+      date.setDate(date.getDate() - (29 - i));
+      return date.toISOString().split('T')[0];
+    });
+    
+    const outlierCounts = dates.map(date => outliersByDate[date] || 0);
+    
+    return {
+      labels: dates.map(date => new Date(date).toLocaleDateString()),
+      datasets: [{
+        label: 'Outlier Severity Score',
+        data: outlierCounts,
+        borderColor: '#f44336',
+        backgroundColor: 'rgba(244, 67, 54, 0.1)',
+        fill: true,
+        tension: 0.4
+      }]
+    };
+  };
+
+  const createOutlierDistributionChart = () => {
+    if (!data || !data.summary?.outlier_types) return null;
+    
+    return {
+      labels: Object.keys(data.summary.outlier_types).map(getOutlierTypeLabel),
+      datasets: [{
+        data: Object.values(data.summary.outlier_types),
+        backgroundColor: ['#f44336', '#ff9800', '#ffc107', '#4caf50', '#2196f3'],
+        borderWidth: 2,
+        borderColor: '#fff'
+      }]
+    };
+  };
+
+  const handleOutlierClick = (outlier: any) => {
+    setSelectedOutlier(outlier);
+    setDialogOpen(true);
   };
 
   if (loading) {
@@ -104,271 +179,669 @@ const OutlierDetection: React.FC<AnalyticsViewProps> = ({
   if (!data) {
     return (
       <Alert severity="error">
-        Failed to load outlier detection data.
+        Failed to load outlier analysis.
+      </Alert>
+    );
+  }
+
+  if (data.registration_status === 'not_registered') {
+    return (
+      <Alert severity="info">
+        {data.message}
       </Alert>
     );
   }
 
   return (
+    <Grid container spacing={3}>
+      {/* Summary Overview */}
+      <Grid item xs={12}>
+        <Card>
+          <CardContent>
+            <Typography variant="h6" gutterBottom>
+              Outlier Analysis - {data.patient_name}
+            </Typography>
+            <Grid container spacing={3}>
+              <Grid item xs={6} md={3}>
+                <Typography variant="h3" color="error.main">
+                  {data.summary?.total_outliers || 0}
+                </Typography>
+                <Typography variant="body2">Total Outliers</Typography>
+              </Grid>
+              <Grid item xs={6} md={3}>
+                <Typography variant="h3" color="error.main">
+                  {(data.summary?.high_severity || 0) + (data.summary?.extreme_severity || 0)}
+                </Typography>
+                <Typography variant="body2">High/Extreme Severity</Typography>
+              </Grid>
+              <Grid item xs={6} md={3}>
+                <Typography variant="h3" color="warning.main">
+                  {data.summary?.moderate_severity || 0}
+                </Typography>
+                <Typography variant="body2">Moderate Severity</Typography>
+              </Grid>
+              <Grid item xs={6} md={3}>
+                <Typography variant="h3" color="info.main">
+                  {data.analysis_period_days}
+                </Typography>
+                <Typography variant="body2">Days Analyzed</Typography>
+              </Grid>
+            </Grid>
+          </CardContent>
+        </Card>
+      </Grid>
+
+      {/* Outlier Timeline */}
+      <Grid item xs={12} md={8}>
+        <Card>
+          <CardContent>
+            <Typography variant="h6" gutterBottom>Outlier Timeline (30 Days)</Typography>
+            <Box sx={{ height: 300 }}>
+              <Line data={createOutlierTimelineChart()!} options={{
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: { y: { beginAtZero: true } },
+                plugins: {
+                  legend: {
+                    display: false
+                  }
+                }
+              }} />
+            </Box>
+          </CardContent>
+        </Card>
+      </Grid>
+
+      {/* Outlier Type Distribution */}
+      <Grid item xs={12} md={4}>
+        <Card>
+          <CardContent>
+            <Typography variant="h6" gutterBottom>Outlier Types</Typography>
+            <Box sx={{ height: 300 }}>
+              <Doughnut data={createOutlierDistributionChart()!} options={{
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                  legend: {
+                    position: 'bottom'
+                  }
+                }
+              }} />
+            </Box>
+          </CardContent>
+        </Card>
+      </Grid>
+
+      {/* Recent Outliers List */}
+      <Grid item xs={12}>
+        <Card>
+          <CardContent>
+            <Typography variant="h6" gutterBottom>Recent Outliers</Typography>
+            <List>
+              {data.outliers?.slice(0, 10).map((outlier: any, index: number) => (
+                <ListItem 
+                  key={index}
+                  sx={{ 
+                    border: '1px solid #e0e0e0', 
+                    borderRadius: 1, 
+                    mb: 1,
+                    cursor: 'pointer',
+                    '&:hover': { bgcolor: 'action.hover' }
+                  }}
+                  onClick={() => handleOutlierClick(outlier)}
+                >
+                  <ListItemIcon>
+                    <Typography variant="h6">{getSeverityIcon(outlier.severity)}</Typography>
+                  </ListItemIcon>
+                  <ListItemText
+                    primary={
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Chip 
+                          label={getOutlierTypeLabel(outlier.type)}
+                          color={getSeverityColor(outlier.severity)}
+                          size="small"
+                        />
+                        <Typography variant="body1">
+                          {outlier.date} - {outlier.nutrient && `${outlier.nutrient}: ${outlier.value}`}
+                          {outlier.calories && `${outlier.calories} calories`}
+                          {outlier.food_name && ` (${outlier.food_name})`}
+                        </Typography>
+                      </Box>
+                    }
+                    secondary={
+                      outlier.expected_range ? `Expected: ${outlier.expected_range}` : 
+                      outlier.meal_count ? `${outlier.meal_count} meals` : ''
+                    }
+                  />
+                  <IconButton>
+                    <VisibilityIcon />
+                  </IconButton>
+                </ListItem>
+              )) || []}
+            </List>
+          </CardContent>
+        </Card>
+      </Grid>
+
+      {/* Recommendations */}
+      {data.summary?.recommendations && data.summary.recommendations.length > 0 && (
+        <Grid item xs={12}>
+          <Card>
+            <CardContent>
+              <Typography variant="h6" gutterBottom>Recommendations</Typography>
+              {data.summary.recommendations.map((rec: any, index: number) => (
+                <Alert 
+                  key={index}
+                  severity={rec.priority === 'immediate' ? 'error' : 'warning'}
+                  sx={{ mb: 1 }}
+                >
+                  <Typography variant="subtitle2">{rec.message}</Typography>
+                  <Typography variant="body2">{rec.action}</Typography>
+                </Alert>
+              ))}
+            </CardContent>
+          </Card>
+        </Grid>
+      )}
+
+      {/* Outlier Detail Dialog */}
+      <Dialog 
+        open={dialogOpen} 
+        onClose={() => setDialogOpen(false)}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle>
+          Outlier Details - {selectedOutlier && getOutlierTypeLabel(selectedOutlier.type)}
+        </DialogTitle>
+        <DialogContent>
+          {selectedOutlier && (
+            <Grid container spacing={2}>
+              <Grid item xs={12}>
+                <Typography variant="h6" color={getSeverityColor(selectedOutlier.severity)}>
+                  {getSeverityIcon(selectedOutlier.severity)} {selectedOutlier.severity.toUpperCase()} SEVERITY
+                </Typography>
+              </Grid>
+              
+              <Grid item xs={6}>
+                <Typography variant="body2" color="text.secondary">Date</Typography>
+                <Typography variant="body1">{selectedOutlier.date}</Typography>
+              </Grid>
+              
+              {selectedOutlier.time && (
+                <Grid item xs={6}>
+                  <Typography variant="body2" color="text.secondary">Time</Typography>
+                  <Typography variant="body1">{selectedOutlier.time}</Typography>
+                </Grid>
+              )}
+              
+              {selectedOutlier.nutrient && (
+                <Grid item xs={6}>
+                  <Typography variant="body2" color="text.secondary">Nutrient</Typography>
+                  <Typography variant="body1">{selectedOutlier.nutrient}</Typography>
+                </Grid>
+              )}
+              
+              {selectedOutlier.value && (
+                <Grid item xs={6}>
+                  <Typography variant="body2" color="text.secondary">Value</Typography>
+                  <Typography variant="body1">{selectedOutlier.value}</Typography>
+                </Grid>
+              )}
+              
+              {selectedOutlier.expected_range && (
+                <Grid item xs={12}>
+                  <Typography variant="body2" color="text.secondary">Expected Range</Typography>
+                  <Typography variant="body1">{selectedOutlier.expected_range}</Typography>
+                </Grid>
+              )}
+              
+              {selectedOutlier.food_name && (
+                <Grid item xs={12}>
+                  <Typography variant="body2" color="text.secondary">Food Item</Typography>
+                  <Typography variant="body1">{selectedOutlier.food_name}</Typography>
+                </Grid>
+              )}
+              
+              {selectedOutlier.meal_records && (
+                <Grid item xs={12}>
+                  <Typography variant="body2" color="text.secondary">Related Meals</Typography>
+                  {selectedOutlier.meal_records.map((meal: any, idx: number) => (
+                    <Chip 
+                      key={idx}
+                      label={`${meal.food_name} (${meal.nutritional_info?.calories || 0} cal)`}
+                      size="small"
+                      sx={{ mr: 1, mb: 1 }}
+                    />
+                  ))}
+                </Grid>
+              )}
+            </Grid>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDialogOpen(false)}>Close</Button>
+          <Button variant="contained" color="primary">
+            Flag for Follow-up
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </Grid>
+  );
+};
+
+// Cohort Outlier Analysis Component
+const CohortOutlierAnalysis: React.FC<{groupingCriteria: string}> = ({ groupingCriteria }) => {
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [selectedGroup, setSelectedGroup] = useState<string>('');
+  const [alertDialogOpen, setAlertDialogOpen] = useState(false);
+
+  useEffect(() => {
+    fetchCohortOutliers();
+  }, [groupingCriteria]);
+
+  const fetchCohortOutliers = async () => {
+    try {
+      setLoading(true);
+      const response = await fetch(`${config.API_URL}/admin/analytics/cohort/outliers?group_by=${groupingCriteria}`, {
+        headers: { 
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch cohort outlier data');
+      }
+      
+      const result = await response.json();
+      setData(result);
+      setSelectedGroup(Object.keys(result.groups)[0] || '');
+      setLoading(false);
+    } catch (error) {
+      console.error('Failed to fetch cohort outlier data:', error);
+      setLoading(false);
+    }
+  };
+
+  const createPopulationOutlierChart = () => {
+    if (!data) return null;
+    
+    const groups = Object.keys(data.groups);
+    const outlierCounts = groups.map(group => data.groups[group].total_outliers);
+    const patientCounts = groups.map(group => data.groups[group].patient_count);
+    const outlierRates = groups.map((group, index) => 
+      patientCounts[index] > 0 ? (outlierCounts[index] / patientCounts[index]) * 100 : 0
+    );
+    
+    return {
+      labels: groups,
+      datasets: [
+        {
+          label: 'Total Outliers',
+          data: outlierCounts,
+          backgroundColor: '#f44336',
+          yAxisID: 'y',
+          type: 'bar' as const
+        },
+        {
+          label: 'Outlier Rate (%)',
+          data: outlierRates,
+          backgroundColor: '#ff9800',
+          borderColor: '#ff9800',
+          type: 'line' as const,
+          yAxisID: 'y1'
+        }
+      ]
+    };
+  };
+
+  const createOutlierTypeHeatmap = () => {
+    if (!data) return null;
+    
+    const groups = Object.keys(data.groups);
+    const outlierTypes = ['nutritional_outlier', 'binge_eating', 'under_eating', 'late_night_eating'];
+    
+    const heatmapData = outlierTypes.map(type => ({
+      type,
+      data: groups.map(group => {
+        const distribution = data.groups[group].outlier_distribution || {};
+        return distribution[type] || 0;
+      })
+    }));
+    
+    return { groups, outlierTypes, heatmapData };
+  };
+
+  const getHighestRiskPatients = () => {
+    if (!data) return [];
+    
+    const allHighRisk: any[] = [];
+    Object.entries(data.groups).forEach(([groupName, groupData]: [string, any]) => {
+      (groupData.high_risk_patients || []).forEach((patient: any) => {
+        allHighRisk.push({
+          ...patient,
+          group: groupName
+        });
+      });
+    });
+    
+    return allHighRisk.sort((a, b) => b.high_severity_outliers - a.high_severity_outliers).slice(0, 10);
+  };
+
+  if (loading) {
+    return (
+      <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+        <CircularProgress />
+      </Box>
+    );
+  }
+
+  if (!data) {
+    return (
+      <Alert severity="error">
+        Failed to load cohort outlier analysis.
+      </Alert>
+    );
+  }
+
+  return (
+    <Grid container spacing={3}>
+      {/* Population Overview */}
+      <Grid item xs={12}>
+        <Card>
+          <CardContent>
+            <Typography variant="h6" gutterBottom>
+              Population Outlier Overview - {groupingCriteria.replace('_', ' ')}
+            </Typography>
+            <Grid container spacing={3}>
+              <Grid item xs={6} md={3}>
+                <Typography variant="h3" color="error.main">
+                  {data.total_population_outliers}
+                </Typography>
+                <Typography variant="body2">Total Outliers</Typography>
+              </Grid>
+              <Grid item xs={6} md={3}>
+                <Typography variant="h3" color="warning.main">
+                  {Object.keys(data.groups).length}
+                </Typography>
+                <Typography variant="body2">Groups Analyzed</Typography>
+              </Grid>
+              <Grid item xs={6} md={3}>
+                <Typography variant="h3" color="info.main">
+                  {Object.values(data.groups).reduce((sum: number, group: any) => sum + group.patients_with_outliers, 0)}
+                </Typography>
+                <Typography variant="body2">Patients with Outliers</Typography>
+              </Grid>
+              <Grid item xs={6} md={3}>
+                <Typography variant="h3" color="error.main">
+                  {getHighestRiskPatients().length}
+                </Typography>
+                <Typography variant="body2">High Risk Patients</Typography>
+              </Grid>
+            </Grid>
+            
+            <Box sx={{ mt: 2 }}>
+              <Button 
+                variant="contained" 
+                color="error" 
+                onClick={() => setAlertDialogOpen(true)}
+                startIcon={<NotificationIcon />}
+              >
+                Generate Alerts for High Risk Patients
+              </Button>
+            </Box>
+          </CardContent>
+        </Card>
+      </Grid>
+
+      {/* Outlier Distribution by Groups */}
+      <Grid item xs={12} md={8}>
+        <Card>
+          <CardContent>
+            <Typography variant="h6" gutterBottom>Outlier Distribution by Group</Typography>
+            <Box sx={{ height: 400 }}>
+              <Chart type="bar" data={createPopulationOutlierChart()!} options={{
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                  y: { type: 'linear', display: true, position: 'left' },
+                  y1: { type: 'linear', display: true, position: 'right', grid: { drawOnChartArea: false } }
+                }
+              }} />
+            </Box>
+          </CardContent>
+        </Card>
+      </Grid>
+
+      {/* Group Selector for Detailed View */}
+      <Grid item xs={12} md={4}>
+        <Card>
+          <CardContent>
+            <Typography variant="h6" gutterBottom>Detailed Group Analysis</Typography>
+            <FormControl fullWidth sx={{ mb: 2 }}>
+              <InputLabel>Select Group</InputLabel>
+              <Select 
+                value={selectedGroup} 
+                onChange={(e) => setSelectedGroup(e.target.value)}
+              >
+                {Object.keys(data.groups).map(group => (
+                  <MenuItem key={group} value={group}>{group}</MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            
+            {selectedGroup && data.groups[selectedGroup] && (
+              <Box>
+                <Typography variant="body2" color="text.secondary">
+                  Patients: {data.groups[selectedGroup].patient_count}
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Registered: {data.groups[selectedGroup].registered_patients}
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  With Outliers: {data.groups[selectedGroup].patients_with_outliers}
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Total Outliers: {data.groups[selectedGroup].total_outliers}
+                </Typography>
+                <Typography variant="body2" color="error.main">
+                  High Risk: {data.groups[selectedGroup].high_risk_patients?.length || 0}
+                </Typography>
+              </Box>
+            )}
+          </CardContent>
+        </Card>
+      </Grid>
+
+      {/* Outlier Type Heatmap */}
+      <Grid item xs={12}>
+        <Card>
+          <CardContent>
+            <Typography variant="h6" gutterBottom>Outlier Type Distribution Heatmap</Typography>
+            
+            <TableContainer component={Paper}>
+              <Table>
+                <TableHead>
+                  <TableRow>
+                    <TableCell><strong>Outlier Type</strong></TableCell>
+                    {createOutlierTypeHeatmap()?.groups.map((group: string) => (
+                      <TableCell key={group} align="center"><strong>{group}</strong></TableCell>
+                    ))}
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {createOutlierTypeHeatmap()?.heatmapData.map((row: any) => (
+                    <TableRow key={row.type}>
+                      <TableCell>
+                        <strong>{row.type.replace('_', ' ').toUpperCase()}</strong>
+                      </TableCell>
+                      {row.data.map((count: number, index: number) => {
+                        const intensity = Math.min(count / 5, 1); // Normalize to 0-1
+                        const bgColor = `rgba(244, 67, 54, ${intensity})`;
+                        return (
+                          <TableCell 
+                            key={index}
+                            align="center"
+                            sx={{ 
+                              backgroundColor: bgColor,
+                              color: intensity > 0.5 ? 'white' : 'black',
+                              fontWeight: 'bold'
+                            }}
+                          >
+                            {count}
+                          </TableCell>
+                        );
+                      })}
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          </CardContent>
+        </Card>
+      </Grid>
+
+      {/* High Risk Patients List */}
+      <Grid item xs={12}>
+        <Card>
+          <CardContent>
+            <Typography variant="h6" gutterBottom>
+              Top 10 Highest Risk Patients (Across All Groups)
+            </Typography>
+            <List>
+              {getHighestRiskPatients().map((patient: any, index: number) => (
+                <ListItem 
+                  key={index}
+                  sx={{ 
+                    border: '1px solid #ffcdd2', 
+                    borderRadius: 1, 
+                    mb: 1,
+                    bgcolor: index < 3 ? '#ffebee' : 'transparent'
+                  }}
+                >
+                  <ListItemIcon>
+                    <Typography variant="h6" color="error.main">
+                      {index < 3 ? '🚨' : '⚠️'}
+                    </Typography>
+                  </ListItemIcon>
+                  <ListItemText
+                    primary={
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Typography variant="body1" fontWeight="bold">
+                          {patient.patient_name}
+                        </Typography>
+                        <Chip 
+                          label={patient.group}
+                          size="small"
+                          color="info"
+                        />
+                        <Chip 
+                          label={`${patient.high_severity_outliers} high-severity outliers`}
+                          size="small"
+                          color="error"
+                        />
+                      </Box>
+                    }
+                    secondary={`Patient ID: ${patient.patient_id}`}
+                  />
+                  <Button 
+                    variant="outlined" 
+                    color="error" 
+                    size="small"
+                    onClick={() => {/* Navigate to patient detail */}}
+                  >
+                    View Details
+                  </Button>
+                </ListItem>
+              ))}
+            </List>
+          </CardContent>
+        </Card>
+      </Grid>
+
+      {/* Alert Generation Dialog */}
+      <Dialog 
+        open={alertDialogOpen} 
+        onClose={() => setAlertDialogOpen(false)}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle>Generate High Risk Patient Alerts</DialogTitle>
+        <DialogContent>
+          <Typography variant="body1" gutterBottom>
+            This will generate immediate alerts for all high-risk patients identified in the analysis.
+          </Typography>
+          
+          <Alert severity="warning" sx={{ my: 2 }}>
+            {getHighestRiskPatients().length} patients will receive priority alerts for immediate review.
+          </Alert>
+          
+          <Typography variant="h6" gutterBottom>Alert Recipients:</Typography>
+          <List dense>
+            {getHighestRiskPatients().slice(0, 5).map((patient: any, index: number) => (
+              <ListItem key={index}>
+                <ListItemText 
+                  primary={patient.patient_name}
+                  secondary={`${patient.group} - ${patient.high_severity_outliers} severe outliers`}
+                />
+              </ListItem>
+            ))}
+            {getHighestRiskPatients().length > 5 && (
+              <ListItem>
+                <ListItemText primary={`... and ${getHighestRiskPatients().length - 5} more patients`} />
+              </ListItem>
+            )}
+          </List>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setAlertDialogOpen(false)}>Cancel</Button>
+          <Button variant="contained" color="error">
+            Generate Alerts
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </Grid>
+  );
+};
+
+// Main OutlierDetection Component
+const OutlierDetection: React.FC<AnalyticsViewProps> = ({ 
+  viewMode, 
+  selectedPatient, 
+  groupingCriteria 
+}) => {
+  const getViewModeDescription = () => {
+    if (viewMode === 'individual') {
+      return selectedPatient 
+        ? `Advanced outlier detection for patient ${selectedPatient}`
+        : 'Please select a patient to view individual outlier analysis';
+    }
+    return `Population outlier analysis grouped by ${groupingCriteria?.replace('_', ' ')}`;
+  };
+
+  return (
     <Box>
       <Typography variant="h5" gutterBottom sx={{ mb: 3 }}>
-        ⚠️ Outlier Detection & Risk Alerts
+        ⚠️ Outlier Detection & Risk Analysis
       </Typography>
       
       <Alert severity="info" sx={{ mb: 3 }}>
         {getViewModeDescription()}
       </Alert>
 
-      {/* Individual Patient View */}
-      {viewMode === 'individual' && data.registration_status === 'not_registered' && (
-        <Alert severity="info" sx={{ mb: 3 }}>
-          This patient has not registered yet. No consumption data available for outlier analysis.
-        </Alert>
+      {viewMode === 'individual' ? (
+        selectedPatient ? (
+          <IndividualOutlierAnalysis selectedPatient={selectedPatient} />
+        ) : (
+          <Alert severity="warning">
+            Please select a patient from the dropdown above to view individual outlier analysis.
+          </Alert>
+        )
+      ) : (
+        <CohortOutlierAnalysis groupingCriteria={groupingCriteria || 'diabetes_type'} />
       )}
-
-      {/* Alert Summary Cards */}
-      {data.alerts && data.alerts.length > 0 && (
-        <Grid container spacing={3} sx={{ mb: 3 }}>
-          {data.alerts.map((alert: any, index: number) => (
-            <Grid item xs={12} md={4} key={index}>
-              <Card sx={{ 
-                bgcolor: alert.type === 'critical' ? 'error.light' : 
-                        alert.type === 'warning' ? 'warning.light' : 'info.light',
-                color: 'white'
-              }}>
-                <CardContent>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                    <Avatar sx={{ bgcolor: 'rgba(255,255,255,0.2)' }}>
-                      {getAlertIcon(alert.type)}
-                    </Avatar>
-                    <Box>
-                      <Typography variant="h4" fontWeight="bold">
-                        {alert.count || alert.patient_count || 1}
-                      </Typography>
-                      <Typography variant="body2">
-                        {alert.message}
-                      </Typography>
-                    </Box>
-                  </Box>
-                </CardContent>
-              </Card>
-            </Grid>
-          ))}
-        </Grid>
-      )}
-
-      {/* Individual Patient Outliers */}
-      {viewMode === 'individual' && data.outliers && data.outliers.length > 0 && (
-        <Grid container spacing={3} sx={{ mb: 3 }}>
-          <Grid item xs={12}>
-            <Card>
-              <CardContent>
-                <Typography variant="h6" gutterBottom>
-                  🔍 Detected Issues for {data.patient_name}
-                </Typography>
-                <Typography variant="body2" color="text.secondary" paragraph>
-                  Risk Score: {data.risk_score}/100
-                </Typography>
-                
-                <Grid container spacing={2}>
-                  {data.outliers.map((outlier: any, index: number) => (
-                    <Grid item xs={12} md={6} key={index}>
-                      <Alert severity={outlier.severity === 'high' ? 'error' : 'warning'}>
-                        <Typography variant="body2" fontWeight="bold">
-                          {outlier.anomaly}
-                        </Typography>
-                        <Typography variant="body2">
-                          Value: {outlier.value?.toFixed(1)} | Target: {outlier.threshold}
-                        </Typography>
-                        <Typography variant="body2" sx={{ mt: 1, fontStyle: 'italic' }}>
-                          💡 {outlier.recommendation}
-                        </Typography>
-                      </Alert>
-                    </Grid>
-                  ))}
-                </Grid>
-              </CardContent>
-            </Card>
-          </Grid>
-        </Grid>
-      )}
-
-      {/* Cohort Outlier Patients Table */}
-      {viewMode === 'cohort' && data.outlier_patients && data.outlier_patients.length > 0 && (
-        <Grid container spacing={3}>
-          <Grid item xs={12}>
-            <Card>
-              <CardContent>
-                <Typography variant="h6" gutterBottom>
-                  🔍 Patients Requiring Attention
-                </Typography>
-                <Typography variant="body2" color="text.secondary" paragraph>
-                  {data.outlier_patients.length} patients identified as statistical outliers based on health metrics, 
-                  engagement patterns, and compliance indicators.
-                </Typography>
-                
-                <TableContainer>
-                  <Table>
-                    <TableHead>
-                      <TableRow>
-                        <TableCell>Patient</TableCell>
-                        <TableCell>Condition</TableCell>
-                        <TableCell>Detected Anomaly</TableCell>
-                        <TableCell>Risk Score</TableCell>
-                        <TableCell>Severity</TableCell>
-                        <TableCell>Last Active</TableCell>
-                        <TableCell>Group</TableCell>
-                        <TableCell>Actions</TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {data.outlier_patients.map((patient: any) => (
-                        <TableRow key={patient.id}>
-                          <TableCell>
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                              <Avatar sx={{ width: 32, height: 32 }}>
-                                {patient.name.charAt(0)}
-                              </Avatar>
-                              <Box>
-                                <Typography variant="body2" fontWeight="bold">
-                                  {patient.name}
-                                </Typography>
-                                <Typography variant="caption" color="text.secondary">
-                                  {patient.id}
-                                </Typography>
-                              </Box>
-                            </Box>
-                          </TableCell>
-                          <TableCell>{patient.condition}</TableCell>
-                          <TableCell>
-                            <Typography variant="body2">
-                              {patient.anomaly}
-                            </Typography>
-                          </TableCell>
-                          <TableCell>
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                              <Typography variant="body2" fontWeight="bold">
-                                {patient.risk_score}
-                              </Typography>
-                              {patient.risk_score > 80 ? (
-                                <TrendingUpIcon color="error" fontSize="small" />
-                              ) : (
-                                <TrendingDownIcon color="success" fontSize="small" />
-                              )}
-                            </Box>
-                          </TableCell>
-                          <TableCell>
-                            <Chip 
-                              label={patient.severity.toUpperCase()} 
-                              color={getSeverityColor(patient.severity) as any}
-                              size="small"
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                              <TimeIcon fontSize="small" color="action" />
-                              <Typography variant="body2">
-                                {patient.last_active}
-                              </Typography>
-                            </Box>
-                          </TableCell>
-                          <TableCell>
-                            <Chip label={patient.group} size="small" variant="outlined" />
-                          </TableCell>
-                          <TableCell>
-                            <Box sx={{ display: 'flex', gap: 1 }}>
-                              <Tooltip title="View Patient Profile">
-                                <IconButton size="small">
-                                  <ViewIcon />
-                                </IconButton>
-                              </Tooltip>
-                              <Tooltip title="Flag for Follow-up">
-                                <IconButton size="small">
-                                  <FlagIcon />
-                                </IconButton>
-                              </Tooltip>
-                            </Box>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </TableContainer>
-              </CardContent>
-            </Card>
-          </Grid>
-        </Grid>
-      )}
-
-      {/* No Outliers Found */}
-      {((viewMode === 'cohort' && (!data.outlier_patients || data.outlier_patients.length === 0)) ||
-        (viewMode === 'individual' && data.registration_status === 'registered' && (!data.outliers || data.outliers.length === 0))) && (
-        <Alert severity="success" sx={{ mb: 3 }}>
-          {viewMode === 'individual' 
-            ? `No significant outliers detected for ${data.patient_name}. Patient appears to be following recommended patterns.`
-            : 'No significant outliers detected in the patient cohort. All patients appear to be following recommended patterns.'
-          }
-        </Alert>
-      )}
-
-      {/* Additional Information */}
-      <Grid container spacing={3}>
-        {/* Detection Rules */}
-        <Grid item xs={12} md={6}>
-          <Card>
-            <CardContent>
-              <Typography variant="h6" gutterBottom>
-                🎯 Active Detection Rules
-              </Typography>
-              <Typography variant="body2" color="text.secondary" paragraph>
-                Automated rules triggering outlier alerts.
-              </Typography>
-              
-              <Box sx={{ mt: 2 }}>
-                {[
-                  'Blood glucose >300 mg/dL or <70 mg/dL',
-                  'No food logging for >48 hours',
-                  'Carb intake >2x recommended daily amount',
-                  'Weight change >5 lbs in 7 days',
-                  'No platform activity for >7 days'
-                ].map((rule, index) => (
-                  <Alert severity="info" sx={{ mb: 1 }} key={index}>
-                    {rule}
-                  </Alert>
-                ))}
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
-
-        {/* Recommended Actions */}
-        <Grid item xs={12} md={6}>
-          <Card>
-            <CardContent>
-              <Typography variant="h6" gutterBottom>
-                🔧 Recommended Actions
-              </Typography>
-              <Typography variant="body2" color="text.secondary" paragraph>
-                Suggested interventions for detected outliers.
-              </Typography>
-              
-              <Box sx={{ mt: 2 }}>
-                {[
-                  'Schedule immediate consultation for high-risk patients',
-                  'Send automated reminder notifications',
-                  'Adjust meal plan recommendations',
-                  'Escalate to primary care physician',
-                  'Initiate re-engagement protocol'
-                ].map((action, index) => (
-                  <Alert severity="warning" sx={{ mb: 1 }} key={index}>
-                    {action}
-                  </Alert>
-                ))}
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
     </Box>
   );
 };

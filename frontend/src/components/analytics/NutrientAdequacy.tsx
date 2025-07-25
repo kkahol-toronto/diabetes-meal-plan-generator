@@ -330,15 +330,14 @@ const CohortNutrientAnalysis: React.FC<{groupingCriteria: string}> = ({ grouping
     const groups = Object.keys(data.groups);
     const nutrients = ['calories', 'protein', 'carbohydrates', 'fiber'];
     
-    console.log('[DEBUG] Chart data groups:', groups);
-    console.log('[DEBUG] Chart data structure:', data.groups);
+
     
     const datasets = nutrients.map((nutrient, index) => ({
       label: nutrient.charAt(0).toUpperCase() + nutrient.slice(1),
       data: groups.map(group => {
         const stats = data.groups[group].rda_compliance_stats[nutrient];
         const value = stats ? stats.percentage_meeting_target : 0;
-        console.log(`[DEBUG] ${group} - ${nutrient}: ${value}%`);
+
         return value;
       }),
       backgroundColor: ['#667eea', '#764ba2', '#f093fb', '#f5af19'][index],
@@ -346,7 +345,7 @@ const CohortNutrientAnalysis: React.FC<{groupingCriteria: string}> = ({ grouping
       borderColor: ['#667eea', '#764ba2', '#f093fb', '#f5af19'][index],
     }));
 
-    console.log('[DEBUG] Final chart datasets:', datasets);
+
 
     return {
       labels: groups,
@@ -370,7 +369,7 @@ const CohortNutrientAnalysis: React.FC<{groupingCriteria: string}> = ({ grouping
       }
     });
 
-    console.log('[DEBUG] Deficiencies data:', allDeficiencies);
+
 
     // If no deficiencies, show a placeholder
     if (Object.keys(allDeficiencies).length === 0) {
