@@ -42,10 +42,29 @@ interface AnalyticsViewProps {
   groupingCriteria?: string;
 }
 
+// Complete list of nutrients including micronutrients
+const NUTRIENTS_LIST = [
+  // Macronutrients and energy
+  'calories', 'protein', 'carbohydrates', 'fiber', 'total_fat', 'saturated_fat',
+  // Vitamins
+  'vitamin_a', 'vitamin_c', 'vitamin_d', 'vitamin_e', 'vitamin_k',
+  'thiamin_b1', 'riboflavin_b2', 'niacin_b3', 'vitamin_b6', 'vitamin_b12', 'folate',
+  // Minerals
+  'calcium', 'iron', 'magnesium', 'phosphorus', 'potassium', 'sodium', 'zinc'
+];
+
+const formatNutrientName = (nutrient: string): string => {
+  return nutrient
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, l => l.toUpperCase())
+    .replace(/B(\d+)/g, 'B$1'); // Keep B vitamin numbering
+};
+
 // Individual Patient Analysis Component
 const IndividualNutrientAnalysis: React.FC<{selectedPatient: string}> = ({ selectedPatient }) => {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [selectedNutrient, setSelectedNutrient] = useState<string>('all');
 
   useEffect(() => {
     if (selectedPatient) {
@@ -76,14 +95,29 @@ const IndividualNutrientAnalysis: React.FC<{selectedPatient: string}> = ({ selec
     }
   };
 
+  const getAvailableNutrients = (): string[] => {
+    if (!data || !data.compliance_percentages) return [];
+    return Object.keys(data.compliance_percentages);
+  };
+
   const createRadarChart = () => {
     if (!data || !data.compliance_percentages) return null;
     
-    const nutrients = Object.keys(data.compliance_percentages);
-    const values = Object.values(data.compliance_percentages) as number[];
+    const availableNutrients = getAvailableNutrients();
+    let nutrients, values;
+    
+    if (selectedNutrient === 'all') {
+      nutrients = availableNutrients;
+      values = availableNutrients.map(n => data.compliance_percentages[n]);
+    } else if (availableNutrients.includes(selectedNutrient)) {
+      nutrients = [selectedNutrient];
+      values = [data.compliance_percentages[selectedNutrient]];
+    } else {
+      return null; // Selected nutrient not available
+    }
     
     return {
-      labels: nutrients.map(n => n.charAt(0).toUpperCase() + n.slice(1).replace('_', ' ')),
+      labels: nutrients.map(n => formatNutrientName(n)),
       datasets: [{
         label: 'RDA Compliance %',
         data: values,
@@ -92,6 +126,38 @@ const IndividualNutrientAnalysis: React.FC<{selectedPatient: string}> = ({ selec
         borderWidth: 2,
         pointBackgroundColor: '#667eea',
         pointRadius: 4,
+      }]
+    };
+  };
+
+  const createBarChart = () => {
+    if (!data || !data.compliance_percentages) return null;
+    
+    const availableNutrients = getAvailableNutrients();
+    let nutrients, values;
+    
+    if (selectedNutrient === 'all') {
+      nutrients = availableNutrients;
+      values = availableNutrients.map(n => data.compliance_percentages[n]);
+    } else if (availableNutrients.includes(selectedNutrient)) {
+      nutrients = [selectedNutrient];
+      values = [data.compliance_percentages[selectedNutrient]];
+    } else {
+      return null;
+    }
+    
+    return {
+      labels: nutrients.map(n => formatNutrientName(n)),
+      datasets: [{
+        label: 'RDA Compliance %',
+        data: values,
+        backgroundColor: nutrients.map((_, index) => 
+          `hsla(${(index * 137.5) % 360}, 70%, 60%, 0.8)`
+        ),
+        borderColor: nutrients.map((_, index) => 
+          `hsla(${(index * 137.5) % 360}, 70%, 50%, 1)`
+        ),
+        borderWidth: 1,
       }]
     };
   };
@@ -134,7 +200,7 @@ const IndividualNutrientAnalysis: React.FC<{selectedPatient: string}> = ({ selec
             {Object.entries(data.rda_targets).map(([nutrient, value]: [string, any]) => (
               <Grid item key={nutrient}>
                 <Chip 
-                  label={`${nutrient.replace('_', ' ')}: ${value.toFixed(1)}`}
+                  label={`${formatNutrientName(nutrient)}: ${value.toFixed(1)}`}
                   size="small"
                   variant="outlined"
                 />
@@ -146,8 +212,59 @@ const IndividualNutrientAnalysis: React.FC<{selectedPatient: string}> = ({ selec
     );
   }
 
+  const availableNutrients = getAvailableNutrients();
+  const chartData = selectedNutrient === 'all' || availableNutrients.length <= 5 ? createRadarChart() : createBarChart();
+
   return (
     <Grid container spacing={3}>
+      {/* Nutrient Filter Dropdown */}
+      <Grid item xs={12} md={4}>
+        <Card>
+          <CardContent>
+            <Typography variant="h6" gutterBottom>Filter by Nutrient</Typography>
+            <FormControl fullWidth>
+              <InputLabel>Select Nutrient</InputLabel>
+              <Select
+                value={selectedNutrient}
+                onChange={(e) => setSelectedNutrient(e.target.value)}
+                label="Select Nutrient"
+              >
+                <MenuItem value="all">All Nutrients</MenuItem>
+                {availableNutrients.map(nutrient => (
+                  <MenuItem key={nutrient} value={nutrient}>
+                    {formatNutrientName(nutrient)}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            
+            {selectedNutrient !== 'all' && availableNutrients.includes(selectedNutrient) && (
+              <Box sx={{ mt: 2 }}>
+                <Typography variant="body2" color="primary" fontWeight="bold">
+                  {formatNutrientName(selectedNutrient)} Compliance
+                </Typography>
+                <Typography variant="h4" color="primary">
+                  {data.compliance_percentages[selectedNutrient].toFixed(1)}%
+                </Typography>
+                <LinearProgress 
+                  variant="determinate" 
+                  value={data.compliance_percentages[selectedNutrient]} 
+                  sx={{ 
+                    height: 8,
+                    borderRadius: 4,
+                    mt: 1,
+                    '& .MuiLinearProgress-bar': {
+                      backgroundColor: data.compliance_percentages[selectedNutrient] >= 80 ? '#4caf50' :
+                                     data.compliance_percentages[selectedNutrient] >= 60 ? '#ff9800' : '#f44336'
+                    }
+                  }}
+                />
+              </Box>
+            )}
+          </CardContent>
+        </Card>
+      </Grid>
+
       {/* Overall Compliance Score */}
       <Grid item xs={12} md={4}>
         <Card>
@@ -175,37 +292,104 @@ const IndividualNutrientAnalysis: React.FC<{selectedPatient: string}> = ({ selec
         </Card>
       </Grid>
 
-      {/* Radar Chart */}
-      <Grid item xs={12} md={8}>
+      {/* Nutrient Stats */}
+      <Grid item xs={12} md={4}>
         <Card>
           <CardContent>
-            <Typography variant="h6" gutterBottom>Nutrient Compliance Radar</Typography>
-            {data.compliance_percentages && Object.keys(data.compliance_percentages).length > 0 ? (
+            <Typography variant="h6" gutterBottom>Quick Stats</Typography>
+            <Typography variant="body2">
+              Total Nutrients Tracked: {availableNutrients.length}
+            </Typography>
+            <Typography variant="body2">
+              Above 80%: {availableNutrients.filter(n => data.compliance_percentages[n] >= 80).length}
+            </Typography>
+            <Typography variant="body2">
+              60-80%: {availableNutrients.filter(n => data.compliance_percentages[n] >= 60 && data.compliance_percentages[n] < 80).length}
+            </Typography>
+            <Typography variant="body2">
+              Below 60%: {availableNutrients.filter(n => data.compliance_percentages[n] < 60).length}
+            </Typography>
+          </CardContent>
+        </Card>
+      </Grid>
+
+      {/* Chart Visualization */}
+      <Grid item xs={12}>
+        <Card>
+          <CardContent>
+            <Typography variant="h6" gutterBottom>
+              {selectedNutrient === 'all' ? 'All Nutrients Compliance' : `${formatNutrientName(selectedNutrient)} Compliance`}
+            </Typography>
+            {chartData ? (
               <Box sx={{ height: 400, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-                <Radar 
-                  data={createRadarChart()!} 
-                  options={{
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    scales: { 
-                      r: { 
-                        beginAtZero: true, 
-                        max: 100,
-                        ticks: {
-                          stepSize: 20
+                {selectedNutrient === 'all' && availableNutrients.length <= 5 ? (
+                  <Radar 
+                    data={chartData} 
+                    options={{
+                      responsive: true,
+                      maintainAspectRatio: false,
+                      scales: { 
+                        r: { 
+                          beginAtZero: true, 
+                          max: 100,
+                          ticks: {
+                            stepSize: 20
+                          }
+                        } 
+                      },
+                      plugins: {
+                        legend: {
+                          display: false
                         }
-                      } 
-                    },
-                    plugins: {
-                      legend: {
-                        display: false
                       }
-                    }
-                  }} 
-                />
+                    }} 
+                  />
+                ) : (
+                  <Bar 
+                    data={chartData} 
+                    options={{
+                      responsive: true,
+                      maintainAspectRatio: false,
+                      scales: {
+                        y: { 
+                          beginAtZero: true, 
+                          max: 100,
+                          ticks: {
+                            stepSize: 10,
+                            callback: function(value) {
+                              return value + '%';
+                            }
+                          }
+                        },
+                        x: {
+                          ticks: {
+                            maxRotation: 45
+                          }
+                        }
+                      },
+                      plugins: {
+                        legend: {
+                          display: false
+                        },
+                        tooltip: {
+                          callbacks: {
+                            label: function(context) {
+                              return `Compliance: ${context.parsed.y.toFixed(1)}%`;
+                            }
+                          }
+                        }
+                      }
+                    }} 
+                  />
+                )}
               </Box>
             ) : (
-              <Alert severity="info">No consumption data available for chart visualization</Alert>
+              <Alert severity="info">
+                {selectedNutrient === 'all' 
+                  ? 'No consumption data available for chart visualization'
+                  : `No data available for ${formatNutrientName(selectedNutrient)}`
+                }
+              </Alert>
             )}
           </CardContent>
         </Card>
@@ -225,7 +409,7 @@ const IndividualNutrientAnalysis: React.FC<{selectedPatient: string}> = ({ selec
                       sx={{ height: '100%' }}
                     >
                       <Typography variant="body2" fontWeight="bold">
-                        {def.nutrient.toUpperCase().replace('_', ' ')}
+                        {formatNutrientName(def.nutrient).toUpperCase()}
                       </Typography>
                       <Typography variant="body2">
                         Status: {def.status.replace('_', ' ')}
@@ -271,7 +455,7 @@ const IndividualNutrientAnalysis: React.FC<{selectedPatient: string}> = ({ selec
                           />
                         </Box>
                         <Typography variant="body2" fontWeight="bold" gutterBottom>
-                          {rec.nutrient.toUpperCase().replace('_', ' ')}
+                          {formatNutrientName(rec.nutrient).toUpperCase()}
                         </Typography>
                         <Typography variant="body2" paragraph>
                           {rec.recommendation}
@@ -296,6 +480,7 @@ const IndividualNutrientAnalysis: React.FC<{selectedPatient: string}> = ({ selec
 const CohortNutrientAnalysis: React.FC<{groupingCriteria: string}> = ({ groupingCriteria }) => {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [selectedNutrients, setSelectedNutrients] = useState<string[]>(['calories', 'protein', 'carbohydrates', 'fiber']);
 
   useEffect(() => {
     fetchCohortData();
@@ -324,28 +509,39 @@ const CohortNutrientAnalysis: React.FC<{groupingCriteria: string}> = ({ grouping
     }
   };
 
+  const getAvailableNutrients = (): string[] => {
+    if (!data || !data.groups) return [];
+    
+    const allNutrients = new Set<string>();
+    Object.values(data.groups).forEach((group: any) => {
+      if (group.rda_compliance_stats) {
+        Object.keys(group.rda_compliance_stats).forEach(nutrient => {
+          allNutrients.add(nutrient);
+        });
+      }
+    });
+    
+    return Array.from(allNutrients);
+  };
+
   const createComplianceChart = () => {
     if (!data) return null;
     
     const groups = Object.keys(data.groups);
-    const nutrients = ['calories', 'protein', 'carbohydrates', 'fiber'];
+    const availableNutrients = getAvailableNutrients();
+    const nutrientsToShow = selectedNutrients.filter(n => availableNutrients.includes(n));
     
-
-    
-    const datasets = nutrients.map((nutrient, index) => ({
-      label: nutrient.charAt(0).toUpperCase() + nutrient.slice(1),
+    const datasets = nutrientsToShow.map((nutrient, index) => ({
+      label: formatNutrientName(nutrient),
       data: groups.map(group => {
         const stats = data.groups[group].rda_compliance_stats[nutrient];
         const value = stats ? stats.percentage_meeting_target : 0;
-
         return value;
       }),
-      backgroundColor: ['#667eea', '#764ba2', '#f093fb', '#f5af19'][index],
+      backgroundColor: `hsla(${(index * 137.5) % 360}, 70%, 60%, 0.8)`,
       borderWidth: 1,
-      borderColor: ['#667eea', '#764ba2', '#f093fb', '#f5af19'][index],
+      borderColor: `hsla(${(index * 137.5) % 360}, 70%, 50%, 1)`,
     }));
-
-
 
     return {
       labels: groups,
@@ -369,8 +565,6 @@ const CohortNutrientAnalysis: React.FC<{groupingCriteria: string}> = ({ grouping
       }
     });
 
-
-
     // If no deficiencies, show a placeholder
     if (Object.keys(allDeficiencies).length === 0) {
       return {
@@ -382,11 +576,14 @@ const CohortNutrientAnalysis: React.FC<{groupingCriteria: string}> = ({ grouping
       };
     }
 
+    const nutrients = Object.keys(allDeficiencies);
     return {
-      labels: Object.keys(allDeficiencies).map(n => n.charAt(0).toUpperCase() + n.slice(1).replace('_', ' ')),
+      labels: nutrients.map(n => formatNutrientName(n)),
       datasets: [{
         data: Object.values(allDeficiencies),
-        backgroundColor: ['#FF6B6B', '#FFA07A', '#FFD700', '#98D8C8', '#87CEEB'],
+        backgroundColor: nutrients.map((_, index) => 
+          `hsla(${(index * 137.5) % 360}, 70%, 60%, 0.8)`
+        ),
       }]
     };
   };
@@ -407,8 +604,75 @@ const CohortNutrientAnalysis: React.FC<{groupingCriteria: string}> = ({ grouping
     );
   }
 
+  const availableNutrients = getAvailableNutrients();
+
   return (
     <Grid container spacing={3}>
+      {/* Nutrient Selection Controls */}
+      <Grid item xs={12}>
+        <Card>
+          <CardContent>
+            <Typography variant="h6" gutterBottom>Select Nutrients to Display</Typography>
+            <FormControl fullWidth>
+              <InputLabel>Choose Nutrients for Chart</InputLabel>
+              <Select
+                multiple
+                value={selectedNutrients}
+                onChange={(e) => setSelectedNutrients(e.target.value as string[])}
+                label="Choose Nutrients for Chart"
+                renderValue={(selected) => (
+                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                    {(selected as string[]).map((value) => (
+                      <Chip key={value} label={formatNutrientName(value)} size="small" />
+                    ))}
+                  </Box>
+                )}
+              >
+                {availableNutrients.map((nutrient) => (
+                  <MenuItem key={nutrient} value={nutrient}>
+                    {formatNutrientName(nutrient)}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <Box sx={{ mt: 2, display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+              <Button 
+                size="small" 
+                variant="outlined"
+                onClick={() => setSelectedNutrients(['calories', 'protein', 'carbohydrates', 'fiber'])}
+              >
+                Macros Only
+              </Button>
+              <Button 
+                size="small" 
+                variant="outlined"
+                onClick={() => setSelectedNutrients(availableNutrients.filter(n => 
+                  ['vitamin_a', 'vitamin_c', 'vitamin_d', 'vitamin_e', 'vitamin_k', 'vitamin_b6', 'vitamin_b12', 'folate'].includes(n)
+                ))}
+              >
+                Vitamins Only
+              </Button>
+              <Button 
+                size="small" 
+                variant="outlined"
+                onClick={() => setSelectedNutrients(availableNutrients.filter(n => 
+                  ['calcium', 'iron', 'magnesium', 'phosphorus', 'potassium', 'sodium', 'zinc'].includes(n)
+                ))}
+              >
+                Minerals Only
+              </Button>
+              <Button 
+                size="small" 
+                variant="outlined"
+                onClick={() => setSelectedNutrients(availableNutrients)}
+              >
+                All Available
+              </Button>
+            </Box>
+          </CardContent>
+        </Card>
+      </Grid>
+
       {/* Population Overview */}
       <Grid item xs={12}>
         <Card>
@@ -423,6 +687,9 @@ const CohortNutrientAnalysis: React.FC<{groupingCriteria: string}> = ({ grouping
               Groups: {Object.keys(data.groups).length} | 
               Registered Patients: {Object.values(data.groups).reduce((sum: number, group: any) => sum + group.registered_patients, 0)}
             </Typography>
+            <Typography variant="body2" color="text.secondary">
+              Available Nutrients: {availableNutrients.length} | Selected for Chart: {selectedNutrients.length}
+            </Typography>
           </CardContent>
         </Card>
       </Grid>
@@ -433,6 +700,9 @@ const CohortNutrientAnalysis: React.FC<{groupingCriteria: string}> = ({ grouping
           <CardContent>
             <Typography variant="h6" gutterBottom>
               % Patients Meeting RDA Targets (≥60%) by Group
+              {selectedNutrients.length < availableNutrients.length && 
+                ` - Showing ${selectedNutrients.length} Selected Nutrients`
+              }
             </Typography>
             {Object.keys(data.groups).length > 0 ? (
               <Box sx={{ height: 400 }}>
@@ -540,7 +810,7 @@ const CohortNutrientAnalysis: React.FC<{groupingCriteria: string}> = ({ grouping
                       {groupData.top_deficiencies.slice(0, 3).map((def: any, index: number) => (
                         <Chip 
                           key={index}
-                          label={`${def.nutrient.replace('_', ' ')}: ${def.patients_affected} affected`}
+                          label={`${formatNutrientName(def.nutrient)}: ${def.patients_affected} affected`}
                           size="small"
                           color="warning"
                           sx={{ mr: 0.5, mb: 0.5 }}
