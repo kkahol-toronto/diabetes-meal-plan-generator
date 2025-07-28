@@ -4,6 +4,17 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel, EmailStr, Field
 from typing import List, Optional, Dict, Any
+from models import (
+    Token, TokenData, User, UserInDB, Patient, UserProfile, 
+    MealPlanRequest, ChatMessage, RegistrationData, ImageAnalysisRequest
+)
+from utils import (
+    get_password_hash, verify_password, create_access_token,
+    get_today_utc_boundaries, get_user_timezone_boundaries, filter_today_records,
+    robust_json_parse, generate_registration_code, send_registration_code,
+    validate_and_normalize_profile, calculate_profile_completeness,
+    SECRET_KEY, ALGORITHM, pwd_context, twilio_client
+)
 import os
 from dotenv import load_dotenv
 from openai import AzureOpenAI
@@ -102,8 +113,7 @@ client = AzureOpenAI(
     }
 )
 
-# Configure Twilio
-twilio_client = Client(os.getenv("SMS_API_SID"), os.getenv("SMS_KEY"))
+# Twilio client is now imported from utils
 
 # Robust OpenAI API wrapper with retry logic and better error handling
 async def robust_openai_call(
@@ -208,56 +218,7 @@ async def robust_openai_call(
         "attempts": max_retries
     }
 
-# Helper function to parse JSON with better error handling
-def robust_json_parse(json_string: str, context: str = "json_parse") -> Dict[str, Any]:
-    """
-    Parse JSON string with better error handling and fallback mechanisms.
-    
-    Args:
-        json_string: The JSON string to parse
-        context: Context string for logging
-        
-    Returns:
-        Dict containing parsed JSON or error information
-    """
-    try:
-        # First, try to parse as-is
-        return {"success": True, "data": json.loads(json_string)}
-    except json.JSONDecodeError as e:
-        print(f"[{context}] Initial JSON parse failed: {e}")
-        
-        # Try to extract JSON from the string (in case there's extra text)
-        try:
-            # Find the first { and last }
-            start_idx = json_string.find('{')
-            end_idx = json_string.rfind('}') + 1
-            
-            if start_idx != -1 and end_idx > start_idx:
-                extracted_json = json_string[start_idx:end_idx]
-                return {"success": True, "data": json.loads(extracted_json)}
-        except:
-            pass
-            
-        # Try to clean up common JSON issues
-        try:
-            # Remove common markdown formatting
-            cleaned = json_string.replace('```json', '').replace('```', '')
-            cleaned = cleaned.strip()
-            
-            # Fix common trailing comma issues
-            cleaned = re.sub(r',\s*}', '}', cleaned)
-            cleaned = re.sub(r',\s*]', ']', cleaned)
-            
-            return {"success": True, "data": json.loads(cleaned)}
-        except:
-            pass
-            
-        # Return error if all parsing attempts failed
-        return {
-            "success": False,
-            "error": f"JSON parsing failed: {str(e)}",
-            "raw_content": json_string[:500] + "..." if len(json_string) > 500 else json_string
-        }
+# JSON parsing utility function is now imported from utils
 
 # Fallback mechanisms for when OpenAI API fails
 def generate_fallback_meal_plan(user_profile: dict, days: int = 7) -> dict:
@@ -521,275 +482,16 @@ async def health_check():
         "version": "1.0.0"
     }
 
-# Security
-SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-here")
-ALGORITHM = "HS256"
+# Security configuration is now imported from utils
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
-
-# Update password context to use newer bcrypt settings
-pwd_context = CryptContext(
-    schemes=["bcrypt"],
-    deprecated="auto",
-    bcrypt__rounds=12  # Explicitly set rounds for bcrypt
-)
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
 
-class Token(BaseModel):
-    access_token: str
-    token_type: str
 
-class TokenData(BaseModel):
-    username: Optional[str] = None
 
-class User(BaseModel):
-    username: str
-    email: EmailStr
-    disabled: Optional[bool] = None
-    # Privacy & Consent Fields
-    consent_given: Optional[bool] = None
-    consent_timestamp: Optional[str] = None
-    policy_version: Optional[str] = None
-    data_retention_preference: Optional[str] = "standard"  # "minimal", "standard", "extended"
-    marketing_consent: Optional[bool] = False
-    analytics_consent: Optional[bool] = True
-    last_consent_update: Optional[str] = None
-    # Electronic Signature Fields
-    electronic_signature: Optional[str] = None
-    signature_timestamp: Optional[str] = None
-    signature_ip_address: Optional[str] = None
-    research_consent: Optional[bool] = False
+# Authentication functions are now imported from utils
 
-class UserInDB(User):
-    hashed_password: str
-
-class Patient(BaseModel):
-    name: str = Field(..., min_length=1, description="Patient's full name")
-    phone: str = Field(..., min_length=10, description="Patient's phone number")
-    condition: str = Field(..., min_length=1, description="Primary medical condition")
-    medical_conditions: Optional[List[str]] = Field(default=[], description="All medical conditions")
-    medications: Optional[List[str]] = Field(default=[], description="Current medications")
-    allergies: Optional[List[str]] = Field(default=[], description="Food allergies")
-    dietary_restrictions: Optional[List[str]] = Field(default=[], description="Dietary restrictions")
-    registration_code: Optional[str] = None
-    created_at: Optional[datetime] = None
-
-    class Config:
-        schema_extra = {
-            "example": {
-                "name": "John Doe",
-                "phone": "1234567890",
-                "condition": "Type 2 Diabetes"
-            }
-        }
-
-class UserProfile(BaseModel):
-    # Patient Demographics
-    name: Optional[str] = None
-    dateOfBirth: Optional[str] = None
-    age: Optional[int] = None
-    gender: Optional[str] = None
-    ethnicity: Optional[List[str]] = []
-    
-    # Medical History
-    medical_conditions: Optional[List[str]] = []
-    medicalConditions: Optional[List[str]] = []  # For backward compatibility
-    
-    # Current Medications
-    currentMedications: Optional[List[str]] = []
-    
-    # Lab Values (Optional)
-    labValues: Optional[Dict[str, Optional[str]]] = {}
-    
-    # Vital Signs
-    height: Optional[float] = None
-    weight: Optional[float] = None
-    bmi: Optional[float] = None
-    waistCircumference: Optional[float] = None
-    waist_circumference: Optional[float] = None  # For backward compatibility
-    systolicBP: Optional[int] = None
-    systolic_bp: Optional[int] = None  # For backward compatibility
-    diastolicBP: Optional[int] = None
-    diastolic_bp: Optional[int] = None  # For backward compatibility
-    heartRate: Optional[int] = None
-    heart_rate: Optional[int] = None  # For backward compatibility
-    
-    # Dietary Information
-    dietType: Optional[List[str]] = []
-    diet_type: Optional[str] = None  # For backward compatibility
-    dietaryFeatures: Optional[List[str]] = []
-    diet_features: Optional[List[str]] = []  # For backward compatibility
-    dietaryRestrictions: Optional[List[str]] = []
-    foodPreferences: Optional[List[str]] = []
-    allergies: Optional[List[str]] = []
-    strongDislikes: Optional[List[str]] = []
-    
-    # Physical Activity
-    workActivityLevel: Optional[str] = None
-    exerciseFrequency: Optional[str] = None
-    exerciseTypes: Optional[List[str]] = []
-    mobilityIssues: Optional[bool] = False
-    
-    # Lifestyle & Preferences
-    mealPrepCapability: Optional[str] = None
-    availableAppliances: Optional[List[str]] = []
-    eatingSchedule: Optional[str] = None
-    
-    # Goals & Readiness
-    primaryGoals: Optional[List[str]] = []
-    readinessToChange: Optional[str] = None
-    
-    # Meal Plan Targeting
-    wantsWeightLoss: Optional[bool] = False
-    weight_loss_goal: Optional[bool] = False  # For backward compatibility
-    calorieTarget: Optional[str] = None
-    calories_target: Optional[int] = None  # For backward compatibility
-    
-    # Timezone for proper date filtering
-    timezone: Optional[str] = "UTC"
-
-class MealPlanRequest(BaseModel):
-    user_profile: UserProfile
-    family_members: Optional[List[UserProfile]] = None
-    additional_requirements: Optional[str] = None
-
-class ChatMessage(BaseModel):
-    message: str
-    session_id: Optional[str] = None
-
-class RegistrationData(BaseModel):
-    registration_code: str
-    email: EmailStr
-    password: str
-    consent_given: bool
-    consent_timestamp: str
-    policy_version: str
-    data_retention_preference: Optional[str] = "standard"
-    marketing_consent: Optional[bool] = False
-    analytics_consent: Optional[bool] = True
-    # Electronic Signature Fields
-    electronic_signature: str
-    signature_timestamp: str
-    signature_ip_address: Optional[str] = None
-    research_consent: Optional[bool] = False
-    timezone: Optional[str] = "UTC"
-
-class ImageAnalysisRequest(BaseModel):
-    prompt: str
-
-def get_password_hash(password: str) -> str:
-    """Hash a password using bcrypt"""
-    return pwd_context.hash(password)
-
-def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Verify a password against its hash"""
-    return pwd_context.verify(plain_password, hashed_password)
-
-def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
-    to_encode = data.copy()
-    if expires_delta:
-        expire = datetime.utcnow() + expires_delta
-    else:
-        expire = datetime.utcnow() + timedelta(minutes=15)
-    to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-    return encoded_jwt
-
-def get_today_utc_boundaries():
-    """
-    Get today's UTC boundaries for proper daily filtering.
-    Returns start and end of today in UTC.
-    """
-    now_utc = datetime.utcnow()
-    
-    # Get start of today (00:00:00 UTC)
-    start_of_today = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
-    
-    # Get start of tomorrow (00:00:00 UTC next day)
-    start_of_tomorrow = start_of_today + timedelta(days=1)
-    
-    return start_of_today, start_of_tomorrow
-
-def get_user_timezone_boundaries(user_timezone: str = "UTC"):
-    """
-    Get today's boundaries in the user's timezone, converted to UTC.
-    This ensures proper daily reset at midnight in the user's local time.
-    """
-    try:
-        import pytz
-        from datetime import datetime, time
-        
-        # Get the user's timezone
-        user_tz = pytz.timezone(user_timezone)
-        
-        # Get current time in user's timezone
-        utc_now = datetime.utcnow().replace(tzinfo=pytz.utc)
-        user_now = utc_now.astimezone(user_tz)
-        
-        # Get start of today in user's timezone (midnight)
-        start_of_today_user = user_now.replace(hour=0, minute=0, second=0, microsecond=0)
-        
-        # Get start of tomorrow in user's timezone
-        start_of_tomorrow_user = start_of_today_user + timedelta(days=1)
-        
-        # Convert to UTC for database queries
-        start_of_today_utc = start_of_today_user.astimezone(pytz.utc).replace(tzinfo=None)
-        start_of_tomorrow_utc = start_of_tomorrow_user.astimezone(pytz.utc).replace(tzinfo=None)
-        
-        print(f"[TIMEZONE] User timezone: {user_timezone}")
-        print(f"[TIMEZONE] User local time: {user_now}")
-        print(f"[TIMEZONE] Start of today (user timezone): {start_of_today_user}")
-        print(f"[TIMEZONE] Start of today (UTC): {start_of_today_utc}")
-        print(f"[TIMEZONE] Start of tomorrow (UTC): {start_of_tomorrow_utc}")
-        
-        return start_of_today_utc, start_of_tomorrow_utc
-        
-    except Exception as e:
-        print(f"Error getting timezone boundaries: {e}")
-        # Fall back to UTC boundaries
-        return get_today_utc_boundaries()
-
-def filter_today_records(records: List[Dict[str, Any]], user_timezone: str = "UTC") -> List[Dict[str, Any]]:
-    """
-    Filter consumption records to only include those from today (user's timezone).
-    This ensures proper daily reset at midnight.
-    """
-    start_of_today_utc, start_of_tomorrow_utc = get_user_timezone_boundaries(user_timezone)
-    
-    print(f"[FILTER_DEBUG] Filtering {len(records)} records for timezone: {user_timezone}")
-    print(f"[FILTER_DEBUG] Start of today (UTC): {start_of_today_utc}")
-    print(f"[FILTER_DEBUG] Start of tomorrow (UTC): {start_of_tomorrow_utc}")
-    
-    today_records = []
-    for i, record in enumerate(records):
-        try:
-            timestamp_str = record.get("timestamp", "")
-            if not timestamp_str:
-                continue
-                
-            # Parse the timestamp
-            record_timestamp = datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
-            
-            # Remove timezone info for comparison (already in UTC)
-            record_timestamp_utc = record_timestamp.replace(tzinfo=None)
-            
-            # Check if the record is from today
-            is_today = start_of_today_utc <= record_timestamp_utc < start_of_tomorrow_utc
-            
-            # Debug print for first few records
-            if i < 5:  # Only print first 5 records to avoid spam
-                food_name = record.get("food_name", "Unknown")
-                print(f"[FILTER_DEBUG] Record {i}: {food_name} at {record_timestamp_utc} - Included: {is_today}")
-            
-            if is_today:
-                today_records.append(record)
-                
-        except Exception as e:
-            print(f"Error parsing timestamp for record: {e}")
-            continue
-    
-    print(f"[FILTER_DEBUG] Filtered to {len(today_records)} records for today")
-    return today_records
+# Timezone utility functions are now imported from utils
 
 async def generate_consumption_aware_meal_plan(base_meal_plan: dict, consumption_analysis: dict, remaining_meals: list, user_profile: dict) -> dict:
     """
@@ -1380,22 +1082,7 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
         print(f"Error fetching user from database: {e}")
         raise credentials_exception
 
-def generate_registration_code():
-    return ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
-
-def send_registration_code(phone: str, code: str):
-    """Send registration code via SMS using Twilio"""
-    try:
-        message = twilio_client.messages.create(
-            body=f"Your registration code for Diabetes Diet Manager is: {code}",
-            from_=os.getenv("TWILIO_PHONE_NUMBER"),
-            to=phone
-        )
-        print(f"Twilio message sent successfully: {message.sid}")
-        return message.sid
-    except Exception as e:
-        print(f"Failed to send SMS: {str(e)}")
-        return None
+# Registration utility functions are now imported from utils
 
 @app.post("/login", response_model=Token)
 async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends()):
@@ -4422,92 +4109,7 @@ async def get_current_user_info(current_user: User = Depends(get_current_user)):
         "policy_version": current_user.get("policy_version", None)
     }
 
-def validate_and_normalize_profile(profile: dict) -> dict:
-    """
-    Validate and normalize user profile data to ensure proper data types and structure.
-    """
-    if not isinstance(profile, dict):
-        raise ValueError("Profile must be a dictionary")
-    
-    # Create a copy to avoid modifying the original
-    normalized = profile.copy()
-    
-    # Normalize array fields - ensure they are lists
-    array_fields = [
-        'ethnicity', 'medicalConditions', 'currentMedications', 'dietType', 
-        'dietaryFeatures', 'dietaryRestrictions', 'foodPreferences', 'allergies', 
-        'avoids', 'strongDislikes', 'exerciseTypes', 'primaryGoals', 'availableAppliances'
-    ]
-    
-    for field in array_fields:
-        if field in normalized:
-            if isinstance(normalized[field], str):
-                # Convert string to single-item array
-                normalized[field] = [normalized[field]] if normalized[field] else []
-            elif not isinstance(normalized[field], list):
-                # Convert other types to empty array
-                normalized[field] = []
-    
-    # Ensure labValues is a dict
-    if 'labValues' in normalized and not isinstance(normalized['labValues'], dict):
-        normalized['labValues'] = {}
-    
-    # Validate numeric fields
-    numeric_fields = ['age', 'height', 'weight', 'bmi', 'waistCircumference', 
-                     'systolicBP', 'diastolicBP', 'heartRate']
-    
-    for field in numeric_fields:
-        if field in normalized and normalized[field] is not None:
-            try:
-                normalized[field] = float(normalized[field])
-            except (ValueError, TypeError):
-                normalized[field] = None
-    
-    # Validate boolean fields
-    boolean_fields = ['mobilityIssues', 'wantsWeightLoss']
-    
-    for field in boolean_fields:
-        if field in normalized:
-            if isinstance(normalized[field], str):
-                normalized[field] = normalized[field].lower() in ('true', '1', 'yes')
-            else:
-                normalized[field] = bool(normalized[field])
-    
-    print(f"[validate_and_normalize_profile] Normalized profile with {len(normalized)} fields")
-    return normalized
-
-def calculate_profile_completeness(profile: dict) -> float:
-    """
-    Calculate the completeness percentage of a user profile.
-    """
-    if not profile:
-        return 0.0
-    
-    # Define important fields and their weights
-    critical_fields = {
-        'name': 2.0, 'age': 2.0, 'gender': 2.0, 'height': 2.0, 'weight': 2.0,
-        'medicalConditions': 3.0, 'currentMedications': 2.0, 'dietType': 2.0,
-        'dietaryFeatures': 2.0, 'primaryGoals': 2.0, 'calorieTarget': 2.0
-    }
-    
-    optional_fields = {
-        'ethnicity': 1.0, 'labValues': 1.5, 'allergies': 1.5, 'exerciseTypes': 1.0,
-        'workActivityLevel': 1.0, 'exerciseFrequency': 1.0, 'mealPrepCapability': 1.0,
-        'eatingSchedule': 1.0, 'readinessToChange': 1.0
-    }
-    
-    all_fields = {**critical_fields, **optional_fields}
-    
-    total_weight = sum(all_fields.values())
-    completed_weight = 0.0
-    
-    for field, weight in all_fields.items():
-        if field in profile:
-            value = profile[field]
-            if value and value != [] and value != {} and str(value).strip():
-                completed_weight += weight
-    
-    return round((completed_weight / total_weight) * 100, 1)
+# Profile validation utility functions are now imported from utils
 
 @app.post("/user/profile")
 async def save_user_profile(
