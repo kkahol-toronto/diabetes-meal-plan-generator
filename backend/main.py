@@ -27,7 +27,6 @@ from constants import (
     DEFAULT_PATIENT_PROFILE, PDF_TITLE, MAX_BACKOFF_SECONDS, BASE_BACKOFF_MULTIPLIER
 )
 from routers.auth import router as auth_router, get_current_user
-from routers.meal_plans import router as meal_plans_router
 import os
 from dotenv import load_dotenv
 from openai import AzureOpenAI
@@ -118,8 +117,10 @@ app.add_middleware(
 
 # Include authentication router
 app.include_router(auth_router, tags=["authentication"])
-# Include meal plans router
-app.include_router(meal_plans_router, tags=["meal_plans"])
+
+# Include utility router
+from routers.utility import router as utility_router
+app.include_router(utility_router, tags=["utility"])
 
 # Configure OpenAI for APIM Gateway
 client = AzureOpenAI(
@@ -371,16 +372,7 @@ def generate_fallback_recipes(meal_names: List[str]) -> List[dict]:
     print(f"[FALLBACK] Generated {len(fallback_recipes)} fallback recipes")
     return fallback_recipes
 
-# Health Check Endpoint for Azure App Service
-@app.get("/health")
-async def health_check():
-    """Health check endpoint for monitoring and load balancers"""
-    return {
-        "status": "healthy",
-        "timestamp": datetime.utcnow().isoformat(),
-        "service": "Diabetes Diet Manager API",
-        "version": "1.0.0"
-    }
+# Health endpoint moved to routers/utility.py
 
 # Security configuration is now imported from utils
 # ACCESS_TOKEN_EXPIRE_MINUTES is now imported from constants
@@ -1836,7 +1828,498 @@ Provide personalized health coaching that addresses their specific conditions an
 @app.get("/")
 async def root():
     return {"message": "Welcome to Diabetes Diet Manager API"}
-# Meal plan generation endpoint moved to routers/meal_plans.py
+
+@app.post("/generate-meal-plan")
+async def generate_meal_plan(
+    request: FastAPIRequest,
+    current_user: User = Depends(get_current_user)
+):
+    try:
+        data = await request.json()
+        user_profile = data.get("user_profile")
+        previous_meal_plan = data.get("previous_meal_plan")
+        days = data.get("days", 7)  # Default to 7 days if not provided
+
+        if not user_profile:
+            raise HTTPException(status_code=400, detail="User profile is required")
+        
+        # Validate days parameter
+        if not isinstance(days, int) or days < 1 or days > 7:
+            raise HTTPException(status_code=400, detail="Days must be an integer between 1 and 7")
+
+        # Get the user's document
+        user_doc = await get_user_by_email(current_user["email"])
+        if not user_doc:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        # Update the user's profile with the calorie and macro goals
+        if "profile" not in user_doc:
+            user_doc["profile"] = {}
+        
+        # Update the profile with the goals from the meal plan
+        user_doc["profile"]["calorieTarget"] = user_profile.get("calorieTarget", DEFAULT_CALORIE_TARGET)
+        user_doc["profile"]["macroGoals"] = {
+            "protein": user_profile.get("macroGoals", {}).get("protein", 100),
+            "carbs": user_profile.get("macroGoals", {}).get("carbs", 250),
+            "fat": user_profile.get("macroGoals", {}).get("fat", 66)
+        }
+
+        # Save the updated profile
+        user_container.replace_item(item=user_doc["id"], body=user_doc)
+
+        # Continue with meal plan generation...
+
+        # Check required environment variables
+        required_env_vars = [
+            "AZURE_OPENAI_KEY",
+            "AZURE_OPENAI_ENDPOINT",
+            "AZURE_OPENAI_API_VERSION",
+            "AZURE_OPENAI_DEPLOYMENT_NAME"
+        ]
+        missing_vars = [var for var in required_env_vars if not os.getenv(var)]
+        if missing_vars:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Missing required environment variables: {', '.join(missing_vars)}"
+            )
+
+        print('user_profile received:', user_profile)
+        print("/generate-meal-plan endpoint called")
+        print(f"Current user: {current_user}")
+        print(f"User profile received: {user_profile}")
+        print("Model:", os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"))
+        print("Endpoint:", os.getenv("AZURE_OPENAI_ENDPOINT"))
+        print("API Version:", os.getenv("AZURE_OPENAI_API_VERSION"))
+
+        # If previous_meal_plan is provided, use it for 70/30 overlap
+        def get_overlap_meals(prev_meals, new_meals):
+            import re
+            if not prev_meals or not isinstance(prev_meals, list):
+                return new_meals
+            overlap_count = int(0.7 * len(new_meals))
+            new_count = len(new_meals) - overlap_count
+            prev_sample = random.sample(prev_meals, min(overlap_count, len(prev_meals)))
+            # Remove any duplicates from new_meals
+            remaining_new = [m for m in new_meals if m not in prev_sample]
+
+            # Helper: extract keywords from meal name
+            def extract_keywords(meal):
+                return set(re.findall(r"\\w+", meal.lower()))
+
+            prev_keywords = set()
+            for meal in prev_sample:
+                prev_keywords.update(extract_keywords(meal))
+
+            # Find new meals that share a keyword with any previous meal
+            related_new = []
+            unrelated_new = []
+            for meal in remaining_new:
+                if extract_keywords(meal) & prev_keywords:
+                    related_new.append(meal)
+                else:
+                    unrelated_new.append(meal)
+
+            # Prefer related new meals for the 30% new
+            new_sample = []
+            if len(related_new) >= new_count:
+                new_sample = random.sample(related_new, new_count)
+            else:
+                new_sample = related_new + random.sample(unrelated_new, min(new_count - len(related_new), len(unrelated_new)))
+
+            return prev_sample + new_sample
+
+        # Define a robust JSON structure based on selected days - SAFE VEGETARIAN OPTIONS
+        example_meals = {
+            "breakfast": ["Oatmeal with berries", "Whole grain toast with avocado", "Greek yogurt with granola", "Quinoa breakfast bowl", "Smoothie bowl", "Avocado toast", "Chia pudding with fruit"],
+            "lunch": ["Quinoa and vegetable salad", "Quinoa bowl with beans", "Vegetable wrap", "Vegetable soup", "Pasta with marinara", "Hummus and vegetable wrap", "Buddha bowl"],
+            "dinner": ["Lentil curry with vegetables", "Vegetable stir-fry with tofu", "Bean and vegetable stew", "Vegetable curry", "Quinoa with roasted vegetables", "Chickpea curry", "Roasted vegetables with grains"],
+            "snacks": ["Apple with almonds", "Plant-based yogurt", "Carrot sticks with hummus", "Mixed nuts", "Fruit and nut bars", "Berries with seeds", "Green smoothie"]
+        }
+        
+        # Create exactly the right number of meals for each type based on days
+        json_structure_meals = {}
+        for meal_type, examples in example_meals.items():
+            # Take exactly 'days' number of meals, cycling through examples if needed
+            selected_meals = []
+            for i in range(days):
+                selected_meals.append(examples[i % len(examples)])
+            json_structure_meals[meal_type] = selected_meals
+        
+        json_structure = f"""
+{{
+    "breakfast": {json.dumps(json_structure_meals["breakfast"])},
+    "lunch": {json.dumps(json_structure_meals["lunch"])},
+    "dinner": {json.dumps(json_structure_meals["dinner"])},
+    "snacks": {json.dumps(json_structure_meals["snacks"])},
+    "dailyCalories": 2000,
+    "macronutrients": {{
+        "protein": 100,
+        "carbs": 250,
+        "fats": 70
+    }}
+}}"""
+
+        # Helper function to get profile value with fallbacks
+        def get_profile_value(profile, new_key, old_key=None, default='Not provided'):
+            value = profile.get(new_key)
+            if not value and old_key:
+                value = profile.get(old_key)
+            if isinstance(value, list) and value:
+                return ', '.join(value)
+            elif isinstance(value, list):
+                return default
+            return value or default
+
+        # Create comprehensive profile summary
+        profile_summary = f"""
+PATIENT DEMOGRAPHICS:
+Name: {get_profile_value(user_profile, 'name')}
+Age: {get_profile_value(user_profile, 'age')}
+Gender: {get_profile_value(user_profile, 'gender')}
+Ethnicity: {get_profile_value(user_profile, 'ethnicity', default='Not specified')}
+
+VITAL SIGNS & MEASUREMENTS:
+Height: {get_profile_value(user_profile, 'height')} cm
+Weight: {get_profile_value(user_profile, 'weight')} kg
+BMI: {get_profile_value(user_profile, 'bmi', default='Not calculated')}
+Waist Circumference: {get_profile_value(user_profile, 'waistCircumference', 'waist_circumference')} cm
+Blood Pressure: {get_profile_value(user_profile, 'systolicBP', 'systolic_bp')}/{get_profile_value(user_profile, 'diastolicBP', 'diastolic_bp')} mmHg
+Heart Rate: {get_profile_value(user_profile, 'heartRate', 'heart_rate')} bpm
+
+MEDICAL CONDITIONS:
+Medical Conditions: {get_profile_value(user_profile, 'medicalConditions', 'medical_conditions', 'None specified')}
+Current Medications: {get_profile_value(user_profile, 'currentMedications', default='None specified')}
+
+LAB VALUES (if available):
+{json.dumps(user_profile.get('labValues', {}), indent=2) if user_profile.get('labValues') else 'Not provided'}
+
+DIETARY INFORMATION:
+**PREFERRED CUISINE TYPE: {get_profile_value(user_profile, 'dietType', 'diet_type', 'Not specified')}** ⭐ MUST FOLLOW THIS CUISINE STYLE ⭐
+Dietary Features: {get_profile_value(user_profile, 'dietaryFeatures', 'diet_features', 'None specified')}
+Dietary Restrictions: {get_profile_value(user_profile, 'dietaryRestrictions', default='None specified')}
+Food Preferences: {get_profile_value(user_profile, 'foodPreferences', default='None specified')}
+Food Allergies: {get_profile_value(user_profile, 'allergies', default='None specified')}
+Strong Dislikes: {get_profile_value(user_profile, 'strongDislikes', default='None specified')}
+
+PHYSICAL ACTIVITY:
+Work Activity Level: {get_profile_value(user_profile, 'workActivityLevel', default='Not specified')}
+Exercise Frequency: {get_profile_value(user_profile, 'exerciseFrequency', default='Not specified')}
+Exercise Types: {get_profile_value(user_profile, 'exerciseTypes', default='Not specified')}
+Mobility Issues: {'Yes' if user_profile.get('mobilityIssues') else 'No'}
+
+LIFESTYLE & PREFERENCES:
+Meal Prep Capability: {get_profile_value(user_profile, 'mealPrepCapability', default='Not specified')}
+Available Appliances: {get_profile_value(user_profile, 'availableAppliances', default='Standard kitchen')}
+Eating Schedule: {get_profile_value(user_profile, 'eatingSchedule', default='Standard 3 meals')}
+
+GOALS & TARGET:
+Primary Health Goals: {get_profile_value(user_profile, 'primaryGoals', default='General wellness')}
+Readiness to Change: {get_profile_value(user_profile, 'readinessToChange', default='Not specified')}
+Weight Loss Goal: {'Yes' if user_profile.get('wantsWeightLoss') or user_profile.get('weight_loss_goal') else 'No'}
+Calorie Target: {get_profile_value(user_profile, 'calorieTarget', 'calories_target', '2000')} kcal/day
+        """
+
+        # Format the prompt with proper error handling for optional fields
+        if previous_meal_plan:
+            # Add previous meal plan to the prompt and instruct the model for 70/30 overlap
+            prev_meal_plan_str = json.dumps({k: previous_meal_plan.get(k, []) for k in ['breakfast', 'lunch', 'dinner', 'snacks']}, indent=2)
+            prompt = f"""Create a comprehensive, medically-appropriate meal plan based on this detailed patient profile:
+
+{profile_summary}
+
+Here is the previous week's meal plan (for each meal type, 7 days):
+{prev_meal_plan_str}
+
+CRITICAL INSTRUCTIONS:
+1. MEDICAL SAFETY: Carefully consider all medical conditions, medications, and lab values. Ensure meals are appropriate for diabetes management and any other health conditions.
+2. DIETARY COMPLIANCE: Strictly follow dietary restrictions, allergies, and food preferences.
+3. DIET TYPE ADHERENCE: **CRITICALLY IMPORTANT** - Follow the specified Diet Type exactly:
+   - If "Western" or "European": MUST include traditional European/Western dishes such as:
+     * BREAKFAST: Scrambled eggs with toast, pancakes, French toast, English breakfast, cereal with milk, bagels with cream cheese
+     * LUNCH: Sandwiches (turkey, ham, BLT), burgers, pizza slices, pasta salads, chicken Caesar salad, club sandwiches  
+     * DINNER: Spaghetti with meatballs, grilled chicken with mashed potatoes, beef steak with vegetables, baked fish with rice, pizza, lasagna, roast beef
+     * SNACKS: Cheese and crackers, nuts, yogurt, fruit, granola bars
+   - If "Mediterranean": Focus on Mediterranean cuisine with olive oil, fish, vegetables, legumes, etc.
+   - If "South Asian": Include curries, rice dishes, lentils, chapati, etc.
+   - If "East Asian": Include stir-fries, rice, noodles, steamed dishes, etc.
+   - If "Caribbean": Include rice and beans, plantains, jerk seasonings, etc.
+   - DO NOT substitute with health food alternatives unless specifically requested - give authentic traditional dishes
+4. CULTURAL CONSIDERATIONS: Incorporate ethnicity and cultural food preferences where specified.
+5. ACTIVITY ALIGNMENT: Consider physical activity level for calorie and macronutrient targets.
+6. MEAL CONTINUITY: For each meal type (breakfast, lunch, dinner, snacks), reuse about 70% of meals from the previous plan and create 30% new similar meals.
+7. APPLIANCE CONSTRAINTS: Only suggest meals that can be prepared with available appliances.
+
+Return a JSON object with exactly this structure:
+{json_structure}
+
+REQUIREMENTS:
+- Each meal array must have exactly {days} items (one for each day of the {days}-day meal plan)
+- breakfast array: exactly {days} different breakfast meals
+- lunch array: exactly {days} different lunch meals  
+- dinner array: exactly {days} different dinner meals
+- snacks array: exactly {days} different snack options
+- Consider medical conditions for ingredient selection
+- Match calorie target and dietary features
+- Keep meal names concise but descriptive (e.g., "Grilled Chicken Salad", not "Day 1 Lunch")
+- Ensure all values are numbers, not strings
+- No explanations or markdown, just the JSON object"""
+        else:
+            prompt = f"""Create a comprehensive, medically-appropriate meal plan based on this detailed patient profile:
+
+{profile_summary}
+
+🚨 ABSOLUTE PRIORITY: DIETARY RESTRICTIONS MUST BE FOLLOWED WITHOUT EXCEPTION 🚨
+
+CRITICAL INSTRUCTIONS:
+1. DIETARY COMPLIANCE (TOP PRIORITY): Absolutely MUST follow ALL dietary restrictions, features, and allergies listed above. If patient has "Vegetarian (no eggs)" selected, completely exclude ALL eggs, omelets, quiche, french toast, mayonnaise, egg sandwiches, and egg-containing foods.
+2. MEDICAL SAFETY: Carefully consider all medical conditions, medications, and lab values. Ensure meals are appropriate for diabetes management and any other health conditions.
+3. DIET TYPE ADHERENCE: **CRITICALLY IMPORTANT** - Follow the specified Diet Type exactly, but ALWAYS respect dietary restrictions above all else:
+   - If "Western" or "European": Include traditional European/Western dishes modified for dietary restrictions:
+     * BREAKFAST: Oatmeal with berries, avocado toast, quinoa breakfast bowl, smoothie bowls, chia pudding (modify based on restrictions)
+     * LUNCH: Vegetable sandwiches, salads with appropriate proteins, quinoa bowls, vegetable soups (adapt proteins to dietary needs)
+     * DINNER: Pasta with marinara, vegetable stir-fries, grain bowls, lentil dishes (choose proteins based on dietary requirements)
+     * SNACKS: Fresh fruit, nuts, hummus with vegetables, yogurt (select based on dietary restrictions)
+   - If "Mediterranean": Focus on Mediterranean cuisine with olive oil, fish, vegetables, legumes, etc.
+   - If "South Asian": Include curries, rice dishes, lentils, chapati, etc.
+   - If "East Asian": Include stir-fries, rice, noodles, steamed dishes, etc.
+   - If "Caribbean": Include rice and beans, plantains, jerk seasonings, etc.
+   - DO NOT substitute with health food alternatives unless specifically requested - give authentic traditional dishes
+4. CULTURAL CONSIDERATIONS: Incorporate ethnicity and cultural food preferences where specified.
+5. ACTIVITY ALIGNMENT: Consider physical activity level for calorie and macronutrient targets.
+6. APPLIANCE CONSTRAINTS: Only suggest meals that can be prepared with available appliances.
+7. PERSONALIZATION: Use lifestyle preferences and eating schedule to optimize meal timing and preparation.
+
+Return a JSON object with exactly this structure:
+{json_structure}
+
+REQUIREMENTS:
+- Each meal array must have exactly {days} items (one for each day of the {days}-day meal plan)
+- breakfast array: exactly {days} different breakfast meals
+- lunch array: exactly {days} different lunch meals  
+- dinner array: exactly {days} different dinner meals
+- snacks array: exactly {days} different snack options
+- Consider medical conditions for ingredient selection
+- Match calorie target and dietary features
+- Keep meal names concise but descriptive (e.g., "Grilled Chicken Salad", not "Day 1 Lunch")
+- Ensure all values are numbers, not strings
+- No explanations or markdown, just the JSON object"""
+
+        print("Prompt for OpenAI:")
+        print(prompt)
+
+        try:
+            # Use the robust OpenAI call with better error handling
+            api_result = await robust_openai_call(
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are a medical nutrition specialist creating meal plans for diabetic patients. CRITICAL PRIORITY ORDER: 1) DIETARY RESTRICTIONS AND ALLERGIES (absolutely no exceptions) 2) Medical conditions (diabetes-friendly foods) 3) Cultural cuisine preferences. If a user has 'Vegetarian (no eggs)' or any egg restrictions, you MUST completely avoid eggs, omelets, french toast, quiche, mayonnaise, and all egg-containing dishes. For vegetarians, exclude all meat, poultry, fish, and seafood. Only after ensuring complete dietary compliance, then incorporate authentic cultural dishes from their preferred cuisine type. Always respond with valid JSON matching the exact structure requested. No explanations or markdown."
+                    },
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.7,
+                max_tokens=2000,
+                response_format={"type": "json_object"},
+                context="meal_plan_generation"
+            )
+            
+            if not api_result["success"]:
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"OpenAI API failed: {api_result['error']}"
+                )
+
+            raw_content = api_result["content"]
+            print("Raw OpenAI response:")
+            print(raw_content)
+
+            try:
+                # Use robust JSON parsing
+                json_result = robust_json_parse(raw_content, "meal_plan_json")
+                if not json_result["success"]:
+                    raise HTTPException(
+                        status_code=500,
+                        detail=f"Failed to parse meal plan JSON: {json_result['error']}"
+                    )
+                
+                meal_plan = json_result["data"]
+                print("Meal plan parsed successfully:")
+                print(json.dumps(meal_plan, indent=2))
+                
+                # CRITICAL: Enforce dietary restrictions before any other processing
+                meal_plan = enforce_dietary_restrictions(meal_plan, user_profile)
+                print("Dietary restrictions enforced successfully")
+                
+                # EXTRA SAFETY CHECK: Additional vegetarian/egg-free enforcement
+                dietary_features = user_profile.get('dietaryFeatures', [])
+                dietary_restrictions = user_profile.get('dietaryRestrictions', [])
+                allergies = user_profile.get('allergies', [])
+                
+                print(f"[generate-meal-plan] POST-GENERATION DIETARY CHECK:")
+                print(f"  Dietary Features: {dietary_features}")
+                print(f"  Dietary Restrictions: {dietary_restrictions}")
+                print(f"  Allergies: {allergies}")
+                
+                # Check if user has vegetarian (no eggs) restriction
+                has_egg_restriction = any('vegetarian (no eggs)' in str(feature).lower() or 
+                                        'vegetarian (no egg)' in str(feature).lower() or
+                                        'no eggs' in str(feature).lower() or 
+                                        'no egg' in str(feature).lower() or
+                                        'egg-free' in str(feature).lower() 
+                                        for feature in dietary_features + dietary_restrictions + allergies)
+                
+                print(f"[generate-meal-plan] Has egg restriction detected: {has_egg_restriction}")
+                
+                # CRITICAL: Final validation - scan generated meals for egg ingredients
+                if has_egg_restriction:
+                    print("⚠️ WARNING: User has egg restrictions. Validating meal plan...")
+                    egg_containing_meals = []
+                    for meal_type in ['breakfast', 'lunch', 'dinner', 'snacks']:
+                        meals = meal_plan.get(meal_type, [])
+                        for i, meal in enumerate(meals):
+                            meal_name = meal.get('name', '').lower() if isinstance(meal, dict) else str(meal).lower()
+                            # Also check ingredients if available
+                            ingredients = []
+                            if isinstance(meal, dict) and 'ingredients' in meal:
+                                ingredients = [str(ing).lower() for ing in meal.get('ingredients', [])]
+                            
+                            egg_words = ['egg', 'omelet', 'omelette', 'french toast', 'quiche', 'frittata', 'scrambled', 'mayonnaise', 'mayo']
+                            meal_has_eggs = any(egg_word in meal_name for egg_word in egg_words)
+                            ingredients_have_eggs = any(any(egg_word in ing for egg_word in egg_words) for ing in ingredients)
+                            
+                            if meal_has_eggs or ingredients_have_eggs:
+                                egg_containing_meals.append(f"{meal_type}[{i}]: {meal_name} (ingredients: {ingredients[:3]})")
+                    
+                    if egg_containing_meals:
+                        print(f"🚨 CRITICAL ERROR: Found egg-containing meals despite restrictions:")
+                        for meal in egg_containing_meals:
+                            print(f"  - {meal}")
+                        # Note: In a production system, you might want to regenerate here
+                    else:
+                        print("✅ Meal plan validated - no egg-containing meals found")
+                
+                is_vegetarian = any('vegetarian' in str(feature).lower() for feature in dietary_features + dietary_restrictions)
+                
+                if has_egg_restriction or is_vegetarian:
+                    print(f"[EXTRA SAFETY] Applying additional vegetarian/egg-free enforcement: vegetarian={is_vegetarian}, no_eggs={has_egg_restriction}")
+                    for meal_type in ['breakfast', 'lunch', 'dinner', 'snacks']:
+                        if meal_type in meal_plan and isinstance(meal_plan[meal_type], list):
+                            meal_plan[meal_type] = [
+                                sanitize_vegetarian_meal(meal, is_vegetarian, has_egg_restriction) 
+                                for meal in meal_plan[meal_type]
+                            ]
+                
+                # Validate meal plan structure
+                required_keys = ['breakfast', 'lunch', 'dinner', 'snacks', 'dailyCalories', 'macronutrients']
+                missing_keys = [key for key in required_keys if key not in meal_plan]
+                if missing_keys:
+                    print(f"Missing required keys in meal plan: {missing_keys}")
+                    raise HTTPException(
+                        status_code=500,
+                        detail=f"Invalid meal plan format. Missing keys: {', '.join(missing_keys)}"
+                    )
+
+                # Ensure arrays have the correct number of items based on selected days
+                for meal_type in ['breakfast', 'lunch', 'dinner', 'snacks']:
+                    if not isinstance(meal_plan[meal_type], list):
+                        meal_plan[meal_type] = ["Not specified"] * days
+                    while len(meal_plan[meal_type]) < days:
+                        meal_plan[meal_type].append("Not specified")
+                    meal_plan[meal_type] = meal_plan[meal_type][:days]  # Trim if too long
+
+                # Ensure macronutrients are numbers
+                macro_keys = ['protein', 'carbs', 'fats']
+                for key in macro_keys:
+                    if not isinstance(meal_plan['macronutrients'].get(key), (int, float)):
+                        meal_plan['macronutrients'][key] = 0
+
+                if not isinstance(meal_plan.get('dailyCalories'), (int, float)):
+                    meal_plan['dailyCalories'] = 2000
+
+                # If previous_meal_plan is provided, use it for 70/30 overlap
+                if previous_meal_plan:
+                    for meal_type in ['breakfast', 'lunch', 'dinner', 'snacks']:
+                        prev_meals = previous_meal_plan.get(meal_type, [])
+                        new_meals = meal_plan.get(meal_type, [])
+                        if isinstance(prev_meals, list) and isinstance(new_meals, list) and len(new_meals) == days:
+                            meal_plan[meal_type] = get_overlap_meals(prev_meals, new_meals)
+
+                # Explicitly convert the returned meal_plan to a plain dictionary
+                try:
+                    # import json # Removed local import
+                    plain_meal_plan = json.loads(json.dumps(meal_plan))
+                    print("[/generate-meal-plan] Converted returned meal_plan to plain dict")
+                    return plain_meal_plan
+                except Exception as e:
+                    print(f"[/generate-meal-plan] Failed to convert returned meal_plan to plain dict: {e}")
+                    # Return the original meal_plan if conversion fails, error might occur again
+                    return meal_plan
+
+            except json.JSONDecodeError as e:
+                print("Failed to parse OpenAI response as JSON:")
+                print(f"Error message: {str(e)}")
+                print(f"Error location: line {e.lineno}, column {e.colno}")
+                print(f"Error context: {e.doc[max(0, e.pos-50):e.pos+50]}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Failed to parse meal plan response: {str(e)}"
+                )
+
+        except Exception as openai_error:
+            print("OpenAI API error:", str(openai_error))
+            print("Full error details:", openai_error.__dict__)
+            
+            # Use fallback mechanism when OpenAI fails
+            print("[FALLBACK] OpenAI API failed, generating fallback meal plan...")
+            try:
+                meal_plan = generate_fallback_meal_plan(user_profile, days)
+                
+                # Apply the same validation and processing as normal response
+                meal_plan = enforce_dietary_restrictions(meal_plan, user_profile)
+                print("Dietary restrictions enforced on fallback meal plan")
+                
+                # Validate meal plan structure
+                required_keys = ['breakfast', 'lunch', 'dinner', 'snacks', 'dailyCalories', 'macronutrients']
+                missing_keys = [key for key in required_keys if key not in meal_plan]
+                if missing_keys:
+                    print(f"Missing required keys in fallback meal plan: {missing_keys}")
+                    # Add missing keys with defaults
+                    for key in missing_keys:
+                        if key == 'dailyCalories':
+                            meal_plan[key] = 2000
+                        elif key == 'macronutrients':
+                            meal_plan[key] = {"protein": 100, "carbs": 250, "fats": 70}
+                        else:
+                            meal_plan[key] = ["Healthy meal option"] * days
+
+                # Ensure arrays have the correct number of items
+                for meal_type in ['breakfast', 'lunch', 'dinner', 'snacks']:
+                    if not isinstance(meal_plan[meal_type], list):
+                        meal_plan[meal_type] = ["Healthy meal option"] * days
+                    while len(meal_plan[meal_type]) < days:
+                        meal_plan[meal_type].append("Healthy meal option")
+                    meal_plan[meal_type] = meal_plan[meal_type][:days]
+
+                print("Successfully generated fallback meal plan")
+                return meal_plan
+                
+            except Exception as fallback_error:
+                print(f"Fallback meal plan generation also failed: {str(fallback_error)}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Both OpenAI API and fallback meal plan generation failed. OpenAI error: {str(openai_error)}"
+                )
+
+    except HTTPException as he:
+        print(f"HTTP Exception in /generate-meal-plan: {str(he.detail)}")
+        raise he
+    except Exception as e:
+        print(f"Unexpected error in /generate-meal-plan: {str(e)}")
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500,
+            detail=f"An unexpected error occurred: {str(e)}"
+        )
 
 @app.post("/generate-recipes")
 async def generate_recipes(
@@ -2144,12 +2627,36 @@ Format the response as a JSON object with the following structure:
         print(f"Error in /generate-recipe: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-def consolidate_ingredients(recipes: List[dict]) -> List[dict]:
+def consolidate_ingredients(recipes: List[dict], user_profile: dict = None) -> List[dict]:
     """
     Consolidate ingredients from multiple recipes, combining quantities for duplicate items.
+    Respects dietary restrictions to avoid consolidating restricted ingredients.
     """
     import re
     ingredient_map = {}
+    
+    # Extract dietary restrictions to respect during consolidation
+    dietary_restrictions = []
+    if user_profile:
+        dietary_features = user_profile.get('dietaryFeatures', [])
+        dietary_restrictions_field = user_profile.get('dietaryRestrictions', [])
+        allergies = user_profile.get('allergies', [])
+        
+        # Combine all dietary restriction sources
+        all_restrictions = dietary_features + dietary_restrictions_field + allergies
+        dietary_restrictions = [str(r).lower() for r in all_restrictions if r]
+        
+        print(f"[consolidate_ingredients] Dietary restrictions detected: {dietary_restrictions}")
+    
+    # Check for egg restrictions
+    has_egg_restriction = any(
+        'vegetarian (no eggs)' in restriction or 'vegetarian (no egg)' in restriction or
+        'no eggs' in restriction or 'no egg' in restriction or 'egg-free' in restriction or
+        'avoid eggs' in restriction or 'avoid egg' in restriction
+        for restriction in dietary_restrictions
+    )
+    
+    print(f"[consolidate_ingredients] Has egg restriction: {has_egg_restriction}")
     
     for recipe in recipes:
         recipe_name = recipe.get("name", "Unknown Recipe")
@@ -2222,6 +2729,7 @@ def consolidate_ingredients(recipes: List[dict]) -> List[dict]:
                 item_name = cleaned
             
             # Normalize common ingredient names to help with consolidation
+            # CRITICAL: Build normalization map while respecting dietary restrictions
             normalized_items = {
                 "onions": ["onion", "onions", "yellow onion", "white onion", "cooking onion", "red onion", "sweet onion"],
                 "garlic": ["garlic cloves", "garlic clove", "cloves garlic", "garlic bulbs", "garlic bulb"],
@@ -2248,7 +2756,6 @@ def consolidate_ingredients(recipes: List[dict]) -> List[dict]:
                 "salt": ["salt", "table salt", "sea salt", "kosher salt"],
                 "black pepper": ["black pepper", "ground black pepper", "pepper"],
                 "butter": ["butter", "unsalted butter", "salted butter"],
-                "eggs": ["egg", "eggs", "chicken eggs"],
                 "milk": ["milk", "whole milk", "2% milk", "skim milk"],
                 "cheese": ["cheese", "cheddar cheese", "mozzarella cheese"],
                 "yogurt": ["yogurt", "greek yogurt", "plain yogurt"],
@@ -2259,6 +2766,12 @@ def consolidate_ingredients(recipes: List[dict]) -> List[dict]:
                 "broccoli": ["broccoli", "broccoli florets"],
                 "cauliflower": ["cauliflower", "cauliflower florets"],
             }
+            
+            # CRITICAL FIX: Only include egg normalization if user doesn't have egg restrictions
+            if not has_egg_restriction:
+                normalized_items["eggs"] = ["egg", "eggs", "chicken eggs"]
+            else:
+                print(f"[consolidate_ingredients] SKIPPING egg normalization due to dietary restriction")
             
             # Find normalized name
             normalized_name = item_name
@@ -2323,16 +2836,56 @@ async def generate_shopping_list(
         print("Received recipes:")
         print(recipes)
         
-        # First, consolidate ingredients programmatically
-        consolidated_ingredients = consolidate_ingredients(recipes)
+        # Get user profile to respect dietary restrictions during consolidation
+        user_profile = current_user.get("profile", {})
+        print(f"[generate-shopping-list] User profile dietary info: {user_profile.get('dietaryFeatures', [])}")
+        
+        # First, consolidate ingredients programmatically while respecting dietary restrictions
+        consolidated_ingredients = consolidate_ingredients(recipes, user_profile)
         print("Consolidated ingredients:")
         for item in consolidated_ingredients:
             print(f"  - {item['ingredient']} (from: {', '.join(item['from_recipes'])})")
         
+        # CRITICAL: Final dietary restriction check - filter out any restricted ingredients
+        dietary_features = user_profile.get('dietaryFeatures', [])
+        dietary_restrictions = user_profile.get('dietaryRestrictions', [])
+        allergies = user_profile.get('allergies', [])
+        all_restrictions = dietary_features + dietary_restrictions + allergies
+        
+        has_egg_restriction = any(
+            'vegetarian (no eggs)' in str(restriction).lower() or 'vegetarian (no egg)' in str(restriction).lower() or
+            'no eggs' in str(restriction).lower() or 'no egg' in str(restriction).lower() or 
+            'egg-free' in str(restriction).lower() or 'avoid eggs' in str(restriction).lower()
+            for restriction in all_restrictions
+        )
+        
+        # Filter out restricted ingredients
+        filtered_ingredients = []
+        for item in consolidated_ingredients:
+            ingredient_name = item["ingredient"].lower()
+            should_exclude = False
+            
+            if has_egg_restriction and ('egg' in ingredient_name):
+                print(f"[generate-shopping-list] EXCLUDING egg ingredient due to dietary restriction: {item['ingredient']}")
+                should_exclude = True
+                
+            if not should_exclude:
+                filtered_ingredients.append(item)
+        
+        print(f"[generate-shopping-list] Filtered {len(consolidated_ingredients)} -> {len(filtered_ingredients)} ingredients after dietary restrictions")
+        
         # Create a simplified ingredient list for the AI
-        ingredient_list = [item["ingredient"] for item in consolidated_ingredients]
+        ingredient_list = [item["ingredient"] for item in filtered_ingredients]
+        
+        # Add dietary restriction information to the prompt
+        restriction_info = ""
+        if has_egg_restriction:
+            restriction_info = "CRITICAL: This user has egg restrictions (Vegetarian no eggs). DO NOT include eggs, mayonnaise, or any egg-containing products in the shopping list."
+        
         prompt = f"""Generate a shopping list based on the following PRE-CONSOLIDATED ingredients:
                     {json.dumps(ingredient_list, indent=2)}
+                    
+                    {restriction_info}
 
                     NOTE: These ingredients have ALREADY been consolidated and quantities combined. Your task is to:
                     1. Categorize each item into appropriate grocery store sections (Produce, Dairy, Meat, Pantry, etc.)
@@ -3535,15 +4088,9 @@ async def global_exception_handler(request: FastAPIRequest, exc: Exception):
         content={"detail": str(exc)},
     )
 
-@app.post("/test-echo")
-async def test_echo(current_user: User = Depends(get_current_user)):
-    print(">>>> Entered /test-echo endpoint")
-    return {"ok": True}
+# Test-echo endpoint moved to routers/utility.py
 
-@app.post("/export/test-minimal")
-async def export_test_minimal():
-    print(">>>> Entered /export/test-minimal endpoint")
-    return {"ok": True}
+# Export test-minimal endpoint moved to routers/utility.py
 
 @app.post("/generate_plan")
 async def generate_plan(
@@ -3963,34 +4510,7 @@ async def debug_meal_plans(current_user: User = Depends(get_current_user)):
         traceback.print_exc()
         raise HTTPException(status_code=500, detail="Internal server error")
 
-@app.get("/debug/timezone")
-async def debug_timezone(current_user: User = Depends(get_current_user)):
-    """Debug endpoint to check user's timezone and day boundaries"""
-    try:
-        profile = current_user.get("profile", {})
-        user_timezone = profile.get("timezone", "UTC")
-        
-        # Calculate day boundaries
-        import pytz
-        user_tz = pytz.timezone(user_timezone)
-        utc_now = datetime.utcnow().replace(tzinfo=pytz.utc)
-        user_now = utc_now.astimezone(user_tz)
-        start_of_today_user = user_now.replace(hour=0, minute=0, second=0, microsecond=0)
-        start_of_tomorrow_user = start_of_today_user + timedelta(days=1)
-        start_of_today_utc = start_of_today_user.astimezone(pytz.utc).replace(tzinfo=None)
-        start_of_tomorrow_utc = start_of_tomorrow_user.astimezone(pytz.utc).replace(tzinfo=None)
-        
-        return {
-            "user_email": current_user["email"],
-            "profile_timezone": user_timezone,
-            "utc_now": utc_now.isoformat(),
-            "user_local_time": user_now.isoformat(),
-            "start_of_today_user": start_of_today_user.isoformat(),
-            "start_of_today_utc": start_of_today_utc.isoformat(),
-            "start_of_tomorrow_utc": start_of_tomorrow_utc.isoformat()
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+# Debug timezone endpoint moved to routers/utility.py
 
 @app.post("/debug/cleanup-meal-plans")
 async def cleanup_meal_plans(current_user: User = Depends(get_current_user)):
