@@ -19,6 +19,7 @@ import {
   DialogActions,
   Snackbar,
 } from '@mui/material';
+import { Psychology } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import config from '../config/environment';
 
@@ -190,13 +191,23 @@ const AdminPanel: React.FC = () => {
           <Typography variant="h4" component="h1">
             Admin Panel
           </Typography>
-          <Button
-            variant="contained"
-            color="primary"
-            onClick={() => setOpenDialog(true)}
-          >
-            Create New Patient
-          </Button>
+          <Box sx={{ display: 'flex', gap: 2 }}>
+            <Button
+              variant="outlined"
+              color="secondary"
+              onClick={() => navigate('/admin/pias-corner')}
+              startIcon={<Psychology />}
+            >
+              Pia's Corner
+            </Button>
+            <Button
+              variant="contained"
+              color="primary"
+              onClick={() => setOpenDialog(true)}
+            >
+              Create New Patient
+            </Button>
+          </Box>
         </Box>
 
         {error && (

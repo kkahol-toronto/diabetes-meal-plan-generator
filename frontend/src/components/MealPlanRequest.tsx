@@ -860,7 +860,14 @@ const MealPlanRequest: React.FC = () => {
         return null;
       case 1:
         return (
-          <Box sx={{ display: 'flex', flexWrap: 'nowrap', gap: 1, justifyContent: 'center' }}>
+          <Box sx={{ 
+            display: 'flex', 
+            flexWrap: 'wrap', 
+            gap: 1, 
+            justifyContent: 'center',
+            alignItems: 'center',
+            width: '100%'
+          }}>
             {!hasGeneratedMealPlan && (
               <Button
                 variant="contained"
@@ -871,6 +878,8 @@ const MealPlanRequest: React.FC = () => {
                 sx={{ 
                   borderRadius: 3, 
                   px: 3,
+                  minWidth: { xs: '120px', sm: 'auto' },
+                  fontSize: { xs: '0.8rem', sm: '0.875rem' },
                   background: `linear-gradient(45deg, ${theme.palette.primary.main}, ${theme.palette.primary.dark})`,
                   transition: 'all 0.3s ease',
                   '&:hover': {
@@ -891,6 +900,8 @@ const MealPlanRequest: React.FC = () => {
                 sx={{ 
                   borderRadius: 3, 
                   px: 3,
+                  minWidth: { xs: '120px', sm: 'auto' },
+                  fontSize: { xs: '0.8rem', sm: '0.875rem' },
                   transition: 'all 0.3s ease',
                   '&:hover': {
                     transform: 'translateY(-2px)',
@@ -913,6 +924,8 @@ const MealPlanRequest: React.FC = () => {
                   sx={{ 
                     borderRadius: 3, 
                     px: 3,
+                    minWidth: { xs: '120px', sm: 'auto' },
+                    fontSize: { xs: '0.8rem', sm: '0.875rem' },
                     color: 'white',
                     background: `linear-gradient(45deg, ${theme.palette.success.main}, ${theme.palette.success.dark})`,
                     transition: 'all 0.3s ease',
@@ -932,6 +945,8 @@ const MealPlanRequest: React.FC = () => {
                   sx={{ 
                     borderRadius: 3, 
                     px: 3,
+                    minWidth: { xs: '120px', sm: 'auto' },
+                    fontSize: { xs: '0.8rem', sm: '0.875rem' },
                     transition: 'all 0.3s ease',
                     '&:hover': {
                       transform: 'translateY(-2px)',
@@ -947,7 +962,14 @@ const MealPlanRequest: React.FC = () => {
         );
       case 2: // Recipes Step
         return (
-          <Box sx={{ display: 'flex', flexWrap: 'nowrap', gap: 1, justifyContent: 'center' }}>
+          <Box sx={{ 
+            display: 'flex', 
+            flexWrap: 'wrap', 
+            gap: 1, 
+            justifyContent: 'center',
+            alignItems: 'center',
+            width: '100%'
+          }}>
             <Button
               variant="contained"
               color="primary"
@@ -1017,7 +1039,14 @@ const MealPlanRequest: React.FC = () => {
         );
       case 3: // Shopping List Step
         return (
-          <Box sx={{ display: 'flex', flexWrap: 'nowrap', gap: 1, justifyContent: 'center' }}>
+          <Box sx={{ 
+            display: 'flex', 
+            flexWrap: 'wrap', 
+            gap: 1, 
+            justifyContent: 'center',
+            alignItems: 'center',
+            width: '100%'
+          }}>
             <Button
               variant="contained"
               onClick={handleShoppingListGenerate}
@@ -1570,56 +1599,83 @@ const MealPlanRequest: React.FC = () => {
                 }}
               >
                 <CardContent>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 2, minHeight: '56px' }}>
-                    <Button
-                      color="inherit"
-                      disabled={activeStep === 0 || loading || generatingRecipes}
-                      onClick={handleBack}
-                      variant="outlined"
-                      startIcon={<NavigateBeforeIcon />}
-                      sx={{ 
-                        borderRadius: 3, 
-                        px: 3,
-                        flexShrink: 0,
-                        transition: 'all 0.3s ease',
-                        '&:hover': {
-                          transform: 'translateY(-2px)',
-                          boxShadow: '0 6px 16px rgba(0,0,0,0.1)',
-                        },
-                      }}
-                    >
-                      Back
-                    </Button>
-                    
-                    <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center', flexWrap: 'nowrap', overflow: 'hidden' }}>
-                      {renderActionButtons()}
-                    </Box>
-                    
-                    {activeStep !== 0 && activeStep < steps.length - 1 && ( 
+                  <Box sx={{ 
+                    display: 'flex', 
+                    flexDirection: { xs: 'column', sm: 'row' },
+                    justifyContent: { xs: 'center', sm: 'space-between' }, 
+                    alignItems: 'center', 
+                    gap: 2, 
+                    minHeight: '56px' 
+                  }}>
+                    <Box sx={{ 
+                      display: 'flex', 
+                      flexDirection: { xs: 'column', sm: 'row' },
+                      gap: 2, 
+                      width: { xs: '100%', sm: 'auto' },
+                      justifyContent: 'center',
+                      alignItems: 'center'
+                    }}>
                       <Button
-                        variant="contained"
-                        onClick={handleNext}
-                        disabled={loading || generatingRecipes || 
-                          (activeStep === 0 && !userProfile) ||
-                          (activeStep === 1 && (!editableMealPlan || !mealPlan)) ||
-                          (activeStep === 2 && (!recipes || recipes.length === 0))
-                        }
-                        endIcon={<NavigateNextIcon />}
+                        color="inherit"
+                        disabled={activeStep === 0 || loading || generatingRecipes}
+                        onClick={handleBack}
+                        variant="outlined"
+                        startIcon={<NavigateBeforeIcon />}
                         sx={{ 
                           borderRadius: 3, 
                           px: 3,
                           flexShrink: 0,
-                          background: `linear-gradient(45deg, ${theme.palette.primary.main}, ${theme.palette.primary.dark})`,
+                          width: { xs: '100%', sm: 'auto' },
+                          maxWidth: { xs: '200px', sm: 'none' },
                           transition: 'all 0.3s ease',
                           '&:hover': {
                             transform: 'translateY(-2px)',
-                            boxShadow: '0 8px 20px rgba(0,0,0,0.15)',
+                            boxShadow: '0 6px 16px rgba(0,0,0,0.1)',
                           },
                         }}
                       >
-                        Next
+                        Back
                       </Button>
-                    )}
+                      
+                      <Box sx={{ 
+                        display: 'flex', 
+                        gap: 1, 
+                        justifyContent: 'center', 
+                        flexWrap: 'wrap',
+                        width: { xs: '100%', sm: 'auto' },
+                        maxWidth: { xs: '100%', sm: 'none' }
+                      }}>
+                        {renderActionButtons()}
+                      </Box>
+                      
+                      {activeStep !== 0 && activeStep < steps.length - 1 && ( 
+                        <Button
+                          variant="contained"
+                          onClick={handleNext}
+                          disabled={loading || generatingRecipes || 
+                            (activeStep === 0 && !userProfile) ||
+                            (activeStep === 1 && (!editableMealPlan || !mealPlan)) ||
+                            (activeStep === 2 && (!recipes || recipes.length === 0))
+                          }
+                          endIcon={<NavigateNextIcon />}
+                          sx={{ 
+                            borderRadius: 3, 
+                            px: 3,
+                            flexShrink: 0,
+                            width: { xs: '100%', sm: 'auto' },
+                            maxWidth: { xs: '200px', sm: 'none' },
+                            background: `linear-gradient(45deg, ${theme.palette.primary.main}, ${theme.palette.primary.dark})`,
+                            transition: 'all 0.3s ease',
+                            '&:hover': {
+                              transform: 'translateY(-2px)',
+                              boxShadow: '0 8px 20px rgba(0,0,0,0.15)',
+                            },
+                          }}
+                        >
+                          Next
+                        </Button>
+                      )}
+                    </Box>
                   </Box>
                 </CardContent>
               </Card>

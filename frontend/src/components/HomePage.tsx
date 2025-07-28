@@ -2895,59 +2895,95 @@ const HomePage: React.FC = () => {
           <Typography variant="subtitle1" color="text.secondary" sx={{ mb: 2 }}>
             Visualize your dietary intake over different periods to identify patterns and progress.
           </Typography>
-          <ToggleButtonGroup
-            value={selectedTimeRange}
-            exclusive
-            onChange={(e, newTimeRange) => newTimeRange && fetchConsumptionAnalytics(newTimeRange)}
-            aria-label="time range selection"
-            size="small"
-            color="primary"
-            sx={{ mb: 2 }}
-          >
-            <ToggleButton value="daily">Daily</ToggleButton>
-            <ToggleButton value="weekly">Weekly</ToggleButton>
-            <ToggleButton value="bi-weekly">Bi-Weekly</ToggleButton>
-            <ToggleButton value="monthly">Monthly</ToggleButton>
-          </ToggleButtonGroup>
-          
-          <ToggleButtonGroup
-            value={analyticsChartType}
-            exclusive
-            onChange={(e, newChartType) => newChartType && setAnalyticsChartType(newChartType)}
-            aria-label="chart type selection"
-            size="small"
-            color="secondary"
-            sx={{ mb: 2, ml: 2 }}
-          >
-            <ToggleButton value="line">
-              <ShowChartIcon sx={{ mr: 1 }} />
-              Line
-            </ToggleButton>
-            <ToggleButton value="bar">
-              <BarChartIcon sx={{ mr: 1 }} />
-              Bar
-            </ToggleButton>
-            <ToggleButton value="area">
-              <AreaChartIcon sx={{ mr: 1 }} />
-              Area
-            </ToggleButton>
-            <ToggleButton value="scatter">
-              <ScatterPlotIcon sx={{ mr: 1 }} />
-              Scatter
-            </ToggleButton>
-            <ToggleButton value="comparison">
-              <CompareIcon sx={{ mr: 1 }} />
-              Target
-            </ToggleButton>
-            <ToggleButton value="pie">
-              <PieChartIcon sx={{ mr: 1 }} />
-              Pie
-            </ToggleButton>
-            <ToggleButton value="doughnut">
-              <DonutLargeIcon sx={{ mr: 1 }} />
-              Doughnut
-            </ToggleButton>
-          </ToggleButtonGroup>
+          <Box sx={{ 
+            display: 'flex', 
+            flexDirection: { xs: 'column', sm: 'column', md: 'row' },
+            gap: 2,
+            alignItems: { xs: 'stretch', md: 'flex-start' },
+            mb: 2 
+          }}>
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+              <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
+                Time Range
+              </Typography>
+              <ToggleButtonGroup
+                value={selectedTimeRange}
+                exclusive
+                onChange={(e, newTimeRange) => {
+                  if (newTimeRange) {
+                    setSelectedTimeRange(newTimeRange);
+                    fetchConsumptionAnalytics(newTimeRange);
+                  }
+                }}
+                aria-label="time range selection"
+                size="small"
+                color="primary"
+                sx={{ 
+                  flexWrap: { xs: 'wrap', sm: 'nowrap' },
+                  '& .MuiToggleButton-root': {
+                    fontSize: { xs: '0.75rem', sm: '0.875rem' },
+                    px: { xs: 1, sm: 2 }
+                  }
+                }}
+              >
+                <ToggleButton value="daily">Daily</ToggleButton>
+                <ToggleButton value="weekly">Weekly</ToggleButton>
+                <ToggleButton value="bi-weekly">Bi-Weekly</ToggleButton>
+                <ToggleButton value="monthly">Monthly</ToggleButton>
+              </ToggleButtonGroup>
+            </Box>
+            
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+              <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
+                Chart Type
+              </Typography>
+              <ToggleButtonGroup
+                value={analyticsChartType}
+                exclusive
+                onChange={(e, newChartType) => newChartType && setAnalyticsChartType(newChartType)}
+                aria-label="chart type selection"
+                size="small"
+                color="secondary"
+                sx={{ 
+                  flexWrap: { xs: 'wrap', sm: 'wrap', md: 'nowrap' },
+                  '& .MuiToggleButton-root': {
+                    fontSize: { xs: '0.75rem', sm: '0.875rem' },
+                    px: { xs: 1, sm: 1.5 },
+                    minWidth: { xs: 'auto', sm: 'auto' }
+                  }
+                }}
+              >
+                <ToggleButton value="line">
+                  <ShowChartIcon sx={{ mr: { xs: 0, sm: 0.5 }, fontSize: { xs: '1rem', sm: '1.25rem' } }} />
+                  <Box component="span" sx={{ display: { xs: 'none', sm: 'inline' } }}>Line</Box>
+                </ToggleButton>
+                <ToggleButton value="bar">
+                  <BarChartIcon sx={{ mr: { xs: 0, sm: 0.5 }, fontSize: { xs: '1rem', sm: '1.25rem' } }} />
+                  <Box component="span" sx={{ display: { xs: 'none', sm: 'inline' } }}>Bar</Box>
+                </ToggleButton>
+                <ToggleButton value="area">
+                  <AreaChartIcon sx={{ mr: { xs: 0, sm: 0.5 }, fontSize: { xs: '1rem', sm: '1.25rem' } }} />
+                  <Box component="span" sx={{ display: { xs: 'none', sm: 'inline' } }}>Area</Box>
+                </ToggleButton>
+                <ToggleButton value="scatter">
+                  <ScatterPlotIcon sx={{ mr: { xs: 0, sm: 0.5 }, fontSize: { xs: '1rem', sm: '1.25rem' } }} />
+                  <Box component="span" sx={{ display: { xs: 'none', sm: 'inline' } }}>Scatter</Box>
+                </ToggleButton>
+                <ToggleButton value="comparison">
+                  <CompareIcon sx={{ mr: { xs: 0, sm: 0.5 }, fontSize: { xs: '1rem', sm: '1.25rem' } }} />
+                  <Box component="span" sx={{ display: { xs: 'none', sm: 'inline' } }}>Target</Box>
+                </ToggleButton>
+                <ToggleButton value="pie">
+                  <PieChartIcon sx={{ mr: { xs: 0, sm: 0.5 }, fontSize: { xs: '1rem', sm: '1.25rem' } }} />
+                  <Box component="span" sx={{ display: { xs: 'none', sm: 'inline' } }}>Pie</Box>
+                </ToggleButton>
+                <ToggleButton value="doughnut">
+                  <DonutLargeIcon sx={{ mr: { xs: 0, sm: 0.5 }, fontSize: { xs: '1rem', sm: '1.25rem' } }} />
+                  <Box component="span" sx={{ display: { xs: 'none', sm: 'inline' } }}>Doughnut</Box>
+                </ToggleButton>
+              </ToggleButtonGroup>
+            </Box>
+          </Box>
         </Box>
 
         {loading ? (

@@ -1847,6 +1847,239 @@ async def resend_registration_code(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error resending registration code: {str(e)}")
 
+# ============================================================================
+# PIAS CORNER - COMPREHENSIVE ADMIN ANALYTICS ENDPOINTS
+# ============================================================================
+
+@app.get("/admin/analytics/comprehensive")
+async def get_comprehensive_analytics(current_user: User = Depends(get_current_user)):
+    """Get comprehensive analytics for Pia's Corner dashboard - REAL DATA ONLY"""
+    if not current_user.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    try:
+        print("[PIAS_CORNER] Fetching comprehensive analytics with real data...")
+        
+        # 1. Get all patients
+        all_patients = await get_all_patients()
+        patient_count = len(all_patients)
+        
+        # 2. Get all registered users with consumption data
+        users_query = "SELECT * FROM c WHERE c.type = 'user'"
+        all_users = list(user_container.query_items(query=users_query, enable_cross_partition_query=True))
+        
+        # 3. Get all consumption records
+        consumption_query = "SELECT * FROM c WHERE c.type = 'consumption_record'"
+        all_consumption = list(interactions_container.query_items(query=consumption_query, enable_cross_partition_query=True))
+        
+        # 4. Get all meal plans
+        meal_plans_query = "SELECT * FROM c WHERE c.type = 'meal_plan'"
+        all_meal_plans = list(interactions_container.query_items(query=meal_plans_query, enable_cross_partition_query=True))
+        
+        # 5. Calculate engagement metrics
+        active_users = []
+        for user in all_users:
+            user_consumption = [c for c in all_consumption if c.get('user_id') == user.get('email', user.get('id'))]
+            if user_consumption:
+                active_users.append({
+                    'user_id': user.get('email', user.get('id')),
+                    'consumption_count': len(user_consumption),
+                    'last_activity': max([c.get('created_at', '1970-01-01') for c in user_consumption]),
+                    'profile': user.get('profile', {}),
+                    'registration_code': user.get('registration_code')
+                })
+        
+        # 6. Calculate nutrient adequacy across all users
+        nutrient_totals = {'calories': 0, 'protein': 0, 'carbohydrates': 0, 'fat': 0, 'count': 0}
+        for consumption in all_consumption:
+            nutrient_totals['calories'] += consumption.get('calories', 0)
+            nutrient_totals['protein'] += consumption.get('protein', 0)
+            nutrient_totals['carbohydrates'] += consumption.get('carbohydrates', 0)
+            nutrient_totals['fat'] += consumption.get('fat', 0)
+            nutrient_totals['count'] += 1
+        
+        # 7. Detect outliers (users with extreme consumption patterns)
+        outliers = []
+        for user_data in active_users:
+            user_consumption = [c for c in all_consumption if c.get('user_id') == user_data['user_id']]
+            total_calories = sum([c.get('calories', 0) for c in user_consumption])
+            avg_calories = total_calories / len(user_consumption) if user_consumption else 0
+            
+            if avg_calories > 3000 or avg_calories < 500:  # Outlier thresholds
+                outliers.append({
+                    'user_id': user_data['user_id'],
+                    'avg_calories': avg_calories,
+                    'total_logs': len(user_consumption),
+                    'reason': 'High calorie intake' if avg_calories > 3000 else 'Low calorie intake'
+                })
+        
+        # 8. Calculate compliance rates
+        compliance_data = []
+        for user_data in active_users:
+            user_meal_plans = [m for m in all_meal_plans if m.get('user_id') == user_data['user_id']]
+            user_consumption = [c for c in all_consumption if c.get('user_id') == user_data['user_id']]
+            
+            compliance_rate = 0
+            if user_meal_plans and user_consumption:
+                # Simple compliance calculation based on logging frequency
+                days_with_plans = len(set([m.get('created_at', '')[:10] for m in user_meal_plans]))
+                days_with_consumption = len(set([c.get('created_at', '')[:10] for c in user_consumption]))
+                compliance_rate = (days_with_consumption / max(days_with_plans, 1)) * 100
+            
+            compliance_data.append({
+                'user_id': user_data['user_id'],
+                'compliance_rate': min(compliance_rate, 100),
+                'meal_plans_count': len(user_meal_plans),
+                'consumption_logs': len(user_consumption)
+            })
+        
+        return {
+            'summary': {
+                'total_patients': patient_count,
+                'active_users': len(active_users),
+                'total_consumption_logs': len(all_consumption),
+                'total_meal_plans': len(all_meal_plans),
+                'avg_compliance_rate': sum(c['compliance_rate'] for c in compliance_data) / len(compliance_data) if compliance_data else 0
+            },
+            'nutrient_adequacy': {
+                'avg_calories': nutrient_totals['calories'] / max(nutrient_totals['count'], 1),
+                'avg_protein': nutrient_totals['protein'] / max(nutrient_totals['count'], 1),
+                'avg_carbs': nutrient_totals['carbohydrates'] / max(nutrient_totals['count'], 1),
+                'avg_fat': nutrient_totals['fat'] / max(nutrient_totals['count'], 1),
+                'total_logs': nutrient_totals['count']
+            },
+            'engagement_metrics': active_users,
+            'outlier_detection': outliers,
+            'behavior_clusters': {
+                'high_engagement': [u for u in active_users if u['consumption_count'] > 10],
+                'medium_engagement': [u for u in active_users if 5 <= u['consumption_count'] <= 10],
+                'low_engagement': [u for u in active_users if u['consumption_count'] < 5]
+            },
+            'compliance_graph': compliance_data,
+            'patient_table': active_users
+        }
+        
+    except Exception as e:
+        print(f"[PIAS_CORNER] Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get comprehensive analytics: {str(e)}")
+
+@app.get("/admin/analytics/nutrient-trends")
+async def get_nutrient_trends(days: int = 30, current_user: User = Depends(get_current_user)):
+    """Get nutrient trends across all patients over time"""
+    if not current_user.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    try:
+        from datetime import timedelta
+        import pytz
+        
+        # Get consumption records from last N days
+        end_date = datetime.now(pytz.UTC)
+        start_date = end_date - timedelta(days=days)
+        
+        consumption_query = f"""
+        SELECT * FROM c 
+        WHERE c.type = 'consumption_record' 
+        AND c.created_at >= '{start_date.isoformat()}'
+        ORDER BY c.created_at DESC
+        """
+        
+        consumption_records = list(interactions_container.query_items(
+            query=consumption_query, 
+            enable_cross_partition_query=True
+        ))
+        
+        # Group by date and calculate daily averages
+        daily_nutrients = {}
+        for record in consumption_records:
+            date_key = record.get('created_at', '')[:10]  # Get YYYY-MM-DD
+            if date_key not in daily_nutrients:
+                daily_nutrients[date_key] = {
+                    'calories': [], 'protein': [], 'carbohydrates': [], 'fat': []
+                }
+            
+            daily_nutrients[date_key]['calories'].append(record.get('calories', 0))
+            daily_nutrients[date_key]['protein'].append(record.get('protein', 0))
+            daily_nutrients[date_key]['carbohydrates'].append(record.get('carbohydrates', 0))
+            daily_nutrients[date_key]['fat'].append(record.get('fat', 0))
+        
+        # Calculate averages for each day
+        trend_data = []
+        for date_key, nutrients in daily_nutrients.items():
+            trend_data.append({
+                'date': date_key,
+                'avg_calories': sum(nutrients['calories']) / len(nutrients['calories']),
+                'avg_protein': sum(nutrients['protein']) / len(nutrients['protein']),
+                'avg_carbs': sum(nutrients['carbohydrates']) / len(nutrients['carbohydrates']),
+                'avg_fat': sum(nutrients['fat']) / len(nutrients['fat']),
+                'total_logs': len(nutrients['calories'])
+            })
+        
+        return sorted(trend_data, key=lambda x: x['date'])
+        
+    except Exception as e:
+        print(f"[NUTRIENT_TRENDS] Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get nutrient trends: {str(e)}")
+
+@app.get("/admin/analytics/patient-engagement")
+async def get_patient_engagement(current_user: User = Depends(get_current_user)):
+    """Get detailed patient engagement analytics"""
+    if not current_user.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    try:
+        # Get all users with their profiles
+        users_query = "SELECT * FROM c WHERE c.type = 'user'"
+        all_users = list(user_container.query_items(query=users_query, enable_cross_partition_query=True))
+        
+        # Get all interactions (consumption, meal plans, chat)
+        consumption_query = "SELECT * FROM c WHERE c.type = 'consumption_record'"
+        chat_query = "SELECT * FROM c WHERE c.type = 'chat_message'"
+        meal_plan_query = "SELECT * FROM c WHERE c.type = 'meal_plan'"
+        
+        all_consumption = list(interactions_container.query_items(query=consumption_query, enable_cross_partition_query=True))
+        all_chats = list(interactions_container.query_items(query=chat_query, enable_cross_partition_query=True))
+        all_meal_plans = list(interactions_container.query_items(query=meal_plan_query, enable_cross_partition_query=True))
+        
+        engagement_data = []
+        for user in all_users:
+            user_id = user.get('email', user.get('id'))
+            
+            # Count interactions
+            consumption_count = len([c for c in all_consumption if c.get('user_id') == user_id])
+            chat_count = len([c for c in all_chats if c.get('user_id') == user_id])
+            meal_plan_count = len([m for m in all_meal_plans if m.get('user_id') == user_id])
+            
+            # Calculate engagement score
+            engagement_score = (consumption_count * 3) + (chat_count * 2) + (meal_plan_count * 5)
+            
+            # Get last activity
+            all_activities = []
+            all_activities.extend([c.get('created_at', '') for c in all_consumption if c.get('user_id') == user_id])
+            all_activities.extend([c.get('created_at', '') for c in all_chats if c.get('user_id') == user_id])
+            all_activities.extend([m.get('created_at', '') for m in all_meal_plans if m.get('user_id') == user_id])
+            
+            last_activity = max(all_activities) if all_activities else None
+            
+            engagement_data.append({
+                'user_id': user_id,
+                'name': user.get('profile', {}).get('name', 'Unknown'),
+                'registration_code': user.get('registration_code'),
+                'engagement_score': engagement_score,
+                'consumption_logs': consumption_count,
+                'chat_messages': chat_count,
+                'meal_plans': meal_plan_count,
+                'last_activity': last_activity,
+                'medical_conditions': user.get('profile', {}).get('medicalConditions', []),
+                'profile_completeness': len([v for v in user.get('profile', {}).values() if v]) / 15 * 100  # Rough completeness score
+            })
+        
+        return sorted(engagement_data, key=lambda x: x['engagement_score'], reverse=True)
+        
+    except Exception as e:
+        print(f"[PATIENT_ENGAGEMENT] Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get patient engagement: {str(e)}")
+
 def enforce_dietary_restrictions(meal_plan_data: dict, user_profile: dict) -> dict:
     """
     Comprehensive dietary restriction enforcement function.

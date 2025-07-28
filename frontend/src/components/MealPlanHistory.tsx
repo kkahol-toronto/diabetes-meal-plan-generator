@@ -516,24 +516,51 @@ const MealPlanHistory = () => {
         )}
 
         {filteredPlans.length > 0 && (
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 2, mb: 2 }}>
-                <Box sx={{ display: 'flex', gap: 1 }}>
+            <Box sx={{ 
+              display: 'flex', 
+              flexDirection: { xs: 'column', md: 'row' },
+              justifyContent: { xs: 'center', md: 'space-between' }, 
+              alignItems: { xs: 'stretch', md: 'center' }, 
+              gap: 2, 
+              mb: 2 
+            }}>
+                <Box sx={{ 
+                  display: 'flex', 
+                  flexDirection: { xs: 'column', sm: 'row' },
+                  gap: 1, 
+                  alignItems: { xs: 'center', sm: 'flex-start' }
+                }}>
                     <Button
                         variant="outlined"
                         size="small"
                         onClick={handleSelectAll}
                         disabled={loading}
+                        sx={{ 
+                          minWidth: { xs: '140px', sm: 'auto' },
+                          fontSize: { xs: '0.75rem', sm: '0.875rem' }
+                        }}
                     >
                         {filteredPlans.every(plan => selectedMealPlans.includes(plan.id || '')) 
                             ? 'Deselect All' 
                             : 'Select All'
                         }
                     </Button>
-                    <Typography variant="body2" sx={{ alignSelf: 'center', color: 'text.secondary' }}>
+                    <Typography variant="body2" sx={{ 
+                      alignSelf: 'center', 
+                      color: 'text.secondary',
+                      textAlign: { xs: 'center', sm: 'left' },
+                      fontSize: { xs: '0.75rem', sm: '0.875rem' }
+                    }}>
                         {selectedMealPlans.length} of {filteredPlans.length} selected
                     </Typography>
                 </Box>
-                <Box sx={{ display: 'flex', gap: 2 }}>
+                <Box sx={{ 
+                  display: 'flex', 
+                  flexDirection: { xs: 'column', sm: 'row' },
+                  gap: 2, 
+                  alignItems: 'center',
+                  justifyContent: { xs: 'center', sm: 'flex-end' }
+                }}>
                      <Tooltip title="If a plan can't be deleted, it may have already been removed or is corrupted. The list will refresh automatically.">
                        <span>
                      <Button
@@ -542,6 +569,10 @@ const MealPlanHistory = () => {
                         startIcon={<DeleteIcon />}
                         onClick={handleDeleteSelected}
                         disabled={selectedMealPlans.length === 0 || loading}
+                        sx={{ 
+                          minWidth: { xs: '160px', sm: 'auto' },
+                          fontSize: { xs: '0.75rem', sm: '0.875rem' }
+                        }}
                      >
                         Delete Selected ({selectedMealPlans.length})
                      </Button>
@@ -552,6 +583,10 @@ const MealPlanHistory = () => {
                         color="error"
                         onClick={handleClearAll}
                         disabled={loading}
+                        sx={{ 
+                          minWidth: { xs: '120px', sm: 'auto' },
+                          fontSize: { xs: '0.75rem', sm: '0.875rem' }
+                        }}
                      >
                         Clear All
                      </Button>
@@ -659,7 +694,16 @@ const MealPlanHistory = () => {
                       </Stack>
                     </Box>
 
-                    <Box mt={2} display="flex" justifyContent="space-between" gap={1}>
+                    <Box 
+                      mt={2} 
+                      sx={{
+                        display: 'flex', 
+                        flexDirection: { xs: 'column', sm: 'row' },
+                        justifyContent: { xs: 'center', sm: 'space-between' }, 
+                        alignItems: 'center',
+                        gap: 1
+                      }}
+                    >
                       {plan.consolidated_pdf && (
                         <Button
                           variant="outlined"
@@ -668,7 +712,12 @@ const MealPlanHistory = () => {
                           startIcon={<DownloadIcon />}
                           onClick={() => handleDownloadPDF(plan.consolidated_pdf?.filename || '')}
                           disabled={!plan.consolidated_pdf?.filename}
-                          sx={{ minWidth: 'auto' }}
+                          sx={{ 
+                            minWidth: { xs: '120px', sm: 'auto' },
+                            width: { xs: '100%', sm: 'auto' },
+                            maxWidth: { xs: '200px', sm: 'none' },
+                            fontSize: { xs: '0.75rem', sm: '0.875rem' }
+                          }}
                         >
                           PDF
                         </Button>
@@ -679,6 +728,12 @@ const MealPlanHistory = () => {
                         size="small"
                         onClick={() => navigate(`/meal-plan/${plan.id || ''}`)}
                         disabled={!plan.id}
+                        sx={{ 
+                          minWidth: { xs: '120px', sm: 'auto' },
+                          width: { xs: '100%', sm: 'auto' },
+                          maxWidth: { xs: '200px', sm: 'none' },
+                          fontSize: { xs: '0.75rem', sm: '0.875rem' }
+                        }}
                       >
                         View Details
                       </Button>

@@ -24,6 +24,7 @@ import RestaurantIcon from '@mui/icons-material/Restaurant';
 import BookIcon from '@mui/icons-material/Book';
 import ChatIcon from '@mui/icons-material/Chat';
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
+import { Psychology } from '@mui/icons-material';
 import AccountCircleIcon from '@mui/icons-material/AccountCircle';
 import HistoryIcon from '@mui/icons-material/History';
 import SettingsIcon from '@mui/icons-material/Settings';
@@ -107,6 +108,7 @@ const Navigation = () => {
   // Add admin panel link if user is admin
   if (userInfo?.is_admin) {
     menuItems.push({ text: 'Admin Panel', icon: <AdminPanelSettingsIcon />, path: '/admin' });
+    menuItems.push({ text: 'Pia\'s Corner', icon: <Psychology />, path: '/admin/pias-corner' });
   }
 
   const handleLogout = () => {
