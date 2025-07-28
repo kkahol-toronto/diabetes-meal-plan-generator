@@ -15,6 +15,17 @@ from utils import (
     validate_and_normalize_profile, calculate_profile_completeness,
     SECRET_KEY, ALGORITHM, pwd_context, twilio_client
 )
+from constants import (
+    APP_TITLE, APP_VERSION, ACCESS_TOKEN_EXPIRE_MINUTES,
+    DEFAULT_MAX_TOKENS, DEFAULT_TEMPERATURE, DEFAULT_MAX_RETRIES, DEFAULT_TIMEOUT,
+    CREATIVE_TEMPERATURE, PRECISE_TEMPERATURE, MEAL_PLAN_MAX_TOKENS, RECIPE_MAX_TOKENS,
+    CHAT_MAX_TOKENS, PROTEIN_SUGGESTION_MAX_TOKENS, MEAL_SUGGESTION_MAX_TOKENS,
+    ANALYSIS_MAX_TOKENS, SHORT_TIMEOUT, LONG_MAX_TOKENS,
+    DEFAULT_CALORIE_TARGET, SNACK_CALORIE_LIMIT,
+    BREAKFAST_OPTIONS, LUNCH_OPTIONS, DINNER_OPTIONS, SNACK_OPTIONS,
+    NON_VEG_LUNCH_ADDITIONS, NON_VEG_DINNER_ADDITIONS, RECIPE_TEMPLATES,
+    DEFAULT_PATIENT_PROFILE, PDF_TITLE, MAX_BACKOFF_SECONDS, BASE_BACKOFF_MULTIPLIER
+)
 import os
 from dotenv import load_dotenv
 from openai import AzureOpenAI
@@ -92,7 +103,7 @@ print(os.getenv("AZURE_OPENAI_MODEL_NAME"))
 print(os.getenv("AZURE_OPENAI_MODEL_VERSION"))
 print(os.getenv("INTERACTIONS_CONTAINER"))
 
-app = FastAPI(title="Diabetes Diet Manager API")
+app = FastAPI(title=APP_TITLE)
 
 # Configure CORS
 app.add_middleware(
@@ -118,11 +129,11 @@ client = AzureOpenAI(
 # Robust OpenAI API wrapper with retry logic and better error handling
 async def robust_openai_call(
     messages: List[Dict[str, str]], 
-    max_tokens: int = 2000, 
-    temperature: float = 0.7,
+    max_tokens: int = DEFAULT_MAX_TOKENS, 
+    temperature: float = DEFAULT_TEMPERATURE,
     response_format: Optional[Dict[str, str]] = None,
-    max_retries: int = 3,
-    timeout: int = 60,
+    max_retries: int = DEFAULT_MAX_RETRIES,
+    timeout: int = DEFAULT_TIMEOUT,
     context: str = "openai_call"
 ) -> Dict[str, Any]:
     """
@@ -184,7 +195,7 @@ async def robust_openai_call(
             
             # Check if this is a rate limit error
             if "rate_limit" in error_msg.lower() or "429" in error_msg:
-                wait_time = min(2 ** attempt, 60)  # Exponential backoff, max 60 seconds
+                wait_time = min(BASE_BACKOFF_MULTIPLIER ** attempt, MAX_BACKOFF_SECONDS)  # Exponential backoff
                 print(f"[{context}] Rate limit detected, waiting {wait_time} seconds...")
                 await asyncio.sleep(wait_time)
                 continue
@@ -193,12 +204,12 @@ async def robust_openai_call(
             if "timeout" in error_msg.lower():
                 print(f"[{context}] Timeout detected on attempt {attempt + 1}")
                 if attempt < max_retries - 1:
-                    await asyncio.sleep(min(2 ** attempt, 60))  # Exponential backoff, max 60 seconds
+                    await asyncio.sleep(min(BASE_BACKOFF_MULTIPLIER ** attempt, MAX_BACKOFF_SECONDS))  # Exponential backoff
                     continue
             
             # For other errors, wait a bit before retrying
             if attempt < max_retries - 1:
-                wait_time = min(2 ** attempt, 60)  # Exponential backoff, max 60 seconds
+                wait_time = min(BASE_BACKOFF_MULTIPLIER ** attempt, MAX_BACKOFF_SECONDS)  # Exponential backoff
                 print(f"[{context}] Waiting {wait_time} seconds before retry...")
                 await asyncio.sleep(wait_time)
             else:
@@ -242,61 +253,21 @@ def generate_fallback_meal_plan(user_profile: dict, days: int = 7) -> dict:
     has_gluten_allergy = any('gluten' in str(allergy).lower() or 'wheat' in str(allergy).lower() for allergy in allergies)
     
     # Safe breakfast options
-    breakfast_options = [
-        "Oatmeal with berries and cinnamon",
-        "Greek yogurt with nuts and seeds",
-        "Whole grain toast with avocado",
-        "Smoothie with spinach and banana",
-        "Chia seed pudding with fruit",
-        "Quinoa breakfast bowl with vegetables",
-        "Almond butter on whole grain toast"
-    ]
+    breakfast_options = BREAKFAST_OPTIONS.copy()
     
     # Safe lunch options
-    lunch_options = [
-        "Quinoa salad with mixed vegetables",
-        "Lentil soup with whole grain bread",
-        "Chickpea curry with brown rice",
-        "Vegetable stir-fry with tofu",
-        "Bean and vegetable wrap",
-        "Hummus with vegetable sticks",
-        "Stuffed bell peppers with quinoa"
-    ]
+    lunch_options = LUNCH_OPTIONS.copy()
     
     # Safe dinner options
-    dinner_options = [
-        "Baked sweet potato with black beans",
-        "Vegetable curry with brown rice",
-        "Grilled vegetables with quinoa",
-        "Lentil dal with steamed vegetables",
-        "Stuffed zucchini with vegetables",
-        "Roasted vegetables with chickpeas",
-        "Vegetable soup with whole grain bread"
-    ]
+    dinner_options = DINNER_OPTIONS.copy()
     
     # Safe snack options
-    snack_options = [
-        "Mixed nuts and seeds",
-        "Apple slices with almond butter",
-        "Carrot sticks with hummus",
-        "Berries with Greek yogurt",
-        "Cucumber slices with tahini",
-        "Roasted chickpeas",
-        "Homemade trail mix"
-    ]
+    snack_options = SNACK_OPTIONS.copy()
     
     # Adjust for non-vegetarian users
     if not is_vegetarian:
-        lunch_options.extend([
-            "Grilled chicken salad with olive oil dressing",
-            "Baked salmon with steamed vegetables",
-            "Turkey and vegetable wrap"
-        ])
-        dinner_options.extend([
-            "Grilled chicken with roasted vegetables",
-            "Baked fish with quinoa and vegetables",
-            "Lean beef stir-fry with brown rice"
-        ])
+        lunch_options.extend(NON_VEG_LUNCH_ADDITIONS)
+        dinner_options.extend(NON_VEG_DINNER_ADDITIONS)
     
     # Adjust for allergies
     if has_egg_allergy:
@@ -346,85 +317,7 @@ def generate_fallback_recipes(meal_names: List[str]) -> List[dict]:
     print(f"[FALLBACK] Generating fallback recipes for {len(meal_names)} meals...")
     
     # Common diabetes-friendly recipes
-    recipe_templates = {
-        "oatmeal": {
-            "name": "Diabetes-Friendly Oatmeal",
-            "ingredients": [
-                "1/2 cup rolled oats",
-                "1 cup water or unsweetened almond milk",
-                "1/4 cup fresh berries",
-                "1 tbsp chopped nuts",
-                "1/2 tsp cinnamon",
-                "1 tsp vanilla extract"
-            ],
-            "instructions": [
-                "Bring water or almond milk to a boil",
-                "Add oats and reduce heat to medium",
-                "Cook for 5-7 minutes, stirring occasionally",
-                "Add cinnamon and vanilla",
-                "Top with berries and nuts",
-                "Serve warm"
-            ],
-            "nutritional_info": {
-                "calories": 250,
-                "protein": 8,
-                "carbs": 42,
-                "fat": 6
-            }
-        },
-        "quinoa salad": {
-            "name": "Diabetes-Friendly Quinoa Salad",
-            "ingredients": [
-                "1 cup cooked quinoa",
-                "1 cup mixed vegetables (cucumber, tomatoes, bell peppers)",
-                "2 tbsp olive oil",
-                "1 tbsp lemon juice",
-                "1/4 cup fresh herbs (parsley, mint)",
-                "Salt and pepper to taste"
-            ],
-            "instructions": [
-                "Cook quinoa according to package instructions",
-                "Let quinoa cool completely",
-                "Dice vegetables into small pieces",
-                "Mix quinoa with vegetables",
-                "Whisk together olive oil and lemon juice",
-                "Add dressing to salad and toss",
-                "Season with salt, pepper, and herbs"
-            ],
-            "nutritional_info": {
-                "calories": 320,
-                "protein": 12,
-                "carbs": 45,
-                "fat": 12
-            }
-        },
-        "vegetable soup": {
-            "name": "Diabetes-Friendly Vegetable Soup",
-            "ingredients": [
-                "2 cups mixed vegetables (carrots, celery, onions)",
-                "4 cups low-sodium vegetable broth",
-                "1 can diced tomatoes",
-                "1 cup leafy greens (spinach or kale)",
-                "1 tsp herbs (thyme, basil)",
-                "Salt and pepper to taste"
-            ],
-            "instructions": [
-                "Heat oil in large pot over medium heat",
-                "Add onions and cook until soft",
-                "Add other vegetables and cook for 5 minutes",
-                "Add broth and diced tomatoes",
-                "Bring to boil, then simmer for 20 minutes",
-                "Add leafy greens and herbs",
-                "Season with salt and pepper"
-            ],
-            "nutritional_info": {
-                "calories": 150,
-                "protein": 5,
-                "carbs": 25,
-                "fat": 3
-            }
-        }
-    }
+    recipe_templates = RECIPE_TEMPLATES
     
     fallback_recipes = []
     
@@ -483,7 +376,7 @@ async def health_check():
     }
 
 # Security configuration is now imported from utils
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
+# ACCESS_TOKEN_EXPIRE_MINUTES is now imported from constants
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
 
@@ -633,10 +526,11 @@ async def trigger_meal_plan_recalibration(user_email: str, user_profile: dict):
         diet_type = user_profile.get('dietType', [])
         food_preferences = user_profile.get('foodPreferences', [])
         strong_dislikes = user_profile.get('strongDislikes', [])
+        
         # Handle empty or invalid calorie target
-        calorie_target = user_profile.get('calorieTarget', '2000')
+        calorie_target = user_profile.get('calorieTarget', DEFAULT_CALORIE_TARGET)
         if not calorie_target or calorie_target == '':
-            calorie_target = '2000'
+            calorie_target = DEFAULT_CALORIE_TARGET
         target_calories = int(calorie_target)
         remaining_calories = max(0, target_calories - calories_consumed)
         
@@ -861,8 +755,8 @@ Ensure maximum variety within the specified cuisine type and completely avoid an
             response = client.chat.completions.create(
                 model=model_name,
                 messages=[{"role": "user", "content": prompt}],
-                temperature=0.8,  # Higher temperature for more creativity/variety
-                max_tokens=600
+                temperature=CREATIVE_TEMPERATURE,  # Higher temperature for more creativity/variety
+                max_tokens=MEAL_SUGGESTION_MAX_TOKENS
             )
 
             ai_content = response.choices[0].message.content
@@ -1236,7 +1130,7 @@ async def register(data: RegistrationData):
         "currentMedications": patient.get("medications", []),
         "allergies": patient.get("allergies", []),
         "dietaryRestrictions": patient.get("dietary_restrictions", []),
-        "calorieTarget": "2000",  # Default, will be customized based on conditions
+        "calorieTarget": DEFAULT_CALORIE_TARGET,  # Default, will be customized based on conditions
         "primaryGoals": ["Manage health conditions", "Maintain balanced nutrition"]
     }
     
@@ -2284,7 +2178,7 @@ async def generate_meal_plan(
             user_doc["profile"] = {}
         
         # Update the profile with the goals from the meal plan
-        user_doc["profile"]["calorieTarget"] = user_profile.get("calorieTarget", "2000")
+        user_doc["profile"]["calorieTarget"] = user_profile.get("calorieTarget", DEFAULT_CALORIE_TARGET)
         user_doc["profile"]["macroGoals"] = {
             "protein": user_profile.get("macroGoals", {}).get("protein", 100),
             "carbs": user_profile.get("macroGoals", {}).get("carbs", 250),
@@ -2780,8 +2674,8 @@ IMPORTANT:
                 {"role": "system", "content": "You are a diabetes diet planning assistant. Generate healthy, diabetes-friendly recipes with accurate nutritional information. Always respond with valid JSON only."},
                 {"role": "user", "content": prompt}
             ],
-            temperature=0.7,
-            max_tokens=4000,
+                            temperature=DEFAULT_TEMPERATURE,
+                max_tokens=MEAL_PLAN_MAX_TOKENS,
             response_format={"type": "json_object"},
             context="recipe_generation"
         )
@@ -8903,8 +8797,8 @@ Make each meal specific with exact portions and cooking methods. Ensure all {req
                         "content": prompt
                     }
                 ],
-                max_tokens=2000,
-                temperature=0.7
+                max_tokens=DEFAULT_MAX_TOKENS,
+                temperature=DEFAULT_TEMPERATURE
             )
             
             # Parse AI response
