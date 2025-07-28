@@ -2086,6 +2086,25 @@ async def get_patient_by_code(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/admin/patients/{patient_id}")
+async def get_patient_by_id_admin(
+    patient_id: str,
+    current_user: User = Depends(get_current_user)
+):
+    """Get patient by patient ID for admin"""
+    # Check if user is admin
+    if not current_user.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    try:
+        patient = await get_patient_by_id(patient_id)
+        if not patient:
+            raise HTTPException(status_code=404, detail="Patient not found")
+        return patient
+    except Exception as e:
+        print(f"Error in get_patient_by_id_admin: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 # Admin dependency helper for analytics endpoints
 async def get_admin_user(current_user: User = Depends(get_current_user)):
     """Ensure user is admin for analytics endpoints"""
@@ -3465,6 +3484,158 @@ async def get_cohort_outliers(
     except Exception as e:
         print(f"Error in get_cohort_outliers: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to get cohort outliers: {str(e)}")
+
+@app.get("/admin/patients/{patient_id}/consumption-history")
+async def get_patient_consumption_history(
+    patient_id: str,
+    days: int = 2,
+    current_user: User = Depends(get_admin_user)
+):
+    """Get patient's consumption history for the last N days"""
+    try:
+        patient = await get_patient_by_id(patient_id)
+        if not patient:
+            raise HTTPException(status_code=404, detail="Patient not found")
+        
+        # Check if patient is registered
+        query = f"SELECT * FROM c WHERE c.type = 'user' AND c.registration_code = '{patient['registration_code']}'"
+        users = list(user_container.query_items(query=query, enable_cross_partition_query=True))
+        
+        if not users:
+            return []
+        
+        user_email = users[0]["email"]
+        
+        # Get consumption history for specified days
+        consumption_history = await get_user_consumption_history(user_email, limit=200)
+        
+        # Filter to specified number of days
+        from datetime import datetime, timedelta
+        end_date = datetime.utcnow()
+        start_date = end_date - timedelta(days=days)
+        
+        filtered_history = []
+        for record in consumption_history:
+            try:
+                # Handle different timestamp formats
+                timestamp_str = record.get("timestamp", record.get("date", ""))
+                if timestamp_str:
+                    # Try to parse the timestamp
+                    if "T" in timestamp_str:
+                        record_date = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+                    else:
+                        record_date = datetime.fromisoformat(timestamp_str)
+                    
+                    if record_date >= start_date:
+                        filtered_history.append(record)
+            except Exception as e:
+                print(f"Error parsing timestamp for record: {e}")
+                continue
+        
+        # Sort by timestamp (most recent first)
+        filtered_history.sort(key=lambda x: x.get("timestamp", x.get("date", "")), reverse=True)
+        
+        return filtered_history
+        
+    except Exception as e:
+        print(f"Error in get_patient_consumption_history: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get patient consumption history: {str(e)}")
+
+@app.get("/admin/analytics/patient/{patient_id}/behavior-profile")
+async def get_patient_behavior_profile(
+    patient_id: str,
+    days: int = 90,
+    current_user: User = Depends(get_admin_user)
+):
+    """Get detailed behavior profile for individual patient"""
+    try:
+        patient = await get_patient_by_id(patient_id)
+        if not patient:
+            raise HTTPException(status_code=404, detail="Patient not found")
+        
+        # Check if patient has an email
+        if not patient.get("email"):
+            return {
+                "patient_id": patient_id,
+                "patient_name": patient["name"],
+                "error": "Patient email not available for behavior analysis"
+            }
+        
+        # Import behavior clusterer
+        from behavior_clustering import behavior_clusterer
+        
+        # Extract comprehensive features
+        features = await behavior_clusterer.extract_patient_features(patient["email"], days)
+        
+        # Categorize features
+        categorized_features = {
+            "eating_patterns": {},
+            "nutritional_preferences": {},
+            "temporal_behaviors": {},
+            "compliance_patterns": {},
+            "engagement_behaviors": {}
+        }
+        
+        for feature_name, value in features.items():
+            for category in categorized_features.keys():
+                if feature_name.startswith(category):
+                    clean_name = feature_name.replace(f"{category}_", "")
+                    categorized_features[category][clean_name] = value
+        
+        # Generate behavior insights
+        insights = []
+        
+        # Eating patterns insights
+        if features.get("eating_patterns_meals_per_day", 0) > 5:
+            insights.append({"type": "concern", "message": "Frequent eating pattern (>5 meals/day)"})
+        elif features.get("eating_patterns_meals_per_day", 0) < 2:
+            insights.append({"type": "concern", "message": "Infrequent eating pattern (<2 meals/day)"})
+        
+        # Nutritional insights
+        if features.get("nutritional_preferences_protein_preference", 0) > 30:
+            insights.append({"type": "positive", "message": "High protein diet preference"})
+        if features.get("nutritional_preferences_carb_preference", 0) > 60:
+            insights.append({"type": "watch", "message": "High carbohydrate preference"})
+        
+        # Temporal insights
+        if features.get("temporal_behaviors_night_eating_score", 0) > 25:
+            insights.append({"type": "concern", "message": "Frequent late-night eating"})
+        
+        # Compliance insights
+        if features.get("compliance_patterns_diabetes_compliance", 0) < 50:
+            insights.append({"type": "concern", "message": "Low diabetes-suitable food compliance"})
+        
+        return {
+            "patient_id": patient_id,
+            "patient_name": patient["name"],
+            "analysis_period_days": days,
+            "behavioral_features": categorized_features,
+            "insights": insights,
+            "overall_scores": {
+                "engagement": features.get("engagement_behaviors_engagement_score", 0),
+                "compliance": features.get("compliance_patterns_diabetes_compliance", 0),
+                "consistency": features.get("eating_patterns_meal_regularity", 0)
+            }
+        }
+        
+    except Exception as e:
+        print(f"Error in get_patient_behavior_profile: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get behavior profile: {str(e)}")
+
+@app.get("/admin/analytics/cohort/behavior-clusters")
+async def get_cohort_behavior_clusters(
+    n_clusters: int = 6,
+    current_user: User = Depends(get_admin_user)
+):
+    """Perform behavior clustering analysis on patient cohort"""
+    try:
+        # Import behavior clusterer
+        from behavior_clustering import behavior_clusterer
+        
+        return await behavior_clusterer.cluster_patient_cohort(n_clusters)
+    except Exception as e:
+        print(f"Error in get_cohort_behavior_clusters: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to perform behavior clustering: {str(e)}")
 
 @app.get("/admin/analytics/alerts/active")
 async def get_active_alerts(current_user: User = Depends(get_admin_user)):

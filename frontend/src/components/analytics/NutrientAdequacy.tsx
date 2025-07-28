@@ -182,9 +182,10 @@ const IndividualNutrientAnalysis: React.FC<{selectedPatient: string}> = ({ selec
             <Typography variant="h6" gutterBottom>Nutrient Compliance Radar</Typography>
             {data.compliance_percentages && Object.keys(data.compliance_percentages).length > 0 ? (
               <Box sx={{ height: 400, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-                <Radar 
-                  data={createRadarChart()!} 
-                  options={{
+                {createRadarChart() ? (
+                  <Radar
+                    data={createRadarChart()!}
+                    options={{
                     responsive: true,
                     maintainAspectRatio: false,
                     scales: { 
@@ -202,7 +203,10 @@ const IndividualNutrientAnalysis: React.FC<{selectedPatient: string}> = ({ selec
                       }
                     }
                   }} 
-                />
+                  />
+                ) : (
+                  <Typography variant="body2" color="text.secondary">No radar chart data available</Typography>
+                )}
               </Box>
             ) : (
               <Alert severity="info">No consumption data available for chart visualization</Alert>
@@ -436,8 +440,9 @@ const CohortNutrientAnalysis: React.FC<{groupingCriteria: string}> = ({ grouping
             </Typography>
             {Object.keys(data.groups).length > 0 ? (
               <Box sx={{ height: 400 }}>
-                <Bar 
-                  data={createComplianceChart()!} 
+                {createComplianceChart() ? (
+                  <Bar 
+                    data={createComplianceChart()!} 
                   options={{
                     responsive: true,
                     maintainAspectRatio: false,
@@ -471,7 +476,10 @@ const CohortNutrientAnalysis: React.FC<{groupingCriteria: string}> = ({ grouping
                       }
                     }
                   }}
-                />
+                  />
+                ) : (
+                  <Typography variant="body2" color="text.secondary">No compliance chart data available</Typography>
+                )}
               </Box>
             ) : (
               <Alert severity="info">
@@ -488,8 +496,9 @@ const CohortNutrientAnalysis: React.FC<{groupingCriteria: string}> = ({ grouping
           <CardContent>
             <Typography variant="h6" gutterBottom>Top Deficiencies</Typography>
             <Box sx={{ height: 400, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-              <Doughnut 
-                data={createDeficiencyChart()!} 
+              {createDeficiencyChart() ? (
+                <Doughnut 
+                  data={createDeficiencyChart()!} 
                 options={{
                   responsive: true,
                   maintainAspectRatio: false,
@@ -510,7 +519,10 @@ const CohortNutrientAnalysis: React.FC<{groupingCriteria: string}> = ({ grouping
                     }
                   }
                 }}
-              />
+                />
+              ) : (
+                <Typography variant="body2" color="text.secondary">No deficiency data available</Typography>
+              )}
             </Box>
           </CardContent>
         </Card>

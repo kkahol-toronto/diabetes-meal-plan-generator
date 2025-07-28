@@ -67,7 +67,7 @@ const IndividualOutlierAnalysis: React.FC<{selectedPatient: string}> = ({ select
   const fetchIndividualOutliers = async () => {
     try {
       setLoading(true);
-      const response = await fetch(`${config.API_URL}/admin/analytics/patient/${selectedPatient}/outliers`, {
+      const response = await fetch(`${config.API_URL}/admin/analytics/outlier-detection?view_mode=individual&patient_id=${selectedPatient}`, {
         headers: { 
           'Authorization': `Bearer ${localStorage.getItem('token')}`,
           'Content-Type': 'application/json'
@@ -79,7 +79,46 @@ const IndividualOutlierAnalysis: React.FC<{selectedPatient: string}> = ({ select
       }
       
       const result = await response.json();
-      setData(result);
+      
+      // Transform old endpoint data format to new component format for individual
+      if (result.registration_status === 'not_registered') {
+        setData(result);
+      } else {
+        const transformedData = {
+          patient_name: result.patient_name,
+          registration_status: result.registration_status,
+          analysis_period_days: 30,
+          outliers: result.outliers?.map((outlier: any, index: number) => ({
+            type: outlier.type === 'nutrition' ? 'nutritional_outlier' : outlier.type,
+            date: new Date().toISOString().split('T')[0],
+            severity: outlier.severity,
+            nutrient: outlier.anomaly?.includes('carbohydrate') ? 'Carbohydrates' : 
+                     outlier.anomaly?.includes('sodium') ? 'Sodium' : 
+                     outlier.anomaly?.includes('fiber') ? 'Fiber' : 'General',
+            value: outlier.value,
+            expected_range: `< ${outlier.threshold}`,
+            food_name: `${outlier.anomaly}`,
+            meal_records: []
+          })) || [],
+          summary: {
+            total_outliers: result.outliers?.length || 0,
+            high_severity: result.outliers?.filter((o: any) => o.severity === 'high').length || 0,
+            extreme_severity: 0,
+            moderate_severity: result.outliers?.filter((o: any) => o.severity === 'medium').length || 0,
+            outlier_types: result.outliers?.reduce((acc: any, outlier: any) => {
+              const type = outlier.type === 'nutrition' ? 'nutritional_outlier' : outlier.type;
+              acc[type] = (acc[type] || 0) + 1;
+              return acc;
+            }, {}) || {},
+            recommendations: result.alerts?.map((alert: any) => ({
+              priority: alert.type === 'critical' ? 'immediate' : 'standard',
+              message: alert.message,
+              action: 'Review patient care plan'
+            })) || []
+          }
+        };
+        setData(transformedData);
+      }
       setLoading(false);
     } catch (error) {
       console.error('Failed to fetch individual outlier data:', error);
@@ -237,16 +276,22 @@ const IndividualOutlierAnalysis: React.FC<{selectedPatient: string}> = ({ select
           <CardContent>
             <Typography variant="h6" gutterBottom>Outlier Timeline (30 Days)</Typography>
             <Box sx={{ height: 300 }}>
-              <Line data={createOutlierTimelineChart()!} options={{
-                responsive: true,
-                maintainAspectRatio: false,
-                scales: { y: { beginAtZero: true } },
-                plugins: {
-                  legend: {
-                    display: false
+              {createOutlierTimelineChart() ? (
+                <Line data={createOutlierTimelineChart()!} options={{
+                  responsive: true,
+                  maintainAspectRatio: false,
+                  scales: { y: { beginAtZero: true } },
+                  plugins: {
+                    legend: {
+                      display: false
+                    }
                   }
-                }
-              }} />
+                }} />
+              ) : (
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
+                  <Typography variant="body2" color="text.secondary">No outlier timeline data available</Typography>
+                </Box>
+              )}
             </Box>
           </CardContent>
         </Card>
@@ -258,15 +303,21 @@ const IndividualOutlierAnalysis: React.FC<{selectedPatient: string}> = ({ select
           <CardContent>
             <Typography variant="h6" gutterBottom>Outlier Types</Typography>
             <Box sx={{ height: 300 }}>
-              <Doughnut data={createOutlierDistributionChart()!} options={{
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                  legend: {
-                    position: 'bottom'
+              {createOutlierDistributionChart() ? (
+                <Doughnut data={createOutlierDistributionChart()!} options={{
+                  responsive: true,
+                  maintainAspectRatio: false,
+                  plugins: {
+                    legend: {
+                      position: 'bottom'
+                    }
                   }
-                }
-              }} />
+                }} />
+              ) : (
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
+                  <Typography variant="body2" color="text.secondary">No outlier type data available</Typography>
+                </Box>
+              )}
             </Box>
           </CardContent>
         </Card>
@@ -426,6 +477,8 @@ const IndividualOutlierAnalysis: React.FC<{selectedPatient: string}> = ({ select
           </Button>
         </DialogActions>
       </Dialog>
+
+
     </Grid>
   );
 };
@@ -436,6 +489,9 @@ const CohortOutlierAnalysis: React.FC<{groupingCriteria: string}> = ({ groupingC
   const [loading, setLoading] = useState(true);
   const [selectedGroup, setSelectedGroup] = useState<string>('');
   const [alertDialogOpen, setAlertDialogOpen] = useState(false);
+  const [patientDetailsOpen, setPatientDetailsOpen] = useState(false);
+  const [selectedPatientDetails, setSelectedPatientDetails] = useState<any>(null);
+  const [patientDetailsLoading, setPatientDetailsLoading] = useState(false);
 
   useEffect(() => {
     fetchCohortOutliers();
@@ -444,7 +500,7 @@ const CohortOutlierAnalysis: React.FC<{groupingCriteria: string}> = ({ groupingC
   const fetchCohortOutliers = async () => {
     try {
       setLoading(true);
-      const response = await fetch(`${config.API_URL}/admin/analytics/cohort/outliers?group_by=${groupingCriteria}`, {
+      const response = await fetch(`${config.API_URL}/admin/analytics/outlier-detection?view_mode=cohort&group_by=${groupingCriteria}`, {
         headers: { 
           'Authorization': `Bearer ${localStorage.getItem('token')}`,
           'Content-Type': 'application/json'
@@ -456,12 +512,124 @@ const CohortOutlierAnalysis: React.FC<{groupingCriteria: string}> = ({ groupingC
       }
       
       const result = await response.json();
-      setData(result);
-      setSelectedGroup(Object.keys(result.groups)[0] || '');
+      
+      // Transform old endpoint data format to new component format
+      const transformedData = {
+        grouping_criteria: groupingCriteria,
+        total_population_outliers: result.outlier_patients?.length || 0,
+        groups: {},
+        analysis_timestamp: new Date().toISOString()
+      };
+
+      // Group outlier patients by their group
+      if (result.outlier_patients) {
+        const groupedData: any = {};
+        
+        result.outlier_patients.forEach((patient: any) => {
+          const groupName = patient.group || 'Unknown';
+          if (!groupedData[groupName]) {
+            groupedData[groupName] = {
+              patient_count: 0,
+              registered_patients: 0,
+              patients_with_outliers: 0,
+              total_outliers: 0,
+              outlier_distribution: {},
+              high_risk_patients: []
+            };
+          }
+          
+          groupedData[groupName].total_outliers += 1;
+          groupedData[groupName].patients_with_outliers += 1;
+          
+          if (patient.risk_score >= 70) {
+            groupedData[groupName].high_risk_patients.push({
+              patient_id: patient.id,
+              patient_name: patient.name,
+              high_severity_outliers: Math.floor(patient.risk_score / 20)
+            });
+          }
+          
+          // Add to outlier distribution
+          const outlierType = patient.severity === 'high' ? 'nutritional_outlier' : 'binge_eating';
+          if (!groupedData[groupName].outlier_distribution[outlierType]) {
+            groupedData[groupName].outlier_distribution[outlierType] = 0;
+          }
+          groupedData[groupName].outlier_distribution[outlierType] += 1;
+        });
+        
+        transformedData.groups = groupedData;
+      }
+
+      setData(transformedData);
+      setSelectedGroup(Object.keys(transformedData.groups)[0] || '');
       setLoading(false);
     } catch (error) {
       console.error('Failed to fetch cohort outlier data:', error);
       setLoading(false);
+    }
+  };
+
+  const fetchPatientDetails = async (patientId: string) => {
+    try {
+      setPatientDetailsLoading(true);
+      
+      // Fetch patient profile
+      const profileResponse = await fetch(`${config.API_URL}/admin/patients/${patientId}`, {
+        headers: { 
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (!profileResponse.ok) {
+        throw new Error('Failed to fetch patient profile');
+      }
+      
+      const patientProfile = await profileResponse.json();
+      
+      // Check if patient is registered and get their consumption data
+      const outlierResponse = await fetch(`${config.API_URL}/admin/analytics/outlier-detection?view_mode=individual&patient_id=${patientId}`, {
+        headers: { 
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      let consumptionData = null;
+      let recentHistory = [];
+      
+      if (outlierResponse.ok) {
+        const outlierData = await outlierResponse.json();
+        
+        if (outlierData.registration_status === 'registered') {
+          // Get user email from registration code
+          const userQuery = await fetch(`${config.API_URL}/admin/patients/${patientId}/consumption-history?days=2`, {
+            headers: { 
+              'Authorization': `Bearer ${localStorage.getItem('token')}`,
+              'Content-Type': 'application/json'
+            }
+          });
+          
+          if (userQuery.ok) {
+            recentHistory = await userQuery.json();
+          }
+        }
+        
+        consumptionData = outlierData;
+      }
+      
+      setSelectedPatientDetails({
+        profile: patientProfile,
+        outliers: consumptionData,
+        recentHistory: recentHistory || [],
+        lastUpdated: new Date().toISOString()
+      });
+      
+      setPatientDetailsOpen(true);
+      setPatientDetailsLoading(false);
+    } catch (error) {
+      console.error('Failed to fetch patient details:', error);
+      setPatientDetailsLoading(false);
     }
   };
 
@@ -529,6 +697,8 @@ const CohortOutlierAnalysis: React.FC<{groupingCriteria: string}> = ({ groupingC
     
     return allHighRisk.sort((a, b) => b.high_severity_outliers - a.high_severity_outliers).slice(0, 10);
   };
+
+
 
   if (loading) {
     return (
@@ -602,14 +772,20 @@ const CohortOutlierAnalysis: React.FC<{groupingCriteria: string}> = ({ groupingC
           <CardContent>
             <Typography variant="h6" gutterBottom>Outlier Distribution by Group</Typography>
             <Box sx={{ height: 400 }}>
-              <Chart type="bar" data={createPopulationOutlierChart()!} options={{
-                responsive: true,
-                maintainAspectRatio: false,
-                scales: {
-                  y: { type: 'linear', display: true, position: 'left' },
-                  y1: { type: 'linear', display: true, position: 'right', grid: { drawOnChartArea: false } }
-                }
-              }} />
+              {createPopulationOutlierChart() ? (
+                <Chart type="bar" data={createPopulationOutlierChart()!} options={{
+                  responsive: true,
+                  maintainAspectRatio: false,
+                  scales: {
+                    y: { type: 'linear', display: true, position: 'left' },
+                    y1: { type: 'linear', display: true, position: 'right', grid: { drawOnChartArea: false } }
+                  }
+                }} />
+              ) : (
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
+                  <Typography variant="body2" color="text.secondary">No population outlier data available</Typography>
+                </Box>
+              )}
             </Box>
           </CardContent>
         </Card>
@@ -750,9 +926,10 @@ const CohortOutlierAnalysis: React.FC<{groupingCriteria: string}> = ({ groupingC
                     variant="outlined" 
                     color="error" 
                     size="small"
-                    onClick={() => {/* Navigate to patient detail */}}
+                    onClick={() => fetchPatientDetails(patient.patient_id)}
+                    disabled={patientDetailsLoading}
                   >
-                    View Details
+                    {patientDetailsLoading ? 'Loading...' : 'View Details'}
                   </Button>
                 </ListItem>
               ))}
@@ -799,6 +976,298 @@ const CohortOutlierAnalysis: React.FC<{groupingCriteria: string}> = ({ groupingC
           <Button onClick={() => setAlertDialogOpen(false)}>Cancel</Button>
           <Button variant="contained" color="error">
             Generate Alerts
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Patient Details Dialog */}
+      <Dialog 
+        open={patientDetailsOpen} 
+        onClose={() => setPatientDetailsOpen(false)}
+        maxWidth="lg"
+        fullWidth
+      >
+        <DialogTitle>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Typography variant="h5">
+              {selectedPatientDetails?.profile?.name || 'Patient Details'}
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              Last Updated: {selectedPatientDetails?.lastUpdated ? new Date(selectedPatientDetails.lastUpdated).toLocaleString() : 'N/A'}
+            </Typography>
+          </Box>
+        </DialogTitle>
+        <DialogContent>
+          {selectedPatientDetails && (
+            <Grid container spacing={3}>
+              {/* Patient Profile Section */}
+              <Grid item xs={12} md={4}>
+                <Card>
+                  <CardContent>
+                    <Typography variant="h6" gutterBottom color="primary">
+                      👤 Patient Profile
+                    </Typography>
+                    <Box sx={{ mb: 2 }}>
+                      <Typography variant="body2" color="text.secondary">Patient ID</Typography>
+                      <Typography variant="body1" fontWeight="bold">{selectedPatientDetails.profile?.id}</Typography>
+                    </Box>
+                    <Box sx={{ mb: 2 }}>
+                      <Typography variant="body2" color="text.secondary">Name</Typography>
+                      <Typography variant="body1" fontWeight="bold">{selectedPatientDetails.profile?.name}</Typography>
+                    </Box>
+                    <Box sx={{ mb: 2 }}>
+                      <Typography variant="body2" color="text.secondary">Email</Typography>
+                      <Typography variant="body1">{selectedPatientDetails.profile?.email || 'Not provided'}</Typography>
+                    </Box>
+                    <Box sx={{ mb: 2 }}>
+                      <Typography variant="body2" color="text.secondary">Condition</Typography>
+                      <Chip 
+                        label={selectedPatientDetails.profile?.condition || 'Unknown'}
+                        color={selectedPatientDetails.profile?.condition?.includes('Type 2') ? 'error' : 'warning'}
+                        size="small"
+                      />
+                    </Box>
+                    <Box sx={{ mb: 2 }}>
+                      <Typography variant="body2" color="text.secondary">Registration Status</Typography>
+                      <Chip 
+                        label={selectedPatientDetails.outliers?.registration_status === 'registered' ? 'Active' : 'Not Registered'}
+                        color={selectedPatientDetails.outliers?.registration_status === 'registered' ? 'success' : 'default'}
+                        size="small"
+                      />
+                    </Box>
+                    <Box sx={{ mb: 2 }}>
+                      <Typography variant="body2" color="text.secondary">Registration Date</Typography>
+                      <Typography variant="body1">
+                        {selectedPatientDetails.profile?.created_at ? 
+                          new Date(selectedPatientDetails.profile.created_at).toLocaleDateString() : 'N/A'}
+                      </Typography>
+                    </Box>
+                  </CardContent>
+                </Card>
+              </Grid>
+
+              {/* Points of Attention Section */}
+              <Grid item xs={12} md={8}>
+                <Card>
+                  <CardContent>
+                    <Typography variant="h6" gutterBottom color="error">
+                      ⚠️ Points of Attention & Risk Factors
+                    </Typography>
+                    {selectedPatientDetails.outliers?.registration_status === 'registered' ? (
+                      <>
+                        {selectedPatientDetails.outliers?.outliers?.length > 0 ? (
+                          <List>
+                            {selectedPatientDetails.outliers.outliers.map((outlier: any, index: number) => (
+                              <ListItem 
+                                key={index}
+                                sx={{ 
+                                  border: '1px solid #ffcdd2', 
+                                  borderRadius: 1, 
+                                  mb: 1,
+                                  bgcolor: outlier.severity === 'high' ? '#ffebee' : 'transparent'
+                                }}
+                              >
+                                <ListItemIcon>
+                                  <Typography variant="h6">
+                                    {outlier.severity === 'high' ? '🚨' : '⚠️'}
+                                  </Typography>
+                                </ListItemIcon>
+                                <ListItemText
+                                  primary={
+                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                      <Chip 
+                                        label={outlier.severity?.toUpperCase()}
+                                        color={outlier.severity === 'high' ? 'error' : 'warning'}
+                                        size="small"
+                                      />
+                                      <Typography variant="body1" fontWeight="bold">
+                                        {outlier.nutrient || outlier.food_name}
+                                      </Typography>
+                                    </Box>
+                                  }
+                                  secondary={
+                                    <Box>
+                                      <Typography variant="body2">
+                                        Current: {outlier.value} | Expected: {outlier.expected_range}
+                                      </Typography>
+                                      <Typography variant="body2" color="text.secondary">
+                                        Date: {outlier.date}
+                                      </Typography>
+                                    </Box>
+                                  }
+                                />
+                              </ListItem>
+                            ))}
+                          </List>
+                        ) : (
+                          <Alert severity="success">
+                            No significant outliers detected. Patient appears to be following their care plan well.
+                          </Alert>
+                        )}
+
+                        {/* Recommendations */}
+                        {selectedPatientDetails.outliers?.summary?.recommendations?.length > 0 && (
+                          <Box sx={{ mt: 3 }}>
+                            <Typography variant="h6" gutterBottom>📋 Recommendations</Typography>
+                            {selectedPatientDetails.outliers.summary.recommendations.map((rec: any, index: number) => (
+                              <Alert 
+                                key={index}
+                                severity={rec.priority === 'immediate' ? 'error' : 'warning'}
+                                sx={{ mb: 1 }}
+                              >
+                                <Typography variant="subtitle2">{rec.message}</Typography>
+                                <Typography variant="body2">{rec.action}</Typography>
+                              </Alert>
+                            ))}
+                          </Box>
+                        )}
+                      </>
+                    ) : (
+                      <Alert severity="info">
+                        Patient has not registered yet. No consumption data available for analysis.
+                      </Alert>
+                    )}
+                  </CardContent>
+                </Card>
+              </Grid>
+
+              {/* Last 48 Hours Food History */}
+              <Grid item xs={12}>
+                <Card>
+                  <CardContent>
+                    <Typography variant="h6" gutterBottom color="primary">
+                      🍽️ Last 48 Hours Food Log History
+                    </Typography>
+                    {selectedPatientDetails.recentHistory?.length > 0 ? (
+                      <TableContainer component={Paper} sx={{ maxHeight: 400 }}>
+                        <Table stickyHeader>
+                          <TableHead>
+                            <TableRow>
+                              <TableCell><strong>Date & Time</strong></TableCell>
+                              <TableCell><strong>Food Item</strong></TableCell>
+                              <TableCell align="center"><strong>Calories</strong></TableCell>
+                              <TableCell align="center"><strong>Carbs (g)</strong></TableCell>
+                              <TableCell align="center"><strong>Protein (g)</strong></TableCell>
+                              <TableCell align="center"><strong>Fat (g)</strong></TableCell>
+                              <TableCell align="center"><strong>Fiber (g)</strong></TableCell>
+                              <TableCell align="center"><strong>Sodium (mg)</strong></TableCell>
+                            </TableRow>
+                          </TableHead>
+                          <TableBody>
+                            {selectedPatientDetails.recentHistory.map((entry: any, index: number) => {
+                              const nutrition = entry.nutritional_info || {};
+                              const dateTime = new Date(entry.timestamp || entry.date);
+                              const isRecent = (new Date().getTime() - dateTime.getTime()) <= (24 * 60 * 60 * 1000); // Last 24 hours
+                              
+                              return (
+                                <TableRow 
+                                  key={index}
+                                  sx={{ 
+                                    bgcolor: isRecent ? '#e3f2fd' : 'transparent',
+                                    '&:hover': { bgcolor: '#f5f5f5' }
+                                  }}
+                                >
+                                  <TableCell>
+                                    <Box>
+                                      <Typography variant="body2" fontWeight="bold">
+                                        {dateTime.toLocaleDateString()}
+                                      </Typography>
+                                      <Typography variant="body2" color="text.secondary">
+                                        {dateTime.toLocaleTimeString()}
+                                      </Typography>
+                                    </Box>
+                                  </TableCell>
+                                  <TableCell>
+                                    <Typography variant="body2" fontWeight="bold">
+                                      {entry.food_name}
+                                    </Typography>
+                                    {entry.portion && (
+                                      <Typography variant="body2" color="text.secondary">
+                                        Portion: {entry.portion}
+                                      </Typography>
+                                    )}
+                                  </TableCell>
+                                  <TableCell align="center">
+                                    <Chip 
+                                      label={nutrition.calories || 0}
+                                      size="small"
+                                      color={nutrition.calories > 500 ? 'error' : nutrition.calories > 200 ? 'warning' : 'default'}
+                                    />
+                                  </TableCell>
+                                  <TableCell align="center">{nutrition.carbohydrates?.toFixed(1) || 0}</TableCell>
+                                  <TableCell align="center">{nutrition.protein?.toFixed(1) || 0}</TableCell>
+                                  <TableCell align="center">{nutrition.fat?.toFixed(1) || 0}</TableCell>
+                                  <TableCell align="center">{nutrition.fiber?.toFixed(1) || 0}</TableCell>
+                                  <TableCell align="center">{nutrition.sodium?.toFixed(0) || 0}</TableCell>
+                                </TableRow>
+                              );
+                            })}
+                          </TableBody>
+                        </Table>
+                      </TableContainer>
+                    ) : (
+                      <Alert severity="info">
+                        No food consumption data available for the last 48 hours.
+                      </Alert>
+                    )}
+                  </CardContent>
+                </Card>
+              </Grid>
+
+              {/* Health Metrics Summary */}
+              <Grid item xs={12}>
+                <Card>
+                  <CardContent>
+                    <Typography variant="h6" gutterBottom color="primary">
+                      📊 Health Metrics Summary
+                    </Typography>
+                    <Grid container spacing={2}>
+                      <Grid item xs={6} md={3}>
+                        <Box sx={{ textAlign: 'center', p: 2, border: '1px solid #e0e0e0', borderRadius: 1 }}>
+                          <Typography variant="h4" color="error.main">
+                            {selectedPatientDetails.outliers?.summary?.total_outliers || 0}
+                          </Typography>
+                          <Typography variant="body2">Total Outliers</Typography>
+                        </Box>
+                      </Grid>
+                      <Grid item xs={6} md={3}>
+                        <Box sx={{ textAlign: 'center', p: 2, border: '1px solid #e0e0e0', borderRadius: 1 }}>
+                          <Typography variant="h4" color="error.main">
+                            {selectedPatientDetails.outliers?.summary?.high_severity || 0}
+                          </Typography>
+                          <Typography variant="body2">High Severity</Typography>
+                        </Box>
+                      </Grid>
+                      <Grid item xs={6} md={3}>
+                        <Box sx={{ textAlign: 'center', p: 2, border: '1px solid #e0e0e0', borderRadius: 1 }}>
+                          <Typography variant="h4" color="warning.main">
+                            {selectedPatientDetails.outliers?.summary?.moderate_severity || 0}
+                          </Typography>
+                          <Typography variant="body2">Moderate Severity</Typography>
+                        </Box>
+                      </Grid>
+                      <Grid item xs={6} md={3}>
+                        <Box sx={{ textAlign: 'center', p: 2, border: '1px solid #e0e0e0', borderRadius: 1 }}>
+                          <Typography variant="h4" color="info.main">
+                            {selectedPatientDetails.recentHistory?.length || 0}
+                          </Typography>
+                          <Typography variant="body2">Recent Logs (48h)</Typography>
+                        </Box>
+                      </Grid>
+                    </Grid>
+                  </CardContent>
+                </Card>
+              </Grid>
+            </Grid>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setPatientDetailsOpen(false)}>Close</Button>
+          <Button variant="contained" color="primary">
+            Export Report
+          </Button>
+          <Button variant="contained" color="error">
+            Schedule Follow-up
           </Button>
         </DialogActions>
       </Dialog>

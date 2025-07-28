@@ -4,8 +4,7 @@ from datetime import datetime, timedelta
 from collections import defaultdict
 import asyncio
 from typing import List, Dict, Any
-from database import get_all_patients, get_patient_by_id
-from consumption_system import get_user_consumption_history
+from database import get_all_patients, get_patient_by_id, get_user_consumption_history
 from main import group_patients_by_criteria
 
 class OutlierDetector:

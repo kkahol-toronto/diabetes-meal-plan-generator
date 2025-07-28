@@ -861,7 +861,7 @@ const AICoach: React.FC = () => {
                   <Box sx={{ height: 300 }}>
                     <Radar 
                       key={`health-radar-${Date.now()}`}
-                      data={createHealthRadarChart()!} 
+                      data={createHealthRadarChart() || {labels: [], datasets: []}} 
                       options={{
                         responsive: true,
                         maintainAspectRatio: false,
@@ -933,7 +933,7 @@ const AICoach: React.FC = () => {
                   <Box sx={{ height: 300 }}>
                     <Line 
                       key={`weekly-progress-${Date.now()}`}
-                      data={createProgressChart()!} 
+                      data={createProgressChart() || {labels: [], datasets: []}} 
                       options={{
                         responsive: true,
                         maintainAspectRatio: false,
