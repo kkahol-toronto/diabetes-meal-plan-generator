@@ -7,6 +7,7 @@ from typing import List, Dict, Any, Optional
 from jose import jwt
 from passlib.context import CryptContext
 from twilio.rest import Client
+from fastapi.security import OAuth2PasswordBearer
 
 # Security configuration
 SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-here")
@@ -21,6 +22,9 @@ pwd_context = CryptContext(
 
 # Twilio client
 twilio_client = Client(os.getenv("SMS_API_SID"), os.getenv("SMS_KEY"))
+
+# OAuth2 scheme for authentication
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
 
 
 # Authentication utilities

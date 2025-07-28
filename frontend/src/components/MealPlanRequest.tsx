@@ -1607,75 +1607,70 @@ const MealPlanRequest: React.FC = () => {
                     gap: 2, 
                     minHeight: '56px' 
                   }}>
+                    {/* Back Button - Left Side */}
+                    <Button
+                      color="inherit"
+                      disabled={activeStep === 0 || loading || generatingRecipes}
+                      onClick={handleBack}
+                      variant="outlined"
+                      startIcon={<NavigateBeforeIcon />}
+                      sx={{ 
+                        borderRadius: 3, 
+                        px: 3,
+                        flexShrink: 0,
+                        width: { xs: '100%', sm: 'auto' },
+                        maxWidth: { xs: '200px', sm: 'none' },
+                        transition: 'all 0.3s ease',
+                        '&:hover': {
+                          transform: 'translateY(-2px)',
+                          boxShadow: '0 6px 16px rgba(0,0,0,0.1)',
+                        },
+                      }}
+                    >
+                      Back
+                    </Button>
+                    
+                    {/* Generate Meal Plan Button - Center */}
                     <Box sx={{ 
                       display: 'flex', 
-                      flexDirection: { xs: 'column', sm: 'row' },
-                      gap: 2, 
+                      gap: 1, 
+                      justifyContent: 'center', 
+                      flexWrap: 'wrap',
                       width: { xs: '100%', sm: 'auto' },
-                      justifyContent: 'center',
-                      alignItems: 'center'
+                      maxWidth: { xs: '100%', sm: 'none' },
+                      flex: { xs: 'none', sm: 1 }
                     }}>
+                      {renderActionButtons()}
+                    </Box>
+                    
+                    {/* Next Button - Right Side */}
+                    {activeStep !== 0 && activeStep < steps.length - 1 && ( 
                       <Button
-                        color="inherit"
-                        disabled={activeStep === 0 || loading || generatingRecipes}
-                        onClick={handleBack}
-                        variant="outlined"
-                        startIcon={<NavigateBeforeIcon />}
+                        variant="contained"
+                        onClick={handleNext}
+                        disabled={loading || generatingRecipes || 
+                          (activeStep === 0 && !userProfile) ||
+                          (activeStep === 1 && (!editableMealPlan || !mealPlan)) ||
+                          (activeStep === 2 && (!recipes || recipes.length === 0))
+                        }
+                        endIcon={<NavigateNextIcon />}
                         sx={{ 
                           borderRadius: 3, 
                           px: 3,
                           flexShrink: 0,
                           width: { xs: '100%', sm: 'auto' },
                           maxWidth: { xs: '200px', sm: 'none' },
+                          background: `linear-gradient(45deg, ${theme.palette.primary.main}, ${theme.palette.primary.dark})`,
                           transition: 'all 0.3s ease',
                           '&:hover': {
                             transform: 'translateY(-2px)',
-                            boxShadow: '0 6px 16px rgba(0,0,0,0.1)',
+                            boxShadow: '0 8px 20px rgba(0,0,0,0.15)',
                           },
                         }}
                       >
-                        Back
+                        Next
                       </Button>
-                      
-                      <Box sx={{ 
-                        display: 'flex', 
-                        gap: 1, 
-                        justifyContent: 'center', 
-                        flexWrap: 'wrap',
-                        width: { xs: '100%', sm: 'auto' },
-                        maxWidth: { xs: '100%', sm: 'none' }
-                      }}>
-                        {renderActionButtons()}
-                      </Box>
-                      
-                      {activeStep !== 0 && activeStep < steps.length - 1 && ( 
-                        <Button
-                          variant="contained"
-                          onClick={handleNext}
-                          disabled={loading || generatingRecipes || 
-                            (activeStep === 0 && !userProfile) ||
-                            (activeStep === 1 && (!editableMealPlan || !mealPlan)) ||
-                            (activeStep === 2 && (!recipes || recipes.length === 0))
-                          }
-                          endIcon={<NavigateNextIcon />}
-                          sx={{ 
-                            borderRadius: 3, 
-                            px: 3,
-                            flexShrink: 0,
-                            width: { xs: '100%', sm: 'auto' },
-                            maxWidth: { xs: '200px', sm: 'none' },
-                            background: `linear-gradient(45deg, ${theme.palette.primary.main}, ${theme.palette.primary.dark})`,
-                            transition: 'all 0.3s ease',
-                            '&:hover': {
-                              transform: 'translateY(-2px)',
-                              boxShadow: '0 8px 20px rgba(0,0,0,0.15)',
-                            },
-                          }}
-                        >
-                          Next
-                        </Button>
-                      )}
-                    </Box>
+                    )}
                   </Box>
                 </CardContent>
               </Card>
