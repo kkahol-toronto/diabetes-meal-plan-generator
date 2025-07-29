@@ -27,9 +27,9 @@ from constants import (
     DEFAULT_PATIENT_PROFILE, PDF_TITLE, MAX_BACKOFF_SECONDS, BASE_BACKOFF_MULTIPLIER
 )
 from routers.auth import router as auth_router, get_current_user
-from services.openai_service import robust_openai_call, get_openai_client
 import os
 from dotenv import load_dotenv
+from openai import AzureOpenAI
 import json
 from datetime import datetime, timedelta
 from jose import JWTError, jwt
@@ -122,27 +122,139 @@ app.include_router(auth_router, tags=["authentication"])
 from routers.utility import router as utility_router
 app.include_router(utility_router, tags=["utility"])
 
-# Include privacy router
-from routers.privacy_data import router as privacy_router
-app.include_router(privacy_router, tags=["privacy"])
+# Include all other routers
+from routers.meal_plans import router as meal_plans_router
+from routers.consumption import router as consumption_router
+from routers.coaching import router as coaching_router
+from routers.chat import router as chat_router
+from routers.export import router as export_router
+from routers.analytics import router as analytics_router
+from routers.privacy import router as privacy_router
+from routers.test import router as test_router
 
-# Include test router
-from routers.test_endpoints import router as test_router
-app.include_router(test_router, tags=["testing"])
+app.include_router(meal_plans_router, prefix="/meal-plans", tags=["meal-plans"])
+app.include_router(consumption_router, prefix="/consumption", tags=["consumption"])
+app.include_router(coaching_router, prefix="/coach", tags=["coaching"])
+app.include_router(chat_router, prefix="/chat", tags=["chat"])
+app.include_router(export_router, prefix="/export", tags=["export"])
+app.include_router(analytics_router, prefix="/analytics", tags=["analytics"])
+app.include_router(privacy_router, prefix="/privacy", tags=["privacy"])
+app.include_router(test_router, prefix="/test", tags=["test"])
 
-# Include admin router
-from routers.admin_endpoints import router as admin_router
-app.include_router(admin_router, tags=["admin"])
-
-# Include export router
-from routers.export_system import router as export_router
-app.include_router(export_router, tags=["export"])
-
-# OpenAI client is now imported from services.openai_service
+# Configure OpenAI for APIM Gateway
+client = AzureOpenAI(
+    api_key=os.getenv("AZURE_OPENAI_KEY"),  # This will be used as Ocp-Apim-Subscription-Key
+    azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
+    api_version=os.getenv("AZURE_OPENAI_API_VERSION"),
+    default_headers={
+        "Ocp-Apim-Subscription-Key": os.getenv("AZURE_OPENAI_KEY")
+    }
+)
 
 # Twilio client is now imported from utils
 
-# robust_openai_call function is now imported from services.openai_service
+# Robust OpenAI API wrapper with retry logic and better error handling
+async def robust_openai_call(
+    messages: List[Dict[str, str]], 
+    max_tokens: int = DEFAULT_MAX_TOKENS, 
+    temperature: float = DEFAULT_TEMPERATURE,
+    response_format: Optional[Dict[str, str]] = None,
+    max_retries: int = DEFAULT_MAX_RETRIES,
+    timeout: int = DEFAULT_TIMEOUT,
+    context: str = "openai_call"
+) -> Dict[str, Any]:
+    """
+    Robust OpenAI API call with retry logic, timeout handling, and comprehensive error handling.
+    
+    Args:
+        messages: List of message dictionaries for the chat completion
+        max_tokens: Maximum tokens for the response
+        temperature: Temperature for response generation
+        response_format: Optional response format (e.g., {"type": "json_object"})
+        max_retries: Maximum number of retry attempts
+        timeout: Timeout in seconds for each API call
+        context: Context string for logging purposes
+        
+    Returns:
+        Dict containing the API response or error information
+    """
+    
+    for attempt in range(max_retries):
+        try:
+            print(f"[{context}] Attempt {attempt + 1}/{max_retries} - Calling OpenAI API...")
+            
+            # Prepare the API call parameters
+            api_params = {
+                "model": os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
+                "messages": messages,
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+                "timeout": timeout
+            }
+            
+            # Add response format if specified
+            if response_format:
+                api_params["response_format"] = response_format
+                
+            # Make the API call
+            response = client.chat.completions.create(**api_params)
+            
+            # Validate the response
+            if not response.choices or not response.choices[0].message:
+                raise ValueError("Empty response from OpenAI API")
+                
+            raw_content = response.choices[0].message.content
+            if not raw_content or not raw_content.strip():
+                raise ValueError("Empty content in OpenAI response")
+                
+            print(f"[{context}] API call successful on attempt {attempt + 1}")
+            
+            return {
+                "success": True,
+                "content": raw_content.strip(),
+                "usage": response.usage.model_dump() if response.usage else None,
+                "attempt": attempt + 1
+            }
+            
+        except Exception as e:
+            error_msg = str(e)
+            print(f"[{context}] Attempt {attempt + 1} failed: {error_msg}")
+            
+            # Check if this is a rate limit error
+            if "rate_limit" in error_msg.lower() or "429" in error_msg:
+                wait_time = min(BASE_BACKOFF_MULTIPLIER ** attempt, MAX_BACKOFF_SECONDS)  # Exponential backoff
+                print(f"[{context}] Rate limit detected, waiting {wait_time} seconds...")
+                await asyncio.sleep(wait_time)
+                continue
+            
+            # Check if this is a timeout error
+            if "timeout" in error_msg.lower():
+                print(f"[{context}] Timeout detected on attempt {attempt + 1}")
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(min(BASE_BACKOFF_MULTIPLIER ** attempt, MAX_BACKOFF_SECONDS))  # Exponential backoff
+                    continue
+            
+            # For other errors, wait a bit before retrying
+            if attempt < max_retries - 1:
+                wait_time = min(BASE_BACKOFF_MULTIPLIER ** attempt, MAX_BACKOFF_SECONDS)  # Exponential backoff
+                print(f"[{context}] Waiting {wait_time} seconds before retry...")
+                await asyncio.sleep(wait_time)
+            else:
+                # Final attempt failed
+                print(f"[{context}] All {max_retries} attempts failed. Last error: {error_msg}")
+                return {
+                    "success": False,
+                    "error": error_msg,
+                    "error_type": type(e).__name__,
+                    "attempts": max_retries
+                }
+                
+    # This should never be reached, but just in case
+    return {
+        "success": False,
+        "error": "Maximum retries exceeded",
+        "attempts": max_retries
+    }
 
 # JSON parsing utility function is now imported from utils
 
@@ -286,6 +398,8 @@ def generate_fallback_recipes(meal_names: List[str]) -> List[dict]:
 
 # oauth2_scheme is now imported from utils
 
+
+
 # Authentication functions are now imported from utils
 
 # Timezone utility functions are now imported from utils
@@ -406,6 +520,7 @@ async def generate_consumption_aware_meal_plan(base_meal_plan: dict, consumption
         import traceback
         print(traceback.format_exc())
         return base_meal_plan
+
 
 async def trigger_meal_plan_recalibration(user_email: str, user_profile: dict):
     """
@@ -655,7 +770,7 @@ Ensure maximum variety within the specified cuisine type and completely avoid an
             if not model_name:
                 raise Exception("AZURE_OPENAI_DEPLOYMENT_NAME not configured")
                 
-            response = get_openai_client().chat.completions.create(
+            response = client.chat.completions.create(
                 model=model_name,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=CREATIVE_TEMPERATURE,  # Higher temperature for more creativity/variety
@@ -856,20 +971,393 @@ async def get_today_consumption_records_async(user_email: str, user_timezone: st
 
 # Admin patients endpoint moved to routers/auth.py
 
-# Admin endpoints moved to routers/admin_endpoints.py
+# Admin login endpoint moved to routers/auth.py
 
-# Admin patient profile endpoints moved to routers/admin_endpoints.py
+@app.get("/admin/patient/{registration_code}")
+async def get_patient_by_code(
+    registration_code: str,
+    current_user: User = Depends(get_current_user)
+):
+    # Check if user is admin
+    if not current_user.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    try:
+        patient = await get_patient_by_registration_code(registration_code)
+        if not patient:
+            raise HTTPException(status_code=404, detail="Patient not found")
+        return patient
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
-# Remaining admin endpoints moved to routers/admin_endpoints.py
+@app.get("/admin/patient-profile/{registration_code}")
+async def get_patient_profile(
+    registration_code: str,
+    current_user: User = Depends(get_current_user)
+):
+    # Check if user is admin
+    if not current_user.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    try:
+        # First verify the patient exists
+        patient = await get_patient_by_registration_code(registration_code)
+        if not patient:
+            raise HTTPException(status_code=404, detail="Patient not found")
+        
+        # Try to find if the patient has registered and has a profile
+        # Look for user with registration code
+        query = f"SELECT * FROM c WHERE c.type = 'user' AND c.registration_code = '{registration_code}'"
+        users = list(user_container.query_items(query=query, enable_cross_partition_query=True))
+        
+        if not users:
+            # Check if admin has created a profile
+            profile_query = f"SELECT * FROM c WHERE c.type = 'user_profile' AND c.registration_code = '{registration_code}'"
+            profiles = list(user_container.query_items(query=profile_query, enable_cross_partition_query=True))
+            
+            if not profiles:
+                raise HTTPException(status_code=404, detail="Patient profile not found")
+            
+            return {"profile": profiles[0].get('profile', {})}
+        
+        user = users[0]
+        
+        # Get the user's profile
+        profile_query = f"SELECT * FROM c WHERE c.type = 'user_profile' AND c.user_id = '{user['email']}'"
+        profiles = list(user_container.query_items(query=profile_query, enable_cross_partition_query=True))
+        
+        if not profiles:
+            raise HTTPException(status_code=404, detail="Patient profile not found")
+        
+        return {"profile": profiles[0].get('profile', {})}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching patient profile: {str(e)}")
 
-# Remaining admin endpoints moved to routers/admin_endpoints.py
+@app.post("/admin/patient-profile/{registration_code}")
+async def save_patient_profile(
+    registration_code: str,
+    request: dict,
+    current_user: User = Depends(get_current_user)
+):
+    # Check if user is admin
+    if not current_user.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    try:
+        # First verify the patient exists
+        patient = await get_patient_by_registration_code(registration_code)
+        if not patient:
+            raise HTTPException(status_code=404, detail="Patient not found")
+        
+        profile_data = request.get('profile', {})
+        
+        # Try to find if patient has registered
+        query = f"SELECT * FROM c WHERE c.type = 'user' AND c.registration_code = '{registration_code}'"
+        users = list(user_container.query_items(query=query, enable_cross_partition_query=True))
+        
+        if users:
+            # Patient has registered - update their existing profile
+            user = users[0]
+            user_email = user['email']
+        else:
+            # Patient hasn't registered yet - create a placeholder profile linked to registration code
+            user_email = f"pending_{registration_code}@placeholder.com"
+        
+        # Create or update profile record
+        profile_record = {
+            "id": f"profile_{user_email}",
+            "type": "user_profile",
+            "user_id": user_email,
+            "registration_code": registration_code,
+            "profile": profile_data,
+            "created_by": "admin",
+            "created_at": datetime.utcnow().isoformat(),
+            "updated_at": datetime.utcnow().isoformat()
+        }
+        
+        # Save to database
+        user_container.upsert_item(body=profile_record)
+        
+        return {
+            "message": "Patient profile saved successfully",
+            "status": "saved_by_admin",
+            "patient_registered": bool(users)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error saving patient profile: {str(e)}")
 
-# Remaining admin endpoints moved to routers/admin_endpoints.py
+@app.post("/admin/resend-code/{patient_id}")
+async def resend_registration_code(
+    patient_id: str,
+    current_user: User = Depends(get_current_user)
+):
+    # Check if user is admin
+    if not current_user.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    try:
+        # Get patient by ID
+        patient = await get_patient_by_id(patient_id)
+        if not patient:
+            raise HTTPException(status_code=404, detail="Patient not found")
+        
+        # Send registration code via SMS
+        registration_code = patient.get("registration_code")
+        phone = patient.get("phone")
+        
+        if not registration_code or not phone:
+            raise HTTPException(status_code=400, detail="Patient missing registration code or phone number")
+        
+        sms_result = send_registration_code(phone, registration_code)
+        
+        if sms_result:
+            return {"message": "Registration code resent successfully via SMS"}
+        else:
+            return {"message": "Failed to send SMS. Please check the phone number."}
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error resending registration code: {str(e)}")
 
-# Remaining admin endpoints moved to routers/admin_endpoints.py
+# ============================================================================
+# PIAS CORNER - COMPREHENSIVE ADMIN ANALYTICS ENDPOINTS
+# ============================================================================
 
-# Remaining admin endpoints moved to routers/admin_endpoints.py
+@app.get("/admin/analytics/comprehensive")
+async def get_comprehensive_analytics(current_user: User = Depends(get_current_user)):
+    """Get comprehensive analytics for Pia's Corner dashboard - REAL DATA ONLY"""
+    if not current_user.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    try:
+        print("[PIAS_CORNER] Fetching comprehensive analytics with real data...")
+        
+        # 1. Get all patients
+        all_patients = await get_all_patients()
+        patient_count = len(all_patients)
+        
+        # 2. Get all registered users with consumption data
+        users_query = "SELECT * FROM c WHERE c.type = 'user'"
+        all_users = list(user_container.query_items(query=users_query, enable_cross_partition_query=True))
+        
+        # 3. Get all consumption records
+        consumption_query = "SELECT * FROM c WHERE c.type = 'consumption_record'"
+        all_consumption = list(interactions_container.query_items(query=consumption_query, enable_cross_partition_query=True))
+        
+        # 4. Get all meal plans
+        meal_plans_query = "SELECT * FROM c WHERE c.type = 'meal_plan'"
+        all_meal_plans = list(interactions_container.query_items(query=meal_plans_query, enable_cross_partition_query=True))
+        
+        # 5. Calculate engagement metrics
+        active_users = []
+        for user in all_users:
+            user_consumption = [c for c in all_consumption if c.get('user_id') == user.get('email', user.get('id'))]
+            if user_consumption:
+                active_users.append({
+                    'user_id': user.get('email', user.get('id')),
+                    'consumption_count': len(user_consumption),
+                    'last_activity': max([c.get('created_at', '1970-01-01') for c in user_consumption]),
+                    'profile': user.get('profile', {}),
+                    'registration_code': user.get('registration_code')
+                })
+        
+        # 6. Calculate nutrient adequacy across all users
+        nutrient_totals = {'calories': 0, 'protein': 0, 'carbohydrates': 0, 'fat': 0, 'count': 0}
+        for consumption in all_consumption:
+            nutrient_totals['calories'] += consumption.get('calories', 0)
+            nutrient_totals['protein'] += consumption.get('protein', 0)
+            nutrient_totals['carbohydrates'] += consumption.get('carbohydrates', 0)
+            nutrient_totals['fat'] += consumption.get('fat', 0)
+            nutrient_totals['count'] += 1
+        
+        # 7. Detect outliers (users with extreme consumption patterns)
+        outliers = []
+        for user_data in active_users:
+            user_consumption = [c for c in all_consumption if c.get('user_id') == user_data['user_id']]
+            total_calories = sum([c.get('calories', 0) for c in user_consumption])
+            avg_calories = total_calories / len(user_consumption) if user_consumption else 0
+            
+            if avg_calories > 3000 or avg_calories < 500:  # Outlier thresholds
+                outliers.append({
+                    'user_id': user_data['user_id'],
+                    'avg_calories': avg_calories,
+                    'total_logs': len(user_consumption),
+                    'reason': 'High calorie intake' if avg_calories > 3000 else 'Low calorie intake'
+                })
+        
+        # 8. Calculate compliance rates
+        compliance_data = []
+        for user_data in active_users:
+            user_meal_plans = [m for m in all_meal_plans if m.get('user_id') == user_data['user_id']]
+            user_consumption = [c for c in all_consumption if c.get('user_id') == user_data['user_id']]
+            
+            compliance_rate = 0
+            if user_meal_plans and user_consumption:
+                # Simple compliance calculation based on logging frequency
+                days_with_plans = len(set([m.get('created_at', '')[:10] for m in user_meal_plans]))
+                days_with_consumption = len(set([c.get('created_at', '')[:10] for c in user_consumption]))
+                compliance_rate = (days_with_consumption / max(days_with_plans, 1)) * 100
+            
+            compliance_data.append({
+                'user_id': user_data['user_id'],
+                'compliance_rate': min(compliance_rate, 100),
+                'meal_plans_count': len(user_meal_plans),
+                'consumption_logs': len(user_consumption)
+            })
+        
+        return {
+            'summary': {
+                'total_patients': patient_count,
+                'active_users': len(active_users),
+                'total_consumption_logs': len(all_consumption),
+                'total_meal_plans': len(all_meal_plans),
+                'avg_compliance_rate': sum(c['compliance_rate'] for c in compliance_data) / len(compliance_data) if compliance_data else 0
+            },
+            'nutrient_adequacy': {
+                'avg_calories': nutrient_totals['calories'] / max(nutrient_totals['count'], 1),
+                'avg_protein': nutrient_totals['protein'] / max(nutrient_totals['count'], 1),
+                'avg_carbs': nutrient_totals['carbohydrates'] / max(nutrient_totals['count'], 1),
+                'avg_fat': nutrient_totals['fat'] / max(nutrient_totals['count'], 1),
+                'total_logs': nutrient_totals['count']
+            },
+            'engagement_metrics': active_users,
+            'outlier_detection': outliers,
+            'behavior_clusters': {
+                'high_engagement': [u for u in active_users if u['consumption_count'] > 10],
+                'medium_engagement': [u for u in active_users if 5 <= u['consumption_count'] <= 10],
+                'low_engagement': [u for u in active_users if u['consumption_count'] < 5]
+            },
+            'compliance_graph': compliance_data,
+            'patient_table': active_users
+        }
+        
+    except Exception as e:
+        print(f"[PIAS_CORNER] Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get comprehensive analytics: {str(e)}")
 
+@app.get("/admin/analytics/nutrient-trends")
+async def get_nutrient_trends(days: int = 30, current_user: User = Depends(get_current_user)):
+    """Get nutrient trends across all patients over time"""
+    if not current_user.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    try:
+        from datetime import timedelta
+        import pytz
+        
+        # Get consumption records from last N days
+        end_date = datetime.now(pytz.UTC)
+        start_date = end_date - timedelta(days=days)
+        
+        consumption_query = f"""
+        SELECT * FROM c 
+        WHERE c.type = 'consumption_record' 
+        AND c.created_at >= '{start_date.isoformat()}'
+        ORDER BY c.created_at DESC
+        """
+        
+        consumption_records = list(interactions_container.query_items(
+            query=consumption_query, 
+            enable_cross_partition_query=True
+        ))
+        
+        # Group by date and calculate daily averages
+        daily_nutrients = {}
+        for record in consumption_records:
+            date_key = record.get('created_at', '')[:10]  # Get YYYY-MM-DD
+            if date_key not in daily_nutrients:
+                daily_nutrients[date_key] = {
+                    'calories': [], 'protein': [], 'carbohydrates': [], 'fat': []
+                }
+            
+            daily_nutrients[date_key]['calories'].append(record.get('calories', 0))
+            daily_nutrients[date_key]['protein'].append(record.get('protein', 0))
+            daily_nutrients[date_key]['carbohydrates'].append(record.get('carbohydrates', 0))
+            daily_nutrients[date_key]['fat'].append(record.get('fat', 0))
+        
+        # Calculate averages for each day
+        trend_data = []
+        for date_key, nutrients in daily_nutrients.items():
+            trend_data.append({
+                'date': date_key,
+                'avg_calories': sum(nutrients['calories']) / len(nutrients['calories']),
+                'avg_protein': sum(nutrients['protein']) / len(nutrients['protein']),
+                'avg_carbs': sum(nutrients['carbohydrates']) / len(nutrients['carbohydrates']),
+                'avg_fat': sum(nutrients['fat']) / len(nutrients['fat']),
+                'total_logs': len(nutrients['calories'])
+            })
+        
+        return sorted(trend_data, key=lambda x: x['date'])
+        
+    except Exception as e:
+        print(f"[NUTRIENT_TRENDS] Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get nutrient trends: {str(e)}")
+
+@app.get("/admin/analytics/patient-engagement")
+async def get_patient_engagement(current_user: User = Depends(get_current_user)):
+    """Get detailed patient engagement analytics"""
+    if not current_user.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    try:
+        # Get all users with their profiles
+        users_query = "SELECT * FROM c WHERE c.type = 'user'"
+        all_users = list(user_container.query_items(query=users_query, enable_cross_partition_query=True))
+        
+        # Get all interactions (consumption, meal plans, chat)
+        consumption_query = "SELECT * FROM c WHERE c.type = 'consumption_record'"
+        chat_query = "SELECT * FROM c WHERE c.type = 'chat_message'"
+        meal_plan_query = "SELECT * FROM c WHERE c.type = 'meal_plan'"
+        
+        all_consumption = list(interactions_container.query_items(query=consumption_query, enable_cross_partition_query=True))
+        all_chats = list(interactions_container.query_items(query=chat_query, enable_cross_partition_query=True))
+        all_meal_plans = list(interactions_container.query_items(query=meal_plan_query, enable_cross_partition_query=True))
+        
+        engagement_data = []
+        for user in all_users:
+            user_id = user.get('email', user.get('id'))
+            
+            # Count interactions
+            consumption_count = len([c for c in all_consumption if c.get('user_id') == user_id])
+            chat_count = len([c for c in all_chats if c.get('user_id') == user_id])
+            meal_plan_count = len([m for m in all_meal_plans if m.get('user_id') == user_id])
+            
+            # Calculate engagement score
+            engagement_score = (consumption_count * 3) + (chat_count * 2) + (meal_plan_count * 5)
+            
+            # Get last activity
+            all_activities = []
+            all_activities.extend([c.get('created_at', '') for c in all_consumption if c.get('user_id') == user_id])
+            all_activities.extend([c.get('created_at', '') for c in all_chats if c.get('user_id') == user_id])
+            all_activities.extend([m.get('created_at', '') for m in all_meal_plans if m.get('user_id') == user_id])
+            
+            last_activity = max(all_activities) if all_activities else None
+            
+            engagement_data.append({
+                'user_id': user_id,
+                'name': user.get('profile', {}).get('name', 'Unknown'),
+                'registration_code': user.get('registration_code'),
+                'engagement_score': engagement_score,
+                'consumption_logs': consumption_count,
+                'chat_messages': chat_count,
+                'meal_plans': meal_plan_count,
+                'last_activity': last_activity,
+                'medical_conditions': user.get('profile', {}).get('medicalConditions', []),
+                'profile_completeness': len([v for v in user.get('profile', {}).values() if v]) / 15 * 100  # Rough completeness score
+            })
+        
+        return sorted(engagement_data, key=lambda x: x['engagement_score'], reverse=True)
+        
+    except Exception as e:
+        print(f"[PATIENT_ENGAGEMENT] Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get patient engagement: {str(e)}")
 
 def enforce_dietary_restrictions(meal_plan_data: dict, user_profile: dict) -> dict:
     """
@@ -1330,7 +1818,7 @@ Provide a JSON response with the exact structure:
 Provide personalized health coaching that addresses their specific conditions and current status."""
 
         # Get AI response
-        response = get_openai_client().chat.completions.create(
+        response = client.chat.completions.create(
             model=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
             messages=[
                 {
@@ -1775,14 +2263,6 @@ REQUIREMENTS:
                         if isinstance(prev_meals, list) and isinstance(new_meals, list) and len(new_meals) == days:
                             meal_plan[meal_type] = get_overlap_meals(prev_meals, new_meals)
 
-                # Save the meal plan to the database
-                try:
-                    saved_meal_plan = await save_meal_plan(current_user["email"], meal_plan)
-                    print("[/generate-meal-plan] Meal plan saved to database successfully")
-                except Exception as save_error:
-                    print(f"[/generate-meal-plan] Failed to save meal plan to database: {save_error}")
-                    # Continue anyway - we can still return the generated plan
-
                 # Explicitly convert the returned meal_plan to a plain dictionary
                 try:
                     # import json # Removed local import
@@ -1838,14 +2318,6 @@ REQUIREMENTS:
                     while len(meal_plan[meal_type]) < days:
                         meal_plan[meal_type].append("Healthy meal option")
                     meal_plan[meal_type] = meal_plan[meal_type][:days]
-
-                # Save the fallback meal plan to the database
-                try:
-                    saved_meal_plan = await save_meal_plan(current_user["email"], meal_plan)
-                    print("[/generate-meal-plan] Fallback meal plan saved to database successfully")
-                except Exception as save_error:
-                    print(f"[/generate-meal-plan] Failed to save fallback meal plan to database: {save_error}")
-                    # Continue anyway - we can still return the generated plan
 
                 print("Successfully generated fallback meal plan")
                 return meal_plan
@@ -2371,6 +2843,7 @@ def consolidate_ingredients(recipes: List[dict], user_profile: dict = None) -> L
     print(f"Consolidated {len(ingredient_map)} unique ingredients from {len(recipes)} recipes")
     return consolidated_ingredients
 
+
 @app.post("/generate-shopping-list")
 async def generate_shopping_list(
     request: FastAPIRequest,
@@ -2552,15 +3025,478 @@ async def generate_shopping_list(
             shopping_list={"items": shopping_list}
         )
         return shopping_list
-# Export endpoints moved to routers/export_system.py
+    except Exception as e:
+        print(f"Error in /generate-shopping-list: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
-# Export endpoints moved to routers/export_system.py
+@app.post("/export/consolidated-meal-plan")
+async def export_consolidated_meal_plan(current_user: User = Depends(get_current_user)):
+    try:
+        print(">>>> Entered /export/consolidated-meal-plan endpoint")
+        # Fetch meal plans
+        meal_plans = await get_user_meal_plans(current_user["email"])
+        if not meal_plans:
+            print("No meal plan found")
+            raise HTTPException(status_code=404, detail="No meal plan found")
+        latest_meal_plan = meal_plans[-1]
+        print("meal_plan:", latest_meal_plan)
+        # Fetch latest recipes and shopping list for the user
+        all_recipes = await get_user_recipes(current_user["email"])
+        recipes = all_recipes[-1]["recipes"] if all_recipes else []
+        all_shopping_lists = await get_user_shopping_lists(current_user["email"])
+        shopping_list = all_shopping_lists[-1]["items"] if all_shopping_lists else []
+        print("recipes:", recipes)
+        print("shopping_list:", shopping_list)
+        # Generate PDF
+        buffer = BytesIO()
+        doc = SimpleDocTemplate(buffer, pagesize=landscape(letter))
+        elements = []
+        styles = getSampleStyleSheet()
+        # Add cover page
+        try:
+            cover_path = os.path.join("assets", "coverpage.png")
+            elements.append(RLImage(cover_path, width=10*inch, height=6*inch))
+            elements.append(Spacer(1, 48))
+        except Exception as cover_err:
+            print(f"Could not add cover page: {cover_err}")
+        # Title
+        elements.append(Paragraph("Consolidated Meal Plan", styles['Title']))
+        elements.append(Spacer(1, 12))
+        # Meal Plan Section
+        elements.append(Paragraph("Meal Plan", styles['Heading1']))
+        elements.append(Spacer(1, 12))
+        data = [["Day", "Breakfast", "Lunch", "Dinner", "Snacks"]]
+        days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+        for i, day in enumerate(days):
+            data.append([
+                day,
+                latest_meal_plan["breakfast"][i] if i < len(latest_meal_plan["breakfast"]) else "",
+                latest_meal_plan["lunch"][i] if i < len(latest_meal_plan["lunch"]) else "",
+                latest_meal_plan["dinner"][i] if i < len(latest_meal_plan["dinner"]) else "",
+                latest_meal_plan["snacks"][i] if i < len(latest_meal_plan["snacks"]) else "",
+            ])
+        col_widths = [0.8*inch, 2.5*inch, 2.5*inch, 2.5*inch, 2.5*inch]
+        table = Table(data, colWidths=col_widths)
+        table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 14),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+            ('TEXTCOLOR', (0, 1), (-1, -1), colors.black),
+            ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+            ('FONTSIZE', (0, 1), (-1, -1), 10),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black),
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+        ]))
+        for row in range(1, len(data)):
+            for col in range(1, 5):
+                table._cellvalues[row][col] = Paragraph(str(table._cellvalues[row][col]), styles['BodyText'])
+        elements.append(table)
+        elements.append(Spacer(1, 24))
+        # Recipes Section (new page)
+        elements.append(PageBreak())
+        elements.append(Paragraph("Recipes", styles['Heading1']))
+        elements.append(Spacer(1, 12))
+        for recipe in recipes:
+            elements.append(Paragraph(recipe["name"], styles['Heading2']))
+            elements.append(Spacer(1, 12))
+            elements.append(Paragraph("Nutritional Information", styles['Heading3']))
+            elements.append(Paragraph(f"Calories: {recipe['nutritional_info']['calories']}", styles['Normal']))
+            elements.append(Paragraph(f"Protein: {recipe['nutritional_info']['protein']}", styles['Normal']))
+            elements.append(Paragraph(f"Carbs: {recipe['nutritional_info']['carbs']}", styles['Normal']))
+            elements.append(Paragraph(f"Fat: {recipe['nutritional_info']['fat']}", styles['Normal']))
+            elements.append(Spacer(1, 12))
+            elements.append(Paragraph("Ingredients", styles['Heading3']))
+            for ingredient in recipe["ingredients"]:
+                elements.append(Paragraph(f"• {ingredient}", styles['Normal']))
+            elements.append(Spacer(1, 12))
+            elements.append(Paragraph("Instructions", styles['Heading3']))
+            for i, instruction in enumerate(recipe["instructions"], 1):
+                elements.append(Paragraph(f"{i}. {instruction}", styles['Normal']))
+            elements.append(Spacer(1, 24))
+        # Shopping List Section (new page)
+        elements.append(PageBreak())
+        elements.append(Paragraph("Shopping List", styles['Heading1']))
+        elements.append(Spacer(1, 12))
+        categories = {}
+        for item in shopping_list:
+            if item["category"] not in categories:
+                categories[item["category"]] = []
+            categories[item["category"]].append(item)
+        for category, items in categories.items():
+            elements.append(Paragraph(category, styles['Heading2']))
+            elements.append(Spacer(1, 12))
+            for item in items:
+                elements.append(Paragraph(f"• {item['name']} - {item['amount']}", styles['Normal']))
+            elements.append(Spacer(1, 24))
+        doc.build(elements)
+        buffer.seek(0)
+        username = current_user["email"].split("@")[0]
+        date_str = datetime.now().strftime("%Y%m%d")
+        filename = f"{username}_{date_str}_consolidated_meal_plan.pdf"
+        return StreamingResponse(
+            buffer,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+    except Exception as e:
+        print("Error in /export/consolidated-meal-plan:")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/export/{type}")
+async def export_document(
+    type: str,
+    request: FastAPIRequest,
+    current_user: User = Depends(get_current_user)
+):
+    try:
+        data = await request.json()
+        
+        if type == "meal-plan":
+            content = data["meal_plan"]
+            title = "Meal Plan"
+        elif type == "recipes":
+            content = data["recipes"]
+            title = "Recipe Collection"
+        elif type == "shopping-list":
+            content = data["shopping_list"]
+            title = "Shopping List"
+        else:
+            raise HTTPException(status_code=400, detail="Invalid export type")
+
+        # Generate PDF using reportlab
+        buffer = BytesIO()
+        doc = SimpleDocTemplate(buffer, pagesize=landscape(letter))
+        elements = []
+
+        # Add title
+        styles = getSampleStyleSheet()
+        elements.append(Paragraph(title, styles['Title']))
+        elements.append(Spacer(1, 12))
+
+        # Add content based on type
+        if type == "meal-plan":
+            # Create table for meal plan
+            data = [["Day", "Breakfast", "Lunch", "Dinner", "Snacks"]]
+            days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+            for i, day in enumerate(days):
+                data.append([
+                    day,
+                    content["breakfast"][i] if i < len(content["breakfast"]) else "",
+                    content["lunch"][i] if i < len(content["lunch"]) else "",
+                    content["dinner"][i] if i < len(content["dinner"]) else "",
+                    content["snacks"][i] if i < len(content["snacks"]) else "",
+                ])
+            # Set column widths
+            col_widths = [0.8*inch, 2.5*inch, 2.5*inch, 2.5*inch, 2.5*inch]
+            table = Table(data, colWidths=col_widths)
+            table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, 0), 14),
+                ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+                ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+                ('TEXTCOLOR', (0, 1), (-1, -1), colors.black),
+                ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+                ('FONTSIZE', (0, 1), (-1, -1), 10),
+                ('GRID', (0, 0), (-1, -1), 1, colors.black),
+                ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+            ]))
+            # Enable word wrap for all cells except header
+            for row in range(1, len(data)):
+                for col in range(1, 5):
+                    table._cellvalues[row][col] = Paragraph(str(table._cellvalues[row][col]), styles['BodyText'])
+            elements.append(table)
+
+        elif type == "recipes":
+            # Add each recipe
+            for recipe in content:
+                elements.append(Paragraph(recipe["name"], styles['Heading1']))
+                elements.append(Spacer(1, 12))
+
+                # Nutritional info
+                elements.append(Paragraph("Nutritional Information", styles['Heading2']))
+                elements.append(Paragraph(f"Calories: {recipe['nutritional_info']['calories']}", styles['Normal']))
+                elements.append(Paragraph(f"Protein: {recipe['nutritional_info']['protein']}", styles['Normal']))
+                elements.append(Paragraph(f"Carbs: {recipe['nutritional_info']['carbs']}", styles['Normal']))
+                elements.append(Paragraph(f"Fat: {recipe['nutritional_info']['fat']}", styles['Normal']))
+                elements.append(Spacer(1, 12))
+
+                # Ingredients
+                elements.append(Paragraph("Ingredients", styles['Heading2']))
+                for ingredient in recipe["ingredients"]:
+                    elements.append(Paragraph(f"• {ingredient}", styles['Normal']))
+                elements.append(Spacer(1, 12))
+
+                # Instructions
+                elements.append(Paragraph("Instructions", styles['Heading2']))
+                for i, instruction in enumerate(recipe["instructions"], 1):
+                    elements.append(Paragraph(f"{i}. {instruction}", styles['Normal']))
+                elements.append(Spacer(1, 24))
+
+        elif type == "shopping-list":
+            # Group items by category
+            categories = {}
+            for item in content:
+                if item["category"] not in categories:
+                    categories[item["category"]] = []
+                categories[item["category"]].append(item)
+
+            # Add each category
+            for category, items in categories.items():
+                elements.append(Paragraph(category, styles['Heading1']))
+                elements.append(Spacer(1, 12))
+                for item in items:
+                    elements.append(Paragraph(f"• {item['name']} - {item['amount']}", styles['Normal']))
+                elements.append(Spacer(1, 24))
+
+        # Build PDF
+        doc.build(elements)
+        buffer.seek(0)
+
+        return StreamingResponse(
+            buffer,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f"attachment; filename={type}-{datetime.now().strftime('%Y%m%d')}.pdf"}
+        )
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# Privacy endpoints moved to routers/privacy_data.py
+@app.post("/privacy/export-data")
+async def export_privacy_data(
+    request: FastAPIRequest,
+    current_user: User = Depends(get_current_user)
+):
+    """Export user's privacy data in specified format (PDF, JSON, or DOCX)"""
+    try:
+        data = await request.json()
+        data_types = data.get("data_types", [])
+        format_type = data.get("format_type", "pdf")
+        
+        if not data_types:
+            raise HTTPException(status_code=400, detail="Please specify data types to export")
+        
+        if format_type not in ["pdf", "json", "docx"]:
+            raise HTTPException(status_code=400, detail="Invalid format type. Use pdf, json, or docx")
+        
+        print(f"[PRIVACY_EXPORT] Exporting data for user {current_user['email']}")
+        print(f"[PRIVACY_EXPORT] Data types: {data_types}")
+        print(f"[PRIVACY_EXPORT] Format: {format_type}")
+        
+        # Collect user data based on requested types
+        export_data = {}
+        
+        # Get user profile
+        if "profile" in data_types:
+            try:
+                user_doc = await get_user_by_email(current_user["email"])
+                if user_doc:
+                    export_data["profile"] = user_doc.get("profile", {})
+            except Exception as e:
+                print(f"[PRIVACY_EXPORT] Error getting profile: {e}")
+                export_data["profile"] = {}
+        
+        # Get meal plans
+        if "meal_plans" in data_types:
+            try:
+                meal_plans = await get_user_meal_plans(current_user["email"])
+                export_data["meal_plans"] = meal_plans
+            except Exception as e:
+                print(f"[PRIVACY_EXPORT] Error getting meal plans: {e}")
+                export_data["meal_plans"] = []
+        
+        # Get consumption history
+        if "consumption_history" in data_types:
+            try:
+                consumption_history = await get_user_consumption_history(current_user["email"], limit=100)
+                export_data["consumption_history"] = consumption_history
+            except Exception as e:
+                print(f"[PRIVACY_EXPORT] Error getting consumption history: {e}")
+                export_data["consumption_history"] = []
+        
+        # Get chat history
+        if "chat_history" in data_types:
+            try:
+                chat_history = await get_recent_chat_history(current_user["email"], limit=100)
+                export_data["chat_history"] = chat_history
+            except Exception as e:
+                print(f"[PRIVACY_EXPORT] Error getting chat history: {e}")
+                export_data["chat_history"] = []
+        
+        # Get recipes
+        if "recipes" in data_types:
+            try:
+                recipes = await get_user_recipes(current_user["email"])
+                export_data["recipes"] = recipes
+            except Exception as e:
+                print(f"[PRIVACY_EXPORT] Error getting recipes: {e}")
+                export_data["recipes"] = []
+        
+        # Get shopping lists
+        if "shopping_lists" in data_types:
+            try:
+                shopping_lists = await get_user_shopping_lists(current_user["email"])
+                export_data["shopping_lists"] = shopping_lists
+            except Exception as e:
+                print(f"[PRIVACY_EXPORT] Error getting shopping lists: {e}")
+                export_data["shopping_lists"] = []
+        
+        # Prepare user info for export
+        user_info = {
+            "email": current_user["email"],
+            "consent_given": current_user.get("consent_given", False),
+            "marketing_consent": current_user.get("marketing_consent", False),
+            "analytics_consent": current_user.get("analytics_consent", False),
+            "data_retention_preference": current_user.get("data_retention_preference", "standard"),
+            "policy_version": current_user.get("policy_version", "1.0")
+        }
+        
+        print(f"[PRIVACY_EXPORT] Collected data for {len(data_types)} data types")
+        
+        # Generate export based on format
+        if format_type == "pdf":
+            return await generate_data_export_pdf(export_data, user_info)
+        elif format_type == "docx":
+            return await generate_data_export_docx(export_data, user_info)
+        else:  # json
+            filename = f"health_data_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+            return JSONResponse(
+                content={
+                    "export_data": export_data,
+                    "user_info": user_info,
+                    "export_timestamp": datetime.now().isoformat(),
+                    "format": "json"
+                },
+                headers={"Content-Disposition": f"attachment; filename={filename}"}
+            )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[PRIVACY_EXPORT] Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Export failed: {str(e)}")
+
+@app.delete("/privacy/delete-account")
+async def delete_account(
+    request: FastAPIRequest,
+    current_user: User = Depends(get_current_user)
+):
+    """Delete user account and all associated data"""
+    try:
+        data = await request.json()
+        deletion_type = data.get("deletion_type", "complete")
+        confirmation = data.get("confirmation", "")
+        
+        if confirmation.upper() != "DELETE":
+            raise HTTPException(status_code=400, detail="Invalid confirmation. Type DELETE to confirm.")
+        
+        print(f"[PRIVACY_DELETE] Deleting account for user {current_user['email']}")
+        print(f"[PRIVACY_DELETE] Deletion type: {deletion_type}")
+        
+        user_email = current_user["email"]
+        
+        # Delete user data from various containers
+        try:
+            # Delete user profile and main record from user_container
+            try:
+                user_doc = await get_user_by_email(user_email)
+                if user_doc:
+                    user_container.delete_item(item=user_doc, partition_key=user_email)
+            except Exception as e:
+                print(f"[PRIVACY_DELETE] Error deleting user document: {str(e)}")
+            
+            # Delete meal plans
+            await delete_all_user_meal_plans(user_email)
+            
+            # Delete consumption history
+            query = f"SELECT * FROM c WHERE c.user_id = '{user_email}' AND c.type = 'consumption_record'"
+            consumption_records = list(interactions_container.query_items(query=query, enable_cross_partition_query=True))
+            for record in consumption_records:
+                interactions_container.delete_item(item=record, partition_key=record.get("session_id", user_email))
+            
+            # Delete chat history
+            query = f"SELECT * FROM c WHERE c.user_id = '{user_email}' AND c.type = 'chat_message'"
+            chat_messages = list(interactions_container.query_items(query=query, enable_cross_partition_query=True))
+            for message in chat_messages:
+                interactions_container.delete_item(item=message, partition_key=message.get("session_id", user_email))
+            
+            # Delete recipes
+            query = f"SELECT * FROM c WHERE c.user_id = '{user_email}' AND c.type = 'recipes'"
+            recipes = list(interactions_container.query_items(query=query, enable_cross_partition_query=True))
+            for recipe in recipes:
+                interactions_container.delete_item(item=recipe, partition_key=recipe.get("session_id", user_email))
+            
+            # Delete shopping lists
+            query = f"SELECT * FROM c WHERE c.user_id = '{user_email}' AND c.type = 'shopping_list'"
+            shopping_lists = list(interactions_container.query_items(query=query, enable_cross_partition_query=True))
+            for shopping_list in shopping_lists:
+                interactions_container.delete_item(item=shopping_list, partition_key=shopping_list.get("session_id", user_email))
+            
+            print(f"[PRIVACY_DELETE] Successfully deleted all data for user {user_email}")
+            
+        except Exception as e:
+            print(f"[PRIVACY_DELETE] Error during data deletion: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Failed to delete user data: {str(e)}")
+        
+        return {"message": "Account deleted successfully"}
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[PRIVACY_DELETE] Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Account deletion failed: {str(e)}")
+
+@app.put("/privacy/update-consent")
+async def update_consent(
+    request: FastAPIRequest,
+    current_user: User = Depends(get_current_user)
+):
+    """Update user consent preferences"""
+    try:
+        data = await request.json()
+        
+        print(f"[PRIVACY_CONSENT] Updating consent for user {current_user['email']}")
+        print(f"[PRIVACY_CONSENT] New consent settings: {data}")
+        
+        # Update user record with new consent settings
+        user_email = current_user["email"]
+        
+        try:
+            # Get current user document
+            user_doc = await get_user_by_email(user_email)
+            if not user_doc:
+                raise HTTPException(status_code=404, detail="User not found")
+            
+            # Update consent fields
+            user_doc["consent_given"] = data.get("consent_given", user_doc.get("consent_given", False))
+            user_doc["marketing_consent"] = data.get("marketing_consent", user_doc.get("marketing_consent", False))
+            user_doc["analytics_consent"] = data.get("analytics_consent", user_doc.get("analytics_consent", False))
+            user_doc["data_retention_preference"] = data.get("data_retention_preference", user_doc.get("data_retention_preference", "standard"))
+            user_doc["last_consent_update"] = datetime.utcnow().isoformat()
+            
+            # Update the user document
+            user_container.upsert_item(body=user_doc)
+            
+            print(f"[PRIVACY_CONSENT] Successfully updated consent for user {user_email}")
+            
+        except Exception as e:
+            print(f"[PRIVACY_CONSENT] Error updating consent: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Failed to update consent: {str(e)}")
+        
+        return {"message": "Consent preferences updated successfully"}
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[PRIVACY_CONSENT] Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Consent update failed: {str(e)}")
 
 @app.post("/chat/message")
 async def send_chat_message(
@@ -3019,7 +3955,95 @@ async def get_user_profile(current_user: User = Depends(get_current_user)):
         print(f"[get_user_profile] Error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
-# Test endpoints moved to routers/test_endpoints.py
+@app.get("/test/profile-persistence")
+async def test_profile_persistence(current_user: User = Depends(get_current_user)):
+    """
+    Test endpoint to diagnose profile persistence issues.
+    Returns detailed information about profile storage and retrieval.
+    """
+    try:
+        user_email = current_user["email"]
+        
+        # Get user document
+        user_doc = await get_user_by_email(user_email)
+        if not user_doc:
+            return {
+                "status": "error",
+                "message": "User not found",
+                "user_email": user_email
+            }
+        
+        # Get profile from user document
+        profile_in_user_doc = user_doc.get("profile", {})
+        
+        # Get separate profile record
+        separate_profile = {}
+        try:
+            profile_query = f"SELECT * FROM c WHERE c.type = 'user_profile' AND c.user_id = '{user_email}'"
+            profiles = list(user_container.query_items(query=profile_query, enable_cross_partition_query=True))
+            if profiles:
+                separate_profile = profiles[0].get('profile', {})
+        except Exception as e:
+            print(f"Error loading separate profile record: {str(e)}")
+        
+        return {
+            "status": "success",
+            "user_email": user_email,
+            "diagnostics": {
+                "user_doc_exists": bool(user_doc),
+                "profile_in_user_doc": {
+                    "exists": bool(profile_in_user_doc),
+                    "field_count": len(profile_in_user_doc),
+                    "has_name": bool(profile_in_user_doc.get("name")),
+                    "has_medical_conditions": bool(profile_in_user_doc.get("medicalConditions")),
+                    "has_dietary_features": bool(profile_in_user_doc.get("dietaryFeatures")),
+                    "array_fields": [k for k, v in profile_in_user_doc.items() if isinstance(v, list)],
+                    "dict_fields": [k for k, v in profile_in_user_doc.items() if isinstance(v, dict)],
+                    "completeness": calculate_profile_completeness(profile_in_user_doc),
+                    "sample_fields": {k: v for k, v in list(profile_in_user_doc.items())[:3]}
+                },
+                "separate_profile_record": {
+                    "exists": bool(separate_profile),
+                    "field_count": len(separate_profile),
+                    "has_name": bool(separate_profile.get("name")),
+                    "has_medical_conditions": bool(separate_profile.get("medicalConditions")),
+                    "has_dietary_features": bool(separate_profile.get("dietaryFeatures")),
+                    "array_fields": [k for k, v in separate_profile.items() if isinstance(v, list)],
+                    "dict_fields": [k for k, v in separate_profile.items() if isinstance(v, dict)],
+                    "completeness": calculate_profile_completeness(separate_profile),
+                    "sample_fields": {k: v for k, v in list(separate_profile.items())[:3]}
+                },
+                "profile_sources_match": profile_in_user_doc == separate_profile,
+                "user_doc_updated_at": user_doc.get("updated_at", "Not set"),
+                "comprehensive_health_profile_fields": {
+                    "demographics": ["name", "age", "gender", "ethnicity"],
+                    "medical": ["medicalConditions", "currentMedications", "labValues"],
+                    "vitals": ["height", "weight", "bmi", "systolicBP", "diastolicBP"],
+                    "dietary": ["dietType", "dietaryFeatures", "dietaryRestrictions", "allergies"],
+                    "lifestyle": ["exerciseTypes", "workActivityLevel", "primaryGoals"],
+                    "preferences": ["calorieTarget", "wantsWeightLoss", "readinessToChange"]
+                },
+                "field_analysis": {
+                    field_category: [field for field in fields if field in profile_in_user_doc]
+                    for field_category, fields in {
+                        "demographics": ["name", "age", "gender", "ethnicity"],
+                        "medical": ["medicalConditions", "currentMedications", "labValues"],
+                        "vitals": ["height", "weight", "bmi", "systolicBP", "diastolicBP"],
+                        "dietary": ["dietType", "dietaryFeatures", "dietaryRestrictions", "allergies"],
+                        "lifestyle": ["exerciseTypes", "workActivityLevel", "primaryGoals"],
+                        "preferences": ["calorieTarget", "wantsWeightLoss", "readinessToChange"]
+                    }.items()
+                }
+            },
+            "recommendations": []
+        }
+        
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": f"Test failed: {str(e)}",
+            "user_email": current_user.get("email", "Unknown")
+        }
 
 @app.get("/user/shopping-list")
 async def get_user_shopping_list(current_user: User = Depends(get_current_user)):
@@ -3632,7 +4656,7 @@ async def analyze_and_record_food(
             )
         
         # Generate structured analysis using OpenAI
-        response = get_openai_client().chat.completions.create(
+        response = client.chat.completions.create(
             model=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
             messages=[
                 {
@@ -3884,7 +4908,7 @@ async def analyze_food_only(
             raise HTTPException(status_code=400, detail="Invalid or corrupted image file.")
         
         # Generate structured analysis using OpenAI (same logic as analyze-and-record)
-        response = get_openai_client().chat.completions.create(
+        response = client.chat.completions.create(
             model=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
             messages=[
                 {
@@ -4240,7 +5264,7 @@ Examples of what to detect:
 Be conversational and helpful. If you make nutritional updates, recalculate all values proportionally when possible."""
 
         # Get AI response
-        response = get_openai_client().chat.completions.create(
+        response = client.chat.completions.create(
             model=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
             messages=[
                 {
@@ -4347,7 +5371,7 @@ async def analyze_text_food_only(
         """
         
         # Generate analysis using OpenAI
-        response = get_openai_client().chat.completions.create(
+        response = client.chat.completions.create(
             model=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
             messages=[
                 {
@@ -4484,7 +5508,7 @@ async def analyze_image(
         )
         
         # Generate response using OpenAI with image
-        response = get_openai_client().chat.completions.create(
+        response = client.chat.completions.create(
             model=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
             messages=[
                 {
@@ -4781,7 +5805,7 @@ async def chat_message_with_image(
                 user_prompt = "Analyze this food image and provide detailed nutritional information and diabetes suitability rating."
 
         # Generate structured analysis using OpenAI
-        response = get_openai_client().chat.completions.create(
+        response = client.chat.completions.create(
             model=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
             messages=[
                 {
@@ -5279,6 +6303,7 @@ def calculate_consistency_streak(consumption_history: list, user_timezone: str =
     
     return streak
 
+
 # ============================================================================
 # PERSONALIZED NUTRITION SCORING SYSTEM
 # ============================================================================
@@ -5438,6 +6463,7 @@ def calculate_personalized_weights(user_profile: dict) -> dict:
             "sensitivity_factor": 1.0
         }
 
+
 def calculate_score_decay(user_email: str, recent_consumption: list, user_timezone: str = "UTC") -> float:
     """
     Calculate gradual score decay if user hasn't logged healthy meals recently.
@@ -5483,6 +6509,7 @@ def calculate_score_decay(user_email: str, recent_consumption: list, user_timezo
     except Exception as e:
         print(f"[SCORE_DECAY] Error calculating decay: {e}")
         return 0.0
+
 
 @app.get("/coach/daily-insights")
 async def get_daily_coaching_insights(current_user: User = Depends(get_current_user)):
@@ -5942,6 +6969,7 @@ async def get_daily_coaching_insights(current_user: User = Depends(get_current_u
         print(f"[get_daily_insights] Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Failed to get daily insights: {str(e)}")
 
+
 @app.get("/coach/nutrition-score-breakdown")
 async def get_nutrition_score_breakdown(current_user: User = Depends(get_current_user)):
     """
@@ -6049,6 +7077,7 @@ async def get_nutrition_score_breakdown(current_user: User = Depends(get_current
         print(f"[nutrition_score_breakdown] Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Failed to get score breakdown: {str(e)}")
 
+
 def detect_food_exploitation(user_email: str, today_consumption: list, new_food_name: str) -> dict:
     """
     Detect if user is trying to exploit the scoring system by logging the same food repeatedly.
@@ -6112,6 +7141,7 @@ def detect_food_exploitation(user_email: str, today_consumption: list, new_food_
             "variety_score": 1,
             "recommendation": "Continue logging diverse meals"
         }
+
 
 @app.post("/coach/quick-log")
 async def quick_log_food(
@@ -6569,6 +7599,7 @@ async def analyze_consumption_vs_plan(consumption_records: list, meal_plan: dict
             "recommendations": []
         }
 
+
 def generate_personalized_protein_suggestions(user_profile: dict) -> str:
     """
     Generate personalized protein suggestions based on user's dietary restrictions and preferences.
@@ -6658,6 +7689,7 @@ def generate_personalized_protein_suggestions(user_profile: dict) -> str:
         # Safe fallback that works for most dietary restrictions
         return "beans, lentils, or quinoa"
 
+
 def get_remaining_meals_by_time(current_hour: int) -> list:
     """
     Determine which meals are remaining based on current time.
@@ -6681,6 +7713,7 @@ def get_remaining_meals_by_time(current_hour: int) -> list:
     
     return remaining_meals
 
+
 async def apply_intelligent_adaptations(meal_plan: dict, consumption_analysis: dict, remaining_meals: list, user_profile: dict) -> dict:
     """
     Simplified adaptation function - now replaced by generate_consumption_aware_meal_plan.
@@ -6688,6 +7721,7 @@ async def apply_intelligent_adaptations(meal_plan: dict, consumption_analysis: d
     """
     print(f"[apply_intelligent_adaptations] Legacy function called - use generate_consumption_aware_meal_plan instead")
     return meal_plan
+
 
 async def generate_diabetes_friendly_alternative(current_meal: str, meal_type: str, user_profile: dict) -> str:
     """
@@ -6747,6 +7781,7 @@ async def generate_diabetes_friendly_alternative(current_meal: str, meal_type: s
     except Exception as e:
         print(f"[generate_diabetes_friendly_alternative] Error: {e}")
         return current_meal
+
 
 @app.get("/coach/todays-meal-plan")
 async def get_todays_meal_plan(current_user: User = Depends(get_current_user)):
@@ -7243,6 +8278,7 @@ Ensure ALL dishes are completely vegetarian and egg-free. Do not include any mea
         print(f"[get_todays_meal_plan] Full error details:", traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Failed to retrieve or generate meal plan: {str(e)}")
 
+
 @app.post("/coach/adaptive-meal-plan")
 async def create_adaptive_meal_plan(
     payload: dict = Body(None),
@@ -7520,7 +8556,7 @@ Make each meal specific with exact portions and cooking methods. Ensure all {req
         print(f"[create_adaptive_meal_plan] Profile summary length: {len(comprehensive_profile_summary)} chars")
         
         try:
-            response = get_openai_client().chat.completions.create(
+            response = client.chat.completions.create(
                 model=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
                 messages=[
                     {
@@ -7877,9 +8913,10 @@ async def get_notifications(
         print(f"[get_notifications] Error: {str(e)}")
         return []  # Return empty array on error instead of raising exception
 
-# Test create-sample-data endpoint moved to routers/test_endpoints.py
-
-# Remaining test endpoints also moved to routers/test_endpoints.py
+@app.post("/test/create-sample-data")
+async def create_sample_data():
+    """Create sample consumption data for testing"""
+    try:
         # Sample consumption records for the last 7 days
         sample_foods = [
             {
@@ -8022,6 +9059,488 @@ async def get_notifications(
     except Exception as e:
         print(f"Error creating sample data: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to create sample data: {str(e)}")
+
+@app.post("/test/create-user")
+async def create_test_user():
+    """Create a test user for development purposes"""
+    try:
+        # Create a test patient first with comprehensive health conditions
+        patient_data = {
+            "id": "TEST123",  # Use registration code as ID for consistency
+            "name": "Test Patient",
+            "phone": "1234567890",
+            "condition": "Type 2 Diabetes",
+            "medical_conditions": ["Type 2 Diabetes", "Hypertension", "High Cholesterol", "PCOS"],
+            "medications": ["Metformin", "Lisinopril", "Atorvastatin", "Spironolactone"],
+            "allergies": ["Shellfish", "Tree Nuts"],
+            "dietary_restrictions": ["Low Sodium", "Low Glycemic Index"],
+            "registration_code": "TEST123",
+            "type": "patient",  # Add type field
+            "created_at": datetime.utcnow().isoformat()
+        }
+        
+        # Save patient to database
+        user_container.create_item(body=patient_data)
+        
+        # Create test user
+        hashed_password = get_password_hash("test123")
+        print(f"[create_test_user] Hashed password: {hashed_password}")
+        user_data = {
+            "id": "test@example.com",  # Use email as ID for consistency
+            "username": "test@example.com",
+            "email": "test@example.com",
+            "hashed_password": hashed_password,
+            "disabled": False,
+            "patient_id": "TEST123",
+            "type": "user",  # Add type field
+            "profile": {
+                "name": "Test Patient",
+                "age": 45,
+                "gender": "Female",
+                "height": 165.0,
+                "weight": 75.0,
+                "bmi": 27.5,
+                "systolicBP": 140,
+                "diastolicBP": 90,
+                "medicalConditions": ["Type 2 Diabetes", "Hypertension", "High Cholesterol", "PCOS"],
+                "currentMedications": ["Metformin", "Lisinopril", "Atorvastatin", "Spironolactone"],
+                "allergies": ["Shellfish", "Tree Nuts"],
+                "dietaryRestrictions": ["Low Sodium", "Low Glycemic Index"],
+                "foodPreferences": ["Mediterranean", "Plant-based proteins"],
+                "calorieTarget": "1800",
+                "primaryGoals": ["Manage diabetes", "Lower blood pressure", "Reduce cholesterol", "Manage PCOS symptoms", "Lose weight"],
+                "macroGoals": {
+                    "protein": 90,
+                    "carbs": 180,
+                    "fat": 60
+                }
+            }
+        }
+        
+        # Save user to database
+        user_container.create_item(body=user_data)
+        
+        return {"message": "Test user created successfully", "email": "test@example.com", "password": "test123"}
+        
+    except Exception as e:
+        # If user already exists, just return success
+        if "Conflict" in str(e):
+            return {"message": "Test user already exists", "email": "test@example.com", "password": "test123"}
+        raise HTTPException(status_code=500, detail=f"Failed to create test user: {str(e)}")
+
+@app.post("/test/quick-log")
+async def test_quick_log_food(food_data: dict):
+    """Test quick log food without authentication"""
+    try:
+        print(f"[test_quick_log_food] Starting test quick log")
+        print(f"[test_quick_log_food] Food data received: {food_data}")
+        
+        food_name = food_data.get("food_name", "").strip()
+        portion = food_data.get("portion", "medium portion").strip()
+        
+        if not food_name:
+            raise HTTPException(status_code=400, detail="Food name is required")
+        
+        # Use AI to estimate nutritional values with comprehensive analysis
+        prompt = f"""
+        Analyze the food item: {food_name} ({portion})
+        
+        Provide a comprehensive JSON response with this exact structure:
+        {{
+            "food_name": "{food_name}",
+            "estimated_portion": "{portion}",
+            "nutritional_info": {{
+                "calories": <number>,
+                "carbohydrates": <number>,
+                "protein": <number>,
+                "fat": <number>,
+                "fiber": <number>,
+                "sugar": <number>,
+                "sodium": <number>
+            }},
+            "medical_rating": {{
+                "diabetes_suitability": "high/medium/low",
+                "glycemic_impact": "low/medium/high",
+                "recommended_frequency": "daily/weekly/occasional/avoid",
+                "portion_recommendation": "appropriate/reduce/increase"
+            }},
+            "analysis_notes": "Brief explanation of nutritional value and diabetes considerations"
+        }}
+        
+        Guidelines for diabetes_suitability rating:
+        - "high": Vegetables, lean proteins, nuts, low-sugar fruits, whole grains in moderate portions, foods with fiber ≥3g and sugar ≤10g
+        - "medium": Foods with moderate carbs/sugar (10-25g sugar, moderate fiber), dairy products, starchy vegetables
+        - "low": High-sugar foods (>25g sugar), refined grains, processed foods, high-sodium items (>600mg)
+        
+        Be more generous with "high" ratings for genuinely healthy foods. Base estimates on standard nutritional databases.
+        Only return valid JSON, no other text.
+        """
+        
+        # Initialize fallback data
+        fallback_data = {
+            "food_name": food_name,
+            "estimated_portion": portion,
+            "nutritional_info": {
+                "calories": 200,
+                "carbohydrates": 25,
+                "protein": 10,
+                "fat": 8,
+                "fiber": 3,
+                "sugar": 5,
+                "sodium": 300
+            },
+            "medical_rating": {
+                "diabetes_suitability": "medium",
+                "glycemic_impact": "medium",
+                "recommended_frequency": "weekly",
+                "portion_recommendation": "appropriate"
+            },
+            "analysis_notes": f"Nutritional estimate for {food_name}. Consult with healthcare provider for personalized advice."
+        }
+        
+        try:
+            print("[test_quick_log_food] Calling OpenAI for nutritional analysis")
+            api_result = await robust_openai_call(
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are a nutrition analysis expert specializing in diabetes management. Provide accurate nutritional estimates and diabetes-appropriate recommendations."
+                    },
+                    {
+                        "role": "user", 
+                        "content": prompt
+                    }
+                ],
+                max_tokens=500,
+                temperature=0.3,
+                max_retries=3,
+                timeout=30,
+                context="test_quick_log_nutrition"
+            )
+            
+            if api_result["success"]:
+                analysis_text = api_result["content"]
+                print(f"[test_quick_log_food] OpenAI response: {analysis_text}")
+            else:
+                print(f"[test_quick_log_food] OpenAI failed: {api_result['error']}. Using fallback.")
+                analysis_text = None
+            
+            try:
+                # Extract JSON from response
+                start_idx = analysis_text.find('{')
+                end_idx = analysis_text.rfind('}') + 1
+                json_str = analysis_text[start_idx:end_idx]
+                analysis_data = json.loads(json_str)
+                print(f"[test_quick_log_food] Successfully parsed AI analysis: {analysis_data}")
+            except (json.JSONDecodeError, ValueError) as parse_error:
+                print(f"[test_quick_log_food] JSON parsing error: {str(parse_error)}")
+                analysis_data = fallback_data
+                
+        except Exception as openai_error:
+            print(f"[test_quick_log_food] OpenAI API error: {str(openai_error)}. Using fallback estimation.")
+            analysis_data = fallback_data
+        
+        # Prepare consumption data in the same format as the image analysis system
+        consumption_data = {
+            "food_name": analysis_data.get("food_name", food_name),
+            "estimated_portion": analysis_data.get("estimated_portion", portion),
+            "nutritional_info": analysis_data.get("nutritional_info", fallback_data["nutritional_info"]),
+            "medical_rating": analysis_data.get("medical_rating", fallback_data["medical_rating"]),
+            "image_analysis": analysis_data.get("analysis_notes", f"Quick log entry for {food_name}"),
+            "image_url": None,  # No image for quick log
+            "meal_type": (food_data.get("meal_type") or "snack").lower()
+        }
+        
+        print(f"[test_quick_log_food] Prepared consumption data: {consumption_data}")
+        
+        # Save to consumption history using the test user
+        print(f"[test_quick_log_food] Saving consumption record for test user")
+        consumption_record = await save_consumption_record("test@example.com", consumption_data)
+        print(f"[test_quick_log_food] Successfully saved consumption record with ID: {consumption_record['id']}")
+        
+        # Trigger meal plan recalibration
+        print(f"[test_quick_log_food] Triggering meal plan recalibration")
+        user_profile = await get_user_profile("test@example.com")
+        await trigger_meal_plan_recalibration("test@example.com", user_profile)
+        
+        # Return success response in the SAME FORMAT as before
+        return {
+            "success": True,
+            "message": f"Successfully logged {analysis_data.get('food_name', food_name)}",
+            "consumption_record_id": consumption_record["id"],
+            "analysis": analysis_data,
+            "food_name": analysis_data.get("food_name", food_name),
+            "nutritional_summary": {
+                "calories": analysis_data.get("nutritional_info", {}).get("calories", 0),
+                "carbohydrates": analysis_data.get("nutritional_info", {}).get("carbohydrates", 0),
+                "protein": analysis_data.get("nutritional_info", {}).get("protein", 0),
+                "fat": analysis_data.get("nutritional_info", {}).get("fat", 0)
+            },
+            "diabetes_rating": analysis_data.get("medical_rating", {}).get("diabetes_suitability", "medium")
+        }
+        
+    except HTTPException:
+        # Re-raise HTTP exceptions as-is
+        raise
+    except Exception as e:
+        print(f"[test_quick_log_food] Unexpected error: {str(e)}")
+        print(f"[test_quick_log_food] Full error details:", traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Failed to log food item: {str(e)}")
+
+# Test consumption endpoints moved to routers/test.py
+
+@app.get("/test/coach/daily-insights")
+async def test_get_daily_insights():
+    """Test daily insights without authentication"""
+    try:
+        print(f"[test_get_daily_insights] Getting daily insights for test user")
+        
+        # Get consumption analytics for today
+        today_analytics = await get_consumption_analytics("test@example.com", 1, "UTC")
+        weekly_analytics = await get_consumption_analytics("test@example.com", 7, "UTC")
+        
+        # Test user's comprehensive health conditions
+        health_conditions = ["Type 2 Diabetes", "Hypertension", "High Cholesterol", "PCOS"]
+        
+        # Calculate comprehensive health adherence
+        health_adherence = weekly_analytics.get("adherence_stats", {}).get("diabetes_suitable_percentage", 85)
+        total_meals = today_analytics.get("total_meals", 0)
+        
+        insights_data = {
+            "date": datetime.utcnow().date().isoformat(),
+            "goals": {
+                "calories": 1800,  # Adjusted for weight management
+                "protein": 90,
+                "carbohydrates": 180,
+                "fat": 60
+            },
+            "today_totals": today_analytics.get("daily_averages", {
+                "calories": 0,
+                "protein": 0,
+                "carbohydrates": 0,
+                "fat": 0,
+                "fiber": 0,
+                "sugar": 0,
+                "sodium": 0
+            }),
+            "adherence": {
+                "calories": 75,
+                "protein": 80,
+                "carbohydrates": 70,
+                "fat": 65
+            },
+            "diabetes_adherence": health_adherence,  # Now represents overall health adherence
+            "health_adherence": health_adherence,
+            "health_conditions": health_conditions,
+            "consistency_streak": max(0, weekly_analytics.get("total_meals", 0) // 2),
+            "meals_logged_today": total_meals,
+            "weekly_stats": {
+                "total_meals": weekly_analytics.get("total_meals", 0),
+                "diabetes_suitable_percentage": health_adherence,
+                "health_suitable_percentage": health_adherence,
+                "average_daily_calories": weekly_analytics.get("daily_averages", {}).get("calories", 0)
+            },
+            "recommendations": [
+                {
+                    "type": "nutrition",
+                    "priority": "high",
+                    "message": "Focus on low-sodium foods to help manage your hypertension",
+                    "action": "view_low_sodium_foods"
+                },
+                {
+                    "type": "diabetes",
+                    "priority": "high", 
+                    "message": "Choose low glycemic index foods to maintain stable blood sugar",
+                    "action": "view_low_gi_foods"
+                },
+                {
+                    "type": "cholesterol",
+                    "priority": "medium",
+                    "message": "Include omega-3 rich foods like salmon to help lower cholesterol",
+                    "action": "view_heart_healthy_foods"
+                },
+                {
+                    "type": "pcos",
+                    "priority": "medium",
+                    "message": "Anti-inflammatory foods can help manage PCOS symptoms",
+                    "action": "view_anti_inflammatory_foods"
+                }
+            ],
+            "has_meal_plan": False,
+            "latest_meal_plan_date": None,
+            # Add comprehensive insights for the frontend
+            "insights": [
+                {
+                    "category": "Daily Progress",
+                    "message": f"You've logged {total_meals} meals today with {health_adherence:.0f}% health-suitable choices for your conditions: {', '.join(health_conditions[:2])}{'...' if len(health_conditions) > 2 else ''}.",
+                    "action": "View Details"
+                },
+                {
+                    "category": "Weekly Trend", 
+                    "message": f"This week you've maintained {weekly_analytics.get('total_meals', 0)} meal logs with consistent tracking for your health management.",
+                    "action": "Keep Going"
+                },
+                {
+                    "category": "Health Focus",
+                    "message": f"Your meal choices are {health_adherence:.0f}% aligned with recommendations for {', '.join(health_conditions[:2])}.",
+                    "action": "Get Recommendations"
+                },
+                {
+                    "category": "Multi-Condition Management",
+                    "message": f"Managing {len(health_conditions)} conditions requires balanced nutrition - you're doing great!",
+                    "action": "View Comprehensive Plan"
+                }
+            ] if total_meals > 0 else [
+                {
+                    "category": "Getting Started",
+                    "message": f"Start logging your meals to get personalized AI insights for your health conditions: {', '.join(health_conditions)}!",
+                    "action": "Log First Meal"
+                }
+            ]
+        }
+        
+        print(f"[test_get_daily_insights] Daily insights generated successfully")
+        
+        return insights_data
+        
+    except Exception as e:
+        print(f"[test_get_daily_insights] Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get daily insights: {str(e)}")
+
+# Test endpoint moved to routers/test.py
+
+# Test endpoint moved to routers/test.py
+
+async def adapt_meal_plan_based_on_consumption(user_email: str, today_consumption: list, latest_meal_plan: dict = None):
+    """
+    Intelligently adapt tomorrow's meal plan based on today's consumption patterns.
+    This function analyzes what the user ate today vs. their plan and suggests adjustments.
+    """
+    try:
+        if not latest_meal_plan:
+            return None
+            
+        # Calculate today's totals
+        today_calories = sum(record.get("nutritional_info", {}).get("calories", 0) for record in today_consumption)
+        today_carbs = sum(record.get("nutritional_info", {}).get("carbohydrates", 0) for record in today_consumption)
+        today_protein = sum(record.get("nutritional_info", {}).get("protein", 0) for record in today_consumption)
+        today_fat = sum(record.get("nutritional_info", {}).get("fat", 0) for record in today_consumption)
+        
+        # Get user's goals
+        calorie_goal = latest_meal_plan.get("dailyCalories", 2000)
+        macros = latest_meal_plan.get("macronutrients", {})
+        carb_goal = macros.get("carbs", 250)
+        protein_goal = macros.get("protein", 100)
+        fat_goal = macros.get("fats", 70)
+        
+        # Calculate deviations
+        calorie_deviation = today_calories - calorie_goal
+        carb_deviation = today_carbs - carb_goal
+        protein_deviation = today_protein - protein_goal
+        fat_deviation = today_fat - fat_goal
+        
+        # Generate adaptive suggestions
+        adaptations = []
+        
+        # Calorie adjustments
+        if calorie_deviation > 300:  # Exceeded by more than 300 calories
+            adaptations.append({
+                "type": "calorie_reduction",
+                "message": f"Since you exceeded your calorie goal by {calorie_deviation:.0f} calories today, tomorrow's portions will be slightly smaller to help balance your weekly intake.",
+                "adjustment": -200  # Reduce tomorrow by 200 calories
+            })
+        elif calorie_deviation < -300:  # Under by more than 300 calories
+            adaptations.append({
+                "type": "calorie_increase",
+                "message": f"You were {abs(calorie_deviation):.0f} calories under your goal today. Tomorrow's plan includes slightly larger portions to ensure adequate nutrition.",
+                "adjustment": 200  # Increase tomorrow by 200 calories
+            })
+        
+        # Carb adjustments
+        if carb_deviation > 50:  # Too many carbs
+            adaptations.append({
+                "type": "carb_reduction",
+                "message": "Tomorrow's plan emphasizes more protein and vegetables to balance today's higher carb intake.",
+                "adjustment": "more_protein_vegetables"
+            })
+        elif carb_deviation < -30:  # Too few carbs
+            adaptations.append({
+                "type": "carb_increase",
+                "message": "Tomorrow includes healthy complex carbs to ensure you have enough energy.",
+                "adjustment": "add_complex_carbs"
+            })
+        
+        # Protein adjustments
+        if protein_deviation < -20:  # Too little protein
+            adaptations.append({
+                "type": "protein_increase",
+                "message": "Tomorrow's meals will include extra lean protein to meet your daily needs.",
+                "adjustment": "add_lean_protein"
+            })
+        
+        # Create tomorrow's adapted meal plan
+        tomorrow = datetime.utcnow().date() + timedelta(days=1)
+        tomorrow_day_index = tomorrow.weekday()
+        
+        # Get base meals for tomorrow from the current plan
+        adapted_plan = {
+            "id": f"adapted_{user_email}_{int(datetime.utcnow().timestamp())}",
+            "user_id": user_email,
+            "created_at": datetime.utcnow().isoformat(),
+            "type": "adaptive_meal_plan",
+            "date": tomorrow.isoformat(),
+            "adaptations": adaptations,
+            "based_on_consumption": {
+                "date": datetime.utcnow().date().isoformat(),
+                "calories": today_calories,
+                "deviations": {
+                    "calories": calorie_deviation,
+                    "carbs": carb_deviation,
+                    "protein": protein_deviation,
+                    "fat": fat_deviation
+                }
+            }
+        }
+        
+        # Copy base meal structure and apply adaptations
+        if tomorrow_day_index < 7:  # Valid day of week
+            base_breakfast = latest_meal_plan.get("breakfast", [])[tomorrow_day_index] if tomorrow_day_index < len(latest_meal_plan.get("breakfast", [])) else "Healthy breakfast option"
+            base_lunch = latest_meal_plan.get("lunch", [])[tomorrow_day_index] if tomorrow_day_index < len(latest_meal_plan.get("lunch", [])) else "Balanced lunch option"
+            base_dinner = latest_meal_plan.get("dinner", [])[tomorrow_day_index] if tomorrow_day_index < len(latest_meal_plan.get("dinner", [])) else "Nutritious dinner option"
+            
+            # Apply adaptations to meals
+            adapted_breakfast = base_breakfast
+            adapted_lunch = base_lunch
+            adapted_dinner = base_dinner
+            
+            for adaptation in adaptations:
+                if adaptation["type"] == "carb_reduction":
+                    adapted_lunch += " (with extra vegetables instead of rice/bread)"
+                    adapted_dinner += " (with cauliflower rice or extra greens)"
+                elif adaptation["type"] == "protein_increase":
+                    adapted_breakfast += " + Greek yogurt"
+                    adapted_lunch += " + extra lean protein"
+                elif adaptation["type"] == "calorie_reduction":
+                    adapted_breakfast += " (smaller portion)"
+                    adapted_lunch += " (lighter version)"
+                    adapted_dinner += " (reduced portion)"
+            
+            adapted_plan.update({
+                "breakfast": [adapted_breakfast],
+                "lunch": [adapted_lunch],
+                "dinner": [adapted_dinner],
+                "dailyCalories": max(1200, calorie_goal + sum(a.get("adjustment", 0) for a in adaptations if isinstance(a.get("adjustment"), int))),
+                "macronutrients": latest_meal_plan.get("macronutrients", {})
+            })
+        
+        # Save the adapted plan to database
+        await save_meal_plan(user_email, adapted_plan)
+        
+        return adapted_plan
+        
+    except Exception as e:
+        print(f"Error in adaptive meal planning: {str(e)}")
+        return None
 
 @app.post("/coach/meal-suggestion")
 async def get_meal_suggestion(
@@ -8391,7 +9910,7 @@ async def get_ai_suggestion(prompt: str) -> str:
     """Get meal suggestion from Azure OpenAI"""
     try:
         # Call Azure OpenAI API
-        response = get_openai_client().chat.completions.create(
+        response = client.chat.completions.create(
             model=os.getenv("AZURE_OPENAI_DEPLOYMENT"),
             messages=[
                 {"role": "system", "content": "You are a knowledgeable nutritionist and meal planner. Provide specific, healthy meal suggestions that consider dietary restrictions and nutritional needs."},
@@ -8551,7 +10070,759 @@ async def fix_meal_types(current_user: User = Depends(get_current_user)):
         print(f"[fix_meal_types] Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Failed to fix meal types: {str(e)}")
 
-# Privacy data export functions moved to routers/privacy_data.py
+async def generate_data_export_pdf(export_data: dict, user_info: dict):
+    """Generate professional PDF export of user data with logo and improved layout"""
+    try:
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib import colors
+        from reportlab.lib.pagesizes import letter, A4
+        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
+        from reportlab.lib.units import inch
+        from reportlab.lib.enums import TA_JUSTIFY, TA_LEFT, TA_CENTER, TA_RIGHT
+        import os
+        
+        buffer = BytesIO()
+        doc = SimpleDocTemplate(
+            buffer, 
+            pagesize=A4,
+            rightMargin=72, leftMargin=72,
+            topMargin=100, bottomMargin=72,
+            title="Health Data Export"
+        )
+        
+        # Custom styles
+        styles = getSampleStyleSheet()
+        
+        # Define custom styles
+        title_style = ParagraphStyle(
+            'CustomTitle',
+            parent=styles['Title'],
+            fontSize=24,
+            spaceAfter=30,
+            alignment=TA_CENTER,
+            textColor=colors.HexColor('#2E7D32')
+        )
+        
+        section_title_style = ParagraphStyle(
+            'SectionTitle',
+            parent=styles['Heading1'],
+            fontSize=18,
+            spaceAfter=20,
+            spaceBefore=30,
+            textColor=colors.HexColor('#1976D2'),
+            borderWidth=1,
+            borderColor=colors.HexColor('#1976D2'),
+            borderPadding=10,
+            backColor=colors.HexColor('#E3F2FD')
+        )
+        
+        subsection_style = ParagraphStyle(
+            'SubSection',
+            parent=styles['Heading2'],
+            fontSize=14,
+            spaceAfter=12,
+            spaceBefore=15,
+            textColor=colors.HexColor('#424242')
+        )
+        
+        normal_style = ParagraphStyle(
+            'CustomNormal',
+            parent=styles['Normal'],
+            fontSize=10,
+            leading=12,
+            alignment=TA_JUSTIFY
+        )
+        
+        story = []
+        
+        # Header with logo
+        def add_logo_header():
+            header_content = []
+            logo_path = os.path.join(os.path.dirname(__file__), "assets", "coverpage2.png")
+            
+            if os.path.exists(logo_path):
+                try:
+                    # Create header table with logo
+                    logo_img = RLImage(logo_path, width=2*inch, height=1*inch)
+                    header_data = [
+                        ["Diabetes Meal Plan Generator", logo_img],
+                        ["Personal Health Data Export", ""]
+                    ]
+                    header_table = Table(header_data, colWidths=[5*inch, 2*inch])
+                    header_table.setStyle(TableStyle([
+                        ('ALIGN', (0,0), (0,-1), 'LEFT'),
+                        ('ALIGN', (1,0), (1,-1), 'RIGHT'),
+                        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+                        ('FONTSIZE', (0,0), (0,0), 16),
+                        ('FONTSIZE', (0,1), (0,1), 12),
+                        ('TEXTCOLOR', (0,0), (0,-1), colors.HexColor('#2E7D32')),
+                        ('BOTTOMPADDING', (0,0), (-1,-1), 10),
+                    ]))
+                    header_content.append(header_table)
+                except Exception as e:
+                    print(f"Error adding logo: {e}")
+                    # Fallback without logo
+                    header_content.append(Paragraph("Diabetes Meal Plan Generator", title_style))
+                    header_content.append(Paragraph("Personal Health Data Export", subsection_style))
+            else:
+                # Fallback without logo
+                header_content.append(Paragraph("Diabetes Meal Plan Generator", title_style))
+                header_content.append(Paragraph("Personal Health Data Export", subsection_style))
+            
+            return header_content
+        
+        # Add header
+        story.extend(add_logo_header())
+        story.append(Spacer(1, 30))
+        
+        # Export metadata
+        story.append(Paragraph("Export Information", section_title_style))
+        
+        export_date = datetime.now().strftime("%B %d, %Y at %I:%M %p")
+        user_profile = export_data.get("profile", {})
+        
+        metadata_data = [
+            ["Export Date:", export_date],
+            ["Account Email:", user_info.get("email", "Not specified")],
+            ["Patient Name:", user_profile.get("name", "Not specified")],
+            ["Data Policy Version:", user_info.get("policy_version", "1.0")],
+            ["Consent Status:", "✓ Granted" if user_info.get("consent_given") else "✗ Not granted"],
+            ["Marketing Consent:", "✓ Yes" if user_info.get("marketing_consent") else "✗ No"],
+            ["Analytics Consent:", "✓ Yes" if user_info.get("analytics_consent") else "✗ No"],
+            ["Data Retention:", user_info.get("data_retention_preference", "Standard").title()],
+        ]
+        
+        metadata_table = Table(metadata_data, colWidths=[2.5*inch, 4*inch])
+        metadata_table.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (0,-1), colors.HexColor('#F5F5F5')),
+            ('TEXTCOLOR', (0,0), (-1,-1), colors.black),
+            ('ALIGN', (0,0), (0,-1), 'RIGHT'),
+            ('ALIGN', (1,0), (1,-1), 'LEFT'),
+            ('FONTNAME', (0,0), (0,-1), 'Helvetica-Bold'),
+            ('FONTNAME', (1,0), (1,-1), 'Helvetica'),
+            ('FONTSIZE', (0,0), (-1,-1), 10),
+            ('GRID', (0,0), (-1,-1), 1, colors.HexColor('#E0E0E0')),
+            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+            ('LEFTPADDING', (0,0), (-1,-1), 10),
+            ('RIGHTPADDING', (0,0), (-1,-1), 10),
+            ('TOPPADDING', (0,0), (-1,-1), 8),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 8),
+        ]))
+        story.append(metadata_table)
+        story.append(PageBreak())
+        
+        # Patient Profile Section
+        if "profile" in export_data and export_data["profile"]:
+            story.extend(generate_profile_pdf_section(export_data["profile"], styles))
+        
+        # Meal Plans Section (last 10)
+        if "meal_plans" in export_data and export_data["meal_plans"]:
+            story.extend(generate_meal_plans_pdf_section(export_data["meal_plans"][-10:], styles))
+        
+        # Consumption History Section (last 10)
+        if "consumption_history" in export_data and export_data["consumption_history"]:
+            story.extend(generate_consumption_pdf_section(export_data["consumption_history"][-10:], styles))
+        
+        # AI Coach Conversations Section (last 10)
+        if "chat_history" in export_data and export_data["chat_history"]:
+            story.extend(generate_chat_pdf_section(export_data["chat_history"][-10:], styles))
+        
+        # Recipes Section (last 10)
+        if "recipes" in export_data and export_data["recipes"]:
+            story.extend(generate_recipes_pdf_section(export_data["recipes"][-10:], styles))
+        
+        # Shopping Lists Section (last 10)
+        if "shopping_lists" in export_data and export_data["shopping_lists"]:
+            story.extend(generate_shopping_lists_pdf_section(export_data["shopping_lists"][-10:], styles))
+        
+        # Privacy Notice Section
+        story.append(PageBreak())
+        story.append(Paragraph("Privacy & Compliance Notice", section_title_style))
+        
+        # Privacy Notice Section - split into multiple paragraphs to avoid ReportLab parsing issues
+        export_timestamp = datetime.now().isoformat()
+        
+        privacy_paragraphs = [
+            "<b>Data Protection Compliance:</b> This document contains your personal health data exported from the Diabetes Meal Plan Generator system in compliance with the General Data Protection Regulation (GDPR) Article 20 - Right to Data Portability.",
+            
+            "<b>Data Security:</b> Please store this document securely and do not share it with unauthorized parties. This data export includes sensitive health information that should be protected according to applicable privacy laws.",
+            
+            "<b>Data Usage:</b> You have the right to use this data for your personal health management, share it with healthcare providers, or transfer it to other compatible health management systems.",
+            
+            f"<b>Support:</b> For questions about your data, privacy rights, or technical support, please contact our support team at support@diabetesmealplangenerator.com",
+            
+            f"<b>Export Timestamp:</b> {export_timestamp}"
+        ]
+        
+        for para_text in privacy_paragraphs:
+            story.append(Paragraph(para_text, normal_style))
+            story.append(Spacer(1, 12))
+        
+        # Build PDF
+        doc.build(story)
+        buffer.seek(0)
+        
+        filename = f"health_data_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+        
+        return StreamingResponse(
+            BytesIO(buffer.read()),
+            media_type="application/pdf",
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+        
+    except Exception as e:
+        print(f"[PRIVACY] Error generating PDF: {str(e)}")
+        raise Exception(f"Failed to generate PDF export: {str(e)}")
+
+def generate_meal_plans_pdf_section(meal_plans: List[dict], styles):
+    """Generate enhanced meal plans section for PDF"""
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.lib import colors
+    from reportlab.platypus import Paragraph, Spacer, Table, TableStyle, PageBreak
+    from reportlab.lib.units import inch
+    from reportlab.lib.enums import TA_LEFT, TA_CENTER
+    
+    story = []
+    
+    section_title_style = ParagraphStyle(
+        'SectionTitle',
+        parent=styles['Heading1'],
+        fontSize=18,
+        spaceAfter=20,
+        spaceBefore=30,
+        textColor=colors.HexColor('#1976D2'),
+        borderWidth=1,
+        borderColor=colors.HexColor('#1976D2'),
+        borderPadding=10,
+        backColor=colors.HexColor('#E3F2FD')
+    )
+    
+    subsection_style = ParagraphStyle(
+        'SubSection',
+        parent=styles['Heading2'],
+        fontSize=14,
+        spaceAfter=12,
+        spaceBefore=15,
+        textColor=colors.HexColor('#424242')
+    )
+    
+    story.append(Paragraph("Meal Plans (Last 10)", section_title_style))
+    story.append(Paragraph(f"Total meal plans in system: {len(meal_plans)}", styles['Normal']))
+    story.append(Spacer(1, 15))
+    
+    for i, plan in enumerate(meal_plans[:10], 1):  # Limit to 10
+        story.append(Paragraph(f"Meal Plan #{i}", subsection_style))
+        
+        # Plan Overview
+        created_date = plan.get("created_at", "Unknown date")
+        daily_calories = plan.get("dailyCalories", "Not specified")
+        macros = plan.get("macronutrients", {})
+        
+        overview_data = [
+            ["Created:", created_date],
+            ["Daily Calories:", str(daily_calories)],
+            ["Carbs:", f"{macros.get('carbs', 'N/A')}%"],
+            ["Protein:", f"{macros.get('protein', 'N/A')}%"],
+            ["Fat:", f"{macros.get('fat', 'N/A')}%"],
+        ]
+        
+        overview_table = Table(overview_data, colWidths=[1.5*inch, 2*inch])
+        overview_table.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (0,-1), colors.HexColor('#FFF8E1')),
+            ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0,0), (-1,-1), 9),
+            ('GRID', (0,0), (-1,-1), 1, colors.HexColor('#FFD54F')),
+            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+            ('LEFTPADDING', (0,0), (-1,-1), 6),
+            ('RIGHTPADDING', (0,0), (-1,-1), 6),
+            ('TOPPADDING', (0,0), (-1,-1), 4),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 4),
+        ]))
+        story.append(overview_table)
+        
+        # Meals breakdown
+        meals = plan.get("meals", {})
+        if meals:
+            story.append(Spacer(1, 10))
+            story.append(Paragraph("Daily Meals:", styles['Heading4']))
+            
+            meal_data = [["Meal Type", "Description"]]
+            for meal_type, meal_list in meals.items():
+                if isinstance(meal_list, list) and meal_list:
+                    meal_text = "; ".join(meal_list[:3])  # First 3 meals
+                    if len(meal_list) > 3:
+                        meal_text += f" ... (and {len(meal_list) - 3} more)"
+                elif isinstance(meal_list, str):
+                    meal_text = meal_list[:100] + "..." if len(meal_list) > 100 else meal_list
+                else:
+                    meal_text = "Not specified"
+                
+                meal_data.append([meal_type.title(), meal_text])
+            
+            meal_table = Table(meal_data, colWidths=[1.5*inch, 4.5*inch])
+            meal_table.setStyle(TableStyle([
+                ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#E1F5FE')),
+                ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0,0), (-1,-1), 8),
+                ('GRID', (0,0), (-1,-1), 1, colors.HexColor('#81D4FA')),
+                ('VALIGN', (0,0), (-1,-1), 'TOP'),
+                ('LEFTPADDING', (0,0), (-1,-1), 6),
+                ('RIGHTPADDING', (0,0), (-1,-1), 6),
+                ('TOPPADDING', (0,0), (-1,-1), 4),
+                ('BOTTOMPADDING', (0,0), (-1,-1), 4),
+            ]))
+            story.append(meal_table)
+        
+        story.append(Spacer(1, 20))
+    
+    story.append(PageBreak())
+    return story
+
+def generate_consumption_pdf_section(consumption_history: List[dict], styles):
+    """Generate enhanced consumption history section for PDF"""
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.lib import colors
+    from reportlab.platypus import Paragraph, Spacer, Table, TableStyle, PageBreak
+    from reportlab.lib.units import inch
+    from reportlab.lib.enums import TA_LEFT, TA_CENTER
+    
+    story = []
+    
+    section_title_style = ParagraphStyle(
+        'SectionTitle',
+        parent=styles['Heading1'],
+        fontSize=18,
+        spaceAfter=20,
+        spaceBefore=30,
+        textColor=colors.HexColor('#1976D2'),
+        borderWidth=1,
+        borderColor=colors.HexColor('#1976D2'),
+        borderPadding=10,
+        backColor=colors.HexColor('#E3F2FD')
+    )
+    
+    subsection_style = ParagraphStyle(
+        'SubSection',
+        parent=styles['Heading2'],
+        fontSize=14,
+        spaceAfter=12,
+        spaceBefore=15,
+        textColor=colors.HexColor('#424242')
+    )
+    
+    story.append(Paragraph("Food Consumption History (Last 10)", section_title_style))
+    
+    if not consumption_history:
+        story.append(Paragraph("No consumption records found.", styles['Normal']))
+        story.append(PageBreak())
+        return story
+    
+    # Analytics summary
+    total_calories = sum(
+        record.get("nutritional_info", {}).get("calories", 0) 
+        for record in consumption_history 
+        if record.get("nutritional_info", {}).get("calories")
+    )
+    avg_calories = total_calories / len(consumption_history) if consumption_history else 0
+    
+    story.append(Paragraph("Summary Statistics", subsection_style))
+    summary_data = [
+        ["Total Records:", str(len(consumption_history))],
+        ["Total Calories Logged:", f"{total_calories:.0f} kcal"],
+        ["Average Calories per Entry:", f"{avg_calories:.1f} kcal"],
+    ]
+    
+    summary_table = Table(summary_data, colWidths=[2.5*inch, 2*inch])
+    summary_table.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (0,-1), colors.HexColor('#E8F5E8')),
+        ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0,0), (-1,-1), 10),
+        ('GRID', (0,0), (-1,-1), 1, colors.HexColor('#4CAF50')),
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('LEFTPADDING', (0,0), (-1,-1), 8),
+        ('RIGHTPADDING', (0,0), (-1,-1), 8),
+        ('TOPPADDING', (0,0), (-1,-1), 6),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+    ]))
+    story.append(summary_table)
+    story.append(Spacer(1, 20))
+    
+    # Detailed consumption records
+    story.append(Paragraph("Recent Food Entries", subsection_style))
+    
+    consumption_data = [["Date", "Food", "Portion", "Calories", "Medical Rating"]]
+    
+    for record in consumption_history[:10]:  # Last 10
+        timestamp = record.get("timestamp", "Unknown")
+        try:
+            from datetime import datetime
+            if timestamp != "Unknown":
+                dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+                formatted_date = dt.strftime("%m/%d/%Y")
+            else:
+                formatted_date = "Unknown"
+        except:
+            formatted_date = timestamp
+        
+        food_name = record.get("food_name", "Unknown food")
+        portion = record.get("estimated_portion", "Unknown")
+        
+        nutrition = record.get("nutritional_info", {})
+        calories = nutrition.get("calories", "N/A")
+        
+        medical_rating = record.get("medical_rating", {})
+        rating_score = medical_rating.get("overall_rating", "N/A")
+        rating_text = f"{rating_score}/5" if rating_score != "N/A" else "N/A"
+        
+        consumption_data.append([
+            formatted_date,
+            food_name[:30] + "..." if len(food_name) > 30 else food_name,
+            str(portion)[:20] + "..." if len(str(portion)) > 20 else str(portion),
+            f"{calories} kcal" if calories != "N/A" else "N/A",
+            rating_text
+        ])
+    
+    consumption_table = Table(consumption_data, colWidths=[1*inch, 2*inch, 1.5*inch, 1*inch, 1*inch])
+    consumption_table.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#FFE0B2')),
+        ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0,0), (-1,-1), 8),
+        ('GRID', (0,0), (-1,-1), 1, colors.HexColor('#FF9800')),
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('LEFTPADDING', (0,0), (-1,-1), 4),
+        ('RIGHTPADDING', (0,0), (-1,-1), 4),
+        ('TOPPADDING', (0,0), (-1,-1), 4),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 4),
+    ]))
+    story.append(consumption_table)
+    
+    story.append(PageBreak())
+    return story
+
+def generate_chat_pdf_section(chat_history: List[dict], styles):
+    """Generate enhanced AI coach conversations section for PDF"""
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.lib import colors
+    from reportlab.platypus import Paragraph, Spacer, Table, TableStyle, PageBreak
+    from reportlab.lib.units import inch
+    from reportlab.lib.enums import TA_LEFT, TA_CENTER
+    
+    story = []
+    
+    section_title_style = ParagraphStyle(
+        'SectionTitle',
+        parent=styles['Heading1'],
+        fontSize=18,
+        spaceAfter=20,
+        spaceBefore=30,
+        textColor=colors.HexColor('#1976D2'),
+        borderWidth=1,
+        borderColor=colors.HexColor('#1976D2'),
+        borderPadding=10,
+        backColor=colors.HexColor('#E3F2FD')
+    )
+    
+    subsection_style = ParagraphStyle(
+        'SubSection',
+        parent=styles['Heading2'],
+        fontSize=14,
+        spaceAfter=12,
+        spaceBefore=15,
+        textColor=colors.HexColor('#424242')
+    )
+    
+    story.append(Paragraph("AI Health Coach Conversations (Last 10)", section_title_style))
+    
+    if not chat_history:
+        story.append(Paragraph("No chat history found.", styles['Normal']))
+        story.append(PageBreak())
+        return story
+    
+    story.append(Paragraph(f"Total chat messages: {len(chat_history)}", styles['Normal']))
+    story.append(Spacer(1, 15))
+    
+    # Show conversations in a more readable format
+    story.append(Paragraph("Recent Conversations", subsection_style))
+    
+    for i, message in enumerate(chat_history[-10:], 1):  # Last 10 messages
+        role = "You" if message.get("is_user") else "AI Health Coach"
+        content = message.get("message_content", "")
+        timestamp = message.get("timestamp", "Unknown time")
+        
+        try:
+            from datetime import datetime
+            if timestamp != "Unknown time":
+                dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+                formatted_time = dt.strftime("%m/%d/%Y %I:%M %p")
+            else:
+                formatted_time = "Unknown time"
+        except:
+            formatted_time = timestamp
+        
+        # Create conversation entry
+        role_color = colors.HexColor('#2196F3') if role == "You" else colors.HexColor('#4CAF50')
+        
+        conversation_data = [
+            [f"{role} - {formatted_time}", ""],
+            [content[:500] + "..." if len(content) > 500 else content, ""]
+        ]
+        
+        conversation_table = Table(conversation_data, colWidths=[6*inch, 0.5*inch])
+        conversation_table.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,0), role_color),
+            ('TEXTCOLOR', (0,0), (-1,0), colors.white),
+            ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0,0), (-1,0), 10),
+            ('FONTSIZE', (0,1), (-1,1), 9),
+            ('VALIGN', (0,0), (-1,-1), 'TOP'),
+            ('LEFTPADDING', (0,0), (-1,-1), 8),
+            ('RIGHTPADDING', (0,0), (-1,-1), 8),
+            ('TOPPADDING', (0,0), (-1,-1), 6),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+            ('GRID', (0,0), (-1,-1), 1, colors.HexColor('#E0E0E0')),
+        ]))
+        story.append(conversation_table)
+        story.append(Spacer(1, 10))
+    
+    story.append(PageBreak())
+    return story
+
+def generate_recipes_pdf_section(recipes: List[dict], styles):
+    """Generate recipes section for PDF"""
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.lib import colors
+    from reportlab.platypus import Paragraph, Spacer, Table, TableStyle, PageBreak
+    from reportlab.lib.units import inch
+    
+    story = []
+    
+    section_title_style = ParagraphStyle(
+        'SectionTitle',
+        parent=styles['Heading1'],
+        fontSize=18,
+        spaceAfter=20,
+        spaceBefore=30,
+        textColor=colors.HexColor('#1976D2'),
+        borderWidth=1,
+        borderColor=colors.HexColor('#1976D2'),
+        borderPadding=10,
+        backColor=colors.HexColor('#E3F2FD')
+    )
+    
+    story.append(Paragraph("Saved Recipes (Last 10)", section_title_style))
+    
+    if not recipes:
+        story.append(Paragraph("No saved recipes found.", styles['Normal']))
+        story.append(PageBreak())
+        return story
+    
+    story.append(Paragraph(f"Total saved recipes: {len(recipes)}", styles['Normal']))
+    story.append(Spacer(1, 15))
+    
+    for i, recipe_collection in enumerate(recipes[:10], 1):  # Last 10
+        recipe_list = recipe_collection.get("recipes", [])
+        created_date = recipe_collection.get("created_at", "Unknown date")
+        
+        story.append(Paragraph(f"Recipe Collection #{i} - {created_date}", styles['Heading3']))
+        
+        if recipe_list:
+            for recipe in recipe_list[:5]:  # Show first 5 recipes from each collection
+                recipe_name = recipe.get("name", "Unnamed Recipe")
+                ingredients = recipe.get("ingredients", [])
+                instructions = recipe.get("instructions", "No instructions provided")
+                
+                story.append(Paragraph(recipe_name, styles['Heading4']))
+                story.append(Paragraph(f"<b>Ingredients:</b> {', '.join(ingredients[:10])}", styles['Normal']))
+                story.append(Paragraph(f"<b>Instructions:</b> {instructions[:200]}...", styles['Normal']))
+                story.append(Spacer(1, 10))
+        
+        story.append(Spacer(1, 15))
+    
+    story.append(PageBreak())
+    return story
+
+def generate_shopping_lists_pdf_section(shopping_lists: List[dict], styles):
+    """Generate shopping lists section for PDF"""
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.lib import colors
+    from reportlab.platypus import Paragraph, Spacer, Table, TableStyle, PageBreak
+    from reportlab.lib.units import inch
+    
+    story = []
+    
+    section_title_style = ParagraphStyle(
+        'SectionTitle',
+        parent=styles['Heading1'],
+        fontSize=18,
+        spaceAfter=20,
+        spaceBefore=30,
+        textColor=colors.HexColor('#1976D2'),
+        borderWidth=1,
+        borderColor=colors.HexColor('#1976D2'),
+        borderPadding=10,
+        backColor=colors.HexColor('#E3F2FD')
+    )
+    
+    story.append(Paragraph("Shopping Lists (Last 10)", section_title_style))
+    
+    if not shopping_lists:
+        story.append(Paragraph("No shopping lists found.", styles['Normal']))
+        story.append(PageBreak())
+        return story
+    
+    story.append(Paragraph(f"Total shopping lists: {len(shopping_lists)}", styles['Normal']))
+    story.append(Spacer(1, 15))
+    
+    for i, shopping_list in enumerate(shopping_lists[:10], 1):  # Last 10
+        created_date = shopping_list.get("created_at", "Unknown date")
+        items = shopping_list.get("items", [])
+        
+        story.append(Paragraph(f"Shopping List #{i} - {created_date}", styles['Heading3']))
+        
+        if items:
+            # Group items by category if available
+            categorized = {}
+            for item in items:
+                category = item.get("category", "Miscellaneous")
+                if category not in categorized:
+                    categorized[category] = []
+                categorized[category].append(item.get("name", "Unknown item"))
+            
+            for category, category_items in categorized.items():
+                story.append(Paragraph(f"<b>{category}:</b>", styles['Heading4']))
+                items_text = ", ".join(category_items)
+                story.append(Paragraph(items_text, styles['Normal']))
+                story.append(Spacer(1, 8))
+        
+        story.append(Spacer(1, 15))
+    
+    story.append(PageBreak())
+    return story
+
+async def generate_data_export_docx(export_data: dict, user_info: dict):
+    """Generate simplified DOCX export using HTML format"""
+    try:
+        # Limit data to last 10 items for consistency
+        limited_export_data = {}
+        for key, value in export_data.items():
+            if isinstance(value, list) and len(value) > 10:
+                limited_export_data[key] = value[-10:]  # Last 10 items
+            else:
+                limited_export_data[key] = value
+        
+        # Create a comprehensive text-based export that can be saved as DOCX
+        export_date = datetime.now().strftime("%B %d, %Y at %I:%M %p")
+        user_profile = limited_export_data.get("profile", {})
+        
+        content = f"""
+        DIABETES MEAL PLAN GENERATOR
+        Personal Health Data Export
+        
+        ========================================
+        EXPORT INFORMATION
+        ========================================
+        
+        Export Date: {export_date}
+        Account Email: {user_info.get("email", "Not specified")}
+        Patient Name: {user_profile.get("name", "Not specified")}
+        Data Policy Version: {user_info.get("policy_version", "1.0")}
+        Consent Status: {"✓ Granted" if user_info.get("consent_given") else "✗ Not granted"}
+        Marketing Consent: {"✓ Yes" if user_info.get("marketing_consent") else "✗ No"}
+        Analytics Consent: {"✓ Yes" if user_info.get("analytics_consent") else "✗ No"}
+        Data Retention: {user_info.get("data_retention_preference", "Standard").title()}
+        
+        ========================================
+        PATIENT HEALTH PROFILE
+        ========================================
+        
+        Personal Information:
+        - Name: {user_profile.get("name", "Not specified")}
+        - Age: {user_profile.get("age", "Not specified")}
+        - Gender: {user_profile.get("gender", "Not specified")}
+        - Date of Birth: {user_profile.get("dateOfBirth", "Not specified")}
+        
+        Medical Information:
+        - Medical Conditions: {", ".join(user_profile.get("medicalConditions", user_profile.get("medical_conditions", []))) or "None specified"}
+        - Current Medications: {", ".join(user_profile.get("currentMedications", [])) or "None specified"}
+        - Allergies: {", ".join(user_profile.get("allergies", [])) or "None specified"}
+        
+        """
+        
+        # Add meal plans section
+        if "meal_plans" in limited_export_data and limited_export_data["meal_plans"]:
+            content += "\n========================================\n"
+            content += "MEAL PLANS (LAST 10)\n"
+            content += "========================================\n\n"
+            
+            for i, plan in enumerate(limited_export_data["meal_plans"][:10], 1):
+                content += f"Meal Plan #{i}\n"
+                content += f"Created: {plan.get('created_at', 'Unknown date')}\n"
+                content += f"Daily Calories: {plan.get('dailyCalories', 'Not specified')}\n"
+                macros = plan.get("macronutrients", {})
+                content += f"Macros - Carbs: {macros.get('carbs', 'N/A')}%, Protein: {macros.get('protein', 'N/A')}%, Fat: {macros.get('fat', 'N/A')}%\n\n"
+        
+        # Add consumption history section
+        if "consumption_history" in limited_export_data and limited_export_data["consumption_history"]:
+            content += "\n========================================\n"
+            content += "FOOD CONSUMPTION HISTORY (LAST 10)\n"
+            content += "========================================\n\n"
+            
+            for record in limited_export_data["consumption_history"][:10]:
+                content += f"Date: {record.get('timestamp', 'Unknown')}\n"
+                content += f"Food: {record.get('food_name', 'Unknown food')}\n"
+                content += f"Portion: {record.get('estimated_portion', 'Unknown')}\n"
+                nutrition = record.get("nutritional_info", {})
+                content += f"Calories: {nutrition.get('calories', 'N/A')} kcal\n"
+                medical_rating = record.get("medical_rating", {})
+                rating_score = medical_rating.get("overall_rating", "N/A")
+                content += f"Medical Rating: {rating_score}/5\n\n"
+        
+        # Add chat history section
+        if "chat_history" in limited_export_data and limited_export_data["chat_history"]:
+            content += "\n========================================\n"
+            content += "AI HEALTH COACH CONVERSATIONS (LAST 10)\n"
+            content += "========================================\n\n"
+            
+            for message in limited_export_data["chat_history"][-10:]:
+                role = "You" if message.get("is_user") else "AI Health Coach"
+                content += f"{role}: {message.get('message_content', '')}\n"
+                content += f"Time: {message.get('timestamp', 'Unknown time')}\n\n"
+        
+        # Add privacy notice
+        content += "\n========================================\n"
+        content += "PRIVACY & COMPLIANCE NOTICE\n"
+        content += "========================================\n\n"
+        content += """Data Protection Compliance: This document contains your personal health data exported from the Diabetes Meal Plan Generator system in compliance with the General Data Protection Regulation (GDPR) Article 20 - Right to Data Portability.
+
+Data Security: Please store this document securely and do not share it with unauthorized parties. This data export includes sensitive health information that should be protected according to applicable privacy laws.
+
+Data Usage: You have the right to use this data for your personal health management, share it with healthcare providers, or transfer it to other compatible health management systems.
+
+Support: For questions about your data, privacy rights, or technical support, please contact our support team at support@diabetesmealplangenerator.com
+
+Export Timestamp: """ + datetime.now().isoformat()
+        
+        # Return as downloadable text file that can be opened in Word
+        filename = f"health_data_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.docx"
+        
+        return Response(
+            content=content,
+            media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+        
+    except Exception as e:
+        print(f"[PRIVACY] Error generating DOCX: {str(e)}")
+        # Fallback to JSON if DOCX generation fails
+        return JSONResponse(content={
+            "message": "DOCX export encountered an error, providing JSON format instead",
+            "error": str(e),
+            "data": limited_export_data,
+            "metadata": {
+                "export_date": datetime.now().isoformat(),
+                "format": "json_fallback"
+            }
+        })
 
 if __name__ == "__main__":
     import uvicorn
