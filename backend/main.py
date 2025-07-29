@@ -67,7 +67,15 @@ from database import (
 
 # Use interactions_container as consumption_collection for consistency
 consumption_collection = interactions_container
-from pending_consumption import pending_consumption_manager
+# Handle pending consumption import gracefully due to event loop issues
+try:
+    from pending_consumption import pending_consumption_manager
+except RuntimeError as e:
+    if "no running event loop" in str(e):
+        print(f"Warning: Could not import pending_consumption_manager due to event loop issue: {e}")
+        pending_consumption_manager = None
+    else:
+        raise
 import uuid
 from io import BytesIO
 from reportlab.lib.pagesizes import letter, landscape
@@ -138,9 +146,11 @@ app.include_router(admin_router, tags=["admin"])
 from routers.export_system import router as export_router
 from routers.chat_system import router as chat_router
 from routers.user_profile_system import router as user_profile_router
+from routers.consumption_analysis import router as consumption_analysis_router
 app.include_router(export_router, tags=["export"])
 app.include_router(chat_router, tags=["chat"])
 app.include_router(user_profile_router, tags=["user"])
+app.include_router(consumption_analysis_router, tags=["consumption_analysis"])
 
 # OpenAI client is now imported from services.openai_service
 
@@ -768,7 +778,6 @@ def sanitize_vegetarian_meal(meal_text: str, is_vegetarian: bool, no_eggs: bool)
         return "Vegetarian quinoa bowl with roasted vegetables and tahini dressing"
     
     return meal_text
-
 def generate_safe_vegetarian_fallback(user_email: str, remaining_calories: int, is_vegetarian: bool, no_eggs: bool):
     """
     Generate safe vegetarian fallback meal plan with intelligent snack recommendations.
@@ -1558,7 +1567,6 @@ Calorie Target: {get_profile_value(user_profile, 'calorieTarget', 'calories_targ
             # Add previous meal plan to the prompt and instruct the model for 70/30 overlap
             prev_meal_plan_str = json.dumps({k: previous_meal_plan.get(k, []) for k in ['breakfast', 'lunch', 'dinner', 'snacks']}, indent=2)
             prompt = f"""Create a comprehensive, medically-appropriate meal plan based on this detailed patient profile:
-
 {profile_summary}
 
 Here is the previous week's meal plan (for each meal type, 7 days):
@@ -2176,7 +2184,6 @@ Format the response as a JSON object with the following structure:
     except Exception as e:
         print(f"Error in /generate-recipe: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
-
 def consolidate_ingredients(recipes: List[dict], user_profile: dict = None) -> List[dict]:
     """
     Consolidate ingredients from multiple recipes, combining quantities for duplicate items.
@@ -3062,210 +3069,6 @@ async def cleanup_meal_plans(current_user: User = Depends(get_current_user)):
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Cleanup failed: {str(e)}")
 
-@app.post("/consumption/analyze-and-record")
-async def analyze_and_record_food(
-    image: UploadFile = File(...),
-    session_id: str = Form(None),
-    meal_type: str = Form(None),
-    current_user: User = Depends(get_current_user)
-):
-    """Analyze food image and optionally record to consumption history"""
-    try:
-        print(f"[analyze_and_record_food] Starting analysis for user {current_user['id']}")
-        
-        # Read and validate image
-        contents = await image.read()
-        
-        # Validate file type and size
-        if len(contents) == 0:
-            raise HTTPException(status_code=400, detail="Empty file uploaded")
-        
-        if len(contents) > 10 * 1024 * 1024:  # 10MB limit
-            raise HTTPException(status_code=400, detail="File too large. Maximum size is 10MB")
-        
-        # Check file extension
-        allowed_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp'}
-        file_extension = image.filename.lower().split('.')[-1] if image.filename else ''
-        if not file_extension or f'.{file_extension}' not in allowed_extensions:
-            raise HTTPException(status_code=400, detail=f"Unsupported file format. Allowed formats: {', '.join(allowed_extensions)}")
-        
-        try:
-            # Try to open and validate the image
-            img = Image.open(BytesIO(contents))
-            
-            # Convert to RGB if necessary (handles RGBA, P modes, etc.)
-            if img.mode in ('RGBA', 'LA', 'P'):
-                background = Image.new('RGB', img.size, (255, 255, 255))
-                if img.mode == 'P':
-                    img = img.convert('RGBA')
-                background.paste(img, mask=img.split()[-1] if img.mode == 'RGBA' else None)
-                img = background
-            elif img.mode != 'RGB':
-                img = img.convert('RGB')
-            
-            # Resize if too large (max 1024x1024 for processing efficiency)
-            max_size = 1024
-            if img.width > max_size or img.height > max_size:
-                img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
-            
-            # Convert image to base64
-            buffered = BytesIO()
-            img.save(buffered, format="JPEG", quality=85, optimize=True)
-            img_str = base64.b64encode(buffered.getvalue()).decode()
-            
-            print("[analyze_and_record_food] Image processed and converted to base64")
-            
-        except Exception as img_error:
-            print(f"[analyze_and_record_food] Image processing error: {str(img_error)}")
-            raise HTTPException(
-                status_code=400, 
-                detail=f"Invalid or corrupted image file. Please upload a valid image in one of these formats: {', '.join(allowed_extensions)}"
-            )
-        
-        # Generate structured analysis using OpenAI
-        response = get_openai_client().chat.completions.create(
-            model=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
-            messages=[
-                {
-                    "role": "system",
-                    "content": """You are a nutrition analysis expert for diabetes patients. 
-                    Analyze the food image and return a structured JSON response with the following format:
-                    {
-                        "food_name": "descriptive name of the food",
-                        "estimated_portion": "portion size estimate",
-                        "nutritional_info": {
-                            "calories": number,
-                            "carbohydrates": number (in grams),
-                            "protein": number (in grams),
-                            "fat": number (in grams),
-                            "fiber": number (in grams),
-                            "sugar": number (in grams),
-                            "sodium": number (in mg)
-                        },
-                        "medical_rating": {
-                            "diabetes_suitability": "high/medium/low",
-                            "glycemic_impact": "low/medium/high",
-                            "recommended_frequency": "daily/weekly/occasional/avoid",
-                            "portion_recommendation": "recommended portion size for diabetes patients"
-                        },
-                        "analysis_notes": "detailed explanation of nutritional analysis and diabetes considerations"
-                    }
-                    Provide realistic estimates based on visual analysis. Be conservative with diabetes suitability ratings."""
-                },
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": "Analyze this food image and provide detailed nutritional information and diabetes suitability rating."
-                        },
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:image/jpeg;base64,{img_str}"
-                            }
-                        }
-                    ]
-                }
-            ],
-            max_tokens=800,
-            temperature=0.3
-        )
-        
-        print("[analyze_and_record_food] Received analysis from OpenAI")
-        
-        # Get the response content
-        analysis_text = response.choices[0].message.content
-        
-        # Try to parse JSON from the response
-        try:
-            import json
-            # Extract JSON from response (in case there's additional text)
-            start_idx = analysis_text.find('{')
-            end_idx = analysis_text.rfind('}') + 1
-            json_str = analysis_text[start_idx:end_idx]
-            analysis_data = json.loads(json_str)
-            print(f"[analyze_and_record_food] Successfully parsed analysis data: {analysis_data}")
-        except (json.JSONDecodeError, ValueError) as e:
-            print(f"[analyze_and_record_food] Error parsing analysis data: {str(e)}")
-            # If JSON parsing fails, create a structured response from the text
-            analysis_data = {
-                "food_name": "Unknown food item",
-                "estimated_portion": "Unable to determine",
-                "nutritional_info": {
-                    "calories": 0,
-                    "carbohydrates": 0,
-                    "protein": 0,
-                    "fat": 0,
-                    "fiber": 0,
-                    "sugar": 0,
-                    "sodium": 0
-                },
-                "medical_rating": {
-                    "diabetes_suitability": "unknown",
-                    "glycemic_impact": "unknown",
-                    "recommended_frequency": "consult nutritionist",
-                    "portion_recommendation": "consult nutritionist"
-                },
-                "analysis_notes": analysis_text
-            }
-        
-        # Prepare consumption data
-        consumption_data = {
-            "food_name": analysis_data.get("food_name"),
-            "estimated_portion": analysis_data.get("estimated_portion"),
-            "nutritional_info": analysis_data.get("nutritional_info", {}),
-            "medical_rating": analysis_data.get("medical_rating", {}),
-            "image_analysis": analysis_data.get("analysis_notes"),
-            "image_url": img_str,
-            "meal_type": (meal_type or "").lower()
-        }
-        
-        print(f"[analyze_and_record_food] Prepared consumption data: {consumption_data}")
-        
-        # Save to consumption history
-        print(f"[analyze_and_record_food] Attempting to save consumption record for user {current_user['id']}")
-        consumption_record = await save_consumption_record(current_user["email"], consumption_data, meal_type=meal_type or "")
-        print(f"[analyze_and_record_food] Successfully saved consumption record with ID: {consumption_record['id']}")
-        
-        # Also save to chat if session_id is provided
-        if session_id:
-            print(f"[analyze_and_record_food] Saving to chat with session_id: {session_id}")
-            # Save user message with image
-            await save_chat_message(
-                current_user["id"],
-                "Recorded food consumption",
-                is_user=True,
-                session_id=session_id,
-                image_url=img_str
-            )
-            
-            # Save assistant response
-            summary_message = f"**Food Recorded: {analysis_data.get('food_name')}**\n\n"
-            summary_message += f"📊 **Nutritional Info (per {analysis_data.get('estimated_portion')}):**\n"
-            summary_message += f"- Calories: {analysis_data.get('nutritional_info', {}).get('calories', 'N/A')}\n"
-            summary_message += f"- Carbs: {analysis_data.get('nutritional_info', {}).get('carbohydrates', 'N/A')}g\n"
-            summary_message += f"- Protein: {analysis_data.get('nutritional_info', {}).get('protein', 'N/A')}g\n"
-            summary_message += f"- Fat: {analysis_data.get('nutritional_info', {}).get('fat', 'N/A')}g\n\n"
-            summary_message += f"🩺 **Diabetes Suitability:** {analysis_data.get('medical_rating', {}).get('diabetes_suitability', 'N/A').title()}\n"
-            summary_message += f"📈 **Glycemic Impact:** {analysis_data.get('medical_rating', {}).get('glycemic_impact', 'N/A').title()}\n\n"
-            summary_message += f"💡 **Notes:** {analysis_data.get('analysis_notes', '')}"
-            
-            await save_chat_message(
-                current_user["email"],
-                summary_message,
-                is_user=False,
-                session_id=session_id
-            )
-            print("[analyze_and_record_food] Successfully saved chat messages")
-        
-        return {"consumption_record_id": consumption_record["id"], "analysis": analysis_data}
-        
-    except Exception as e:
-        print(f"[analyze_and_record_food] Error: {str(e)}")
-        print(f"[analyze_and_record_food] Full error details:", traceback.format_exc())
-        raise HTTPException(status_code=500, detail=str(e))
-
 @app.get("/consumption/history")
 async def get_consumption_history(
     limit: int = 50,
@@ -3323,160 +3126,6 @@ async def get_consumption_analytics_endpoint(
 # ======================================================================
 # PENDING CONSUMPTION ENDPOINTS (Accept/Edit/Delete Flow)
 # ======================================================================
-
-@app.post("/consumption/analyze-only")
-async def analyze_food_only(
-    image: UploadFile = File(...),
-    meal_type: str = Form(None),
-    current_user: User = Depends(get_current_user)
-):
-    """Analyze food image but don't save to database - returns pending_id for Accept/Edit/Delete"""
-    try:
-        print(f"[analyze_food_only] Starting analysis for user {current_user['id']}")
-        
-        # Read and validate image (same logic as analyze-and-record)
-        contents = await image.read()
-        
-        if len(contents) == 0:
-            raise HTTPException(status_code=400, detail="Empty file uploaded")
-        
-        if len(contents) > 10 * 1024 * 1024:  # 10MB limit
-            raise HTTPException(status_code=400, detail="File too large. Maximum size is 10MB")
-        
-        # Check file extension
-        allowed_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp'}
-        file_extension = image.filename.lower().split('.')[-1] if image.filename else ''
-        if not file_extension or f'.{file_extension}' not in allowed_extensions:
-            raise HTTPException(status_code=400, detail=f"Unsupported file format. Allowed formats: {', '.join(allowed_extensions)}")
-        
-        try:
-            # Process image (same logic as analyze-and-record)
-            img = Image.open(BytesIO(contents))
-            
-            if img.mode in ('RGBA', 'LA', 'P'):
-                background = Image.new('RGB', img.size, (255, 255, 255))
-                if img.mode == 'P':
-                    img = img.convert('RGBA')
-                background.paste(img, mask=img.split()[-1] if img.mode == 'RGBA' else None)
-                img = background
-            elif img.mode != 'RGB':
-                img = img.convert('RGB')
-            
-            max_size = 1024
-            if img.width > max_size or img.height > max_size:
-                img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
-            
-            buffered = BytesIO()
-            img.save(buffered, format="JPEG", quality=85, optimize=True)
-            img_str = base64.b64encode(buffered.getvalue()).decode()
-            
-        except Exception as img_error:
-            print(f"[analyze_food_only] Image processing error: {str(img_error)}")
-            raise HTTPException(status_code=400, detail="Invalid or corrupted image file.")
-        
-        # Generate structured analysis using OpenAI (same logic as analyze-and-record)
-        response = get_openai_client().chat.completions.create(
-            model=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
-            messages=[
-                {
-                    "role": "system",
-                    "content": """You are a nutrition analysis expert for diabetes patients. 
-                    Analyze the food image and return a structured JSON response with the following format:
-                    {
-                        "food_name": "descriptive name of the food",
-                        "estimated_portion": "portion size estimate",
-                        "nutritional_info": {
-                            "calories": number,
-                            "carbohydrates": number (in grams),
-                            "protein": number (in grams),
-                            "fat": number (in grams),
-                            "fiber": number (in grams),
-                            "sugar": number (in grams),
-                            "sodium": number (in mg)
-                        },
-                        "medical_rating": {
-                            "diabetes_suitability": "high/medium/low",
-                            "glycemic_impact": "low/medium/high",
-                            "recommended_frequency": "daily/weekly/occasional/avoid",
-                            "portion_recommendation": "recommended portion size for diabetes patients"
-                        },
-                        "analysis_notes": "detailed explanation of nutritional analysis and diabetes considerations"
-                    }
-                    Provide realistic estimates based on visual analysis. Be conservative with diabetes suitability ratings."""
-                },
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": "Analyze this food image and provide detailed nutritional information and diabetes suitability rating."
-                        },
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:image/jpeg;base64,{img_str}"
-                            }
-                        }
-                    ]
-                }
-            ],
-            max_tokens=800,
-            temperature=0.3
-        )
-        
-        analysis_text = response.choices[0].message.content
-        
-        # Parse JSON from response
-        try:
-            import json
-            start_idx = analysis_text.find('{')
-            end_idx = analysis_text.rfind('}') + 1
-            json_str = analysis_text[start_idx:end_idx]
-            analysis_data = json.loads(json_str)
-        except (json.JSONDecodeError, ValueError) as e:
-            print(f"[analyze_food_only] Error parsing analysis data: {str(e)}")
-            analysis_data = {
-                "food_name": "Unknown food item",
-                "estimated_portion": "Unable to determine",
-                "nutritional_info": {
-                    "calories": 0,
-                    "carbohydrates": 0,
-                    "protein": 0,
-                    "fat": 0,
-                    "fiber": 0,
-                    "sugar": 0,
-                    "sodium": 0
-                },
-                "medical_rating": {
-                    "diabetes_suitability": "unknown",
-                    "glycemic_impact": "unknown",
-                    "recommended_frequency": "consult nutritionist",
-                    "portion_recommendation": "consult nutritionist"
-                },
-                "analysis_notes": analysis_text
-            }
-        
-        # Create pending record instead of saving to database
-        pending_id = await pending_consumption_manager.create_pending_record(
-            user_email=current_user["email"],
-            user_id=current_user["id"],
-            analysis_data=analysis_data,
-            image_url=img_str,
-            meal_type=meal_type
-        )
-        
-        print(f"[analyze_food_only] Created pending record {pending_id}")
-        
-        return {
-            "pending_id": pending_id,
-            "analysis": analysis_data,
-            "message": "Food analyzed successfully. Use Accept/Edit/Delete options to proceed."
-        }
-        
-    except Exception as e:
-        print(f"[analyze_food_only] Error: {str(e)}")
-        print(f"[analyze_food_only] Full error details:", traceback.format_exc())
-        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/consumption/pending/{pending_id}")
 async def get_pending_consumption(
@@ -3721,7 +3370,6 @@ If the user is just asking questions or being unclear, respond with:
     "response": "helpful conversational response",
     "has_updates": false
 }}
-
 Examples of what to detect:
 - "French Fries, 1 Cup" → Change food name to "French Fries" and portion to "1 Cup"
 - "Make it 500 calories" → Update calories to 500
@@ -3789,127 +3437,6 @@ Be conversational and helpful. If you make nutritional updates, recalculate all 
         print(f"[chat_with_pending_consumption] Error: {str(e)}")
         print(f"[chat_with_pending_consumption] Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail="Failed to process chat message")
-
-@app.post("/consumption/analyze-text-only")
-async def analyze_text_food_only(
-    food_data: dict,
-    current_user: User = Depends(get_current_user)
-):
-    """Analyze text-based food input but don't save to database - returns pending_id for Accept/Edit/Delete"""
-    try:
-        print(f"[analyze_text_food_only] Starting analysis for user {current_user['id']}")
-        print(f"[analyze_text_food_only] Food data received: {food_data}")
-        
-        food_name = food_data.get("food_name", "").strip()
-        portion = food_data.get("portion", "medium portion").strip()
-        meal_type = food_data.get("meal_type", "").strip()
-        
-        if not food_name:
-            raise HTTPException(status_code=400, detail="Food name is required")
-        
-        # Use AI to estimate nutritional values (same logic as quick-log)
-        prompt = f"""
-        Analyze the food item: {food_name} ({portion})
-        
-        Provide a comprehensive JSON response with this exact structure:
-        {{
-            "food_name": "{food_name}",
-            "estimated_portion": "{portion}",
-            "nutritional_info": {{
-                "calories": number,
-                "carbohydrates": number,
-                "protein": number,
-                "fat": number,
-                "fiber": number,
-                "sugar": number,
-                "sodium": number
-            }},
-            "medical_rating": {{
-                "diabetes_suitability": "high/medium/low",
-                "glycemic_impact": "low/medium/high",
-                "recommended_frequency": "daily/weekly/occasional/avoid",
-                "portion_recommendation": "recommended portion size for diabetes patients"
-            }},
-            "analysis_notes": "detailed explanation of nutritional analysis and diabetes considerations"
-        }}
-        
-        Provide realistic nutritional estimates. Be conservative with diabetes suitability ratings.
-        Focus on how this food affects blood sugar and overall diabetes management.
-        """
-        
-        # Generate analysis using OpenAI
-        response = get_openai_client().chat.completions.create(
-            model=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
-            messages=[
-                {
-                    "role": "system",
-                    "content": "You are a comprehensive nutrition analysis expert specializing in diabetes management. Provide accurate nutritional estimates and diabetes-specific guidance."
-                },
-                {
-                    "role": "user",
-                    "content": prompt
-                }
-            ],
-            max_tokens=800,
-            temperature=0.3
-        )
-        
-        analysis_text = response.choices[0].message.content
-        
-        # Parse JSON from response
-        try:
-            import json
-            start_idx = analysis_text.find('{')
-            end_idx = analysis_text.rfind('}') + 1
-            json_str = analysis_text[start_idx:end_idx]
-            analysis_data = json.loads(json_str)
-        except (json.JSONDecodeError, ValueError) as e:
-            print(f"[analyze_text_food_only] Error parsing analysis data: {str(e)}")
-            # Fallback data
-            analysis_data = {
-                "food_name": food_name,
-                "estimated_portion": portion,
-                "nutritional_info": {
-                    "calories": 200,
-                    "carbohydrates": 30,
-                    "protein": 10,
-                    "fat": 8,
-                    "fiber": 3,
-                    "sugar": 5,
-                    "sodium": 300
-                },
-                "medical_rating": {
-                    "diabetes_suitability": "medium",
-                    "glycemic_impact": "medium",
-                    "recommended_frequency": "weekly",
-                    "portion_recommendation": "moderate portions recommended"
-                },
-                "analysis_notes": f"Nutritional analysis for {food_name}. Please consult with your healthcare provider for personalized dietary advice."
-            }
-        
-        # Create pending record
-        pending_id = await pending_consumption_manager.create_pending_record(
-            user_email=current_user["email"],
-            user_id=current_user["id"],
-            analysis_data=analysis_data,
-            image_url=None,  # No image for text-based analysis
-            meal_type=meal_type
-        )
-        
-        print(f"[analyze_text_food_only] Created pending record {pending_id}")
-        
-        return {
-            "pending_id": pending_id,
-            "analysis": analysis_data,
-            "message": "Food analyzed successfully. Use Accept/Edit/Delete options to proceed."
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"[analyze_text_food_only] Error: {str(e)}")
-        print(f"[analyze_text_food_only] Full error details:", traceback.format_exc())
-        raise HTTPException(status_code=500, detail=f"Failed to analyze food: {str(e)}")
 
 @app.get("/consumption/progress")
 async def get_consumption_progress(current_user: User = Depends(get_current_user)):
@@ -3990,11 +3517,11 @@ async def get_consumption_progress(current_user: User = Depends(get_current_user
             "carbs": parse_int(macro_goals.get("carbs"), smart_defaults["macronutrients"]["carbohydrates"]),
             "fat": parse_int(macro_goals.get("fat"), smart_defaults["macronutrients"]["fat"])
         }
-    elif macro_from_meal_plan and all(k in macro_from_meal_plan for k in ["protein", "carbs", "fats"]):
+    elif macro_from_meal_plan and all(k in macro_from_meal_plan for k in ["protein", "carbs", "fat"]):
         macro_goal = {
             "protein": parse_int(macro_from_meal_plan.get("protein"), smart_defaults["macronutrients"]["protein"]),
             "carbs": parse_int(macro_from_meal_plan.get("carbs"), smart_defaults["macronutrients"]["carbohydrates"]),
-            "fat": parse_int(macro_from_meal_plan.get("fats"), smart_defaults["macronutrients"]["fat"])
+            "fat": parse_int(macro_from_meal_plan.get("fat"), smart_defaults["macronutrients"]["fat"])
         }
     else:
         macro_goal = {
@@ -4305,7 +3832,6 @@ def calculate_score_decay(user_email: str, recent_consumption: list, user_timezo
     except Exception as e:
         print(f"[SCORE_DECAY] Error calculating decay: {e}")
         return 0.0
-
 @app.get("/coach/daily-insights")
 async def get_daily_coaching_insights(current_user: User = Depends(get_current_user)):
     """Get daily insights - USING ORIGINAL LOGIC with better integration"""
@@ -5569,7 +5095,6 @@ async def generate_diabetes_friendly_alternative(current_meal: str, meal_type: s
     except Exception as e:
         print(f"[generate_diabetes_friendly_alternative] Error: {e}")
         return current_meal
-
 @app.get("/coach/todays-meal-plan")
 async def get_todays_meal_plan(current_user: User = Depends(get_current_user)):
     """
@@ -6325,7 +5850,6 @@ Provide a JSON response with this exact structure:
     "adaptations": ["Based on your {adherence_rate:.0f}% diabetes adherence rate, this plan focuses on [specific adaptations]", "Incorporated your favorite foods: {', '.join(favorite_foods_list[:3]) if favorite_foods_list else 'general healthy options'}", "Adjusted calories from your average {avg_daily_calories:.0f} to target {target_calories}"],
     "coaching_notes": "This adaptive plan is personalized based on your eating patterns over the last 30 days. [Add specific coaching based on adherence rate and patterns]"
 }}
-
 Make each meal specific with exact portions and cooking methods. Ensure all {req_days} days are included for each meal type."""
 
         print(f"[create_adaptive_meal_plan] SENDING COMPREHENSIVE HEALTH PROFILE TO AI:")
@@ -7109,7 +6633,6 @@ async def get_meal_suggestion(
 Answer their question with the full context of their health journey, current progress, and specific data patterns. Use plain text formatting that will display beautifully in a web interface."""
 
         user_prompt = f"""User's Question: "{query}"
-
 Please provide a comprehensive, personalized response that:
 - Uses their specific consumption data and patterns
 - References their actual progress numbers
