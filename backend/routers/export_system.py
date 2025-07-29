@@ -18,13 +18,250 @@ from database import get_user_meal_plans, get_user_recipes, get_user_shopping_li
 # ReportLab imports for PDF generation
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter, landscape
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
 
 router = APIRouter()
+
+@router.post("/export/recipes")
+async def export_recipes_pdf(current_user: User = Depends(get_current_user)):
+    """
+    Export the user's latest recipes as a beautiful PDF.
+    Fetches recipes directly from the database to ensure accuracy.
+    """
+    try:
+        print(f">>>> Entered /export/recipes endpoint for user {current_user['email']}")
+        
+        # Fetch latest recipes from database
+        all_recipes = await get_user_recipes(current_user["email"], limit=1)
+        if not all_recipes:
+            print("No recipes found in database")
+            raise HTTPException(status_code=404, detail="No recipes found. Please generate recipes first.")
+        
+        # Extract the recipes array from the latest recipe document
+        latest_recipe_doc = all_recipes[0]
+        recipes = latest_recipe_doc.get("recipes", [])
+        
+        if not recipes:
+            print("Latest recipe document has no recipes array")
+            raise HTTPException(status_code=404, detail="No recipes found in the latest recipe collection.")
+        
+        print(f"Found {len(recipes)} recipes to export")
+        
+        # Generate PDF
+        buffer = BytesIO()
+        doc = SimpleDocTemplate(buffer, pagesize=letter)  # Use portrait for recipes
+        elements = []
+        styles = getSampleStyleSheet()
+        
+        # Main title style
+        main_title_style = ParagraphStyle(
+            'MainTitle',
+            parent=styles['Title'],
+            fontSize=24,
+            spaceAfter=30,
+            alignment=TA_CENTER,
+            textColor=colors.darkgreen,
+            fontName='Helvetica-Bold'
+        )
+        
+        # Add main title
+        elements.append(Paragraph("🍽️ Diabetes-Friendly Recipe Collection", main_title_style))
+        
+        # Add collection overview
+        overview_style = ParagraphStyle(
+            'Overview',
+            parent=styles['Normal'],
+            fontSize=12,
+            spaceAfter=25,
+            alignment=TA_CENTER,
+            textColor=colors.grey,
+            fontName='Helvetica-Oblique'
+        )
+        
+        current_date = datetime.now().strftime("%B %d, %Y")
+        elements.append(Paragraph(f"Generated on {current_date}", overview_style))
+        elements.append(Paragraph(f"This collection contains {len(recipes)} carefully crafted recipes", overview_style))
+        elements.append(Spacer(1, 20))
+        
+        # Define custom styles for recipes
+        recipe_title_style = ParagraphStyle(
+            'RecipeTitle',
+            parent=styles['Heading1'],
+            fontSize=18,
+            spaceAfter=12,
+            spaceBefore=25,
+            textColor=colors.darkgreen,
+            alignment=TA_LEFT,
+            fontName='Helvetica-Bold',
+            borderWidth=1,
+            borderColor=colors.lightgrey,
+            borderPadding=8,
+            backColor=colors.lightgrey
+        )
+        
+        section_heading_style = ParagraphStyle(
+            'SectionHeading',
+            parent=styles['Heading2'],
+            fontSize=14,
+            spaceAfter=8,
+            spaceBefore=12,
+            textColor=colors.darkblue,
+            leftIndent=5,
+            fontName='Helvetica-Bold'
+        )
+        
+        ingredient_style = ParagraphStyle(
+            'Ingredient',
+            parent=styles['Normal'],
+            fontSize=11,
+            spaceAfter=4,
+            leftIndent=15,
+            textColor=colors.black,
+            fontName='Helvetica'
+        )
+        
+        instruction_style = ParagraphStyle(
+            'Instruction',
+            parent=styles['Normal'],
+            fontSize=11,
+            spaceAfter=6,
+            spaceBefore=4,
+            leftIndent=5,
+            textColor=colors.black,
+            leading=14,
+            fontName='Helvetica'
+        )
+        
+        # Process each recipe
+        for i, recipe in enumerate(recipes, 1):
+            # Recipe title with number
+            recipe_name = recipe.get("name", f"Recipe {i}")
+            elements.append(Paragraph(f"Recipe {i}: {recipe_name}", recipe_title_style))
+            
+            # Nutritional information box (if available)
+            nutritional_info = recipe.get("nutritional_info", {})
+            if nutritional_info:
+                elements.append(Paragraph("🍎 Nutritional Information (per serving)", section_heading_style))
+                
+                # Create a table for nutritional info
+                nutrition_data = [
+                    ['Nutrient', 'Amount'],
+                    ['Calories', f"{nutritional_info.get('calories', 'N/A')} kcal"],
+                    ['Protein', f"{nutritional_info.get('protein', 'N/A')} g"],
+                    ['Carbohydrates', f"{nutritional_info.get('carbs', nutritional_info.get('carbohydrates', 'N/A'))} g"],
+                    ['Fat', f"{nutritional_info.get('fat', 'N/A')} g"],
+                    ['Fiber', f"{nutritional_info.get('fiber', 'N/A')} g"],
+                    ['Sugar', f"{nutritional_info.get('sugar', 'N/A')} g"]
+                ]
+                
+                nutrition_table = Table(nutrition_data, colWidths=[2.5*inch, 2*inch])
+                nutrition_table.setStyle(TableStyle([
+                    ('BACKGROUND', (0, 0), (-1, 0), colors.darkblue),
+                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                    ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                    ('FONTSIZE', (0, 0), (-1, 0), 11),
+                    ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
+                    ('BACKGROUND', (0, 1), (-1, -1), colors.lightcyan),
+                    ('TEXTCOLOR', (0, 1), (-1, -1), colors.black),
+                    ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+                    ('FONTSIZE', (0, 1), (-1, -1), 10),
+                    ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
+                    ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                    ('LEFTPADDING', (0, 0), (-1, -1), 8),
+                    ('RIGHTPADDING', (0, 0), (-1, -1), 8),
+                ]))
+                elements.append(nutrition_table)
+                elements.append(Spacer(1, 15))
+            
+            # Ingredients section
+            ingredients = recipe.get("ingredients", [])
+            if ingredients:
+                elements.append(Paragraph("🥕 Ingredients", section_heading_style))
+                for ingredient in ingredients:
+                    elements.append(Paragraph(f"• {ingredient}", ingredient_style))
+                elements.append(Spacer(1, 12))
+            
+            # Instructions section
+            instructions = recipe.get("instructions", "No instructions provided")
+            if instructions:
+                elements.append(Paragraph("👨‍🍳 Instructions", section_heading_style))
+                
+                # Handle both string and list instructions
+                if isinstance(instructions, list):
+                    for j, instruction in enumerate(instructions, 1):
+                        elements.append(Paragraph(f"{j}. {instruction}", instruction_style))
+                else:
+                    # Split string instructions by sentences or steps
+                    instruction_steps = [step.strip() for step in instructions.split('.') if step.strip()]
+                    if len(instruction_steps) > 1:
+                        for j, step in enumerate(instruction_steps, 1):
+                            if step:  # Only add non-empty steps
+                                elements.append(Paragraph(f"{j}. {step}.", instruction_style))
+                    else:
+                        elements.append(Paragraph(instructions, instruction_style))
+                elements.append(Spacer(1, 10))
+            
+            # Diabetes-friendly note
+            diabetes_note_style = ParagraphStyle(
+                'DiabetesNote',
+                parent=styles['Normal'],
+                fontSize=10,
+                spaceAfter=15,
+                spaceBefore=8,
+                leftIndent=5,
+                textColor=colors.green,
+                fontName='Helvetica-Oblique',
+                backColor=colors.lightgreen,
+                borderWidth=0.5,
+                borderColor=colors.green,
+                borderPadding=6
+            )
+            elements.append(Paragraph("💚 This recipe is designed to be diabetes-friendly with balanced macronutrients.", diabetes_note_style))
+            
+            # Add page break between recipes (except for the last one) if there are many recipes
+            if i < len(recipes) and len(recipes) > 3:
+                elements.append(PageBreak())
+            elif i < len(recipes):
+                elements.append(Spacer(1, 25))
+                # Add a subtle line separator
+                line_style = ParagraphStyle(
+                    'LineSeparator',
+                    parent=styles['Normal'],
+                    fontSize=8,
+                    spaceAfter=20,
+                    alignment=TA_CENTER,
+                    textColor=colors.lightgrey
+                )
+                elements.append(Paragraph("─" * 60, line_style))
+        
+        # Build PDF
+        doc.build(elements)
+        buffer.seek(0)
+        
+        username = current_user["email"].split("@")[0]
+        date_str = datetime.now().strftime("%Y%m%d")
+        filename = f"{username}_{date_str}_recipe_collection.pdf"
+        
+        print(f"Successfully generated recipe PDF: {filename}")
+        
+        return StreamingResponse(
+            buffer,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+        
+    except HTTPException as he:
+        print(f"HTTP Exception in /export/recipes: {str(he.detail)}")
+        raise he
+    except Exception as e:
+        print(f"Error in /export/recipes: {str(e)}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Failed to export recipes: {str(e)}")
 
 @router.post("/export/consolidated-meal-plan")
 async def export_consolidated_meal_plan(current_user: User = Depends(get_current_user)):
@@ -218,20 +455,169 @@ async def export_document(
                         elements.append(Spacer(1, 15))
         
         elif type == "recipes":
-            # Recipe content
+            # Recipe content - Create beautiful, professional recipe PDF
             if isinstance(content, list):
+                # Define custom styles for recipes
+                recipe_title_style = ParagraphStyle(
+                    'RecipeTitle',
+                    parent=styles['Heading1'],
+                    fontSize=18,
+                    spaceAfter=12,
+                    spaceBefore=20,
+                    textColor=colors.darkgreen,
+                    alignment=TA_LEFT,
+                    borderWidth=0,
+                    borderColor=colors.darkgreen,
+                    borderPadding=8
+                )
+                
+                section_heading_style = ParagraphStyle(
+                    'SectionHeading',
+                    parent=styles['Heading2'],
+                    fontSize=14,
+                    spaceAfter=8,
+                    spaceBefore=12,
+                    textColor=colors.darkblue,
+                    leftIndent=10
+                )
+                
+                ingredient_style = ParagraphStyle(
+                    'Ingredient',
+                    parent=styles['Normal'],
+                    fontSize=11,
+                    spaceAfter=4,
+                    leftIndent=20,
+                    bulletIndent=15,
+                    textColor=colors.black
+                )
+                
+                instruction_style = ParagraphStyle(
+                    'Instruction',
+                    parent=styles['Normal'],
+                    fontSize=11,
+                    spaceAfter=6,
+                    spaceBefore=6,
+                    leftIndent=10,
+                    textColor=colors.black,
+                    leading=14
+                )
+                
+                nutrition_style = ParagraphStyle(
+                    'Nutrition',
+                    parent=styles['Normal'],
+                    fontSize=10,
+                    spaceAfter=3,
+                    leftIndent=20,
+                    textColor=colors.darkred
+                )
+                
+                # Add recipe collection overview
+                overview_style = ParagraphStyle(
+                    'Overview',
+                    parent=styles['Normal'],
+                    fontSize=12,
+                    spaceAfter=20,
+                    alignment=TA_CENTER,
+                    textColor=colors.grey
+                )
+                
+                elements.append(Paragraph(f"This collection contains {len(content)} diabetes-friendly recipes", overview_style))
+                elements.append(Spacer(1, 10))
+                
+                # Process each recipe
                 for i, recipe in enumerate(content, 1):
+                    # Recipe title with number
                     recipe_name = recipe.get("name", f"Recipe {i}")
-                    ingredients = recipe.get("ingredients", [])
-                    instructions = recipe.get("instructions", "No instructions provided")
+                    elements.append(Paragraph(f"Recipe {i}: {recipe_name}", recipe_title_style))
                     
-                    elements.append(Paragraph(f"{i}. {recipe_name}", styles['Heading2']))
-                    elements.append(Paragraph(f"<b>Ingredients:</b>", styles['Heading3']))
-                    for ingredient in ingredients:
-                        elements.append(Paragraph(f"• {ingredient}", styles['Normal']))
-                    elements.append(Paragraph(f"<b>Instructions:</b>", styles['Heading3']))
-                    elements.append(Paragraph(instructions, styles['Normal']))
-                    elements.append(Spacer(1, 20))
+                    # Nutritional information box (if available)
+                    nutritional_info = recipe.get("nutritional_info", {})
+                    if nutritional_info:
+                        elements.append(Paragraph("🍎 Nutritional Information (per serving)", section_heading_style))
+                        
+                        # Create a table for nutritional info
+                        nutrition_data = [
+                            ['Nutrient', 'Amount'],
+                            ['Calories', f"{nutritional_info.get('calories', 'N/A')} kcal"],
+                            ['Protein', f"{nutritional_info.get('protein', 'N/A')} g"],
+                            ['Carbohydrates', f"{nutritional_info.get('carbs', nutritional_info.get('carbohydrates', 'N/A'))} g"],
+                            ['Fat', f"{nutritional_info.get('fat', 'N/A')} g"],
+                            ['Fiber', f"{nutritional_info.get('fiber', 'N/A')} g"],
+                            ['Sugar', f"{nutritional_info.get('sugar', 'N/A')} g"]
+                        ]
+                        
+                        nutrition_table = Table(nutrition_data, colWidths=[2*inch, 1.5*inch])
+                        nutrition_table.setStyle(TableStyle([
+                            ('BACKGROUND', (0, 0), (-1, 0), colors.lightblue),
+                            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                            ('FONTSIZE', (0, 0), (-1, 0), 10),
+                            ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
+                            ('BACKGROUND', (0, 1), (-1, -1), colors.lightgrey),
+                            ('TEXTCOLOR', (0, 1), (-1, -1), colors.black),
+                            ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+                            ('FONTSIZE', (0, 1), (-1, -1), 9),
+                            ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
+                            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                        ]))
+                        elements.append(nutrition_table)
+                        elements.append(Spacer(1, 12))
+                    
+                    # Ingredients section
+                    ingredients = recipe.get("ingredients", [])
+                    if ingredients:
+                        elements.append(Paragraph("🥕 Ingredients", section_heading_style))
+                        for ingredient in ingredients:
+                            elements.append(Paragraph(f"• {ingredient}", ingredient_style))
+                        elements.append(Spacer(1, 10))
+                    
+                    # Instructions section
+                    instructions = recipe.get("instructions", "No instructions provided")
+                    if instructions:
+                        elements.append(Paragraph("👨‍🍳 Instructions", section_heading_style))
+                        
+                        # Handle both string and list instructions
+                        if isinstance(instructions, list):
+                            for j, instruction in enumerate(instructions, 1):
+                                elements.append(Paragraph(f"{j}. {instruction}", instruction_style))
+                        else:
+                            # Split string instructions by sentences or steps
+                            instruction_steps = [step.strip() for step in instructions.split('.') if step.strip()]
+                            if len(instruction_steps) > 1:
+                                for j, step in enumerate(instruction_steps, 1):
+                                    if step:  # Only add non-empty steps
+                                        elements.append(Paragraph(f"{j}. {step}.", instruction_style))
+                            else:
+                                elements.append(Paragraph(instructions, instruction_style))
+                    
+                    # Diabetes-friendly note
+                    diabetes_note_style = ParagraphStyle(
+                        'DiabetesNote',
+                        parent=styles['Normal'],
+                        fontSize=10,
+                        spaceAfter=8,
+                        spaceBefore=8,
+                        leftIndent=10,
+                        textColor=colors.green,
+                        fontName='Helvetica-Oblique'
+                    )
+                    elements.append(Paragraph("💚 This recipe is designed to be diabetes-friendly with balanced macronutrients.", diabetes_note_style))
+                    
+                    # Add separator between recipes (except for the last one)
+                    if i < len(content):
+                        elements.append(Spacer(1, 20))
+                        # Add a subtle line separator
+                        line_style = ParagraphStyle(
+                            'LineSeparator',
+                            parent=styles['Normal'],
+                            fontSize=8,
+                            spaceAfter=15,
+                            alignment=TA_CENTER,
+                            textColor=colors.lightgrey
+                        )
+                        elements.append(Paragraph("─" * 50, line_style))
+                        elements.append(Spacer(1, 10))
         
         elif type == "shopping-list":
             # Shopping list content
