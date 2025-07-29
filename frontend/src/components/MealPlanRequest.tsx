@@ -594,18 +594,32 @@ const MealPlanRequest: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch(`${config.API_URL}/export/${type}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
-        },
-        body: JSON.stringify({
-          meal_plan: type === 'meal-plan' ? mealPlan : null,
-          recipes: type === 'recipes' ? recipes : null,
-          shopping_list: type === 'shopping-list' ? shoppingList : null,
-        }),
-      });
+      let response;
+      
+      if (type === 'recipes') {
+        // Use the new dedicated recipe export endpoint that fetches from database
+        response = await fetch(`${config.API_URL}/export/recipes`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${localStorage.getItem('token')}`,
+          },
+          // No body needed - the endpoint fetches recipes from database
+        });
+      } else {
+        // Use the generic export endpoint for other types
+        response = await fetch(`${config.API_URL}/export/${type}`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${localStorage.getItem('token')}`,
+          },
+          body: JSON.stringify({
+            meal_plan: type === 'meal-plan' ? mealPlan : null,
+            shopping_list: type === 'shopping-list' ? shoppingList : null,
+          }),
+        });
+      }
 
       if (!response.ok) {
         throw new Error(`Failed to export ${type}`);
@@ -615,7 +629,21 @@ const MealPlanRequest: React.FC = () => {
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `${type}-${new Date().toISOString()}.pdf`;
+      
+      // Create more descriptive filenames
+      const dateStr = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
+      let filename;
+      if (type === 'recipes') {
+        filename = `recipe-collection-${dateStr}.pdf`;
+      } else if (type === 'meal-plan') {
+        filename = `meal-plan-${dateStr}.pdf`;
+      } else if (type === 'shopping-list') {
+        filename = `shopping-list-${dateStr}.pdf`;
+      } else {
+        filename = `${type}-${dateStr}.pdf`;
+      }
+      
+      a.download = filename;
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(url);
