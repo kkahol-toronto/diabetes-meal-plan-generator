@@ -265,27 +265,40 @@ async def export_recipes_pdf(current_user: User = Depends(get_current_user)):
         raise HTTPException(status_code=500, detail=f"Failed to export recipes: {str(e)}")
 
 @router.post("/export/consolidated-meal-plan")
-async def export_consolidated_meal_plan(current_user: User = Depends(get_current_user)):
+async def export_consolidated_meal_plan(
+    request: FastAPIRequest,
+    current_user: User = Depends(get_current_user)
+):
     """
     Export a comprehensive consolidated meal plan PDF with professional formatting.
-    This matches the high-quality format used in saved meal plan PDFs.
+    Accepts current meal plan data from frontend or falls back to database fetch.
     """
     try:
         print(">>>> Entered /export/consolidated-meal-plan endpoint")
-        # Fetch meal plans
-        meal_plans = await get_user_meal_plans(current_user["email"])
-        if not meal_plans:
-            print("No meal plan found")
-            raise HTTPException(status_code=404, detail="No meal plan found")
-        latest_meal_plan = meal_plans[-1]
-        print("meal_plan:", latest_meal_plan)
         
-        # Fetch latest recipes and shopping list for the user
-        all_recipes = await get_user_recipes(current_user["email"])
-        recipes = all_recipes[-1]["recipes"] if all_recipes else []
-        all_shopping_lists = await get_user_shopping_lists(current_user["email"])
-        shopping_list = all_shopping_lists[-1]["items"] if all_shopping_lists else []
-        print(f"Found {len(recipes)} recipes and {len(shopping_list)} shopping list items")
+        # Try to get data from request body first (current generated data)
+        try:
+            data = await request.json()
+            latest_meal_plan = data.get('meal_plan', {})
+            recipes = data.get('recipes', [])
+            shopping_list = data.get('shopping_list', [])
+            print(f"Using provided data: meal_plan={bool(latest_meal_plan)}, recipes={len(recipes)}, shopping_list={len(shopping_list)}")
+        except:
+            # Fallback to database fetch if no data provided (backward compatibility)
+            print("No data provided in request, fetching from database...")
+            meal_plans = await get_user_meal_plans(current_user["email"])
+            if not meal_plans:
+                print("No meal plan found")
+                raise HTTPException(status_code=404, detail="No meal plan found")
+            latest_meal_plan = meal_plans[-1]
+            print("meal_plan:", latest_meal_plan)
+            
+            # Fetch latest recipes and shopping list for the user
+            all_recipes = await get_user_recipes(current_user["email"])
+            recipes = all_recipes[-1]["recipes"] if all_recipes else []
+            all_shopping_lists = await get_user_shopping_lists(current_user["email"])
+            shopping_list = all_shopping_lists[-1]["items"] if all_shopping_lists else []
+            print(f"Found {len(recipes)} recipes and {len(shopping_list)} shopping list items from database")
         
         # Generate PDF with professional formatting
         buffer = BytesIO()
