@@ -344,21 +344,28 @@ async def generate_recipes(
         print("/generate-recipes endpoint called")
         print("Received meal_plan:", meal_plan)
         
-        # Extract all unique meals from the meal plan
+        # Extract all meals from the meal plan (including duplicates)
         all_meals = []
         for meal_type in ['breakfast', 'lunch', 'dinner', 'snacks']:
             if meal_type in meal_plan and isinstance(meal_plan[meal_type], list):
                 all_meals.extend(meal_plan[meal_type])
         
-        # Remove duplicates while preserving order
+        # Create unique recipes but track all meal instances
         unique_meals = []
         seen = set()
+        meal_instances = {}
+        
         for meal in all_meals:
             if meal not in seen:
                 unique_meals.append(meal)
                 seen.add(meal)
+                meal_instances[meal] = 1
+            else:
+                meal_instances[meal] += 1
         
+        print(f"Total meals in plan: {len(all_meals)}")
         print(f"Unique meals to generate recipes for: {unique_meals}")
+        print(f"Meal instances: {meal_instances}")
         
         # Format the prompt for recipe generation
         prompt = f"""Generate detailed recipes for the following meals from a diabetes-friendly meal plan:
