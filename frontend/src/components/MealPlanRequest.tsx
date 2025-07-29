@@ -660,11 +660,19 @@ const MealPlanRequest: React.FC = () => {
     setError(null);
     try {
       const token = localStorage.getItem('token');
+      
+      // Send the current meal plan data instead of letting backend fetch from database
       const response = await fetch(`${config.API_URL}/export/consolidated-meal-plan`, {
         method: 'POST',
         headers: {
+          'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`,
         },
+        body: JSON.stringify({
+          meal_plan: mealPlan,
+          recipes: recipes,
+          shopping_list: shoppingList,
+        }),
       });
 
       if (!response.ok) {
