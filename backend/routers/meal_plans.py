@@ -4,7 +4,8 @@ from typing import Dict, Any, List
 import os
 import json
 import traceback
-from datetime import datetime
+from datetime import datetime, timedelta
+import uuid
 
 # Import models
 from models import User
@@ -287,10 +288,9 @@ Make sure all meals are appropriate for diabetes management and provide variety 
             meal_plan["user_id"] = current_user["email"]
             meal_plan["profile_snapshot"] = user_profile
             
-            # Save to database
-            await save_meal_plan(meal_plan, current_user["email"])
-            
-            print("[/generate-meal-plan] Meal plan generated and saved successfully")
+            # Meal plan generation complete - no automatic save
+            # User must explicitly save via the "Save Meal Plan + PDF" button
+            print("[/generate-meal-plan] Meal plan generated successfully - ready for user to save")
             
             # Convert to plain dict for response
             try:
@@ -715,7 +715,7 @@ async def get_meal_plan(
     """Get a specific meal plan by ID"""
     try:
         # Query Cosmos DB for the specific meal plan
-        query = f"SELECT * FROM c WHERE c.type = 'meal_plan' AND c.id = '{plan_id}' AND c.user_id = '{current_user['id']}'"
+        query = f"SELECT * FROM c WHERE (c.type = 'meal_plan' OR c.type = 'full_meal_plan') AND c.id = '{plan_id}' AND c.user_id = '{current_user['email']}'"
         items = list(interactions_container.query_items(query=query, enable_cross_partition_query=True))
         
         if not items:
@@ -855,8 +855,7 @@ async def save_consolidated_pdf_endpoint(
         if not meal_plan:
             raise HTTPException(status_code=400, detail="Meal plan is required")
         
-        from reportlab.lib.pagesizes import letter
-        from reportlab.pagesizes import A4
+        from reportlab.lib.pagesizes import letter, A4
         from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
         from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
         from reportlab.lib.units import inch
@@ -864,6 +863,7 @@ async def save_consolidated_pdf_endpoint(
         from reportlab.lib.enums import TA_CENTER, TA_LEFT
         import io
         import os
+        from datetime import datetime
         
         # Create PDF content
         buffer = io.BytesIO()
@@ -971,12 +971,17 @@ async def save_consolidated_pdf_endpoint(
         with open(file_path, "wb") as f:
             f.write(pdf_content)
         
-        # Return PDF information
-        return {
-            "message": "PDF generated and saved successfully",
+        # Return PDF information in the format expected by frontend
+        pdf_info = {
             "filename": filename,
             "file_path": file_path,
+            "generated_at": datetime.utcnow().isoformat(),
             "file_size": len(pdf_content)
+        }
+        
+        return {
+            "message": "PDF generated and saved successfully",
+            "pdf_info": pdf_info  # Frontend expects this nested structure
         }
         
     except ImportError as e:
@@ -1040,34 +1045,98 @@ async def save_full_meal_plan(
     """Saves the full meal plan data including recipes, shopping list, and PDF reference."""
     try:
         data = await request.json()
+        print(f"[save_full_meal_plan] Received data keys: {list(data.keys())}")
         
-        # Extract components
-        meal_plan = data.get("meal_plan", {})
-        recipes = data.get("recipes", [])
-        shopping_list = data.get("shopping_list", {})
-        pdf_filename = data.get("pdf_filename", "")
+        # Handle different data structures from frontend
+        meal_plan = {}
+        recipes = []
+        shopping_list = {}
+        consolidated_pdf = None
+        
+        # Check if data has nested structure (from MealPlanRequest component)
+        if 'meal_plan' in data:
+            # Data from the consolidated save with nested structure
+            meal_plan = data.get("meal_plan", {})
+            recipes = data.get("recipes", [])
+            shopping_list = data.get("shopping_list", {})
+            consolidated_pdf = data.get("consolidated_pdf")
+        else:
+            # Data is the meal plan itself (from frontend fullMealPlan object)
+            meal_plan = data
+            recipes = data.get("recipes", [])
+            shopping_list = data.get("shopping_list", {})
+            consolidated_pdf = data.get("consolidated_pdf")
         
         if not meal_plan:
             raise HTTPException(status_code=400, detail="Meal plan is required")
         
-        # Create comprehensive record
+        print(f"[save_full_meal_plan] Processing meal plan with PDF: {bool(consolidated_pdf)}")
+        if consolidated_pdf:
+            print(f"[save_full_meal_plan] PDF filename: {consolidated_pdf.get('filename', 'N/A')}")
+        
+        # Check for existing meal plan to prevent duplicates
+        # Look for very recent meal plans (within last 30 seconds) with same calorie target
+        recent_cutoff = (datetime.utcnow() - timedelta(seconds=30)).isoformat()
+        duplicate_query = f"""
+        SELECT * FROM c 
+        WHERE c.user_id = '{current_user["email"]}' 
+        AND (c.type = 'meal_plan' OR c.type = 'full_meal_plan')
+        AND c.created_at > '{recent_cutoff}'
+        ORDER BY c.created_at DESC
+        """
+        
+        recent_plans = list(interactions_container.query_items(
+            query=duplicate_query, 
+            enable_cross_partition_query=True
+        ))
+        
+        meal_plan_calories = meal_plan.get('dailyCalories')
+        if recent_plans and meal_plan_calories:
+            for recent_plan in recent_plans:
+                recent_calories = recent_plan.get('dailyCalories') or recent_plan.get('meal_plan', {}).get('dailyCalories')
+                if recent_calories == meal_plan_calories:
+                    print(f"[save_full_meal_plan] Detected duplicate meal plan with {meal_plan_calories} calories, skipping save")
+                    return {
+                        "message": "Meal plan already exists (duplicate prevented)",
+                        "record_id": recent_plan.get("id"),
+                        "duplicate_prevented": True
+                    }
+        
+        # Create comprehensive record with proper structure
         full_record = {
+            "id": str(uuid.uuid4()),  # Generate unique ID
             "type": "full_meal_plan",
             "user_id": current_user["email"],
             "created_at": datetime.utcnow().isoformat(),
+            # Store meal plan data at root level for compatibility
+            "breakfast": meal_plan.get("breakfast", []),
+            "lunch": meal_plan.get("lunch", []),
+            "dinner": meal_plan.get("dinner", []),
+            "snacks": meal_plan.get("snacks", []),
+            "dailyCalories": meal_plan.get("dailyCalories", 0),
+            "macronutrients": meal_plan.get("macronutrients", {}),
+            # Store full nested structure for complex data
             "meal_plan": meal_plan,
             "recipes": recipes,
             "shopping_list": shopping_list,
-            "pdf_filename": pdf_filename,
             "status": "complete"
         }
         
+        # Add PDF info if available (both formats for compatibility)
+        if consolidated_pdf:
+            full_record["consolidated_pdf"] = consolidated_pdf
+            full_record["pdf_filename"] = consolidated_pdf.get("filename", "")
+            print(f"[save_full_meal_plan] Added PDF info: {consolidated_pdf.get('filename', 'N/A')}")
+        
         # Save to database
-        interactions_container.create_item(body=full_record)
+        result = interactions_container.create_item(body=full_record)
+        print(f"[save_full_meal_plan] Successfully saved meal plan with ID: {full_record['id']}")
         
         return {
             "message": "Full meal plan saved successfully",
-            "record_id": full_record.get("id")
+            "record_id": full_record["id"],
+            "has_pdf": bool(consolidated_pdf),
+            "duplicate_prevented": False
         }
         
     except Exception as e:
@@ -1094,4 +1163,350 @@ async def debug_meal_plans(current_user: User = Depends(get_current_user)):
         raise HTTPException(
             status_code=500,
             detail=f"Debug query failed: {str(e)}"
+        ) 
+
+@router.get("/generate-pdf/{meal_plan_id}")
+async def generate_pdf_for_meal_plan(
+    meal_plan_id: str,
+    current_user: User = Depends(get_current_user)
+):
+    """Generate and download a consolidated PDF for any meal plan from history"""
+    try:
+        print(f"[generate_pdf_for_meal_plan] Generating PDF for meal plan: {meal_plan_id}")
+        
+        # Get the meal plan from database using cross-partition query
+        try:
+            query = f"SELECT * FROM c WHERE c.id = '{meal_plan_id}' AND c.user_id = '{current_user['email']}'"
+            meal_plans = list(interactions_container.query_items(
+                query=query,
+                enable_cross_partition_query=True
+            ))
+            
+            if not meal_plans:
+                print(f"[generate_pdf_for_meal_plan] No meal plan found with ID: {meal_plan_id} for user: {current_user['email']}")
+                raise HTTPException(status_code=404, detail="Meal plan not found")
+                
+            meal_plan_doc = meal_plans[0]
+            print(f"[generate_pdf_for_meal_plan] Found meal plan for user: {meal_plan_doc.get('user_id')}")
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            print(f"[generate_pdf_for_meal_plan] Error querying meal plan: {str(e)}")
+            raise HTTPException(status_code=404, detail="Meal plan not found")
+        
+        # Verify ownership
+        if meal_plan_doc.get("user_id") != current_user["email"]:
+            raise HTTPException(status_code=403, detail="Access denied")
+        
+        # Extract meal plan data based on document type
+        if meal_plan_doc.get("type") == "full_meal_plan":
+            # For full_meal_plan, extract from nested structure
+            meal_plan_data = meal_plan_doc.get("meal_plan", {})
+            recipes = meal_plan_doc.get("recipes", [])
+            shopping_list = meal_plan_doc.get("shopping_list", [])
+        else:
+            # For regular meal_plan, use root level data
+            meal_plan_data = {
+                "breakfast": meal_plan_doc.get("breakfast", []),
+                "lunch": meal_plan_doc.get("lunch", []),
+                "dinner": meal_plan_doc.get("dinner", []),  
+                "snacks": meal_plan_doc.get("snacks", []),
+                "dailyCalories": meal_plan_doc.get("dailyCalories", 0),
+                "macronutrients": meal_plan_doc.get("macronutrients", {})
+            }
+            recipes = meal_plan_doc.get("recipes", [])
+            shopping_list = meal_plan_doc.get("shopping_list", [])
+        
+        print(f"[generate_pdf_for_meal_plan] Extracted meal plan data: {bool(meal_plan_data)}")
+        
+        # Generate PDF using reportlab
+        from reportlab.lib.pagesizes import letter, landscape
+        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image, KeepTogether
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib.units import inch
+        from reportlab.lib import colors
+        from reportlab.lib.enums import TA_CENTER
+        from io import BytesIO
+        import os
+        
+        buffer = BytesIO()
+        doc = SimpleDocTemplate(buffer, pagesize=landscape(letter))
+        elements = []
+        styles = getSampleStyleSheet()
+        
+        # Add cover page if available  
+        try:
+            cover_path = os.path.join("assets", "coverpage.png")
+            if os.path.exists(cover_path):
+                elements.append(Image(cover_path, width=10*inch, height=6*inch))
+                elements.append(Spacer(1, 48))
+        except Exception as cover_err:
+            print(f"Could not add cover page: {cover_err}")
+        
+        # Title
+        title_style = ParagraphStyle(
+            'CustomTitle',
+            parent=styles['Heading1'],
+            fontSize=18,
+            spaceAfter=30,
+            alignment=TA_CENTER
+        )
+        elements.append(Paragraph("Consolidated Meal Plan", title_style))
+        elements.append(Spacer(1, 12))
+        
+        # Meal Plan Section
+        elements.append(Paragraph("Weekly Meal Plan", styles['Heading2']))
+        elements.append(Spacer(1, 12))
+        
+        # Create meal plan table with better formatting
+        all_days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+        
+        breakfast_items = meal_plan_data.get("breakfast", [])
+        lunch_items = meal_plan_data.get("lunch", [])
+        dinner_items = meal_plan_data.get("dinner", [])
+        snack_items = meal_plan_data.get("snacks", [])
+        
+        print(f"[generate_pdf_for_meal_plan] Meal arrays - breakfast: {len(breakfast_items)}, lunch: {len(lunch_items)}, dinner: {len(dinner_items)}, snacks: {len(snack_items)}")
+        
+        # Determine actual number of days based on meal plan data
+        max_days = max(
+            len(breakfast_items),
+            len(lunch_items), 
+            len(dinner_items),
+            len(snack_items)
+        ) if any([breakfast_items, lunch_items, dinner_items, snack_items]) else 7
+        
+        # Limit to maximum of 7 days and use appropriate day names
+        actual_days = min(max_days, 7)
+        days = all_days[:actual_days]
+        
+        data_table = [["Day", "Breakfast", "Lunch", "Dinner", "Snacks"]]
+        
+        for i, day in enumerate(days):
+            breakfast = breakfast_items[i] if i < len(breakfast_items) else "Not specified"
+            lunch = lunch_items[i] if i < len(lunch_items) else "Not specified"
+            dinner = dinner_items[i] if i < len(dinner_items) else "Not specified"
+            snack = snack_items[i] if i < len(snack_items) else "Not specified"
+            
+            # Create Paragraph objects for better text wrapping
+            breakfast_para = Paragraph(str(breakfast), styles['Normal'])
+            lunch_para = Paragraph(str(lunch), styles['Normal'])
+            dinner_para = Paragraph(str(dinner), styles['Normal'])
+            snack_para = Paragraph(str(snack), styles['Normal'])
+            
+            data_table.append([
+                day,
+                breakfast_para,
+                lunch_para,
+                dinner_para,
+                snack_para
+            ])
+        
+        # Create and style the table with optimized spacing for landscape
+        table = Table(data_table, colWidths=[0.9*inch, 2.3*inch, 2.3*inch, 2.3*inch, 2.3*inch])
+        table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
+            ('ALIGN', (1, 1), (-1, -1), 'LEFT'),  # Left align meal text for better readability
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),  # Top align for better text layout
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 10),    # Slightly smaller header font
+            ('FONTSIZE', (0, 1), (-1, -1), 8),    # Optimized content font size
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 8), # Reduced header padding
+            ('TOPPADDING', (0, 1), (-1, -1), 4),   # Reduced content padding
+            ('BOTTOMPADDING', (0, 1), (-1, -1), 4),
+            ('LEFTPADDING', (0, 0), (-1, -1), 4),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 4),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.lightgrey])
+        ]))
+        
+        # Wrap table in KeepTogether to prevent page breaks
+        meal_plan_section = KeepTogether([
+            Paragraph("Weekly Meal Plan", styles['Heading2']),
+            Spacer(1, 12),
+            table
+        ])
+        
+        # Remove the previous heading and table additions, replace with KeepTogether section
+        elements.pop()  # Remove the last "Weekly Meal Plan" heading
+        elements.pop()  # Remove the spacer after heading
+        elements.append(meal_plan_section)
+        elements.append(Spacer(1, 20))
+        
+        # Nutritional Summary
+        calories = meal_plan_data.get("dailyCalories", 0)
+        macros = meal_plan_data.get("macronutrients", {})
+        
+        elements.append(Paragraph("Nutritional Summary", styles['Heading2']))
+        elements.append(Spacer(1, 12))
+        
+        nutrition_data = [
+            ["Metric", "Value"],
+            ["Daily Calories", f"{calories or 'N/A'} kcal"],
+            ["Protein", f"{macros.get('protein', 'N/A')}g"],
+            ["Carbohydrates", f"{macros.get('carbs', 'N/A')}g"],
+            ["Fats", f"{macros.get('fats', 'N/A')}g"]
+        ]
+        
+        nutrition_table = Table(nutrition_data, colWidths=[2.2*inch, 2.2*inch])
+        nutrition_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.darkblue),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 11),      # Slightly smaller header
+            ('FONTSIZE', (0, 1), (-1, -1), 10),     # Content font size
+            ('TOPPADDING', (0, 0), (-1, -1), 6),    # Consistent padding
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+            ('LEFTPADDING', (0, 0), (-1, -1), 8),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 8),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.lightblue),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black)
+        ]))
+        
+        # Wrap nutritional summary in KeepTogether for better organization
+        nutrition_section = KeepTogether([
+            Paragraph("Nutritional Summary", styles['Heading2']),
+            Spacer(1, 12),
+            nutrition_table
+        ])
+        
+        # Remove the previous heading, replace with KeepTogether section
+        elements.pop()  # Remove the "Nutritional Summary" heading
+        elements.pop()  # Remove the spacer after heading
+        elements.append(nutrition_section)
+        
+        # Add recipes section if available - show ALL recipes with better organization
+        if recipes and len(recipes) > 0:
+            recipe_elements = [
+                Paragraph("Recipes", styles['Heading2']),
+                Spacer(1, 12)
+            ]
+            
+            for i, recipe in enumerate(recipes):  # Show all recipes, not just 10
+                if isinstance(recipe, dict):
+                    recipe_name = recipe.get('name', 'Unknown Recipe')
+                    recipe_elements.append(Paragraph(f"{i+1}. {recipe_name}", styles['Heading3']))
+                    
+                    # Add ingredients section
+                    ingredients = recipe.get('ingredients', [])
+                    if ingredients:
+                        recipe_elements.append(Paragraph("Ingredients:", styles['Heading4']))
+                        for ingredient in ingredients:  # Show all ingredients
+                            recipe_elements.append(Paragraph(f"• {ingredient}", styles['Normal']))
+                    
+                    # Add instructions if available
+                    instructions = recipe.get('instructions', [])
+                    if instructions:
+                        recipe_elements.append(Paragraph("Instructions:", styles['Heading4']))
+                        for j, instruction in enumerate(instructions, 1):
+                            recipe_elements.append(Paragraph(f"{j}. {instruction}", styles['Normal']))
+                    
+                    # Add nutritional info if available
+                    nutrition = recipe.get('nutritional_info', {})
+                    if nutrition:
+                        recipe_elements.append(Paragraph("Nutritional Information:", styles['Heading4']))
+                        nutrition_text = f"Calories: {nutrition.get('calories', 'N/A')}, Protein: {nutrition.get('protein', 'N/A')}g, Carbs: {nutrition.get('carbs', 'N/A')}g, Fat: {nutrition.get('fat', 'N/A')}g"
+                        recipe_elements.append(Paragraph(nutrition_text, styles['Normal']))
+                    
+                    recipe_elements.append(Spacer(1, 16))
+            
+            elements.append(Spacer(1, 20))
+            elements.extend(recipe_elements)
+        
+        # Add shopping list section if available with better organization
+        if shopping_list and len(shopping_list) > 0:
+            shopping_elements = [
+                Paragraph("Shopping List", styles['Heading2']),
+                Spacer(1, 12)
+            ]
+            
+            # Handle different shopping list formats
+            if isinstance(shopping_list, dict):
+                # If shopping_list is a dict with categories
+                for category, items in shopping_list.items():
+                    if isinstance(items, list) and items:
+                        shopping_elements.append(Paragraph(f"• {category.title()}", styles['Heading3']))
+                        for item in items:
+                            if isinstance(item, dict):
+                                # Handle item objects with name and amount
+                                name = item.get('name', str(item))
+                                amount = item.get('amount', '')
+                                item_text = f"  - {name}" + (f" ({amount})" if amount else "")
+                            else:
+                                # Handle simple string items
+                                item_text = f"  - {str(item)}"
+                            shopping_elements.append(Paragraph(item_text, styles['Normal']))
+                        shopping_elements.append(Spacer(1, 8))
+            elif isinstance(shopping_list, list):
+                # If shopping_list is a flat list
+                categories = {}
+                # Group items by category if available
+                for item in shopping_list:
+                    if isinstance(item, dict):
+                        category = item.get('category', 'Other Items')
+                        if category not in categories:
+                            categories[category] = []
+                        categories[category].append(item)
+                    else:
+                        if 'Other Items' not in categories:
+                            categories['Other Items'] = []
+                        categories['Other Items'].append(item)
+                
+                # Display categorized items
+                for category, items in categories.items():
+                    shopping_elements.append(Paragraph(f"• {category}", styles['Heading3']))
+                    for item in items:
+                        if isinstance(item, dict):
+                            name = item.get('name', str(item))
+                            amount = item.get('amount', '')
+                            item_text = f"  - {name}" + (f" ({amount})" if amount else "")
+                        else:
+                            item_text = f"  - {str(item)}"
+                        shopping_elements.append(Paragraph(item_text, styles['Normal']))
+                    shopping_elements.append(Spacer(1, 8))
+            
+            elements.append(Spacer(1, 20))
+            elements.extend(shopping_elements)
+        
+        # Build PDF
+        try:
+            print(f"[generate_pdf_for_meal_plan] Building PDF with {len(elements)} elements")
+            doc.build(elements)
+            buffer.seek(0)
+            print(f"[generate_pdf_for_meal_plan] PDF successfully built, buffer size: {len(buffer.getvalue())} bytes")
+        except Exception as pdf_build_error:
+            print(f"[generate_pdf_for_meal_plan] Error building PDF: {str(pdf_build_error)}")
+            import traceback
+            traceback.print_exc()
+            raise
+        
+        # Return PDF as download
+        from fastapi.responses import StreamingResponse
+        
+        # Generate filename  
+        from datetime import datetime
+        username = current_user["email"].split("@")[0]
+        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        filename = f"{username}_{timestamp}_meal_plan.pdf"
+        
+        return StreamingResponse(
+            BytesIO(buffer.getvalue()),
+            media_type="application/pdf",
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error in /generate-pdf/{meal_plan_id}:")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to generate PDF: {str(e)}"
         ) 
