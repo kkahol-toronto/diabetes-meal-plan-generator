@@ -18,11 +18,12 @@ from database import get_user_meal_plans, get_user_recipes, get_user_shopping_li
 # ReportLab imports for PDF generation
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter, landscape
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, Image as RLImage
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
+import os
 
 router = APIRouter()
 
@@ -265,6 +266,10 @@ async def export_recipes_pdf(current_user: User = Depends(get_current_user)):
 
 @router.post("/export/consolidated-meal-plan")
 async def export_consolidated_meal_plan(current_user: User = Depends(get_current_user)):
+    """
+    Export a comprehensive consolidated meal plan PDF with professional formatting.
+    This matches the high-quality format used in saved meal plan PDFs.
+    """
     try:
         print(">>>> Entered /export/consolidated-meal-plan endpoint")
         # Fetch meal plans
@@ -274,115 +279,171 @@ async def export_consolidated_meal_plan(current_user: User = Depends(get_current
             raise HTTPException(status_code=404, detail="No meal plan found")
         latest_meal_plan = meal_plans[-1]
         print("meal_plan:", latest_meal_plan)
+        
         # Fetch latest recipes and shopping list for the user
         all_recipes = await get_user_recipes(current_user["email"])
         recipes = all_recipes[-1]["recipes"] if all_recipes else []
         all_shopping_lists = await get_user_shopping_lists(current_user["email"])
         shopping_list = all_shopping_lists[-1]["items"] if all_shopping_lists else []
-        print("recipes:", recipes)
-        print("shopping_list:", shopping_list)
-        # Generate PDF
+        print(f"Found {len(recipes)} recipes and {len(shopping_list)} shopping list items")
+        
+        # Generate PDF with professional formatting
         buffer = BytesIO()
         doc = SimpleDocTemplate(buffer, pagesize=landscape(letter))
         elements = []
         styles = getSampleStyleSheet()
         
-        # Custom styles
+        # Add cover page (if available)
+        try:
+            cover_path = os.path.join("assets", "coverpage.png")
+            if os.path.exists(cover_path):
+                elements.append(RLImage(cover_path, width=10*inch, height=6*inch))
+                elements.append(Spacer(1, 48))
+                print("Added cover page to consolidated PDF")
+            else:
+                print(f"Cover page not found at {cover_path}")
+        except Exception as cover_err:
+            print(f"Could not add cover page: {cover_err}")
+        
+        # Professional title
         title_style = ParagraphStyle(
-            'Title',
+            'ProfessionalTitle',
             parent=styles['Title'],
-            fontSize=24,
+            fontSize=28,
             spaceAfter=20,
             alignment=TA_CENTER,
-            textColor=colors.darkblue
+            textColor=colors.darkblue,
+            fontName='Helvetica-Bold'
         )
-        
-        heading_style = ParagraphStyle(
-            'Heading',
-            parent=styles['Heading1'],
-            fontSize=16,
-            spaceAfter=15,
-            textColor=colors.darkgreen
-        )
-        
-        # Title
-        elements.append(Paragraph("Comprehensive Meal Plan", title_style))
-        elements.append(Spacer(1, 20))
+        elements.append(Paragraph("Consolidated Meal Plan", title_style))
+        elements.append(Spacer(1, 12))
         
         # Meal Plan Section
-        elements.append(Paragraph("Weekly Meal Plan", heading_style))
-        if latest_meal_plan:
-            # Add meal plan table
-            meal_data = [["Day", "Breakfast", "Lunch", "Dinner", "Snacks"]]
-            
-            days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
-            breakfast_meals = latest_meal_plan.get("breakfast", [])
-            lunch_meals = latest_meal_plan.get("lunch", [])
-            dinner_meals = latest_meal_plan.get("dinner", [])
-            snack_meals = latest_meal_plan.get("snacks", [])
-            
-            for i, day in enumerate(days):
-                breakfast = breakfast_meals[i] if i < len(breakfast_meals) else "Not specified"
-                lunch = lunch_meals[i] if i < len(lunch_meals) else "Not specified"
-                dinner = dinner_meals[i] if i < len(dinner_meals) else "Not specified"
-                snacks = snack_meals[i] if i < len(snack_meals) else "Not specified"
-                
-                meal_data.append([
-                    day,
-                    Paragraph(breakfast[:50] + "..." if len(breakfast) > 50 else breakfast, styles['Normal']),
-                    Paragraph(lunch[:50] + "..." if len(lunch) > 50 else lunch, styles['Normal']),
-                    Paragraph(dinner[:50] + "..." if len(dinner) > 50 else dinner, styles['Normal']),
-                    Paragraph(snacks[:50] + "..." if len(snacks) > 50 else snacks, styles['Normal'])
-                ])
-            
-            meal_table = Table(meal_data, colWidths=[1*inch, 2*inch, 2*inch, 2*inch, 1.5*inch])
-            meal_table.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
-                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                ('FONTSIZE', (0, 0), (-1, 0), 12),
-                ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-                ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
-                ('GRID', (0, 0), (-1, -1), 1, colors.black)
-            ]))
-            elements.append(meal_table)
+        section_heading_style = ParagraphStyle(
+            'SectionHeading',
+            parent=styles['Heading1'],
+            fontSize=18,
+            spaceAfter=12,
+            spaceBefore=12,
+            textColor=colors.darkgreen,
+            fontName='Helvetica-Bold'
+        )
         
-        elements.append(Spacer(1, 30))
+        elements.append(Paragraph("Meal Plan", section_heading_style))
+        elements.append(Spacer(1, 12))
         
-        # Recipes Section
-        elements.append(Paragraph("Recipe Collection", heading_style))
+        # Create meal plan table with better formatting
+        data_table = [["Day", "Breakfast", "Lunch", "Dinner", "Snacks"]]
+        days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+        
+        for i, day in enumerate(days):
+            breakfast = latest_meal_plan.get("breakfast", [])[i] if i < len(latest_meal_plan.get("breakfast", [])) else "Not specified"
+            lunch = latest_meal_plan.get("lunch", [])[i] if i < len(latest_meal_plan.get("lunch", [])) else "Not specified"
+            dinner = latest_meal_plan.get("dinner", [])[i] if i < len(latest_meal_plan.get("dinner", [])) else "Not specified"
+            snacks = latest_meal_plan.get("snacks", [])[i] if i < len(latest_meal_plan.get("snacks", [])) else "Not specified"
+            
+            data_table.append([
+                day,
+                breakfast,
+                lunch,
+                dinner,
+                snacks,
+            ])
+        
+        # Create table with professional styling
+        col_widths = [0.8*inch, 2.5*inch, 2.5*inch, 2.5*inch, 2.5*inch]
+        table = Table(data_table, colWidths=col_widths)
+        table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 14),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+            ('TEXTCOLOR', (0, 1), (-1, -1), colors.black),
+            ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+            ('FONTSIZE', (0, 1), (-1, -1), 10),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black),
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+        ]))
+        
+        # Apply paragraph styling to table cells for better text wrapping
+        for row in range(1, len(data_table)):
+            for col in range(1, 5):
+                table._cellvalues[row][col] = Paragraph(str(table._cellvalues[row][col]), styles['BodyText'])
+        
+        elements.append(table)
+        elements.append(Spacer(1, 24))
+        
+        # Recipes Section (new page for better organization)
+        elements.append(PageBreak())
+        elements.append(Paragraph("Recipes", section_heading_style))
+        elements.append(Spacer(1, 12))
+        
         if recipes:
-            for i, recipe in enumerate(recipes[:5], 1):  # Limit to 5 recipes
-                recipe_name = recipe.get("name", f"Recipe {i}")
-                ingredients = recipe.get("ingredients", [])
-                instructions = recipe.get("instructions", "No instructions provided")
+            for recipe in recipes:
+                recipe_name = recipe.get("name", "Unknown Recipe")
+                elements.append(Paragraph(recipe_name, styles['Heading2']))
+                elements.append(Spacer(1, 12))
                 
-                elements.append(Paragraph(f"{i}. {recipe_name}", styles['Heading2']))
-                elements.append(Paragraph(f"<b>Ingredients:</b> {', '.join(ingredients[:10])}", styles['Normal']))
-                elements.append(Paragraph(f"<b>Instructions:</b> {instructions[:200]}...", styles['Normal']))
-                elements.append(Spacer(1, 10))
+                # Nutritional Information
+                nutritional_info = recipe.get('nutritional_info', {})
+                if nutritional_info:
+                    elements.append(Paragraph("Nutritional Information", styles['Heading3']))
+                    elements.append(Paragraph(f"Calories: {nutritional_info.get('calories', 'N/A')}", styles['Normal']))
+                    elements.append(Paragraph(f"Protein: {nutritional_info.get('protein', 'N/A')}g", styles['Normal']))
+                    elements.append(Paragraph(f"Carbs: {nutritional_info.get('carbs', nutritional_info.get('carbohydrates', 'N/A'))}g", styles['Normal']))
+                    elements.append(Paragraph(f"Fat: {nutritional_info.get('fat', 'N/A')}g", styles['Normal']))
+                    elements.append(Spacer(1, 12))
+                
+                # Ingredients
+                ingredients = recipe.get("ingredients", [])
+                if ingredients:
+                    elements.append(Paragraph("Ingredients", styles['Heading3']))
+                    for ingredient in ingredients:
+                        elements.append(Paragraph(f"• {ingredient}", styles['Normal']))
+                    elements.append(Spacer(1, 12))
+                
+                # Instructions
+                instructions = recipe.get("instructions", [])
+                if instructions:
+                    elements.append(Paragraph("Instructions", styles['Heading3']))
+                    if isinstance(instructions, list):
+                        for i, instruction in enumerate(instructions, 1):
+                            elements.append(Paragraph(f"{i}. {instruction}", styles['Normal']))
+                    else:
+                        elements.append(Paragraph(str(instructions), styles['Normal']))
+                    elements.append(Spacer(1, 24))
         else:
             elements.append(Paragraph("No recipes available", styles['Normal']))
         
-        elements.append(Spacer(1, 30))
+        # Shopping List Section (new page for better organization)
+        elements.append(PageBreak())
+        elements.append(Paragraph("Shopping List", section_heading_style))
+        elements.append(Spacer(1, 12))
         
-        # Shopping List Section
-        elements.append(Paragraph("Shopping List", heading_style))
         if shopping_list:
             # Group items by category
-            categorized_items = {}
+            categories = {}
             for item in shopping_list:
                 category = item.get("category", "Miscellaneous")
-                if category not in categorized_items:
-                    categorized_items[category] = []
-                categorized_items[category].append(item.get("name", "Unknown item"))
+                if category not in categories:
+                    categories[category] = []
+                categories[category].append(item)
             
-            for category, items in categorized_items.items():
-                elements.append(Paragraph(f"<b>{category}:</b>", styles['Heading3']))
+            # Display each category
+            for category, items in categories.items():
+                elements.append(Paragraph(category, styles['Heading2']))
+                elements.append(Spacer(1, 12))
                 for item in items:
-                    elements.append(Paragraph(f"• {item}", styles['Normal']))
-                elements.append(Spacer(1, 10))
+                    item_name = item.get('name', 'Unknown item')
+                    item_amount = item.get('amount', '')
+                    if item_amount:
+                        elements.append(Paragraph(f"• {item_name} - {item_amount}", styles['Normal']))
+                    else:
+                        elements.append(Paragraph(f"• {item_name}", styles['Normal']))
+                elements.append(Spacer(1, 24))
         else:
             elements.append(Paragraph("No shopping list available", styles['Normal']))
         
@@ -390,7 +451,12 @@ async def export_consolidated_meal_plan(current_user: User = Depends(get_current
         doc.build(elements)
         buffer.seek(0)
         
-        filename = f"consolidated-meal-plan-{datetime.now().strftime('%Y%m%d')}.pdf"
+        # Create professional filename
+        username = current_user["email"].split("@")[0]
+        date_str = datetime.now().strftime("%Y%m%d")
+        filename = f"{username}_{date_str}_consolidated_meal_plan.pdf"
+        
+        print(f"Successfully generated consolidated PDF: {filename}")
         
         return StreamingResponse(
             buffer,
