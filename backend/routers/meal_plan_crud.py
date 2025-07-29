@@ -67,7 +67,7 @@ async def get_meal_plan(
     """Get a specific meal plan by ID"""
     try:
         # Query Cosmos DB for the specific meal plan
-        query = f"SELECT * FROM c WHERE c.type = 'meal_plan' AND c.id = '{plan_id}' AND c.user_id = '{current_user['id']}'"
+        query = f"SELECT * FROM c WHERE (c.type = 'meal_plan' OR c.type = 'full_meal_plan') AND c.id = '{plan_id}' AND c.user_id = '{current_user['email']}'"
         items = list(interactions_container.query_items(query=query, enable_cross_partition_query=True))
         
         if not items:
@@ -213,39 +213,9 @@ async def view_meal_plans_endpoint(current_user: Dict[str, Any] = Depends(get_cu
             detail=str(e)
         )
 
-@router.post("/save-full-meal-plan")
-async def save_full_meal_plan_endpoint(
-    full_meal_plan_data: Dict[str, Any] = Body(...),
-    current_user: Dict[str, Any] = Depends(get_current_user)
-):
-    """Saves the full meal plan data including recipes, shopping list, and PDF reference."""
-    try:
-        user_id = current_user.get("email") # Or use "id" depending on how you identify users
-        if not user_id:
-             raise HTTPException(status_code=400, detail="User ID not found in token.")
-             
-        # The save_meal_plan function in database.py is designed to accept
-        # the meal_plan dictionary and use **meal_plan, so we can pass the
-        # full_meal_plan_data directly if it contains the required base fields
-        # (breakfast, lunch, etc.) plus recipes, shopping_list, and consolidated_pdf.
-        
-        # It might be a good idea to add validation here or in save_meal_plan
-        # to ensure the basic meal plan fields are present.
-
-        saved_plan = await save_meal_plan(user_id, full_meal_plan_data)
-        
-        # You might want to return the saved_plan data or just a success message
-        return {"message": "Meal plan saved successfully", "plan_id": saved_plan.get("id")}
-        
-    except ValueError as e:
-        # Handle validation errors from save_meal_plan
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        # Handle other potential errors during saving
-        print(f"Error saving full meal plan: {e}")
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail="An error occurred while saving the meal plan.")
+# NOTE: save-full-meal-plan endpoint moved to meal_plans.py to handle PDF info properly
+# and prevent route conflicts. The unified endpoint handles both regular meal plans
+# and meal plans with PDF attachments correctly.
 
 @router.get("/debug/meal_plans")
 async def debug_meal_plans(current_user: User = Depends(get_current_user)):

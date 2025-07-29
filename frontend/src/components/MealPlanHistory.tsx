@@ -487,6 +487,62 @@ const MealPlanHistory = () => {
     }
   };
 
+  const handleGeneratePDF = async (mealPlanId: string) => {
+    try {
+      const headers = getAuthHeaders();
+      if (!headers) {
+        navigate('/login');
+        return;
+      }
+
+      setSnackbarMessage('Generating PDF...');
+      setSnackbarSeverity('info');
+      setSnackbarOpen(true);
+
+      const response = await fetch(`${config.API_URL}/generate-pdf/${mealPlanId}`, {
+        method: 'GET',
+        headers,
+      });
+
+      if (!response.ok) {
+        if (handleAuthError(response, navigate)) {
+          return;
+        }
+        throw new Error('Failed to generate PDF');
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      
+      // Extract filename from content-disposition header or create default
+      const contentDisposition = response.headers.get('content-disposition');
+      let filename = 'meal_plan.pdf';
+      if (contentDisposition) {
+        const filenameMatch = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
+        if (filenameMatch && filenameMatch[1]) {
+          filename = filenameMatch[1].replace(/['"]/g, '');
+        }
+      }
+      
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+
+      setSnackbarMessage('PDF downloaded successfully!');
+      setSnackbarSeverity('success');
+      setSnackbarOpen(true);
+    } catch (error) {
+      console.error('Error generating PDF:', error);
+      setSnackbarMessage('Failed to generate PDF. Please try again.');
+      setSnackbarSeverity('error');
+      setSnackbarOpen(true);
+    }
+  };
+
    const handleCloseSnackbar = (event?: React.SyntheticEvent | Event, reason?: string) => {
     if (reason === 'clickaway') {
       return;
@@ -704,24 +760,31 @@ const MealPlanHistory = () => {
                         gap: 1
                       }}
                     >
-                      {plan.consolidated_pdf && (
-                        <Button
-                          variant="outlined"
-                          color="secondary"
-                          size="small"
-                          startIcon={<DownloadIcon />}
-                          onClick={() => handleDownloadPDF(plan.consolidated_pdf?.filename || '')}
-                          disabled={!plan.consolidated_pdf?.filename}
-                          sx={{ 
-                            minWidth: { xs: '120px', sm: 'auto' },
-                            width: { xs: '100%', sm: 'auto' },
-                            maxWidth: { xs: '200px', sm: 'none' },
-                            fontSize: { xs: '0.75rem', sm: '0.875rem' }
-                          }}
-                        >
-                          PDF
-                        </Button>
-                      )}
+                      {/* Show PDF button for all meal plans */}
+                      <Button
+                        variant="outlined"
+                        color="secondary"
+                        size="small"
+                        startIcon={<DownloadIcon />}
+                        onClick={() => {
+                          if (plan.consolidated_pdf?.filename) {
+                            // Download existing PDF
+                            handleDownloadPDF(plan.consolidated_pdf.filename);
+                          } else {
+                            // Generate PDF on-demand
+                            handleGeneratePDF(plan.id || '');
+                          }
+                        }}
+                        disabled={!plan.id}
+                        sx={{ 
+                          minWidth: { xs: '120px', sm: 'auto' },
+                          width: { xs: '100%', sm: 'auto' },
+                          maxWidth: { xs: '200px', sm: 'none' },
+                          fontSize: { xs: '0.75rem', sm: '0.875rem' }
+                        }}
+                      >
+                        Download PDF
+                      </Button>
                       <Button
                         variant="contained"
                         color="primary"

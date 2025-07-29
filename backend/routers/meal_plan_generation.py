@@ -746,13 +746,9 @@ REQUIREMENTS:
                         if isinstance(prev_meals, list) and isinstance(new_meals, list) and len(new_meals) == days:
                             meal_plan[meal_type] = get_overlap_meals(prev_meals, new_meals)
 
-                # Save the meal plan to the database
-                try:
-                    saved_meal_plan = await save_meal_plan(current_user["email"], meal_plan)
-                    print("[/generate-meal-plan] Meal plan saved to database successfully")
-                except Exception as save_error:
-                    print(f"[/generate-meal-plan] Failed to save meal plan to database: {save_error}")
-                    # Continue anyway - we can still return the generated plan
+                # Meal plan generation complete - no automatic save
+                # User must explicitly save via the "Save Meal Plan + PDF" button
+                print("[/generate-meal-plan] Meal plan generated successfully - ready for user to save")
 
                 # Explicitly convert the returned meal_plan to a plain dictionary
                 try:

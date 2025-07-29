@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Box,
   Typography,
@@ -183,7 +183,10 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({
     lastSaveAttempt: null as string | null,
     lastSaveSuccess: null as string | null,
     lastSaveError: null as string | null,
-    saveStatus: 'idle' as 'idle' | 'saving' | 'success' | 'error',
+    lastSaveTime: null as string | null,
+    saveStatus: 'idle' as 'idle' | 'saving' | 'success' | 'error' | 'saved',
+    saveAttempt: 0,
+    profileCompleteness: 0,
     tokenValid: true,
   });
   
@@ -348,26 +351,80 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({
     handleInputChange(profileField, processedArray);
   };
 
-  // Auto-save functionality with database persistence
-  useEffect(() => {
-    const timeoutId = setTimeout(async () => {
-      // Save to localStorage for immediate access
-      localStorage.setItem('userProfile', JSON.stringify(profile));
-      
-      // Also save to database for persistence
-      console.log(`[UserProfileForm] Auto-saving profile with readinessToChange: ${profile.readinessToChange}, wantsWeightLoss: ${profile.wantsWeightLoss}`);
-      await saveProfileToDatabase(profile);
-    }, 1000); // Reduced delay to save more frequently
+  // Auto-save functionality with debouncing and race condition prevention
+  const [saveQueue, setSaveQueue] = useState<{isProcessing: boolean, pendingSave: UserProfile | null}>({
+    isProcessing: false,
+    pendingSave: null
+  });
+  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const lastSaveRef = useRef<string>('');
 
-    return () => clearTimeout(timeoutId);
+  useEffect(() => {
+    // Debounced auto-save with race condition prevention
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+    }
+
+    // Create a debounced save function
+    saveTimeoutRef.current = setTimeout(async () => {
+      const profileJson = JSON.stringify(profile);
+      
+      // Skip if profile hasn't changed since last save
+      if (profileJson === lastSaveRef.current) {
+        console.log('[UserProfileForm] Profile unchanged, skipping save');
+        return;
+      }
+
+      // Skip if another save is already in progress
+      if (saveQueue.isProcessing) {
+        console.log('[UserProfileForm] Save already in progress, queueing this save');
+        setSaveQueue(prev => ({ ...prev, pendingSave: profile }));
+        return;
+      }
+
+      console.log(`[UserProfileForm] Auto-saving profile (debounced) with readinessToChange: ${profile.readinessToChange}, wantsWeightLoss: ${profile.wantsWeightLoss}`);
+      await saveProfileToDatabase(profile);
+    }, 2000); // Increased debounce delay to reduce race conditions
+
+    return () => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
+    };
   }, [profile]);
 
-  const saveProfileToDatabase = async (profileData: UserProfile) => {
+  // Process queued saves
+  useEffect(() => {
+    const processQueuedSave = async () => {
+      if (!saveQueue.isProcessing && saveQueue.pendingSave) {
+        console.log('[UserProfileForm] Processing queued save');
+        const profileToSave = saveQueue.pendingSave;
+        setSaveQueue({ isProcessing: true, pendingSave: null });
+        
+        await saveProfileToDatabase(profileToSave);
+        
+        // Check if another save was queued while processing
+        setSaveQueue(prev => ({ 
+          isProcessing: false, 
+          pendingSave: prev.pendingSave 
+        }));
+      }
+    };
+
+    processQueuedSave();
+  }, [saveQueue.pendingSave, saveQueue.isProcessing]);
+
+  const saveProfileToDatabase = async (profileData: UserProfile, retryCount: number = 0): Promise<void> => {
+    const MAX_RETRIES = 3;
+    const RETRY_DELAY = 1000;
+
     try {
+      // Mark save as in progress
+      setSaveQueue(prev => ({ ...prev, isProcessing: true }));
       setDebugInfo(prev => ({
         ...prev,
         saveStatus: 'saving',
-        lastSaveAttempt: new Date().toISOString()
+        saveAttempt: retryCount + 1
       }));
 
       const token = localStorage.getItem('token');
@@ -379,6 +436,7 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({
           lastSaveError: 'No authentication token found',
           tokenValid: false
         }));
+        setSaveQueue(prev => ({ ...prev, isProcessing: false }));
         return;
       }
 
@@ -386,7 +444,7 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({
       const isExpired = isTokenExpired(token);
       if (isExpired) {
         console.error('[UserProfileForm] Token is expired, cannot save profile');
-        // Clear expired token and redirect to login
+        // Clear expired token and try to refresh
         localStorage.removeItem('token');
         setDebugInfo(prev => ({
           ...prev,
@@ -394,13 +452,26 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({
           lastSaveError: 'Token expired - session ended',
           tokenValid: false
         }));
+        setSaveQueue(prev => ({ ...prev, isProcessing: false }));
         return;
       }
 
       setDebugInfo(prev => ({ ...prev, tokenValid: true }));
 
-      console.log(`[UserProfileForm] Saving profile to database with readinessToChange: ${profileData.readinessToChange}, wantsWeightLoss: ${profileData.wantsWeightLoss}`);
+      console.log(`[UserProfileForm] Saving profile to database (attempt ${retryCount + 1}) with readinessToChange: ${profileData.readinessToChange}, wantsWeightLoss: ${profileData.wantsWeightLoss}`);
       console.log('[UserProfileForm] Full profile data being saved:', profileData);
+      
+      // Also save to localStorage as backup
+      try {
+        localStorage.setItem('userProfile_backup', JSON.stringify({
+          profile: profileData,
+          timestamp: new Date().toISOString(),
+          version: Date.now()
+        }));
+        console.log('[UserProfileForm] Profile backed up to localStorage');
+      } catch (backupError) {
+        console.error('[UserProfileForm] Failed to backup to localStorage:', backupError);
+      }
       
       const response = await fetch(`${config.API_URL}/user/profile`, {
         method: 'POST',
@@ -411,46 +482,73 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({
         body: JSON.stringify({ profile: profileData }),
       });
 
-      console.log('[UserProfileForm] Save response status:', response.status);
-
       if (response.ok) {
         const result = await response.json();
-        console.log('[UserProfileForm] Profile saved to database successfully:', result);
+        console.log('[UserProfileForm] Profile saved successfully:', result);
+        
+        // Update last save reference to prevent unnecessary saves
+        lastSaveRef.current = JSON.stringify(profileData);
+        
         setDebugInfo(prev => ({
           ...prev,
-          saveStatus: 'success',
-          lastSaveSuccess: new Date().toISOString(),
-          lastSaveError: null
+          saveStatus: 'saved',
+          lastSaveTime: new Date().toLocaleString(),
+          lastSaveError: null,
+          saveAttempt: retryCount + 1,
+          profileCompleteness: result.profile_completeness || 0
         }));
+        
+        setSaveQueue(prev => ({ ...prev, isProcessing: false }));
       } else {
         const errorText = await response.text();
-        console.error('[UserProfileForm] Failed to save profile to database:', response.status, errorText);
+        console.error('[UserProfileForm] Failed to save profile:', response.status, errorText);
         
-        // If it's an auth error, clear token and show message
         if (response.status === 401) {
+          console.error('[UserProfileForm] Authentication failed (401)');
           localStorage.removeItem('token');
-          console.error('[UserProfileForm] Authentication failed - token may be expired');
           setDebugInfo(prev => ({
             ...prev,
             saveStatus: 'error',
             lastSaveError: 'Authentication failed (401)',
             tokenValid: false
           }));
+          setSaveQueue(prev => ({ ...prev, isProcessing: false }));
         } else {
-          setDebugInfo(prev => ({
-            ...prev,
-            saveStatus: 'error',
-            lastSaveError: `HTTP ${response.status}: ${errorText}`
-          }));
+          // Retry on other errors
+          if (retryCount < MAX_RETRIES) {
+            console.log(`[UserProfileForm] Retrying save in ${RETRY_DELAY}ms (attempt ${retryCount + 2}/${MAX_RETRIES + 1})`);
+            setTimeout(() => {
+              saveProfileToDatabase(profileData, retryCount + 1);
+            }, RETRY_DELAY * (retryCount + 1)); // Exponential backoff
+          } else {
+            setDebugInfo(prev => ({
+              ...prev,
+              saveStatus: 'error',
+              lastSaveError: `HTTP ${response.status}: ${errorText} (Max retries exceeded)`,
+              saveAttempt: retryCount + 1
+            }));
+            setSaveQueue(prev => ({ ...prev, isProcessing: false }));
+          }
         }
       }
     } catch (error) {
       console.error('[UserProfileForm] Error saving profile to database:', error);
-      setDebugInfo(prev => ({
-        ...prev,
-        saveStatus: 'error',
-        lastSaveError: error instanceof Error ? error.message : 'Unknown error'
-      }));
+      
+      // Retry on network errors
+      if (retryCount < MAX_RETRIES) {
+        console.log(`[UserProfileForm] Retrying save due to network error in ${RETRY_DELAY}ms (attempt ${retryCount + 2}/${MAX_RETRIES + 1})`);
+        setTimeout(() => {
+          saveProfileToDatabase(profileData, retryCount + 1);
+        }, RETRY_DELAY * (retryCount + 1)); // Exponential backoff
+      } else {
+        setDebugInfo(prev => ({
+          ...prev,
+          saveStatus: 'error',
+          lastSaveError: `Network error: ${error instanceof Error ? error.message : 'Unknown error'} (Max retries exceeded)`,
+          saveAttempt: retryCount + 1
+        }));
+        setSaveQueue(prev => ({ ...prev, isProcessing: false }));
+      }
     }
   };
 
@@ -491,6 +589,18 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({
                   const normalizedProfile = normalizeProfile(data.profile);
                   console.log('[UserProfileForm] Normalized profile:', normalizedProfile);
                   setProfile(prev => ({ ...prev, ...normalizedProfile }));
+                  
+                  // Update debug info with database response
+                  setDebugInfo(prev => ({
+                    ...prev,
+                    profileCompleteness: data.profile_completeness || 0,
+                    lastSaveTime: data.timestamp || new Date().toLocaleString(),
+                    saveStatus: 'success'
+                  }));
+                  
+                  // Update last save reference to prevent unnecessary saves
+                  lastSaveRef.current = JSON.stringify(data.profile);
+                  
                   return; // Exit early if database load was successful
                 } else {
                   console.log('[UserProfileForm] Database returned empty profile, falling back to localStorage');
@@ -508,17 +618,40 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({
           }
         }
 
-        // Fallback to localStorage if database load failed or user not logged in
+        // Method 2: Try backup from localStorage (new backup format)
+        const backupProfile = localStorage.getItem('userProfile_backup');
+        console.log('[UserProfileForm] Backup profile exists:', !!backupProfile);
+        
+        if (backupProfile) {
+          try {
+            const backup = JSON.parse(backupProfile);
+            if (backup.profile && Object.keys(backup.profile).length > 0) {
+              console.log('[UserProfileForm] Profile loaded from backup:', backup);
+              const normalizedProfile = normalizeProfile(backup.profile);
+              setProfile(prev => ({ ...prev, ...normalizedProfile }));
+              setDebugInfo(prev => ({
+                ...prev,
+                lastSaveTime: backup.timestamp || 'From backup',
+                saveStatus: 'success'
+              }));
+              return; // Exit if backup load successful
+            }
+          } catch (error) {
+            console.error('Error loading profile from backup:', error);
+          }
+        }
+
+        // Method 3: Fallback to old localStorage format
         const savedProfile = localStorage.getItem('userProfile');
-        console.log('[UserProfileForm] LocalStorage profile exists:', !!savedProfile);
+        console.log('[UserProfileForm] Old localStorage profile exists:', !!savedProfile);
         
         if (savedProfile) {
           try {
             const parsed = JSON.parse(savedProfile);
-            console.log('[UserProfileForm] Profile loaded from localStorage as fallback:', parsed);
+            console.log('[UserProfileForm] Profile loaded from old localStorage as fallback:', parsed);
             setProfile(prev => ({ ...prev, ...normalizeProfile(parsed) }));
           } catch (error) {
-            console.error('Error loading saved profile from localStorage:', error);
+            console.error('Error loading saved profile from old localStorage:', error);
           }
         } else {
           console.log('[UserProfileForm] No profile found in localStorage either');

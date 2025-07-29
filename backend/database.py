@@ -242,22 +242,70 @@ async def get_user_meal_plans(user_id: str, limit: int = None):
             raise ValueError("User ID is required")
 
         # Build query with optional TOP clause for database-level limiting
+        # Include both 'meal_plan' and 'full_meal_plan' types to capture meal plans with PDFs
         if limit:
-            query = f"SELECT TOP {limit} * FROM c WHERE c.type = 'meal_plan' AND c.user_id = '{user_id}' ORDER BY c.created_at DESC"
+            query = f"SELECT TOP {limit} * FROM c WHERE (c.type = 'meal_plan' OR c.type = 'full_meal_plan') AND c.user_id = '{user_id}' ORDER BY c.created_at DESC"
         else:
-            query = f"SELECT * FROM c WHERE c.type = 'meal_plan' AND c.user_id = '{user_id}' ORDER BY c.created_at DESC"
+            query = f"SELECT * FROM c WHERE (c.type = 'meal_plan' OR c.type = 'full_meal_plan') AND c.user_id = '{user_id}' ORDER BY c.created_at DESC"
+        
+        print(f"[get_user_meal_plans] Querying with: {query}")
         
         meal_plans = list(interactions_container.query_items(
             query=query,
             enable_cross_partition_query=True
         ))
 
-        # Validate each meal plan has required fields
+        print(f"[get_user_meal_plans] Found {len(meal_plans)} meal plans for user {user_id}")
+        
+        # Process meal plans to normalize the structure
+        processed_plans = []
         for plan in meal_plans:
+            # For full_meal_plan type, extract the meal_plan data and preserve PDF info
+            if plan.get('type') == 'full_meal_plan':
+                # Extract meal plan data from the nested structure
+                meal_plan_data = plan.get('meal_plan', {})
+                
+                # Create normalized plan structure
+                normalized_plan = {
+                    'id': plan.get('id'),
+                    'type': 'meal_plan',  # Normalize type for frontend compatibility
+                    'user_id': plan.get('user_id'),
+                    'created_at': plan.get('created_at'),
+                    'breakfast': meal_plan_data.get('breakfast', []),
+                    'lunch': meal_plan_data.get('lunch', []), 
+                    'dinner': meal_plan_data.get('dinner', []),
+                    'snacks': meal_plan_data.get('snacks', []),
+                    'dailyCalories': meal_plan_data.get('dailyCalories', 0),
+                    'macronutrients': meal_plan_data.get('macronutrients', {}),
+                    'recipes': plan.get('recipes', []),
+                    'shopping_list': plan.get('shopping_list', {}),
+                    # Preserve PDF info if available
+                    'consolidated_pdf': plan.get('consolidated_pdf')
+                }
+                
+                # If there's a pdf_filename field (older format), convert it to consolidated_pdf
+                if plan.get('pdf_filename') and not normalized_plan.get('consolidated_pdf'):
+                    normalized_plan['consolidated_pdf'] = {
+                        'filename': plan.get('pdf_filename'),
+                        'file_path': f"storage/pdfs/{plan.get('pdf_filename')}",
+                        'generated_at': plan.get('created_at'),
+                        'file_size': 0  # Unknown for legacy records
+                    }
+                
+                processed_plans.append(normalized_plan)
+                print(f"[get_user_meal_plans] Processed full_meal_plan {plan.get('id')} with PDF: {bool(normalized_plan.get('consolidated_pdf'))}")
+                
+            else:
+                # Regular meal_plan type, use as-is but ensure all fields exist
+                processed_plans.append(plan)
+                print(f"[get_user_meal_plans] Added regular meal_plan {plan.get('id')}")
+
+        # Validate each meal plan has required fields
+        for plan in processed_plans:
             required_fields = ['breakfast', 'lunch', 'dinner', 'snacks', 'dailyCalories', 'macronutrients']
             missing_fields = [field for field in required_fields if field not in plan]
 
-            # Auto-repair common issue where "snacks" field is missing so that warnings stop cluttering logs
+            # Auto-repair common issue where "snacks" field is missing
             if 'snacks' in missing_fields:
                 print(f"[auto-repair] Adding empty snacks array to meal plan {plan['id']} (was missing)")
                 plan['snacks'] = []
@@ -270,10 +318,13 @@ async def get_user_meal_plans(user_id: str, limit: int = None):
             if missing_fields:
                 print(f"Warning: Meal plan {plan['id']} is missing fields: {', '.join(missing_fields)}")
 
-        return meal_plans
+        print(f"[get_user_meal_plans] Returning {len(processed_plans)} processed meal plans")
+        return processed_plans
+        
     except ValueError as e:
         raise ValueError(f"Invalid request: {str(e)}")
     except Exception as e:
+        print(f"[get_user_meal_plans] Error: {str(e)}")
         raise Exception(f"Failed to get meal plans: {str(e)}")
 
 async def get_meal_plan_by_id(plan_id: str, user_id: str):
@@ -284,7 +335,7 @@ async def get_meal_plan_by_id(plan_id: str, user_id: str):
         if not user_id:
             raise ValueError("User ID is required")
 
-        query = f"SELECT * FROM c WHERE c.type = 'meal_plan' AND c.id = '{plan_id}' AND c.user_id = '{user_id}'"
+        query = f"SELECT * FROM c WHERE (c.type = 'meal_plan' OR c.type = 'full_meal_plan') AND c.id = '{plan_id}' AND c.user_id = '{user_id}'"
         items = list(interactions_container.query_items(
             query=query,
             enable_cross_partition_query=True

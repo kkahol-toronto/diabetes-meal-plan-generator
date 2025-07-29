@@ -177,6 +177,7 @@ from routers.consumption_analysis import router as consumption_analysis_router
 from routers.ai_coach_system import router as ai_coach_router
 from routers.ai_coach_comprehensive import router as ai_coach_comprehensive_router
 from routers.meal_plan_crud import router as meal_plan_crud_router
+from routers.meal_plans import router as meal_plans_router
 from routers.pending_consumption_system import router as pending_consumption_router
 from routers.pdf_generation_system import router as pdf_generation_router
 from routers.coaching_insights_system import router as coaching_insights_router
@@ -188,6 +189,7 @@ app.include_router(consumption_analysis_router, tags=["consumption_analysis"])
 app.include_router(ai_coach_router, tags=["ai_coach"])
 app.include_router(ai_coach_comprehensive_router, tags=["ai_coach_comprehensive"])
 app.include_router(meal_plan_crud_router, tags=["meal_plans"])
+app.include_router(meal_plans_router, tags=["meal_plans"])
 app.include_router(pending_consumption_router, tags=["pending_consumption"])
 app.include_router(pdf_generation_router, tags=["pdf_generation"])
 app.include_router(coaching_insights_router, tags=["coaching_insights"])
