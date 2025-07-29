@@ -126,6 +126,10 @@ app.include_router(utility_router, tags=["utility"])
 from routers.privacy_data import router as privacy_router
 app.include_router(privacy_router, tags=["privacy"])
 
+# Include test router
+from routers.test_endpoints import router as test_router
+app.include_router(test_router, tags=["testing"])
+
 # OpenAI client is now imported from services.openai_service
 
 # Twilio client is now imported from utils
@@ -274,8 +278,6 @@ def generate_fallback_recipes(meal_names: List[str]) -> List[dict]:
 
 # oauth2_scheme is now imported from utils
 
-
-
 # Authentication functions are now imported from utils
 
 # Timezone utility functions are now imported from utils
@@ -396,7 +398,6 @@ async def generate_consumption_aware_meal_plan(base_meal_plan: dict, consumption
         import traceback
         print(traceback.format_exc())
         return base_meal_plan
-
 
 async def trigger_meal_plan_recalibration(user_email: str, user_profile: dict):
     """
@@ -2719,7 +2720,6 @@ def consolidate_ingredients(recipes: List[dict], user_profile: dict = None) -> L
     print(f"Consolidated {len(ingredient_map)} unique ingredients from {len(recipes)} recipes")
     return consolidated_ingredients
 
-
 @app.post("/generate-shopping-list")
 async def generate_shopping_list(
     request: FastAPIRequest,
@@ -3604,95 +3604,7 @@ async def get_user_profile(current_user: User = Depends(get_current_user)):
         print(f"[get_user_profile] Error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
-@app.get("/test/profile-persistence")
-async def test_profile_persistence(current_user: User = Depends(get_current_user)):
-    """
-    Test endpoint to diagnose profile persistence issues.
-    Returns detailed information about profile storage and retrieval.
-    """
-    try:
-        user_email = current_user["email"]
-        
-        # Get user document
-        user_doc = await get_user_by_email(user_email)
-        if not user_doc:
-            return {
-                "status": "error",
-                "message": "User not found",
-                "user_email": user_email
-            }
-        
-        # Get profile from user document
-        profile_in_user_doc = user_doc.get("profile", {})
-        
-        # Get separate profile record
-        separate_profile = {}
-        try:
-            profile_query = f"SELECT * FROM c WHERE c.type = 'user_profile' AND c.user_id = '{user_email}'"
-            profiles = list(user_container.query_items(query=profile_query, enable_cross_partition_query=True))
-            if profiles:
-                separate_profile = profiles[0].get('profile', {})
-        except Exception as e:
-            print(f"Error loading separate profile record: {str(e)}")
-        
-        return {
-            "status": "success",
-            "user_email": user_email,
-            "diagnostics": {
-                "user_doc_exists": bool(user_doc),
-                "profile_in_user_doc": {
-                    "exists": bool(profile_in_user_doc),
-                    "field_count": len(profile_in_user_doc),
-                    "has_name": bool(profile_in_user_doc.get("name")),
-                    "has_medical_conditions": bool(profile_in_user_doc.get("medicalConditions")),
-                    "has_dietary_features": bool(profile_in_user_doc.get("dietaryFeatures")),
-                    "array_fields": [k for k, v in profile_in_user_doc.items() if isinstance(v, list)],
-                    "dict_fields": [k for k, v in profile_in_user_doc.items() if isinstance(v, dict)],
-                    "completeness": calculate_profile_completeness(profile_in_user_doc),
-                    "sample_fields": {k: v for k, v in list(profile_in_user_doc.items())[:3]}
-                },
-                "separate_profile_record": {
-                    "exists": bool(separate_profile),
-                    "field_count": len(separate_profile),
-                    "has_name": bool(separate_profile.get("name")),
-                    "has_medical_conditions": bool(separate_profile.get("medicalConditions")),
-                    "has_dietary_features": bool(separate_profile.get("dietaryFeatures")),
-                    "array_fields": [k for k, v in separate_profile.items() if isinstance(v, list)],
-                    "dict_fields": [k for k, v in separate_profile.items() if isinstance(v, dict)],
-                    "completeness": calculate_profile_completeness(separate_profile),
-                    "sample_fields": {k: v for k, v in list(separate_profile.items())[:3]}
-                },
-                "profile_sources_match": profile_in_user_doc == separate_profile,
-                "user_doc_updated_at": user_doc.get("updated_at", "Not set"),
-                "comprehensive_health_profile_fields": {
-                    "demographics": ["name", "age", "gender", "ethnicity"],
-                    "medical": ["medicalConditions", "currentMedications", "labValues"],
-                    "vitals": ["height", "weight", "bmi", "systolicBP", "diastolicBP"],
-                    "dietary": ["dietType", "dietaryFeatures", "dietaryRestrictions", "allergies"],
-                    "lifestyle": ["exerciseTypes", "workActivityLevel", "primaryGoals"],
-                    "preferences": ["calorieTarget", "wantsWeightLoss", "readinessToChange"]
-                },
-                "field_analysis": {
-                    field_category: [field for field in fields if field in profile_in_user_doc]
-                    for field_category, fields in {
-                        "demographics": ["name", "age", "gender", "ethnicity"],
-                        "medical": ["medicalConditions", "currentMedications", "labValues"],
-                        "vitals": ["height", "weight", "bmi", "systolicBP", "diastolicBP"],
-                        "dietary": ["dietType", "dietaryFeatures", "dietaryRestrictions", "allergies"],
-                        "lifestyle": ["exerciseTypes", "workActivityLevel", "primaryGoals"],
-                        "preferences": ["calorieTarget", "wantsWeightLoss", "readinessToChange"]
-                    }.items()
-                }
-            },
-            "recommendations": []
-        }
-        
-    except Exception as e:
-        return {
-            "status": "error",
-            "message": f"Test failed: {str(e)}",
-            "user_email": current_user.get("email", "Unknown")
-        }
+# Test endpoints moved to routers/test_endpoints.py
 
 @app.get("/user/shopping-list")
 async def get_user_shopping_list(current_user: User = Depends(get_current_user)):
@@ -5952,7 +5864,6 @@ def calculate_consistency_streak(consumption_history: list, user_timezone: str =
     
     return streak
 
-
 # ============================================================================
 # PERSONALIZED NUTRITION SCORING SYSTEM
 # ============================================================================
@@ -6112,7 +6023,6 @@ def calculate_personalized_weights(user_profile: dict) -> dict:
             "sensitivity_factor": 1.0
         }
 
-
 def calculate_score_decay(user_email: str, recent_consumption: list, user_timezone: str = "UTC") -> float:
     """
     Calculate gradual score decay if user hasn't logged healthy meals recently.
@@ -6158,7 +6068,6 @@ def calculate_score_decay(user_email: str, recent_consumption: list, user_timezo
     except Exception as e:
         print(f"[SCORE_DECAY] Error calculating decay: {e}")
         return 0.0
-
 
 @app.get("/coach/daily-insights")
 async def get_daily_coaching_insights(current_user: User = Depends(get_current_user)):
@@ -6618,7 +6527,6 @@ async def get_daily_coaching_insights(current_user: User = Depends(get_current_u
         print(f"[get_daily_insights] Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Failed to get daily insights: {str(e)}")
 
-
 @app.get("/coach/nutrition-score-breakdown")
 async def get_nutrition_score_breakdown(current_user: User = Depends(get_current_user)):
     """
@@ -6726,7 +6634,6 @@ async def get_nutrition_score_breakdown(current_user: User = Depends(get_current
         print(f"[nutrition_score_breakdown] Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Failed to get score breakdown: {str(e)}")
 
-
 def detect_food_exploitation(user_email: str, today_consumption: list, new_food_name: str) -> dict:
     """
     Detect if user is trying to exploit the scoring system by logging the same food repeatedly.
@@ -6790,7 +6697,6 @@ def detect_food_exploitation(user_email: str, today_consumption: list, new_food_
             "variety_score": 1,
             "recommendation": "Continue logging diverse meals"
         }
-
 
 @app.post("/coach/quick-log")
 async def quick_log_food(
@@ -7248,7 +7154,6 @@ async def analyze_consumption_vs_plan(consumption_records: list, meal_plan: dict
             "recommendations": []
         }
 
-
 def generate_personalized_protein_suggestions(user_profile: dict) -> str:
     """
     Generate personalized protein suggestions based on user's dietary restrictions and preferences.
@@ -7338,7 +7243,6 @@ def generate_personalized_protein_suggestions(user_profile: dict) -> str:
         # Safe fallback that works for most dietary restrictions
         return "beans, lentils, or quinoa"
 
-
 def get_remaining_meals_by_time(current_hour: int) -> list:
     """
     Determine which meals are remaining based on current time.
@@ -7362,7 +7266,6 @@ def get_remaining_meals_by_time(current_hour: int) -> list:
     
     return remaining_meals
 
-
 async def apply_intelligent_adaptations(meal_plan: dict, consumption_analysis: dict, remaining_meals: list, user_profile: dict) -> dict:
     """
     Simplified adaptation function - now replaced by generate_consumption_aware_meal_plan.
@@ -7370,7 +7273,6 @@ async def apply_intelligent_adaptations(meal_plan: dict, consumption_analysis: d
     """
     print(f"[apply_intelligent_adaptations] Legacy function called - use generate_consumption_aware_meal_plan instead")
     return meal_plan
-
 
 async def generate_diabetes_friendly_alternative(current_meal: str, meal_type: str, user_profile: dict) -> str:
     """
@@ -7430,7 +7332,6 @@ async def generate_diabetes_friendly_alternative(current_meal: str, meal_type: s
     except Exception as e:
         print(f"[generate_diabetes_friendly_alternative] Error: {e}")
         return current_meal
-
 
 @app.get("/coach/todays-meal-plan")
 async def get_todays_meal_plan(current_user: User = Depends(get_current_user)):
@@ -7926,7 +7827,6 @@ Ensure ALL dishes are completely vegetarian and egg-free. Do not include any mea
         print(f"[get_todays_meal_plan] Unexpected error: {str(e)}")
         print(f"[get_todays_meal_plan] Full error details:", traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Failed to retrieve or generate meal plan: {str(e)}")
-
 
 @app.post("/coach/adaptive-meal-plan")
 async def create_adaptive_meal_plan(
@@ -8562,10 +8462,9 @@ async def get_notifications(
         print(f"[get_notifications] Error: {str(e)}")
         return []  # Return empty array on error instead of raising exception
 
-@app.post("/test/create-sample-data")
-async def create_sample_data():
-    """Create sample consumption data for testing"""
-    try:
+# Test create-sample-data endpoint moved to routers/test_endpoints.py
+
+# Remaining test endpoints also moved to routers/test_endpoints.py
         # Sample consumption records for the last 7 days
         sample_foods = [
             {
@@ -8708,554 +8607,6 @@ async def create_sample_data():
     except Exception as e:
         print(f"Error creating sample data: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to create sample data: {str(e)}")
-
-@app.post("/test/create-user")
-async def create_test_user():
-    """Create a test user for development purposes"""
-    try:
-        # Create a test patient first with comprehensive health conditions
-        patient_data = {
-            "id": "TEST123",  # Use registration code as ID for consistency
-            "name": "Test Patient",
-            "phone": "1234567890",
-            "condition": "Type 2 Diabetes",
-            "medical_conditions": ["Type 2 Diabetes", "Hypertension", "High Cholesterol", "PCOS"],
-            "medications": ["Metformin", "Lisinopril", "Atorvastatin", "Spironolactone"],
-            "allergies": ["Shellfish", "Tree Nuts"],
-            "dietary_restrictions": ["Low Sodium", "Low Glycemic Index"],
-            "registration_code": "TEST123",
-            "type": "patient",  # Add type field
-            "created_at": datetime.utcnow().isoformat()
-        }
-        
-        # Save patient to database
-        user_container.create_item(body=patient_data)
-        
-        # Create test user
-        hashed_password = get_password_hash("test123")
-        print(f"[create_test_user] Hashed password: {hashed_password}")
-        user_data = {
-            "id": "test@example.com",  # Use email as ID for consistency
-            "username": "test@example.com",
-            "email": "test@example.com",
-            "hashed_password": hashed_password,
-            "disabled": False,
-            "patient_id": "TEST123",
-            "type": "user",  # Add type field
-            "profile": {
-                "name": "Test Patient",
-                "age": 45,
-                "gender": "Female",
-                "height": 165.0,
-                "weight": 75.0,
-                "bmi": 27.5,
-                "systolicBP": 140,
-                "diastolicBP": 90,
-                "medicalConditions": ["Type 2 Diabetes", "Hypertension", "High Cholesterol", "PCOS"],
-                "currentMedications": ["Metformin", "Lisinopril", "Atorvastatin", "Spironolactone"],
-                "allergies": ["Shellfish", "Tree Nuts"],
-                "dietaryRestrictions": ["Low Sodium", "Low Glycemic Index"],
-                "foodPreferences": ["Mediterranean", "Plant-based proteins"],
-                "calorieTarget": "1800",
-                "primaryGoals": ["Manage diabetes", "Lower blood pressure", "Reduce cholesterol", "Manage PCOS symptoms", "Lose weight"],
-                "macroGoals": {
-                    "protein": 90,
-                    "carbs": 180,
-                    "fat": 60
-                }
-            }
-        }
-        
-        # Save user to database
-        user_container.create_item(body=user_data)
-        
-        return {"message": "Test user created successfully", "email": "test@example.com", "password": "test123"}
-        
-    except Exception as e:
-        # If user already exists, just return success
-        if "Conflict" in str(e):
-            return {"message": "Test user already exists", "email": "test@example.com", "password": "test123"}
-        raise HTTPException(status_code=500, detail=f"Failed to create test user: {str(e)}")
-
-@app.post("/test/quick-log")
-async def test_quick_log_food(food_data: dict):
-    """Test quick log food without authentication"""
-    try:
-        print(f"[test_quick_log_food] Starting test quick log")
-        print(f"[test_quick_log_food] Food data received: {food_data}")
-        
-        food_name = food_data.get("food_name", "").strip()
-        portion = food_data.get("portion", "medium portion").strip()
-        
-        if not food_name:
-            raise HTTPException(status_code=400, detail="Food name is required")
-        
-        # Use AI to estimate nutritional values with comprehensive analysis
-        prompt = f"""
-        Analyze the food item: {food_name} ({portion})
-        
-        Provide a comprehensive JSON response with this exact structure:
-        {{
-            "food_name": "{food_name}",
-            "estimated_portion": "{portion}",
-            "nutritional_info": {{
-                "calories": <number>,
-                "carbohydrates": <number>,
-                "protein": <number>,
-                "fat": <number>,
-                "fiber": <number>,
-                "sugar": <number>,
-                "sodium": <number>
-            }},
-            "medical_rating": {{
-                "diabetes_suitability": "high/medium/low",
-                "glycemic_impact": "low/medium/high",
-                "recommended_frequency": "daily/weekly/occasional/avoid",
-                "portion_recommendation": "appropriate/reduce/increase"
-            }},
-            "analysis_notes": "Brief explanation of nutritional value and diabetes considerations"
-        }}
-        
-        Guidelines for diabetes_suitability rating:
-        - "high": Vegetables, lean proteins, nuts, low-sugar fruits, whole grains in moderate portions, foods with fiber ≥3g and sugar ≤10g
-        - "medium": Foods with moderate carbs/sugar (10-25g sugar, moderate fiber), dairy products, starchy vegetables
-        - "low": High-sugar foods (>25g sugar), refined grains, processed foods, high-sodium items (>600mg)
-        
-        Be more generous with "high" ratings for genuinely healthy foods. Base estimates on standard nutritional databases.
-        Only return valid JSON, no other text.
-        """
-        
-        # Initialize fallback data
-        fallback_data = {
-            "food_name": food_name,
-            "estimated_portion": portion,
-            "nutritional_info": {
-                "calories": 200,
-                "carbohydrates": 25,
-                "protein": 10,
-                "fat": 8,
-                "fiber": 3,
-                "sugar": 5,
-                "sodium": 300
-            },
-            "medical_rating": {
-                "diabetes_suitability": "medium",
-                "glycemic_impact": "medium",
-                "recommended_frequency": "weekly",
-                "portion_recommendation": "appropriate"
-            },
-            "analysis_notes": f"Nutritional estimate for {food_name}. Consult with healthcare provider for personalized advice."
-        }
-        
-        try:
-            print("[test_quick_log_food] Calling OpenAI for nutritional analysis")
-            api_result = await robust_openai_call(
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "You are a nutrition analysis expert specializing in diabetes management. Provide accurate nutritional estimates and diabetes-appropriate recommendations."
-                    },
-                    {
-                        "role": "user", 
-                        "content": prompt
-                    }
-                ],
-                max_tokens=500,
-                temperature=0.3,
-                max_retries=3,
-                timeout=30,
-                context="test_quick_log_nutrition"
-            )
-            
-            if api_result["success"]:
-                analysis_text = api_result["content"]
-                print(f"[test_quick_log_food] OpenAI response: {analysis_text}")
-            else:
-                print(f"[test_quick_log_food] OpenAI failed: {api_result['error']}. Using fallback.")
-                analysis_text = None
-            
-            try:
-                # Extract JSON from response
-                start_idx = analysis_text.find('{')
-                end_idx = analysis_text.rfind('}') + 1
-                json_str = analysis_text[start_idx:end_idx]
-                analysis_data = json.loads(json_str)
-                print(f"[test_quick_log_food] Successfully parsed AI analysis: {analysis_data}")
-            except (json.JSONDecodeError, ValueError) as parse_error:
-                print(f"[test_quick_log_food] JSON parsing error: {str(parse_error)}")
-                analysis_data = fallback_data
-                
-        except Exception as openai_error:
-            print(f"[test_quick_log_food] OpenAI API error: {str(openai_error)}. Using fallback estimation.")
-            analysis_data = fallback_data
-        
-        # Prepare consumption data in the same format as the image analysis system
-        consumption_data = {
-            "food_name": analysis_data.get("food_name", food_name),
-            "estimated_portion": analysis_data.get("estimated_portion", portion),
-            "nutritional_info": analysis_data.get("nutritional_info", fallback_data["nutritional_info"]),
-            "medical_rating": analysis_data.get("medical_rating", fallback_data["medical_rating"]),
-            "image_analysis": analysis_data.get("analysis_notes", f"Quick log entry for {food_name}"),
-            "image_url": None,  # No image for quick log
-            "meal_type": (food_data.get("meal_type") or "snack").lower()
-        }
-        
-        print(f"[test_quick_log_food] Prepared consumption data: {consumption_data}")
-        
-        # Save to consumption history using the test user
-        print(f"[test_quick_log_food] Saving consumption record for test user")
-        consumption_record = await save_consumption_record("test@example.com", consumption_data)
-        print(f"[test_quick_log_food] Successfully saved consumption record with ID: {consumption_record['id']}")
-        
-        # Trigger meal plan recalibration
-        print(f"[test_quick_log_food] Triggering meal plan recalibration")
-        user_profile = await get_user_profile("test@example.com")
-        await trigger_meal_plan_recalibration("test@example.com", user_profile)
-        
-        # Return success response in the SAME FORMAT as before
-        return {
-            "success": True,
-            "message": f"Successfully logged {analysis_data.get('food_name', food_name)}",
-            "consumption_record_id": consumption_record["id"],
-            "analysis": analysis_data,
-            "food_name": analysis_data.get("food_name", food_name),
-            "nutritional_summary": {
-                "calories": analysis_data.get("nutritional_info", {}).get("calories", 0),
-                "carbohydrates": analysis_data.get("nutritional_info", {}).get("carbohydrates", 0),
-                "protein": analysis_data.get("nutritional_info", {}).get("protein", 0),
-                "fat": analysis_data.get("nutritional_info", {}).get("fat", 0)
-            },
-            "diabetes_rating": analysis_data.get("medical_rating", {}).get("diabetes_suitability", "medium")
-        }
-        
-    except HTTPException:
-        # Re-raise HTTP exceptions as-is
-        raise
-    except Exception as e:
-        print(f"[test_quick_log_food] Unexpected error: {str(e)}")
-        print(f"[test_quick_log_food] Full error details:", traceback.format_exc())
-        raise HTTPException(status_code=500, detail=f"Failed to log food item: {str(e)}")
-
-@app.get("/test/consumption/history")
-async def test_get_consumption_history(limit: int = 50):
-    """Test consumption history without authentication"""
-    try:
-        print(f"[test_get_consumption_history] Getting history for test user, limit: {limit}")
-        
-        # Get consumption history for test user
-        consumption_data = await get_user_consumption_history("test@example.com", limit)
-        print(f"[test_get_consumption_history] Found {len(consumption_data)} records")
-        
-        return consumption_data
-        
-    except Exception as e:
-        print(f"[test_get_consumption_history] Error: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to get consumption history: {str(e)}")
-
-@app.get("/test/consumption/analytics")
-async def test_get_consumption_analytics(days: int = 7):
-    """Test consumption analytics without authentication"""
-    try:
-        print(f"[test_get_consumption_analytics] Getting analytics for test user, days: {days}")
-        
-        # Get analytics for test user
-        analytics_data = await get_consumption_analytics("test@example.com", days, "UTC")
-        print(f"[test_get_consumption_analytics] Analytics data generated successfully")
-        
-        return analytics_data
-        
-    except Exception as e:
-        print(f"[test_get_consumption_analytics] Error: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to get consumption analytics: {str(e)}")
-
-@app.get("/test/coach/daily-insights")
-async def test_get_daily_insights():
-    """Test daily insights without authentication"""
-    try:
-        print(f"[test_get_daily_insights] Getting daily insights for test user")
-        
-        # Get consumption analytics for today
-        today_analytics = await get_consumption_analytics("test@example.com", 1, "UTC")
-        weekly_analytics = await get_consumption_analytics("test@example.com", 7, "UTC")
-        
-        # Test user's comprehensive health conditions
-        health_conditions = ["Type 2 Diabetes", "Hypertension", "High Cholesterol", "PCOS"]
-        
-        # Calculate comprehensive health adherence
-        health_adherence = weekly_analytics.get("adherence_stats", {}).get("diabetes_suitable_percentage", 85)
-        total_meals = today_analytics.get("total_meals", 0)
-        
-        insights_data = {
-            "date": datetime.utcnow().date().isoformat(),
-            "goals": {
-                "calories": 1800,  # Adjusted for weight management
-                "protein": 90,
-                "carbohydrates": 180,
-                "fat": 60
-            },
-            "today_totals": today_analytics.get("daily_averages", {
-                "calories": 0,
-                "protein": 0,
-                "carbohydrates": 0,
-                "fat": 0,
-                "fiber": 0,
-                "sugar": 0,
-                "sodium": 0
-            }),
-            "adherence": {
-                "calories": 75,
-                "protein": 80,
-                "carbohydrates": 70,
-                "fat": 65
-            },
-            "diabetes_adherence": health_adherence,  # Now represents overall health adherence
-            "health_adherence": health_adherence,
-            "health_conditions": health_conditions,
-            "consistency_streak": max(0, weekly_analytics.get("total_meals", 0) // 2),
-            "meals_logged_today": total_meals,
-            "weekly_stats": {
-                "total_meals": weekly_analytics.get("total_meals", 0),
-                "diabetes_suitable_percentage": health_adherence,
-                "health_suitable_percentage": health_adherence,
-                "average_daily_calories": weekly_analytics.get("daily_averages", {}).get("calories", 0)
-            },
-            "recommendations": [
-                {
-                    "type": "nutrition",
-                    "priority": "high",
-                    "message": "Focus on low-sodium foods to help manage your hypertension",
-                    "action": "view_low_sodium_foods"
-                },
-                {
-                    "type": "diabetes",
-                    "priority": "high", 
-                    "message": "Choose low glycemic index foods to maintain stable blood sugar",
-                    "action": "view_low_gi_foods"
-                },
-                {
-                    "type": "cholesterol",
-                    "priority": "medium",
-                    "message": "Include omega-3 rich foods like salmon to help lower cholesterol",
-                    "action": "view_heart_healthy_foods"
-                },
-                {
-                    "type": "pcos",
-                    "priority": "medium",
-                    "message": "Anti-inflammatory foods can help manage PCOS symptoms",
-                    "action": "view_anti_inflammatory_foods"
-                }
-            ],
-            "has_meal_plan": False,
-            "latest_meal_plan_date": None,
-            # Add comprehensive insights for the frontend
-            "insights": [
-                {
-                    "category": "Daily Progress",
-                    "message": f"You've logged {total_meals} meals today with {health_adherence:.0f}% health-suitable choices for your conditions: {', '.join(health_conditions[:2])}{'...' if len(health_conditions) > 2 else ''}.",
-                    "action": "View Details"
-                },
-                {
-                    "category": "Weekly Trend", 
-                    "message": f"This week you've maintained {weekly_analytics.get('total_meals', 0)} meal logs with consistent tracking for your health management.",
-                    "action": "Keep Going"
-                },
-                {
-                    "category": "Health Focus",
-                    "message": f"Your meal choices are {health_adherence:.0f}% aligned with recommendations for {', '.join(health_conditions[:2])}.",
-                    "action": "Get Recommendations"
-                },
-                {
-                    "category": "Multi-Condition Management",
-                    "message": f"Managing {len(health_conditions)} conditions requires balanced nutrition - you're doing great!",
-                    "action": "View Comprehensive Plan"
-                }
-            ] if total_meals > 0 else [
-                {
-                    "category": "Getting Started",
-                    "message": f"Start logging your meals to get personalized AI insights for your health conditions: {', '.join(health_conditions)}!",
-                    "action": "Log First Meal"
-                }
-            ]
-        }
-        
-        print(f"[test_get_daily_insights] Daily insights generated successfully")
-        
-        return insights_data
-        
-    except Exception as e:
-        print(f"[test_get_daily_insights] Error: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to get daily insights: {str(e)}")
-
-@app.get("/test/coach/notifications")
-async def test_get_notifications():
-    """Test notifications without authentication"""
-    try:
-        print(f"[test_get_notifications] Getting notifications for test user")
-        
-        # Create a mock user for testing
-        mock_user = {
-            "email": "test@example.com",
-            "id": "test@example.com",
-            "profile": {
-                "calorieTarget": "2000",
-                "medicalConditions": ["Type 2 Diabetes"]
-            }
-        }
-        
-        return await get_notifications(mock_user)
-        
-    except Exception as e:
-        print(f"[test_get_notifications] Error: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to get notifications: {str(e)}")
-
-@app.get("/test/coach/todays-meal-plan")
-async def test_get_todays_meal_plan():
-    """Test today's meal plan without authentication"""
-    try:
-        print(f"[test_get_todays_meal_plan] Getting today's meal plan for test user")
-        
-        # Create a mock user for testing
-        mock_user = {
-            "email": "test@example.com",
-            "id": "test@example.com"
-        }
-        
-        return await get_todays_meal_plan(mock_user)
-        
-    except Exception as e:
-        print(f"[test_get_todays_meal_plan] Error: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to get today's meal plan: {str(e)}")
-
-async def adapt_meal_plan_based_on_consumption(user_email: str, today_consumption: list, latest_meal_plan: dict = None):
-    """
-    Intelligently adapt tomorrow's meal plan based on today's consumption patterns.
-    This function analyzes what the user ate today vs. their plan and suggests adjustments.
-    """
-    try:
-        if not latest_meal_plan:
-            return None
-            
-        # Calculate today's totals
-        today_calories = sum(record.get("nutritional_info", {}).get("calories", 0) for record in today_consumption)
-        today_carbs = sum(record.get("nutritional_info", {}).get("carbohydrates", 0) for record in today_consumption)
-        today_protein = sum(record.get("nutritional_info", {}).get("protein", 0) for record in today_consumption)
-        today_fat = sum(record.get("nutritional_info", {}).get("fat", 0) for record in today_consumption)
-        
-        # Get user's goals
-        calorie_goal = latest_meal_plan.get("dailyCalories", 2000)
-        macros = latest_meal_plan.get("macronutrients", {})
-        carb_goal = macros.get("carbs", 250)
-        protein_goal = macros.get("protein", 100)
-        fat_goal = macros.get("fats", 70)
-        
-        # Calculate deviations
-        calorie_deviation = today_calories - calorie_goal
-        carb_deviation = today_carbs - carb_goal
-        protein_deviation = today_protein - protein_goal
-        fat_deviation = today_fat - fat_goal
-        
-        # Generate adaptive suggestions
-        adaptations = []
-        
-        # Calorie adjustments
-        if calorie_deviation > 300:  # Exceeded by more than 300 calories
-            adaptations.append({
-                "type": "calorie_reduction",
-                "message": f"Since you exceeded your calorie goal by {calorie_deviation:.0f} calories today, tomorrow's portions will be slightly smaller to help balance your weekly intake.",
-                "adjustment": -200  # Reduce tomorrow by 200 calories
-            })
-        elif calorie_deviation < -300:  # Under by more than 300 calories
-            adaptations.append({
-                "type": "calorie_increase",
-                "message": f"You were {abs(calorie_deviation):.0f} calories under your goal today. Tomorrow's plan includes slightly larger portions to ensure adequate nutrition.",
-                "adjustment": 200  # Increase tomorrow by 200 calories
-            })
-        
-        # Carb adjustments
-        if carb_deviation > 50:  # Too many carbs
-            adaptations.append({
-                "type": "carb_reduction",
-                "message": "Tomorrow's plan emphasizes more protein and vegetables to balance today's higher carb intake.",
-                "adjustment": "more_protein_vegetables"
-            })
-        elif carb_deviation < -30:  # Too few carbs
-            adaptations.append({
-                "type": "carb_increase",
-                "message": "Tomorrow includes healthy complex carbs to ensure you have enough energy.",
-                "adjustment": "add_complex_carbs"
-            })
-        
-        # Protein adjustments
-        if protein_deviation < -20:  # Too little protein
-            adaptations.append({
-                "type": "protein_increase",
-                "message": "Tomorrow's meals will include extra lean protein to meet your daily needs.",
-                "adjustment": "add_lean_protein"
-            })
-        
-        # Create tomorrow's adapted meal plan
-        tomorrow = datetime.utcnow().date() + timedelta(days=1)
-        tomorrow_day_index = tomorrow.weekday()
-        
-        # Get base meals for tomorrow from the current plan
-        adapted_plan = {
-            "id": f"adapted_{user_email}_{int(datetime.utcnow().timestamp())}",
-            "user_id": user_email,
-            "created_at": datetime.utcnow().isoformat(),
-            "type": "adaptive_meal_plan",
-            "date": tomorrow.isoformat(),
-            "adaptations": adaptations,
-            "based_on_consumption": {
-                "date": datetime.utcnow().date().isoformat(),
-                "calories": today_calories,
-                "deviations": {
-                    "calories": calorie_deviation,
-                    "carbs": carb_deviation,
-                    "protein": protein_deviation,
-                    "fat": fat_deviation
-                }
-            }
-        }
-        
-        # Copy base meal structure and apply adaptations
-        if tomorrow_day_index < 7:  # Valid day of week
-            base_breakfast = latest_meal_plan.get("breakfast", [])[tomorrow_day_index] if tomorrow_day_index < len(latest_meal_plan.get("breakfast", [])) else "Healthy breakfast option"
-            base_lunch = latest_meal_plan.get("lunch", [])[tomorrow_day_index] if tomorrow_day_index < len(latest_meal_plan.get("lunch", [])) else "Balanced lunch option"
-            base_dinner = latest_meal_plan.get("dinner", [])[tomorrow_day_index] if tomorrow_day_index < len(latest_meal_plan.get("dinner", [])) else "Nutritious dinner option"
-            
-            # Apply adaptations to meals
-            adapted_breakfast = base_breakfast
-            adapted_lunch = base_lunch
-            adapted_dinner = base_dinner
-            
-            for adaptation in adaptations:
-                if adaptation["type"] == "carb_reduction":
-                    adapted_lunch += " (with extra vegetables instead of rice/bread)"
-                    adapted_dinner += " (with cauliflower rice or extra greens)"
-                elif adaptation["type"] == "protein_increase":
-                    adapted_breakfast += " + Greek yogurt"
-                    adapted_lunch += " + extra lean protein"
-                elif adaptation["type"] == "calorie_reduction":
-                    adapted_breakfast += " (smaller portion)"
-                    adapted_lunch += " (lighter version)"
-                    adapted_dinner += " (reduced portion)"
-            
-            adapted_plan.update({
-                "breakfast": [adapted_breakfast],
-                "lunch": [adapted_lunch],
-                "dinner": [adapted_dinner],
-                "dailyCalories": max(1200, calorie_goal + sum(a.get("adjustment", 0) for a in adaptations if isinstance(a.get("adjustment"), int))),
-                "macronutrients": latest_meal_plan.get("macronutrients", {})
-            })
-        
-        # Save the adapted plan to database
-        await save_meal_plan(user_email, adapted_plan)
-        
-        return adapted_plan
-        
-    except Exception as e:
-        print(f"Error in adaptive meal planning: {str(e)}")
-        return None
 
 @app.post("/coach/meal-suggestion")
 async def get_meal_suggestion(
