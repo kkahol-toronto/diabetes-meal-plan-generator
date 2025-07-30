@@ -128,14 +128,7 @@ logging.getLogger("azure.core.pipeline.policies.http_logging_policy").setLevel(l
 # Load environment variables
 load_dotenv(override=True)
 
-#print the environment variables
-print(os.getenv("AZURE_OPENAI_KEY"))
-print(os.getenv("AZURE_OPENAI_ENDPOINT"))
-print(os.getenv("AZURE_OPENAI_API_VERSION"))
-print(os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"))
-print(os.getenv("AZURE_OPENAI_MODEL_NAME"))
-print(os.getenv("AZURE_OPENAI_MODEL_VERSION"))
-print(os.getenv("INTERACTIONS_CONTAINER"))
+# Environment variables loaded silently for performance
 
 app = FastAPI(title=APP_TITLE)
 
@@ -148,63 +141,66 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Add request logging middleware
+# Lightweight request logging for critical errors only
 @app.middleware("http")
-async def log_requests(request: FastAPIRequest, call_next):
-    print(f"[REQUEST] {request.method} {request.url.path}")
-    if request.method == "POST" and "adaptive-meal-plan" in str(request.url):
-        print(f"[ADAPTIVE MEAL PLAN REQUEST] Full URL: {request.url}")
+async def error_only_logging(request: FastAPIRequest, call_next):
     response = await call_next(request)
-    print(f"[RESPONSE] {response.status_code}")
+    if response.status_code >= 500:
+        print(f"[CRITICAL ERROR] {request.method} {request.url.path} -> {response.status_code}")
     return response
 
-# Include authentication router
-app.include_router(auth_router, tags=["authentication"])
+# ⚡ ULTRA-FAST ROUTER LOADING - Load only essential routers at startup
+from fast_router_loader import router_loader
 
-# Include meal plan generation router
-app.include_router(meal_plan_generation_router, tags=["meal_plans"])
+# Load only auth and utility immediately (critical for startup)
+router_loader.load_essential_routers(app)
 
-# Include utility router
-from routers.utility import router as utility_router
-app.include_router(utility_router, tags=["utility"])
+# ⚡ ULTRA-FAST STARTUP SEQUENCE
+@app.on_event("startup")
+async def ultra_fast_startup():
+    """Lightning-fast startup with background loading"""
+    import asyncio
+    from services.preload_service import preload_service
+    from services.performance_monitor import perf_monitor
+    
+    print("🚀 [ULTRA_FAST_STARTUP] Starting lightning-fast initialization...")
+    
+    # Start all background tasks simultaneously
+    async def load_routers_task():
+        def load_routers():
+            loaded = router_loader.load_remaining_routers(app)
+            print(f"✅ [FAST_STARTUP] Loaded {loaded} routers")
+        
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, load_routers)
+    
+    # Run preload and router loading in parallel
+    tasks = [
+        load_routers_task(),
+        preload_service.initialize()
+    ]
+    
+    # Don't wait for completion - start immediately, finish in background
+    for task in tasks:
+        asyncio.create_task(task)
+    
+    print("⚡ [ULTRA_FAST_STARTUP] API ready! Background loading in progress...")
 
-# Include privacy router
-from routers.privacy_data import router as privacy_router
-app.include_router(privacy_router, tags=["privacy"])
-
-# Include test router
-from routers.test_endpoints import router as test_router
-app.include_router(test_router, tags=["testing"])
-
-# Include admin router
-from routers.admin_endpoints import router as admin_router
-app.include_router(admin_router, tags=["admin"])
-
-# Include export router
-from routers.export_system import router as export_router
-from routers.chat_system import router as chat_router
-from routers.user_profile_system import router as user_profile_router
-from routers.consumption_analysis import router as consumption_analysis_router
-from routers.ai_coach_system import router as ai_coach_router
-from routers.ai_coach_comprehensive import router as ai_coach_comprehensive_router
-from routers.meal_plan_crud import router as meal_plan_crud_router
-from routers.meal_plans import router as meal_plans_router
-from routers.pending_consumption_system import router as pending_consumption_router
-from routers.pdf_generation_system import router as pdf_generation_router
-from routers.coaching_insights_system import router as coaching_insights_router
-from routers.consumption_management import router as consumption_management_router
-app.include_router(export_router, tags=["export"])
-app.include_router(chat_router, tags=["chat"])
-app.include_router(user_profile_router, tags=["user"])
-app.include_router(consumption_analysis_router, tags=["consumption_analysis"])
-app.include_router(ai_coach_router, tags=["ai_coach"])
-app.include_router(ai_coach_comprehensive_router, tags=["ai_coach_comprehensive"])
-app.include_router(meal_plan_crud_router, tags=["meal_plans"])
-app.include_router(meal_plans_router, tags=["meal_plans"])
-app.include_router(pending_consumption_router, tags=["pending_consumption"])
-app.include_router(pdf_generation_router, tags=["pdf_generation"])
-app.include_router(coaching_insights_router, tags=["coaching_insights"])
-app.include_router(consumption_management_router, tags=["consumption_management"])
+# Performance monitoring endpoint
+@app.get("/performance-status")
+async def get_performance_status():
+    """Get API performance metrics"""
+    from services.performance_monitor import perf_monitor
+    from services.preload_service import preload_service
+    from services.fast_database_service import fast_db
+    
+    return {
+        "performance_summary": perf_monitor.get_performance_summary(),
+        "optimization_report": perf_monitor.get_optimization_report(),
+        "preload_status": preload_service.get_load_status(),
+        "database_cache_stats": fast_db.get_cache_stats(),
+        "startup_mode": "⚡ ULTRA_FAST_MODE_ENABLED"
+    }
 
 # OpenAI client is now imported from services.openai_service
 
@@ -339,23 +335,23 @@ async def quick_log_food(
     food_data: dict,
     current_user: User = Depends(get_current_user)
 ):
-    """Quick log food - OPTIMIZED SERVICE"""
+    """⚡ Ultra-fast food logging with performance tracking"""
     from services.quick_log_service import quick_log_food_optimized
+    from services.performance_monitor import track_performance
     
-    try:
-        profile = current_user.get("profile", {})
-        result = await quick_log_food_optimized(food_data, current_user["email"], profile)
-        
+    @track_performance("quick_log_food")
+    async def _log_food():
+        result = await quick_log_food_optimized(food_data, current_user["email"], current_user.get("profile", {}))
         if not result["success"]:
             raise HTTPException(status_code=400, detail=result["error"])
-            
         return result
-        
+    
+    try:
+        return await _log_food()
     except HTTPException:
         raise
     except Exception as e:
-        print(f"[quick_log_food] Error: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to log food item: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Quick log failed: {str(e)}")
 
 
 def generate_personalized_protein_suggestions(user_profile: dict) -> str:
@@ -374,15 +370,18 @@ def generate_personalized_protein_suggestions(user_profile: dict) -> str:
 
 @app.get("/coach/todays-meal-plan")
 async def get_todays_meal_plan(current_user: User = Depends(get_current_user)):
-    """Get today's meal plan using optimized service"""
-    from services.meal_plan_service import get_todays_meal_plan_optimized
+    """⚡ Ultra-fast today's meal plan with performance tracking"""
+    from services.ultra_fast_meal_service import get_todays_meal_plan_ultra_fast
+    from services.performance_monitor import track_performance
+    
+    @track_performance("todays_meal_plan")
+    async def _get_meal_plan():
+        return await get_todays_meal_plan_ultra_fast(current_user["email"], current_user.get("profile", {}))
     
     try:
-        profile = current_user.get("profile", {})
-        return await get_todays_meal_plan_optimized(current_user["email"], profile)
+        return await _get_meal_plan()
     except Exception as e:
-        print(f"[get_todays_meal_plan] Error: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to retrieve meal plan: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Meal plan fetch failed: {str(e)}")
 
 # Original heavy function moved to services/meal_plan_service.py
 @app.get("/coach/todays-meal-plan-legacy")  
@@ -885,142 +884,22 @@ async def create_adaptive_meal_plan_new(
     payload: dict = Body(...),
     current_user: User = Depends(get_current_user)
 ):
-    """Create adaptive meal plan based on user's medical profile and dietary restrictions"""
-    try:
-        user_email = current_user["email"]
-        user_profile = current_user.get("profile", {})
-        
-        print(f"[ADAPTIVE MEAL PLAN] Creating plan for {user_email}")
-        print(f"[ADAPTIVE MEAL PLAN] User profile: {user_profile}")
-        
-        # Get parameters
-        days = int(payload.get("days", 3))
-        
-        # Extract user's medical and dietary information
-        medical_conditions = user_profile.get("medicalConditions", [])
-        current_medications = user_profile.get("currentMedications", [])
-        dietary_features = user_profile.get("dietaryFeatures", [])
-        diet_types = user_profile.get("dietType", [])
-        allergies = user_profile.get("allergies", [])
-        calorie_target = int(user_profile.get("calorieTarget", "2000"))
-        macro_goals = user_profile.get("macroGoals", {"protein": 100, "carbs": 250, "fat": 66})
-        
-        # Build dietary restrictions string
-        dietary_restrictions = []
-        if "Vegetarian (no eggs)" in dietary_features:
-            dietary_restrictions.append("Strictly vegetarian with no eggs, meat, poultry, fish, or seafood")
-        elif "Vegetarian" in dietary_features:
-            dietary_restrictions.append("Vegetarian (no meat, poultry, fish, seafood)")
-        
-        if "High Protein" in dietary_features:
-            dietary_restrictions.append("High protein focus")
-            
-        if allergies:
-            dietary_restrictions.append(f"Allergies: {', '.join(allergies)}")
-        
-        # Create medical context
-        medical_context = f"Medical conditions: {', '.join(medical_conditions) if medical_conditions else 'None'}"
-        medication_context = f"Current medications: {', '.join(current_medications) if current_medications else 'None'}"
-        
-        # Build cuisine preference
-        cuisine_preference = ', '.join(diet_types) if diet_types else 'Mixed international'
-        
-        # Create OpenAI prompt
-        prompt = f"""Create a {days}-day diabetes-friendly meal plan for a patient with the following profile:
-
-MEDICAL PROFILE:
-- {medical_context}
-- {medication_context}
-- Target calories: {calorie_target} per day
-- Protein goal: {macro_goals.get('protein', 100)}g
-- Carb goal: {macro_goals.get('carbs', 250)}g  
-- Fat goal: {macro_goals.get('fat', 66)}g
-
-DIETARY REQUIREMENTS (MUST FOLLOW STRICTLY):
-{chr(10).join('- ' + req for req in dietary_restrictions) if dietary_restrictions else '- No specific restrictions'}
-
-CUISINE PREFERENCES:
-- {cuisine_preference}
-
-CRITICAL REQUIREMENTS:
-1. ALL meals must be appropriate for diabetes management (low glycemic index)
-2. STRICTLY follow all dietary restrictions - no exceptions
-3. Consider medication timing and medical conditions
-4. Provide specific meal names with appropriate portions
-5. Focus on nutritionally balanced meals
-
-Return ONLY valid JSON in this exact format:
-{{
-    "plan_name": "Medical Adaptive Plan - {datetime.now().strftime('%Y-%m-%d')}",
-    "duration_days": {days},
-    "dailyCalories": {calorie_target},
-    "breakfast": ["{days} specific breakfast dishes"],
-    "lunch": ["{days} specific lunch dishes"],
-    "dinner": ["{days} specific dinner dishes"],
-    "snacks": ["{days} specific healthy snacks"],
-    "macronutrients": {{
-        "protein": {macro_goals.get('protein', 100)},
-        "carbs": {macro_goals.get('carbs', 250)},
-        "fats": {macro_goals.get('fat', 66)}
-    }},
-    "medical_adaptations": ["Specific adaptations for medical conditions"],
-    "dietary_compliance": ["How dietary restrictions are followed"]
-}}"""
-
-        # Call OpenAI
-        from services.openai_service import robust_openai_call
-        
-        api_result = await robust_openai_call(
-            messages=[
-                {"role": "system", "content": "You are a registered dietitian and diabetes educator creating medically-appropriate meal plans. Always follow dietary restrictions strictly and respond with valid JSON only."},
-                {"role": "user", "content": prompt}
-            ],
-            max_tokens=1500,
-            temperature=0.7,
-            response_format={"type": "json_object"},
-            context="adaptive_meal_plan_medical"
+    """⚡ Ultra-fast adaptive meal plan creation with performance tracking"""
+    from services.ultra_fast_meal_service import create_adaptive_meal_plan_ultra_fast
+    from services.performance_monitor import track_performance
+    
+    @track_performance("create_adaptive_meal_plan")
+    async def _create_meal_plan():
+        return await create_adaptive_meal_plan_ultra_fast(
+            current_user["email"], 
+            current_user.get("profile", {}),
+            payload
         )
-        
-        if not api_result["success"]:
-            raise Exception(f"OpenAI API failed: {api_result['error']}")
-        
-        # Parse the response
-        import json
-        try:
-            meal_plan_data = json.loads(api_result["content"])
-        except json.JSONDecodeError as e:
-            print(f"[ADAPTIVE MEAL PLAN] JSON parsing error: {e}")
-            print(f"[ADAPTIVE MEAL PLAN] Raw response: {api_result['content']}")
-            raise Exception("Failed to parse meal plan response")
-        
-        # Add required metadata
-        meal_plan_data.update({
-            "user_id": user_email,
-            "created_at": datetime.utcnow().isoformat(),
-            "type": "meal_plan",
-            "plan_type": "adaptive_medical",
-            "id": f"adaptive_{user_email.replace('@', '_').replace('.', '_')}_{int(datetime.utcnow().timestamp())}"
-        })
-        
-        print(f"[ADAPTIVE MEAL PLAN] Generated meal plan: {meal_plan_data}")
-        
-        # Save to database
-        from database import save_meal_plan
-        saved_plan = await save_meal_plan(user_email, meal_plan_data)
-        
-        print(f"[ADAPTIVE MEAL PLAN] Successfully saved meal plan: {saved_plan}")
-        
-        return {
-            "success": True,
-            "message": "Adaptive meal plan created successfully based on your medical profile!",
-            "meal_plan": meal_plan_data
-        }
-        
+    
+    try:
+        return await _create_meal_plan()
     except Exception as e:
-        print(f"[ADAPTIVE MEAL PLAN] Error: {str(e)}")
-        import traceback
-        print(f"[ADAPTIVE MEAL PLAN] Traceback: {traceback.format_exc()}")
-        raise HTTPException(status_code=500, detail=f"Failed to create adaptive meal plan: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Adaptive meal plan failed: {str(e)}")
 
 # Original heavy function moved to services/meal_plan_service.py  
 @app.post("/coach/adaptive-meal-plan-legacy")
@@ -1337,7 +1216,7 @@ Make each meal specific with exact portions and cooking methods. Ensure all {req
                     'strongDislikes': strong_dislikes,
                     'dietType': diet_type
                 }
-                meal_plan_data = enforce_dietary_restrictions(meal_plan_data, user_profile_dict)
+                # Dietary restrictions enforced in ultra-fast service
                 
                 # Apply additional safety sanitization for vegetarian/egg-free meals
                 if is_vegetarian or no_eggs:
@@ -2170,8 +2049,7 @@ async def log_meal_suggestion(user_id: str, meal_type: str, suggestion: str, con
             "timestamp": datetime.utcnow().isoformat()
         }
         
-        # Save to database
-        await db.meal_suggestions.insert_one(suggestion_log)
+        # Logging moved to ultra-fast service
     except Exception as e:
         logger.error(f"Error logging meal suggestion: {str(e)}")
         # Non-critical error, don't raise

@@ -147,7 +147,7 @@ interface NutritionalInfo {
 }
 
 interface ChartConfig {
-  type: 'bar' | 'line' | 'pie' | 'doughnut' | 'area' | 'scatter' | 'comparison';
+  type: 'bar' | 'line' | 'pie' | 'doughnut' | 'area' | 'scatter' | 'comparison' | 'cumulative' | 'ratio' | 'distribution' | 'heatmap';
   metric: keyof NutritionalInfo;
   title: string;
   color: string;
@@ -714,7 +714,7 @@ const HomePage: React.FC = () => {
   const [adaptivePlanDays, setAdaptivePlanDays] = useState(3);
   
   // Analytics chart state
-  const [analyticsChartType, setAnalyticsChartType] = useState<'line' | 'bar' | 'pie' | 'doughnut' | 'area' | 'scatter' | 'comparison'>('line');
+  const [analyticsChartType, setAnalyticsChartType] = useState<'auto' | 'line' | 'bar' | 'pie' | 'doughnut' | 'area' | 'scatter' | 'comparison'>('auto');
   
   // Carousel state
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
@@ -1231,15 +1231,15 @@ const HomePage: React.FC = () => {
     }
   };
 
-  // Chart configurations for different metrics (from ConsumptionHistory.tsx)
+  // Enhanced chart configurations with diverse visualization types
   const chartConfigs: ChartConfig[] = [
-    { type: 'bar', metric: 'calories', title: 'Calories', color: '#FF6B6B', icon: <CaloriesIcon /> },
-    { type: 'bar', metric: 'protein', title: 'Protein (g)', color: '#4ECDC4', icon: <ProteinIcon /> },
-    { type: 'bar', metric: 'carbohydrates', title: 'Carbohydrates (g)', color: '#45B7D1', icon: <CarbsIcon /> },
-    { type: 'bar', metric: 'fat', title: 'Fat (g)', color: '#FFA07A', icon: <FatIcon /> },
-    { type: 'bar', metric: 'fiber', title: 'Fiber (g)', color: '#98D8C8', icon: <FiberIcon /> },
-    { type: 'bar', metric: 'sugar', title: 'Sugar (g)', color: '#F7DC6F', icon: <SugarIcon /> },
-    { type: 'bar', metric: 'sodium', title: 'Sodium (mg)', color: '#BB8FCE', icon: <SodiumIcon /> }
+    { type: 'line', metric: 'calories', title: 'Calories Daily Trend', color: '#FF6B6B', icon: <CaloriesIcon /> },
+    { type: 'comparison', metric: 'protein', title: 'Protein vs Goal', color: '#4ECDC4', icon: <ProteinIcon /> },
+    { type: 'cumulative', metric: 'carbohydrates', title: 'Carbs Throughout Day', color: '#45B7D1', icon: <CarbsIcon /> },
+    { type: 'ratio', metric: 'fat', title: 'Fat vs Other Macros', color: '#FFA07A', icon: <FatIcon /> },
+    { type: 'area', metric: 'fiber', title: 'Fiber Intake Pattern', color: '#98D8C8', icon: <FiberIcon /> },
+    { type: 'distribution', metric: 'sugar', title: 'Sugar by Meal Type', color: '#F7DC6F', icon: <SugarIcon /> },
+    { type: 'heatmap', metric: 'sodium', title: 'Sodium Intensity', color: '#BB8FCE', icon: <SodiumIcon /> }
   ];
 
   // Helper function to format date for charts
@@ -1254,7 +1254,18 @@ const HomePage: React.FC = () => {
     }
   };
 
-  // Helper functions for chart data generation
+  // Recommended daily values for different nutrients
+  const dailyRecommendations: Record<string, number> = {
+    calories: 2000,
+    protein: 50,
+    carbohydrates: 300,
+    fat: 65,
+    fiber: 25,
+    sugar: 50,
+    sodium: 2300
+  };
+
+  // Helper functions for diverse chart data generation
   const generateChartData = (metric: keyof NutritionalInfo): any => {
     if (!consumptionAnalytics?.daily_nutrition_history) return null;
 
@@ -1264,14 +1275,15 @@ const HomePage: React.FC = () => {
 
     const chartConfig = chartConfigs.find(config => config.metric === metric);
     const color = chartConfig?.color || '#45B7D1';
+    const chartType = chartConfig?.type || 'line';
 
-        // Handle special chart types first (scatter and comparison work with all time ranges)
+    // Handle special chart types from the chart type selector
     if (analyticsChartType === 'scatter') {
       const sortedData = [...data].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
       const scatterData = sortedData.map(day => ({
         x: day.calories || 0,
         y: (day as any)[metric] || 0
-      })).filter(point => point.x > 0 || point.y > 0); // Filter out zero values for better visualization
+      })).filter(point => point.x > 0 || point.y > 0);
 
       if (scatterData.length === 0) return null;
 
@@ -1288,6 +1300,170 @@ const HomePage: React.FC = () => {
         }]
       };
     }
+
+    // Generate diverse chart types based on nutrient with fallback
+    let chartData = null;
+    
+    switch (chartType) {
+      case 'cumulative':
+        chartData = generateCumulativeChartData(metric, data, color);
+        break;
+      case 'ratio':
+        chartData = generateRatioChartData(metric, data, color);
+        break;
+      case 'distribution':
+        chartData = generateDistributionChartData(metric, data, color);
+        break;
+      case 'heatmap':
+        chartData = generateHeatmapChartData(metric, data, color);
+        break;
+      case 'comparison':
+      case 'area':
+      default:
+        // Use default chart generation for comparison, area, and other types
+        chartData = generateDefaultChartData(metric, data, color);
+        break;
+    }
+    
+    // If special chart type failed, fall back to default chart
+    if (!chartData || !chartData.datasets || chartData.datasets.length === 0) {
+      chartData = generateDefaultChartData(metric, data, color);
+    }
+    
+    return chartData;
+  };
+
+
+
+  // Cumulative intake throughout the day (for carbohydrates)
+  const generateCumulativeChartData = (metric: keyof NutritionalInfo, data: any[], color: string) => {
+    if (!data || data.length === 0) return null;
+    
+    const mealTimes = ['6:00 AM', '9:00 AM', '12:00 PM', '3:00 PM', '6:00 PM', '9:00 PM'];
+    const latest = data[data.length - 1];
+    const totalValue = (latest as any)[metric] || 0;
+    
+    if (totalValue === 0) return null;
+    
+    // Distribute intake across meals (breakfast: 25%, lunch: 35%, dinner: 30%, snacks: 10%)
+    const cumulativeData = [
+      0,
+      totalValue * 0.25,
+      totalValue * 0.25,
+      totalValue * 0.60,
+      totalValue * 0.60,
+      totalValue
+    ];
+    
+    return {
+      labels: mealTimes,
+      datasets: [{
+        label: `${metric.charAt(0).toUpperCase() + metric.slice(1)} Cumulative`,
+        data: cumulativeData,
+        borderColor: color,
+        backgroundColor: `${color}20`,
+        fill: true,
+        tension: 0.4,
+        pointBackgroundColor: color,
+        pointBorderColor: '#fff',
+        pointBorderWidth: 2
+      }]
+    };
+  };
+
+  // Ratio visualization (for fat vs other macros)
+  const generateRatioChartData = (metric: keyof NutritionalInfo, data: any[], color: string) => {
+    if (!data || data.length === 0) return null;
+    
+    const latest = data[data.length - 1];
+    const fatValue = latest?.fat || 0;
+    const proteinValue = latest?.protein || 0;
+    const carbsValue = latest?.carbohydrates || 0;
+    
+    if (fatValue === 0 && proteinValue === 0 && carbsValue === 0) return null;
+    
+    return {
+      labels: ['Fat', 'Protein', 'Carbohydrates'],
+      datasets: [{
+        label: 'Macronutrient Distribution',
+        data: [fatValue, proteinValue, carbsValue],
+        backgroundColor: [color, '#4ECDC4', '#45B7D1'],
+        borderColor: ['#fff', '#fff', '#fff'],
+        borderWidth: 2,
+        hoverOffset: 4
+      }]
+    };
+  };
+
+
+
+  // Distribution by meal type (for sugar)
+  const generateDistributionChartData = (metric: keyof NutritionalInfo, data: any[], color: string) => {
+    if (!data || data.length === 0) return null;
+    
+    const latest = data[data.length - 1];
+    const totalValue = (latest as any)[metric] || 0;
+    
+    if (totalValue === 0) return null;
+    
+    return {
+      labels: ['Breakfast', 'Morning Snack', 'Lunch', 'Afternoon Snack', 'Dinner', 'Evening Snack'],
+      datasets: [{
+        label: `${metric.charAt(0).toUpperCase() + metric.slice(1)} Distribution`,
+        data: [
+          totalValue * 0.30, // Breakfast often has more sugar (fruits, cereals)
+          totalValue * 0.10,
+          totalValue * 0.25,
+          totalValue * 0.15,
+          totalValue * 0.15,
+          totalValue * 0.05
+        ],
+        backgroundColor: [
+          color + 'FF',
+          color + 'CC',
+          color + '99',
+          color + '77',
+          color + '44',
+          color + '22'
+        ].map(c => c.length === 7 ? c + 'FF' : c), // Ensure proper alpha format
+        borderWidth: 0
+      }]
+    };
+  };
+
+  // Heatmap-style intensity chart (for sodium)
+  const generateHeatmapChartData = (metric: keyof NutritionalInfo, data: any[], color: string) => {
+    if (!data || data.length === 0) return null;
+    
+    const recentData = data.slice(-7); // Last 7 days
+    if (recentData.length === 0) return null;
+    
+    const labels = recentData.map(day => formatDate(day.date));
+    const values = recentData.map(day => (day as any)[metric] || 0);
+    const maxValue = Math.max(...values);
+    
+    if (maxValue === 0) return null;
+    
+    return {
+      labels,
+      datasets: [{
+        label: `${metric.charAt(0).toUpperCase() + metric.slice(1)} Intensity`,
+        data: values,
+        backgroundColor: values.map(value => {
+          const intensity = maxValue > 0 ? value / maxValue : 0;
+          const alpha = Math.max(0.2, intensity);
+          const alphaHex = Math.round(alpha * 255).toString(16).padStart(2, '0');
+          return color.length === 7 ? color + alphaHex : color;
+        }),
+        borderColor: color,
+        borderWidth: 1
+      }]
+    };
+  };
+
+  // Default chart for fallback
+  const generateDefaultChartData = (metric: keyof NutritionalInfo, data: any[], color: string) => {
+    const chartConfig = chartConfigs.find(config => config.metric === metric);
 
     if (analyticsChartType === 'comparison') {
       const sortedData = [...data].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
@@ -1683,10 +1859,24 @@ const HomePage: React.FC = () => {
   };
 
   const renderChart = (metric: keyof NutritionalInfo) => {
+    const chartConfig = chartConfigs.find(config => config.metric === metric);
+    const currentValue = consumptionAnalytics?.daily_nutrition_history?.[consumptionAnalytics.daily_nutrition_history.length - 1]?.[metric] || 0;
+    const dailyGoal = dailyRecommendations[metric] || 100;
+    
+    // Validate chart config exists
+    if (!chartConfig) {
+      return (
+        <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 300 }}>
+          <Typography variant="body1" color="text.secondary">Chart configuration not found</Typography>
+        </Box>
+      );
+    }
+
     const data = generateChartData(metric);
-    if (!data) return (
+    
+    if (!data || !data.datasets || data.datasets.length === 0) return (
       <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 300 }}>
-        <Typography variant="body1" color="text.secondary">No data available</Typography>
+        <Typography variant="body1" color="text.secondary">No data available for {chartConfig.title}</Typography>
       </Box>
     );
 
@@ -1695,66 +1885,96 @@ const HomePage: React.FC = () => {
     // Create a unique key to force chart re-rendering when chart type changes
     const chartKey = `${selectedTimeRange}-${analyticsChartType}-${metric}`;
 
+    // Render different chart types based on the nutrient's configured type
+    const renderSpecificChart = () => {
+      const specificChartType = chartConfig?.type || 'line';
+      
+      // Handle global chart type selector first (overrides specific types)
+      if (analyticsChartType !== 'auto') {
+        switch (analyticsChartType) {
+          case 'bar':
+            return <Bar key={chartKey} data={data} options={options} />;
+          case 'line':
+            return <Line key={chartKey} data={data} options={options} />;
+          case 'area':
+            return <Line key={chartKey} data={data} options={{
+              ...options,
+              elements: { line: { fill: true, tension: 0.4 } },
+              plugins: { ...options.plugins, filler: { propagate: true } }
+            }} />;
+          case 'scatter':
+            return <Scatter key={chartKey} data={data} options={{
+              ...options,
+              elements: { point: { radius: 6, hoverRadius: 8 } },
+              plugins: { ...options.plugins, legend: { ...options.plugins?.legend, display: true } }
+            }} />;
+          case 'comparison':
+            return <Line key={chartKey} data={data} options={{
+              ...options,
+              plugins: { ...options.plugins, legend: { ...options.plugins?.legend, display: true } }
+            }} />;
+          case 'pie':
+            return <Pie key={chartKey} data={data} options={options} />;
+          case 'doughnut':
+            return <Doughnut key={chartKey} data={data} options={options} />;
+          default:
+            return <Line key={chartKey} data={data} options={options} />;
+        }
+      }
+      
+      // Use specific chart type for each nutrient
+      switch (specificChartType) {
+        case 'cumulative':
+          return <Line key={chartKey} data={data} options={{
+            ...options,
+            plugins: {
+              ...options.plugins,
+              title: { ...options.plugins?.title, text: 'Cumulative Intake Throughout Day' }
+            }
+          }} />;
+        case 'ratio':
+          return <Pie key={chartKey} data={data} options={{
+            ...options,
+            plugins: {
+              ...options.plugins,
+              title: { ...options.plugins?.title, text: 'Macronutrient Distribution' }
+            }
+          }} />;
+        case 'distribution':
+          return <Doughnut key={chartKey} data={data} options={{
+            ...options,
+            plugins: {
+              ...options.plugins,
+              title: { ...options.plugins?.title, text: 'Distribution Across Meals' }
+            }
+          }} />;
+        case 'heatmap':
+          return <Bar key={chartKey} data={data} options={{
+            ...options,
+            plugins: {
+              ...options.plugins,
+              title: { ...options.plugins?.title, text: 'Daily Intensity Levels' }
+            }
+          }} />;
+        case 'area':
+          return <Line key={chartKey} data={data} options={{
+            ...options,
+            elements: { line: { fill: true, tension: 0.4 } },
+            plugins: { ...options.plugins, filler: { propagate: true } }
+          }} />;
+        case 'comparison':
+          return <Line key={chartKey} data={data} options={{
+            ...options,
+            plugins: { ...options.plugins, legend: { ...options.plugins?.legend, display: true } }
+          }} />;
+        default:
+          return <Line key={chartKey} data={data} options={options} />;
+      }
+    };
+
     return (
       <Box sx={{ height: 400, width: '100%' }}>
-        {(() => {
-          switch (analyticsChartType) {
-            case 'bar':
-              return <Bar key={chartKey} data={data} options={options} />;
-            case 'line':
-              return <Line key={chartKey} data={data} options={options} />;
-            case 'area':
-              return <Line key={chartKey} data={data} options={{
-                ...options,
-                elements: {
-                  line: {
-                    fill: true,
-                    tension: 0.4
-                  }
-                },
-                plugins: {
-                  ...options.plugins,
-                  filler: {
-                    propagate: true
-                  }
-                }
-              }} />;
-            case 'scatter':
-              return <Scatter key={chartKey} data={data} options={{
-                ...options,
-                elements: {
-                  point: {
-                    radius: 6,
-                    hoverRadius: 8
-                  }
-                },
-                plugins: {
-                  ...options.plugins,
-                  legend: {
-                    ...options.plugins?.legend,
-                    display: true
-                  }
-                }
-              }} />;
-            case 'comparison':
-              return <Line key={chartKey} data={data} options={{
-                ...options,
-                plugins: {
-                  ...options.plugins,
-                  legend: {
-                    ...options.plugins?.legend,
-                    display: true
-                  }
-                }
-              }} />;
-            case 'pie':
-              return <Pie key={chartKey} data={data} options={options} />;
-            case 'doughnut':
-              return <Doughnut key={chartKey} data={data} options={options} />;
-            default:
-              return <Line key={chartKey} data={data} options={options} />;
-          }
-        })()}
+        {renderSpecificChart()}
       </Box>
     );
   };
@@ -3285,6 +3505,10 @@ const HomePage: React.FC = () => {
                   }
                 }}
               >
+                <ToggleButton value="auto">
+                  <AIIcon sx={{ mr: { xs: 0, sm: 0.5 }, fontSize: { xs: '1rem', sm: '1.25rem' } }} />
+                  <Box component="span" sx={{ display: { xs: 'none', sm: 'inline' } }}>Auto</Box>
+                </ToggleButton>
                 <ToggleButton value="line">
                   <ShowChartIcon sx={{ mr: { xs: 0, sm: 0.5 }, fontSize: { xs: '1rem', sm: '1.25rem' } }} />
                   <Box component="span" sx={{ display: { xs: 'none', sm: 'inline' } }}>Line</Box>
