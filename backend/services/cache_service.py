@@ -214,6 +214,55 @@ def invalidate_meal_plan_cache(user_email: str) -> None:
     print(f"[cache] Invalidated meal plan cache for {user_email}")
 
 
+def invalidate_all_meal_plan_caches(user_email: str) -> None:
+    """
+    ROBUST cache invalidation - clears ALL possible cached meal plan data.
+    This function ensures deleted meal plans don't reappear from any cache layer.
+    
+    Args:
+        user_email: User's email identifier
+    """
+    # Clear primary meal plan cache
+    meal_plan_cache.delete(f"meal_plans:{user_email}")
+    
+    # Clear any date-specific meal plan caches (today's plan, etc.)
+    from datetime import datetime, timedelta
+    
+    # Clear caches for the last 30 days to be thorough
+    today = datetime.utcnow().date()
+    for i in range(30):
+        date_key = (today - timedelta(days=i)).isoformat()
+        meal_plan_cache.delete(f"{user_email}_{date_key}")
+        
+    # Clear fast database service cache if it exists
+    try:
+        from services.fast_database_service import fast_db
+        if hasattr(fast_db, '_cache'):
+            cache_key = f"meal_plans_{user_email}"
+            if cache_key in fast_db._cache:
+                del fast_db._cache[cache_key]
+                if hasattr(fast_db, '_cache_timestamps') and cache_key in fast_db._cache_timestamps:
+                    del fast_db._cache_timestamps[cache_key]
+                print(f"[cache] Cleared fast_db meal plan cache for {user_email}")
+    except Exception as e:
+        print(f"[cache] Warning: Could not clear fast_db cache: {e}")
+    
+    # Clear ultra-fast meal service cache if it exists
+    try:
+        from services.ultra_fast_meal_service import _meal_plan_cache, _cache_timestamps
+        keys_to_remove = [key for key in _meal_plan_cache.keys() if key.startswith(user_email)]
+        for key in keys_to_remove:
+            del _meal_plan_cache[key]
+            if key in _cache_timestamps:
+                del _cache_timestamps[key]
+        if keys_to_remove:
+            print(f"[cache] Cleared ultra_fast_meal_service cache for {user_email}: {len(keys_to_remove)} entries")
+    except Exception as e:
+        print(f"[cache] Warning: Could not clear ultra_fast_meal_service cache: {e}")
+    
+    print(f"[cache] COMPREHENSIVE meal plan cache invalidation completed for {user_email}")
+
+
 def get_cache_stats() -> Dict[str, Any]:
     """Get statistics for all cache instances."""
     return {

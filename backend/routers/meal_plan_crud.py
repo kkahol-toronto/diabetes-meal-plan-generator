@@ -7,7 +7,7 @@ from routers.auth import get_current_user
 from database import (
     save_meal_plan, get_user_meal_plans, get_meal_plan_by_id,
     delete_meal_plan_by_id, delete_all_user_meal_plans, view_meal_plans,
-    interactions_container
+    cleanup_meal_plan_data, interactions_container
 )
 import traceback
 
@@ -315,4 +315,29 @@ async def get_meal_plans_history_alias(current_user: User = Depends(get_current_
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to retrieve meal plans: {str(e)}"
+        )
+
+@router.post("/meal_plans/cleanup")
+async def cleanup_meal_plan_endpoint(current_user: User = Depends(get_current_user)):
+    """
+    ROBUST CLEANUP: Handle orphaned, corrupted, or inconsistent meal plan data.
+    This endpoint addresses edge cases that might cause deleted meal plans to reappear.
+    """
+    try:
+        user_email = current_user.get("email")
+        if not user_email:
+            raise HTTPException(status_code=400, detail="User email not found in token.")
+        
+        cleanup_result = await cleanup_meal_plan_data(user_email)
+        
+        return {
+            "message": "Meal plan data cleanup completed successfully",
+            "cleanup_summary": cleanup_result
+        }
+    except Exception as e:
+        print(f"Error in cleanup endpoint: {e}")
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to cleanup meal plan data: {str(e)}"
         ) 

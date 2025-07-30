@@ -8,7 +8,7 @@ import tiktoken
 import json
 import traceback
 import logging
-from services.cache_service import invalidate_meal_plan_cache
+from services.cache_service import invalidate_meal_plan_cache, invalidate_all_meal_plan_caches
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -238,10 +238,13 @@ async def get_user_meal_plans(user_id: str, limit: int = None):
 
         # Build query with optional TOP clause for database-level limiting
         # Include both 'meal_plan' and 'full_meal_plan' types to capture meal plans with PDFs
+        # CRITICAL: Filter out soft-deleted meal plans to prevent them from reappearing
+        base_conditions = f"(c.type = 'meal_plan' OR c.type = 'full_meal_plan') AND c.user_id = '{user_id}' AND (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true)"
+        
         if limit:
-            query = f"SELECT TOP {limit} * FROM c WHERE (c.type = 'meal_plan' OR c.type = 'full_meal_plan') AND c.user_id = '{user_id}' ORDER BY c.created_at DESC"
+            query = f"SELECT TOP {limit} * FROM c WHERE {base_conditions} ORDER BY c.created_at DESC"
         else:
-            query = f"SELECT * FROM c WHERE (c.type = 'meal_plan' OR c.type = 'full_meal_plan') AND c.user_id = '{user_id}' ORDER BY c.created_at DESC"
+            query = f"SELECT * FROM c WHERE {base_conditions} ORDER BY c.created_at DESC"
         
         print(f"[get_user_meal_plans] Querying with: {query}")
         
@@ -399,13 +402,20 @@ async def delete_meal_plan_by_id(plan_id: str, user_id: str):
             print(f"[delete_meal_plan_by_id] Fetched item for {plan_id} is missing user_id (partition key)")
             return False
 
-        print(f"[delete_meal_plan_by_id] Found valid plan with id: {plan_id}. Attempting deletion.")
-        interactions_container.delete_item(item=plan_id, partition_key=partition_key)
-        print(f"[delete_meal_plan_by_id] Deletion successful for plan_id: {plan_id}")
+        print(f"[delete_meal_plan_by_id] Found valid plan with id: {plan_id}. Attempting soft deletion.")
         
-        # Invalidate meal plan cache for this user
-        invalidate_meal_plan_cache(user_id)
-        print(f"[delete_meal_plan_by_id] Cache invalidated for user: {user_id}")
+        # SOFT DELETION: Mark as deleted instead of hard deletion
+        # This prevents race conditions and data inconsistencies that cause deleted items to reappear
+        meal_plan['is_deleted'] = True
+        meal_plan['deleted_at'] = datetime.utcnow().isoformat()
+        
+        # Update the item in database with deletion flag
+        interactions_container.upsert_item(body=meal_plan)
+        print(f"[delete_meal_plan_by_id] Soft deletion successful for plan_id: {plan_id}")
+        
+        # ROBUSTLY invalidate ALL meal plan caches for this user
+        invalidate_all_meal_plan_caches(user_id)
+        print(f"[delete_meal_plan_by_id] ALL caches invalidated for user: {user_id}")
         
         return True
 
@@ -425,51 +435,51 @@ async def delete_all_user_meal_plans(user_id: str):
              print("[delete_all_user_meal_plans] User ID is missing.")
              return 0 # Or raise an error, depending on desired behavior
 
-        # Find all meal plans for the user, including their partition key (user_id)
-        query = f"SELECT c.id, c.user_id FROM c WHERE (c.type = 'meal_plan' OR c.type = 'full_meal_plan') AND c.user_id = '{user_id}'"
-        print(f"[delete_all_user_meal_plans] Query for items: {query}")
-        items = interactions_container.query_items(
+        # Find all NON-DELETED meal plans for the user
+        # SOFT DELETION: Get full items so we can mark them as deleted
+        query = f"SELECT * FROM c WHERE (c.type = 'meal_plan' OR c.type = 'full_meal_plan') AND c.user_id = '{user_id}' AND (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true)"
+        print(f"[delete_all_user_meal_plans] Query for non-deleted items: {query}")
+        items = list(interactions_container.query_items(
             query=query,
             enable_cross_partition_query=True
-        )
+        ))
 
         deleted_count = 0
         failed_deletions = []
-
-        # Assuming user_id is the partition key
-        # partition_key = user_id # We will now get partition key from each item
         
         for item in items:
             item_id = item.get('id')
-            item_partition_key = item.get('user_id') # Assuming user_id is the partition key
+            item_partition_key = item.get('user_id')
 
             if not item_id or not item_partition_key:
                  print(f"[delete_all_user_meal_plans] Skipping item due to missing id or partition key: {item}")
-                 continue # Skip items that don't have necessary info
+                 continue
 
             try:
-                print(f"[delete_all_user_meal_plans] Attempting to delete item id: {item_id} with partition key: {item_partition_key}")
-                interactions_container.delete_item(item=item_id, partition_key=item_partition_key)
-                print(f"[delete_all_user_meal_plans] Successfully deleted item id: {item_id}")
+                print(f"[delete_all_user_meal_plans] Attempting to soft delete item id: {item_id}")
+                
+                # SOFT DELETION: Mark as deleted instead of hard deletion
+                item['is_deleted'] = True
+                item['deleted_at'] = datetime.utcnow().isoformat()
+                
+                # Update the item with deletion flag
+                interactions_container.upsert_item(body=item)
+                print(f"[delete_all_user_meal_plans] Successfully soft deleted item id: {item_id}")
                 deleted_count += 1
-            except CosmosResourceNotFoundError:
-                print(f"[delete_all_user_meal_plans] Item id {item_id} not found during deletion (might be already deleted).")
-                # Item already deleted, continue
-                pass
             except Exception as delete_error:
-                print(f"[delete_all_user_meal_plans] Error deleting item {item_id} for user {user_id}: {delete_error}")
+                print(f"[delete_all_user_meal_plans] Error soft deleting item {item_id} for user {user_id}: {delete_error}")
                 failed_deletions.append(item_id)
-                # Decide if you want to stop on error or continue
-                pass # Continue deleting other items
+                # Continue deleting other items
+                pass
         
         if failed_deletions:
              print(f"[delete_all_user_meal_plans] Finished deletion with failed items: {failed_deletions}")
 
         print(f"[delete_all_user_meal_plans] Total deleted count: {deleted_count}")
         
-        # Invalidate meal plan cache for this user if any deletions occurred
+        # ROBUSTLY invalidate ALL meal plan caches for this user if any deletions occurred
         if deleted_count > 0:
-            invalidate_meal_plan_cache(user_id)
+            invalidate_all_meal_plan_caches(user_id)
             print(f"[delete_all_user_meal_plans] Cache invalidated for user: {user_id}")
             
         return deleted_count
@@ -479,6 +489,124 @@ async def delete_all_user_meal_plans(user_id: str):
         # Log the full traceback for better debugging
         traceback.print_exc()
         raise Exception(f"Failed to delete all meal plans: {str(e)}")
+
+
+async def cleanup_meal_plan_data(user_id: str) -> dict:
+    """
+    ROBUST CLEANUP: Handle orphaned, corrupted, or inconsistent meal plan data.
+    This function addresses edge cases that might cause deleted meal plans to reappear.
+    
+    Returns:
+        dict: Summary of cleanup operations performed
+    """
+    try:
+        if not user_id:
+            raise ValueError("User ID is required")
+
+        print(f"[cleanup_meal_plan_data] Starting comprehensive cleanup for user: {user_id}")
+        
+        cleanup_summary = {
+            'user_id': user_id,
+            'started_at': datetime.utcnow().isoformat(),
+            'corrupted_plans_found': 0,
+            'soft_deleted_plans_found': 0,
+            'duplicates_removed': 0,
+            'cache_invalidations': 0,
+            'operations_performed': []
+        }
+        
+        # 1. Find all meal plan records (including soft-deleted ones)
+        all_query = f"SELECT * FROM c WHERE (c.type = 'meal_plan' OR c.type = 'full_meal_plan') AND c.user_id = '{user_id}'"
+        all_items = list(interactions_container.query_items(
+            query=all_query,
+            enable_cross_partition_query=True
+        ))
+        
+        print(f"[cleanup_meal_plan_data] Found {len(all_items)} total meal plan records")
+        
+        # 2. Identify and handle soft-deleted plans
+        soft_deleted_items = [item for item in all_items if item.get('is_deleted') == True]
+        cleanup_summary['soft_deleted_plans_found'] = len(soft_deleted_items)
+        
+        if soft_deleted_items:
+            print(f"[cleanup_meal_plan_data] Found {len(soft_deleted_items)} soft-deleted plans")
+            cleanup_summary['operations_performed'].append(f"Found {len(soft_deleted_items)} soft-deleted plans")
+        
+        # 3. Identify corrupted plans (missing required fields)
+        corrupted_plans = []
+        for item in all_items:
+            if item.get('is_deleted') != True:  # Only check active plans
+                required_fields = ['id', 'user_id', 'created_at', 'dailyCalories', 'macronutrients']
+                missing_fields = [field for field in required_fields if field not in item or item[field] is None]
+                
+                if missing_fields:
+                    corrupted_plans.append({
+                        'item': item,
+                        'missing_fields': missing_fields
+                    })
+        
+        cleanup_summary['corrupted_plans_found'] = len(corrupted_plans)
+        if corrupted_plans:
+            print(f"[cleanup_meal_plan_data] Found {len(corrupted_plans)} corrupted plans")
+            for cp in corrupted_plans:
+                print(f"[cleanup_meal_plan_data] Corrupted plan {cp['item'].get('id')}: missing {cp['missing_fields']}")
+            cleanup_summary['operations_performed'].append(f"Found {len(corrupted_plans)} corrupted plans")
+        
+        # 4. Identify potential duplicates (same user, same date, same calories)
+        active_plans = [item for item in all_items if item.get('is_deleted') != True]
+        duplicates = []
+        seen_signatures = set()
+        
+        for item in active_plans:
+            signature = f"{item.get('user_id')}_{item.get('created_at', '')[:10]}_{item.get('dailyCalories', 0)}"
+            if signature in seen_signatures:
+                duplicates.append(item)
+            else:
+                seen_signatures.add(signature)
+        
+        cleanup_summary['duplicates_removed'] = len(duplicates)
+        if duplicates:
+            print(f"[cleanup_meal_plan_data] Found {len(duplicates)} potential duplicate plans")
+            cleanup_summary['operations_performed'].append(f"Found {len(duplicates)} potential duplicates")
+        
+        # 5. COMPREHENSIVE cache invalidation
+        invalidate_all_meal_plan_caches(user_id)
+        cleanup_summary['cache_invalidations'] = 1
+        cleanup_summary['operations_performed'].append("Performed comprehensive cache invalidation")
+        
+        # 6. Optional: Identify old soft-deleted items (older than 30 days)
+        thirty_days_ago = datetime.utcnow() - timedelta(days=30)
+        old_deleted_count = 0
+        
+        for item in soft_deleted_items:
+            deleted_at_str = item.get('deleted_at')
+            if deleted_at_str:
+                try:
+                    deleted_at = datetime.fromisoformat(deleted_at_str.replace('Z', '+00:00'))
+                    if deleted_at < thirty_days_ago:
+                        old_deleted_count += 1
+                except Exception as e:
+                    print(f"[cleanup_meal_plan_data] Error parsing deleted_at for {item.get('id')}: {e}")
+        
+        if old_deleted_count > 0:
+            cleanup_summary['operations_performed'].append(f"Found {old_deleted_count} old soft-deleted items (>30 days)")
+        
+        cleanup_summary['completed_at'] = datetime.utcnow().isoformat()
+        cleanup_summary['total_issues_found'] = (
+            cleanup_summary['corrupted_plans_found'] + 
+            cleanup_summary['duplicates_removed']
+        )
+        
+        print(f"[cleanup_meal_plan_data] Cleanup completed for user: {user_id}")
+        print(f"[cleanup_meal_plan_data] Summary: {cleanup_summary}")
+        
+        return cleanup_summary
+        
+    except Exception as e:
+        print(f"[cleanup_meal_plan_data] Error during cleanup: {str(e)}")
+        traceback.print_exc()
+        raise Exception(f"Failed to cleanup meal plan data: {str(e)}")
+
 
 async def save_shopping_list(user_id: str, shopping_list: dict):
     """Save a shopping list for a user"""

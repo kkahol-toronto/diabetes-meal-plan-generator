@@ -3,7 +3,7 @@ APP_TITLE = "Diabetes Diet Manager API"
 APP_VERSION = "1.0.0"
 
 # Authentication Constants
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
+ACCESS_TOKEN_EXPIRE_MINUTES = 480  # 8 hours for better user experience
 
 # OpenAI API Default Parameters
 DEFAULT_MAX_TOKENS = 2000

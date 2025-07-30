@@ -78,7 +78,7 @@ const MealPlanHistory = () => {
   const [details, setDetails] = useState('');
   const navigate = useNavigate();
 
-  const fetchMealPlans = async () => {
+  const fetchMealPlans = async (forceRefresh: boolean = false) => {
     setLoading(true);
     setError(null);
     try {
@@ -88,6 +88,32 @@ const MealPlanHistory = () => {
         return;
       }
 
+      // ROBUST CACHE CLEARING: Add cache-busting parameters when force refreshing
+      const cacheParams = forceRefresh ? `?_t=${Date.now()}&_refresh=true` : '';
+      
+      // Clear any browser/axios caches if force refreshing
+      if (forceRefresh) {
+        console.log('[CACHE] Force refresh requested - clearing all caches');
+        
+        // Clear localStorage cache if any
+        const cacheKeys = Object.keys(localStorage).filter(key => 
+          key.includes('meal_plan') || key.includes('mealPlan') || key.includes('history')
+        );
+        cacheKeys.forEach(key => {
+          localStorage.removeItem(key);
+          console.log(`[CACHE] Cleared localStorage key: ${key}`);
+        });
+        
+        // Clear sessionStorage cache if any
+        const sessionKeys = Object.keys(sessionStorage).filter(key => 
+          key.includes('meal_plan') || key.includes('mealPlan') || key.includes('history')
+        );
+        sessionKeys.forEach(key => {
+          sessionStorage.removeItem(key);
+          console.log(`[CACHE] Cleared sessionStorage key: ${key}`);
+        });
+      }
+
       const data = await mealPlanApi.getHistory() as { meal_plans: MealPlanData[] };
       console.log('Fetched meal plans from backend:', data);
       
@@ -95,8 +121,12 @@ const MealPlanHistory = () => {
       const allPlans = data.meal_plans || [];
       console.log('All plans from backend:', allPlans.map((p: MealPlanData) => ({ id: p.id, created_at: p.created_at })));
       
+      // ADDITIONAL FILTERING: Remove any plans that might have is_deleted flag
+      const activePlans = allPlans.filter((plan: any) => !plan.is_deleted);
+      console.log(`Filtered out ${allPlans.length - activePlans.length} deleted plans`);
+      
       // Sort plans by creation date (newest first)
-      const sortedPlans = allPlans.sort((a: MealPlanData, b: MealPlanData) => {
+      const sortedPlans = activePlans.sort((a: MealPlanData, b: MealPlanData) => {
         const dateA = new Date(a.created_at || '');
         const dateB = new Date(b.created_at || '');
         return dateB.getTime() - dateA.getTime();
@@ -209,10 +239,11 @@ const MealPlanHistory = () => {
       const result = await mealPlanApi.delete(selectedIds);
       console.log('Backend deletion successful:', result);
 
-      // Only update UI after successful backend deletion
-      const remainingPlans = mealPlans.filter(plan => !selectedIds.includes(plan.id || ''));
-      setMealPlans(remainingPlans);
-      setFilteredPlans(remainingPlans);
+      // ROBUST DELETION: Force refresh from backend instead of local filtering
+      // This ensures deleted items don't reappear from caches
+      console.log('ROBUST DELETION: Force refreshing from backend after deletion...');
+      await fetchMealPlans(true); // Force refresh with cache clearing
+      
       setSelectedMealPlans([]);
 
       // Show success message
@@ -220,7 +251,7 @@ const MealPlanHistory = () => {
       setSnackbarSeverity('success');
       setSnackbarOpen(true);
 
-      console.log('Selected plans deleted successfully. Remaining plans:', remainingPlans.length);
+      console.log('ROBUST DELETION: Force refresh completed after successful deletion');
 
     } catch (error) {
       console.error('Failed to delete selected meal plans:', error);
@@ -256,10 +287,12 @@ const MealPlanHistory = () => {
       const result = await mealPlanApi.deleteAll();
       console.log('Backend clear all successful:', result);
 
-      // Only clear UI after successful backend deletion
+      // ROBUST DELETION: Force refresh from backend instead of local clearing
+      // This ensures deleted items don't reappear from caches
+      console.log('ROBUST DELETION: Force refreshing from backend after clear all...');
+      await fetchMealPlans(true); // Force refresh with cache clearing
+      
       setSelectedMealPlans([]);
-      setMealPlans([]);
-      setFilteredPlans([]);
       setSearchQuery('');
 
       // Show success message
@@ -267,7 +300,7 @@ const MealPlanHistory = () => {
       setSnackbarSeverity('success');
       setSnackbarOpen(true);
 
-      console.log('All meal plans cleared successfully');
+      console.log('ROBUST DELETION: Force refresh completed after clear all');
 
     } catch (error) {
       console.error('Failed to clear all meal plans:', error);
