@@ -867,27 +867,32 @@ async def generate_recipes(
             if meal_type in meal_plan and isinstance(meal_plan[meal_type], list):
                 all_meals.extend(meal_plan[meal_type])
         
-        # Create unique recipes but track all meal instances
-        unique_meals = []
-        seen = set()
-        meal_instances = {}
+        # Generate recipes for ALL meals, creating variations for repeated meals
+        meal_counter = {}
+        meals_to_generate = []
         
         for meal in all_meals:
-            if meal not in seen:
-                unique_meals.append(meal)
-                seen.add(meal)
-                meal_instances[meal] = 1
+            if meal not in meal_counter:
+                meal_counter[meal] = 1
+                meals_to_generate.append(meal)
             else:
-                meal_instances[meal] += 1
+                meal_counter[meal] += 1
+                # Create variant name for repeated meals
+                variant_name = f"{meal} - Variation {meal_counter[meal]}"
+                meals_to_generate.append(variant_name)
         
         print(f"Total meals in plan: {len(all_meals)}")
-        print(f"Unique meals to generate recipes for: {unique_meals}")
-        print(f"Meal instances: {meal_instances}")
+        print(f"All meals to generate recipes for: {meals_to_generate}")
+        print(f"Meal counter: {meal_counter}")
         
         # Format the prompt for recipe generation
         prompt = f"""Generate detailed recipes for the following meals from a diabetes-friendly meal plan:
 
-Meals: {', '.join(unique_meals)}
+Meals: {', '.join(meals_to_generate)}
+
+IMPORTANT: You need to generate exactly {len(meals_to_generate)} recipes - one for each meal listed above.
+
+For meals with "- Variation X" in the name, create a different version of the base recipe (different ingredients, cooking method, or preparation style while keeping the same meal concept).
 
 For each meal, provide:
 1. A list of ingredients with quantities
@@ -910,12 +915,13 @@ Format the response as a JSON array of recipe objects with the following structu
     ...
 ]
 
-IMPORTANT: 
+CRITICAL REQUIREMENTS: 
 - Only return valid JSON, no explanations or markdown
-- Generate recipes for all {len(unique_meals)} unique meals (total meal instances in plan: {len(all_meals)})
+- Generate exactly {len(meals_to_generate)} recipes - one for each meal listed above
 - Each recipe must have all required fields
 - Ensure nutritional_info values are numbers, not strings
-- Make sure to provide complete recipe details for every unique meal"""
+- For variation recipes, make them distinctly different from the base recipe
+- Make sure to provide complete recipe details for every single meal"""
         
         print("Prompt for OpenAI:")
         print(prompt)
@@ -1015,7 +1021,7 @@ IMPORTANT:
             # Use fallback mechanism when JSON parsing fails
             print("[FALLBACK] JSON parsing failed, generating fallback recipes...")
             try:
-                fallback_recipes = generate_fallback_recipes(unique_meals)
+                fallback_recipes = generate_fallback_recipes(meals_to_generate)
                 await save_recipes(current_user["email"], fallback_recipes)
                 return fallback_recipes
             except Exception as fallback_error:
@@ -1037,16 +1043,22 @@ IMPORTANT:
                 if meal_type in meal_plan and isinstance(meal_plan[meal_type], list):
                     all_meals.extend(meal_plan[meal_type])
             
-            # Remove duplicates while preserving order
-            unique_meals = []
-            seen = set()
-            for meal in all_meals:
-                if meal not in seen:
-                    unique_meals.append(meal)
-                    seen.add(meal)
+            # Generate all meals with variations for repeated meals
+            meal_counter = {}
+            meals_to_generate = []
             
-            if unique_meals:
-                fallback_recipes = generate_fallback_recipes(unique_meals)
+            for meal in all_meals:
+                if meal not in meal_counter:
+                    meal_counter[meal] = 1
+                    meals_to_generate.append(meal)
+                else:
+                    meal_counter[meal] += 1
+                    # Create variant name for repeated meals
+                    variant_name = f"{meal} - Variation {meal_counter[meal]}"
+                    meals_to_generate.append(variant_name)
+            
+            if meals_to_generate:
+                fallback_recipes = generate_fallback_recipes(meals_to_generate)
                 await save_recipes(current_user["email"], fallback_recipes)
                 return fallback_recipes
             else:
