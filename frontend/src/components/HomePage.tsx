@@ -652,68 +652,30 @@ const HomePage: React.FC = () => {
   const handleCreateAdaptivePlan = async () => {
     try {
       setAdaptivePlanLoading(true);
-      setLoading(true, 'Creating your personalized meal plan...');
+      setLoading(true, 'Creating your personalized meal plan based on your medical profile...');
       
-      // SAFEGUARD: Preserve deleted meal plan IDs before creating adaptive plan
-      const deletedMealPlanIds = localStorage.getItem('deleted_meal_plan_ids');
-      console.log('Preserving deleted meal plan IDs before adaptive plan creation:', deletedMealPlanIds);
-      
-      // Prepare profile data for meal plan generation
-      const profileData = {
-        dietary_restrictions: userProfile?.dietaryRestrictions || [],
-        food_allergies: userProfile?.foodAllergies || [],
-        foods_to_avoid: userProfile?.foodsToAvoid || [],
-        strong_dislikes: userProfile?.strongDislikes || [],
-        diet_type: userProfile?.dietType || [],
-        health_conditions: userProfile?.healthConditions || [],
-        activity_level: userProfile?.activityLevel || 'moderate',
-        age: userProfile?.age || 30,
-        gender: userProfile?.gender || 'other',
-        height: userProfile?.height || 170,
-        weight: userProfile?.weight || 70,
-        diabetes_type: userProfile?.diabetesType || 'type2',
-        medication: userProfile?.medication || [],
-        meal_preferences: userProfile?.mealPreferences || {},
-        cuisine_preferences: userProfile?.cuisinePreferences || [],
-        cooking_time: userProfile?.cookingTime || 'medium',
-        budget: userProfile?.budget || 'moderate'
-      };
-      
-      const response = await fetch(`${config.API_URL}/coach/adaptive-meal-plan`, {
+      const response = await fetch(`${config.API_URL}/create-adaptive-meal-plan`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ 
-          days: adaptivePlanDays,
-          profile_data: profileData
+          days: adaptivePlanDays
         }),
       });
 
       if (response.ok) {
-        await response.json();
-        
-        // SAFEGUARD: Restore deleted meal plan IDs after adaptive plan creation
-        if (deletedMealPlanIds) {
-          try {
-            const currentDeletedIds = localStorage.getItem('deleted_meal_plan_ids');
-            if (currentDeletedIds !== deletedMealPlanIds) {
-              console.log('Detected change in deleted meal plan IDs, restoring original ones...');
-              localStorage.setItem('deleted_meal_plan_ids', deletedMealPlanIds);
-            }
-          } catch (error) {
-            console.error('Failed to restore deleted meal plan IDs:', error);
-          }
-        }
-        
-        showNotification('🎉 Your adaptive meal plan has been created using your complete profile!', 'success');
+        const result = await response.json();
+        showNotification('🎉 Your adaptive meal plan has been created based on your medical profile!', 'success');
         navigate('/meal_plans');
         setShowAdaptivePlanDialog(false);
       } else {
-        throw new Error('Failed to create adaptive meal plan');
+        const errorData = await response.json();
+        throw new Error(errorData.detail || 'Failed to create adaptive meal plan');
       }
     } catch (err) {
+      console.error('Adaptive meal plan creation error:', err);
       showNotification('Failed to create meal plan. Please try again.', 'error');
     } finally {
       setAdaptivePlanLoading(false);

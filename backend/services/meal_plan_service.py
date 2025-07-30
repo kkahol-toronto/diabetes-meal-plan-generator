@@ -277,20 +277,29 @@ async def create_adaptive_meal_plan_optimized(
     """
     try:
         print(f"[adaptive_plan_optimized] Creating {req_days}-day plan for {user_email}")
+        print(f"[adaptive_plan_optimized] User profile: {user_profile}")
         
         # Get consumption data efficiently with caching
         consumption_history = await get_user_consumption_history_cached(user_email, limit=100)
+        print(f"[adaptive_plan_optimized] Got {len(consumption_history)} consumption records")
         
         # Quick consumption analysis
         analysis = _analyze_consumption_patterns(consumption_history)
+        print(f"[adaptive_plan_optimized] Analysis: {analysis}")
         
         # Extract dietary info
         dietary_info = _extract_dietary_info(user_profile)
+        print(f"[adaptive_plan_optimized] Dietary info: {dietary_info}")
         
         # Generate meal plan with AI
         meal_plan_data = await _generate_ai_meal_plan(
             user_profile, dietary_info, analysis, req_days, req_cuisine
         )
+        print(f"[adaptive_plan_optimized] Generated meal plan: {meal_plan_data}")
+        
+        if not meal_plan_data:
+            print("[adaptive_plan_optimized] No meal plan data generated, using fallback")
+            raise Exception("AI meal plan generation failed")
         
         # Save to database
         meal_plan_data.update({
@@ -301,7 +310,9 @@ async def create_adaptive_meal_plan_optimized(
             "based_on_meals": analysis["total_meals"]
         })
         
+        print(f"[adaptive_plan_optimized] Meal plan before saving: {meal_plan_data}")
         saved_plan = await save_meal_plan_with_cache_invalidation(user_email, meal_plan_data)
+        print(f"[adaptive_plan_optimized] Saved plan result: {saved_plan}")
         
         return {
             "success": True,
@@ -312,6 +323,8 @@ async def create_adaptive_meal_plan_optimized(
         
     except Exception as e:
         print(f"[adaptive_plan_optimized] Error: {str(e)}")
+        import traceback
+        print(f"[adaptive_plan_optimized] Traceback: {traceback.format_exc()}")
         raise Exception(f"Failed to create adaptive meal plan: {str(e)}")
 
 
@@ -441,6 +454,7 @@ Return JSON:
 
 def _create_fallback_adaptive_plan(req_days: int, target_calories: int, cuisine: str, dietary_info: Dict[str, Any]) -> Dict[str, Any]:
     """Create fallback adaptive meal plan."""
+    print(f"[fallback_plan] Creating fallback plan for {req_days} days, {target_calories} calories, cuisine: {cuisine}")
     
     # Simple cuisine-appropriate meals
     if 'indian' in cuisine.lower():
@@ -454,7 +468,7 @@ def _create_fallback_adaptive_plan(req_days: int, target_calories: int, cuisine:
     
     snacks = ["Apple with almond butter"] * req_days
     
-    return {
+    fallback_plan = {
         "plan_name": f"Adaptive {cuisine} Plan - {datetime.now().strftime('%Y-%m-%d')}",
         "duration_days": req_days,
         "dailyCalories": target_calories,
@@ -462,6 +476,14 @@ def _create_fallback_adaptive_plan(req_days: int, target_calories: int, cuisine:
         "lunch": lunch,
         "dinner": dinner,
         "snacks": snacks,
+        "macronutrients": {
+            "protein": 25,
+            "carbs": 45,
+            "fats": 30
+        },
         "adaptations": [f"Adapted for {cuisine} cuisine with dietary restrictions"],
         "coaching_notes": "Basic adaptive plan with dietary compliance"
     }
+    
+    print(f"[fallback_plan] Created fallback plan: {fallback_plan}")
+    return fallback_plan

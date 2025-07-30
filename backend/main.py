@@ -1,4 +1,5 @@
 from fastapi import FastAPI, HTTPException, Depends, status, Request, Body, File, UploadFile, Form
+from fastapi import Request as FastAPIRequest
 from fastapi.responses import StreamingResponse, JSONResponse, FileResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
@@ -146,6 +147,16 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Add request logging middleware
+@app.middleware("http")
+async def log_requests(request: FastAPIRequest, call_next):
+    print(f"[REQUEST] {request.method} {request.url.path}")
+    if request.method == "POST" and "adaptive-meal-plan" in str(request.url):
+        print(f"[ADAPTIVE MEAL PLAN REQUEST] Full URL: {request.url}")
+    response = await call_next(request)
+    print(f"[RESPONSE] {response.status_code}")
+    return response
 
 # Include authentication router
 app.include_router(auth_router, tags=["authentication"])
@@ -869,24 +880,146 @@ Ensure ALL dishes are completely vegetarian and egg-free. Do not include any mea
         print(f"[get_todays_meal_plan] Full error details:", traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Failed to retrieve or generate meal plan: {str(e)}")
 
-@app.post("/coach/adaptive-meal-plan")
-async def create_adaptive_meal_plan(
-    payload: dict = Body(None),
+@app.post("/create-adaptive-meal-plan")
+async def create_adaptive_meal_plan_new(
+    payload: dict = Body(...),
     current_user: User = Depends(get_current_user)
 ):
-    """Create adaptive meal plan using optimized service"""
-    from services.meal_plan_service import create_adaptive_meal_plan_optimized
-    
+    """Create adaptive meal plan based on user's medical profile and dietary restrictions"""
     try:
-        req_days = int(payload.get("days", 7)) if payload else 7
-        req_cuisine = payload.get("cuisine_type", "") if payload else ""
-        profile = current_user.get("profile", {})
+        user_email = current_user["email"]
+        user_profile = current_user.get("profile", {})
         
-        return await create_adaptive_meal_plan_optimized(
-            current_user["email"], profile, req_days, req_cuisine
+        print(f"[ADAPTIVE MEAL PLAN] Creating plan for {user_email}")
+        print(f"[ADAPTIVE MEAL PLAN] User profile: {user_profile}")
+        
+        # Get parameters
+        days = int(payload.get("days", 3))
+        
+        # Extract user's medical and dietary information
+        medical_conditions = user_profile.get("medicalConditions", [])
+        current_medications = user_profile.get("currentMedications", [])
+        dietary_features = user_profile.get("dietaryFeatures", [])
+        diet_types = user_profile.get("dietType", [])
+        allergies = user_profile.get("allergies", [])
+        calorie_target = int(user_profile.get("calorieTarget", "2000"))
+        macro_goals = user_profile.get("macroGoals", {"protein": 100, "carbs": 250, "fat": 66})
+        
+        # Build dietary restrictions string
+        dietary_restrictions = []
+        if "Vegetarian (no eggs)" in dietary_features:
+            dietary_restrictions.append("Strictly vegetarian with no eggs, meat, poultry, fish, or seafood")
+        elif "Vegetarian" in dietary_features:
+            dietary_restrictions.append("Vegetarian (no meat, poultry, fish, seafood)")
+        
+        if "High Protein" in dietary_features:
+            dietary_restrictions.append("High protein focus")
+            
+        if allergies:
+            dietary_restrictions.append(f"Allergies: {', '.join(allergies)}")
+        
+        # Create medical context
+        medical_context = f"Medical conditions: {', '.join(medical_conditions) if medical_conditions else 'None'}"
+        medication_context = f"Current medications: {', '.join(current_medications) if current_medications else 'None'}"
+        
+        # Build cuisine preference
+        cuisine_preference = ', '.join(diet_types) if diet_types else 'Mixed international'
+        
+        # Create OpenAI prompt
+        prompt = f"""Create a {days}-day diabetes-friendly meal plan for a patient with the following profile:
+
+MEDICAL PROFILE:
+- {medical_context}
+- {medication_context}
+- Target calories: {calorie_target} per day
+- Protein goal: {macro_goals.get('protein', 100)}g
+- Carb goal: {macro_goals.get('carbs', 250)}g  
+- Fat goal: {macro_goals.get('fat', 66)}g
+
+DIETARY REQUIREMENTS (MUST FOLLOW STRICTLY):
+{chr(10).join('- ' + req for req in dietary_restrictions) if dietary_restrictions else '- No specific restrictions'}
+
+CUISINE PREFERENCES:
+- {cuisine_preference}
+
+CRITICAL REQUIREMENTS:
+1. ALL meals must be appropriate for diabetes management (low glycemic index)
+2. STRICTLY follow all dietary restrictions - no exceptions
+3. Consider medication timing and medical conditions
+4. Provide specific meal names with appropriate portions
+5. Focus on nutritionally balanced meals
+
+Return ONLY valid JSON in this exact format:
+{{
+    "plan_name": "Medical Adaptive Plan - {datetime.now().strftime('%Y-%m-%d')}",
+    "duration_days": {days},
+    "dailyCalories": {calorie_target},
+    "breakfast": ["{days} specific breakfast dishes"],
+    "lunch": ["{days} specific lunch dishes"],
+    "dinner": ["{days} specific dinner dishes"],
+    "snacks": ["{days} specific healthy snacks"],
+    "macronutrients": {{
+        "protein": {macro_goals.get('protein', 100)},
+        "carbs": {macro_goals.get('carbs', 250)},
+        "fats": {macro_goals.get('fat', 66)}
+    }},
+    "medical_adaptations": ["Specific adaptations for medical conditions"],
+    "dietary_compliance": ["How dietary restrictions are followed"]
+}}"""
+
+        # Call OpenAI
+        from services.openai_service import robust_openai_call
+        
+        api_result = await robust_openai_call(
+            messages=[
+                {"role": "system", "content": "You are a registered dietitian and diabetes educator creating medically-appropriate meal plans. Always follow dietary restrictions strictly and respond with valid JSON only."},
+                {"role": "user", "content": prompt}
+            ],
+            max_tokens=1500,
+            temperature=0.7,
+            response_format={"type": "json_object"},
+            context="adaptive_meal_plan_medical"
         )
+        
+        if not api_result["success"]:
+            raise Exception(f"OpenAI API failed: {api_result['error']}")
+        
+        # Parse the response
+        import json
+        try:
+            meal_plan_data = json.loads(api_result["content"])
+        except json.JSONDecodeError as e:
+            print(f"[ADAPTIVE MEAL PLAN] JSON parsing error: {e}")
+            print(f"[ADAPTIVE MEAL PLAN] Raw response: {api_result['content']}")
+            raise Exception("Failed to parse meal plan response")
+        
+        # Add required metadata
+        meal_plan_data.update({
+            "user_id": user_email,
+            "created_at": datetime.utcnow().isoformat(),
+            "type": "meal_plan",
+            "plan_type": "adaptive_medical",
+            "id": f"adaptive_{user_email.replace('@', '_').replace('.', '_')}_{int(datetime.utcnow().timestamp())}"
+        })
+        
+        print(f"[ADAPTIVE MEAL PLAN] Generated meal plan: {meal_plan_data}")
+        
+        # Save to database
+        from database import save_meal_plan
+        saved_plan = await save_meal_plan(user_email, meal_plan_data)
+        
+        print(f"[ADAPTIVE MEAL PLAN] Successfully saved meal plan: {saved_plan}")
+        
+        return {
+            "success": True,
+            "message": "Adaptive meal plan created successfully based on your medical profile!",
+            "meal_plan": meal_plan_data
+        }
+        
     except Exception as e:
-        print(f"[create_adaptive_meal_plan] Error: {str(e)}")
+        print(f"[ADAPTIVE MEAL PLAN] Error: {str(e)}")
+        import traceback
+        print(f"[ADAPTIVE MEAL PLAN] Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Failed to create adaptive meal plan: {str(e)}")
 
 # Original heavy function moved to services/meal_plan_service.py  

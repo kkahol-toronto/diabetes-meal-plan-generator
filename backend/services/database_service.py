@@ -87,11 +87,16 @@ async def save_meal_plan_with_cache_invalidation(user_email: str, meal_plan_data
     Returns:
         Saved meal plan data
     """
+    print(f"[save_meal_plan_cache] Saving meal plan for {user_email}")
+    print(f"[save_meal_plan_cache] Meal plan data: {meal_plan_data}")
+    
     # Save to database
     result = await db_save_meal_plan(user_email, meal_plan_data)
+    print(f"[save_meal_plan_cache] Database save result: {result}")
     
     # Invalidate meal plan cache for this user
     invalidate_meal_plan_cache(user_email)
+    print(f"[save_meal_plan_cache] Cache invalidated for {user_email}")
     
     return result
 
