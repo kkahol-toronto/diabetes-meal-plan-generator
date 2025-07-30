@@ -703,6 +703,7 @@ const HomePage: React.FC = () => {
   const [selectedTimeRange, setSelectedTimeRange] = useState<'daily' | 'weekly' | 'bi-weekly' | 'monthly'>('daily');
   const [consumptionAnalytics, setConsumptionAnalytics] = useState<any>(null);
   const [consumptionHistory, setConsumptionHistory] = useState<any[]>([]);
+  const [mealAnalytics, setMealAnalytics] = useState<any>(null);
   
   // Pending consumption dialog state
   const [showPendingDialog, setShowPendingDialog] = useState(false);
@@ -914,14 +915,50 @@ const HomePage: React.FC = () => {
     }
   }, [token, isLoggedIn, navigate]);
 
+  const fetchMealAnalytics = useCallback(async (timeRange: 'daily' | 'weekly' | 'bi-weekly' | 'monthly') => {
+    if (!isLoggedIn) return;
+
+    const headers = {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    };
+
+    let days = 0;
+    switch (timeRange) {
+      case 'daily': days = 1; break;
+      case 'weekly': days = 7; break;
+      case 'bi-weekly': days = 14; break;
+      case 'monthly': days = 30; break;
+      default: days = 1;
+    }
+
+    console.log(`Fetching meal analytics for time range: ${timeRange} (days: ${days})`);
+
+    try {
+      const response = await fetch(`${config.API_URL}/consumption/meal-analytics?days=${days}`, { headers });
+      if (response.status === 401) {
+        localStorage.removeItem('token');
+        navigate('/login');
+        return;
+      }
+      if (!response.ok) throw new Error('Failed to fetch meal analytics');
+      const data = await response.json();
+      setMealAnalytics(data);
+      console.log('Meal analytics data:', data);
+    } catch (err) {
+      console.error(`Error fetching ${timeRange} meal analytics:`, err);
+    }
+  }, [token, isLoggedIn, navigate]);
+
   useEffect(() => {
     fetchAllData();
     fetchConsumptionAnalytics(selectedTimeRange); // Initial fetch for consumption analytics
     fetchMacroConsumptionAnalytics(macroTimeRange); // Initial fetch for macro analytics
+    fetchMealAnalytics(macroTimeRange); // Initial fetch for meal analytics
     // Auto-refresh every 5 minutes
     const interval = setInterval(fetchAllData, 5 * 60 * 1000);
     return () => clearInterval(interval);
-  }, [fetchAllData, fetchConsumptionAnalytics, selectedTimeRange, fetchMacroConsumptionAnalytics, macroTimeRange]);
+  }, [fetchAllData, fetchConsumptionAnalytics, selectedTimeRange, fetchMacroConsumptionAnalytics, macroTimeRange, fetchMealAnalytics]);
 
   // Listen for food logging events and refresh data
   useEffect(() => {
@@ -1335,30 +1372,37 @@ const HomePage: React.FC = () => {
 
 
 
-  // Cumulative intake throughout the day (for carbohydrates)
+  // Cumulative intake throughout the day (for carbohydrates) - FIXED TO USE REAL MEAL DATA
   const generateCumulativeChartData = (metric: keyof NutritionalInfo, data: any[], color: string) => {
-    if (!data || data.length === 0) return null;
+    if (!mealAnalytics?.meal_breakdown) return null;
     
+    const mealBreakdown = mealAnalytics.meal_breakdown;
     const mealTimes = ['6:00 AM', '9:00 AM', '12:00 PM', '3:00 PM', '6:00 PM', '9:00 PM'];
-    const latest = data[data.length - 1];
-    const totalValue = (latest as any)[metric] || 0;
     
-    if (totalValue === 0) return null;
+    // Get actual meal values from real consumption data
+    const breakfastValue = mealBreakdown.breakfast?.[metric] || 0;
+    const lunchValue = mealBreakdown.lunch?.[metric] || 0;
+    const dinnerValue = mealBreakdown.dinner?.[metric] || 0;
+    const snackValue = mealBreakdown.snack?.[metric] || 0;
     
-    // Distribute intake across meals (breakfast: 25%, lunch: 35%, dinner: 30%, snacks: 10%)
+    // Create cumulative data based on actual consumption
     const cumulativeData = [
-      0,
-      totalValue * 0.25,
-      totalValue * 0.25,
-      totalValue * 0.60,
-      totalValue * 0.60,
-      totalValue
+      0, // Start of day
+      breakfastValue, // After breakfast
+      breakfastValue, // Mid-morning (same as breakfast)
+      breakfastValue + lunchValue, // After lunch
+      breakfastValue + lunchValue, // Mid-afternoon (same as lunch total)
+      breakfastValue + lunchValue + dinnerValue + snackValue // End of day total
     ];
+    
+    // If no data, return null
+    const totalValue = cumulativeData[cumulativeData.length - 1];
+    if (totalValue === 0) return null;
     
     return {
       labels: mealTimes,
       datasets: [{
-        label: `${metric.charAt(0).toUpperCase() + metric.slice(1)} Cumulative`,
+        label: `${metric.charAt(0).toUpperCase() + metric.slice(1)} Cumulative (Real Data)`,
         data: cumulativeData,
         borderColor: color,
         backgroundColor: `${color}20`,
@@ -1476,19 +1520,17 @@ const HomePage: React.FC = () => {
       let values: number[];
       
       if (selectedTimeRange === 'daily') {
-        // Use meal distribution for daily view
-        const mealDistribution = consumptionAnalytics.meal_distribution || {};
-        const totalMeals = Object.values(mealDistribution).reduce((a: number, b: unknown) => a + (b as number), 0);
-        const todayData = data.length > 0 ? data[data.length - 1] : null;
-        const todayTotal = todayData ? (todayData as any)[metric] || 0 : 0;
+        // Use REAL meal data instead of proportions - FIXED
+        if (!mealAnalytics?.meal_breakdown) return null;
         
-        if (totalMeals === 0) return null;
-        
+        const mealBreakdown = mealAnalytics.meal_breakdown;
         values = ['breakfast', 'lunch', 'dinner', 'snack'].map(mealType => {
-          const mealCount = (mealDistribution as any)[mealType] || 0;
-          const proportion = mealCount / totalMeals;
-          return todayTotal * proportion;
+          return mealBreakdown[mealType]?.[metric] || 0;
         });
+        
+        // If no real consumption data, return null instead of showing dummy data
+        const totalConsumed = values.reduce((sum, val) => sum + val, 0);
+        if (totalConsumed === 0) return null;
       } else {
         values = sortedData.map(day => (day as any)[metric] || 0);
       }
@@ -1545,18 +1587,24 @@ const HomePage: React.FC = () => {
     // For daily view, show meal types instead of dates (for regular charts)
     if (selectedTimeRange === 'daily') {
       if (analyticsChartType === 'pie' || analyticsChartType === 'doughnut') {
-        // For pie charts, show distribution across meal types
-        const mealDistribution = consumptionAnalytics.meal_distribution || {};
-        const labels = Object.keys(mealDistribution);
-        const values = Object.values(mealDistribution);
+        // For pie charts, show real nutritional distribution across meal types - FIXED
+        if (!mealAnalytics?.meal_breakdown) return null;
         
-        if (labels.length === 0) return null;
+        const mealBreakdown = mealAnalytics.meal_breakdown;
+        const labels = ['Breakfast', 'Lunch', 'Dinner', 'Snack'];
+        const values = labels.map(label => {
+          return mealBreakdown[label.toLowerCase()]?.[metric] || 0;
+        });
+        
+        // Check if we have any real data to show
+        const totalValue = values.reduce((sum, val) => sum + val, 0);
+        if (totalValue === 0) return null;
 
         return {
-          labels: labels.map(label => label.charAt(0).toUpperCase() + label.slice(1)),
+          labels,
           datasets: [{
             data: values,
-            backgroundColor: ['#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A', '#98D8C8', '#F7DC6F'],
+            backgroundColor: ['#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A'],
             borderWidth: 2,
             borderColor: '#fff',
             hoverOffset: 4
@@ -1574,20 +1622,17 @@ const HomePage: React.FC = () => {
       
       if (!todayData) return null;
 
-      // For daily view, we need to fetch meal-level data
-      // Since we don't have meal-level breakdown in the current data structure,
-      // we'll use the meal distribution to estimate values
-      const mealDistribution = consumptionAnalytics.meal_distribution || {};
-      const totalMeals = Object.values(mealDistribution).reduce((a: number, b: unknown) => a + (b as number), 0);
+      // For daily view, use real meal analytics data instead of estimates - FIXED
+      if (!mealAnalytics?.meal_breakdown) return null;
       
-      if (totalMeals === 0) return null;
-
-      const todayTotal = (todayData as any)[metric] || 0;
+      const mealBreakdown = mealAnalytics.meal_breakdown;
       const values = mealTypes.map(mealType => {
-        const mealCount = (mealDistribution as any)[mealType] || 0;
-        const proportion = mealCount / totalMeals;
-        return todayTotal * proportion;
+        return mealBreakdown[mealType]?.[metric] || 0;
       });
+      
+      // Check if we have any real data to show
+      const totalConsumed = values.reduce((sum, val) => sum + val, 0);
+      if (totalConsumed === 0) return null;
 
       return {
         labels: mealLabels,
@@ -2873,6 +2918,7 @@ const HomePage: React.FC = () => {
                       const newTimeRange = e.target.value as 'daily' | 'weekly' | 'bi-weekly' | 'monthly';
                       setMacroTimeRange(newTimeRange);
                       fetchMacroConsumptionAnalytics(newTimeRange); // Trigger fetch on change
+                      fetchMealAnalytics(newTimeRange); // ALSO FETCH MEAL ANALYTICS - FIXED
                     }}
                     label="Time Range"
                   >

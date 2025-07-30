@@ -268,6 +268,7 @@ const ConsumptionHistory: React.FC = () => {
   const [comparisonAnalytics, setComparisonAnalytics] = useState<ConsumptionAnalytics | null>(null);
   const [expandedSections, setExpandedSections] = useState<string[]>(['overview']);
   const [fixingMealTypes, setFixingMealTypes] = useState(false);
+  const [mealAnalytics, setMealAnalytics] = useState<any>(null);
 
   // Time range options
   const timeRanges: TimeRange[] = [
@@ -507,9 +508,10 @@ const ConsumptionHistory: React.FC = () => {
       };
 
       // Load raw data (we'll filter client-side for timezone accuracy)
-      const [historyResponse, insightsResponse] = await Promise.all([
+      const [historyResponse, insightsResponse, mealAnalyticsResponse] = await Promise.all([
         fetch(`${config.API_URL}/consumption/history?limit=${fetchLimit}`, { headers }),
-        fetch(`${config.API_URL}/coach/daily-insights`, { headers })
+        fetch(`${config.API_URL}/coach/daily-insights`, { headers }),
+        fetch(`${config.API_URL}/consumption/meal-analytics?days=${selectedDays}`, { headers })
       ]);
 
       if (!historyResponse.ok) {
@@ -518,9 +520,20 @@ const ConsumptionHistory: React.FC = () => {
       if (!insightsResponse.ok) {
         throw new Error(`Failed to load daily insights: ${insightsResponse.statusText}`);
       }
+      if (!mealAnalyticsResponse.ok) {
+        console.warn(`Failed to load meal analytics: ${mealAnalyticsResponse.statusText}`);
+      }
 
       const allHistoryData = await historyResponse.json();
       const insightsData = await insightsResponse.json();
+      
+      // Process meal analytics data if available
+      let mealAnalyticsData = null;
+      if (mealAnalyticsResponse.ok) {
+        mealAnalyticsData = await mealAnalyticsResponse.json();
+        console.log('Loaded meal analytics data:', mealAnalyticsData);
+        setMealAnalytics(mealAnalyticsData);
+      }
 
       console.log('Loaded raw consumption data:', { 
         totalRecords: allHistoryData.length, 
@@ -751,6 +764,33 @@ const ConsumptionHistory: React.FC = () => {
 
     /* ---------------------------------- PIE / DOUGHNUT ---------------------------------- */
     if (selectedChartType === 'pie' || selectedChartType === 'doughnut') {
+      const selectedDays = parseInt(selectedTimeRange, 10);
+      
+      // For "Today" view, use real meal analytics data - FIXED
+      if (selectedDays === 1 && mealAnalytics?.meal_breakdown) {
+        const mealBreakdown = mealAnalytics.meal_breakdown;
+        const labels = ['Breakfast', 'Lunch', 'Dinner', 'Snack'];
+        const values = labels.map(label => {
+          return mealBreakdown[label.toLowerCase()]?.[metric] || 0;
+        });
+        
+        // Check if we have any real data to show
+        const totalValue = values.reduce((sum, val) => sum + val, 0);
+        if (totalValue === 0) return null;
+
+        return {
+          labels,
+          datasets: [{
+            data: values,
+            backgroundColor: ['#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A'],
+            borderWidth: 2,
+            borderColor: '#fff',
+            hoverOffset: 4
+          }]
+        };
+      }
+      
+      // For multi-day views, use meal distribution (meal counts)
       const mealDistribution = analytics.meal_distribution || {};
       const labels = Object.keys(mealDistribution);
       const values = Object.values(mealDistribution);
@@ -771,6 +811,39 @@ const ConsumptionHistory: React.FC = () => {
 
     /* ---------------------------------- BAR / LINE ---------------------------------- */
     const selectedDays = parseInt(selectedTimeRange, 10);
+    
+    // FIXED: For "Today" view, use meal analytics for more accurate data
+    if (selectedDays === 1 && mealAnalytics?.meal_breakdown) {
+      const mealBreakdown = mealAnalytics.meal_breakdown;
+      const mealLabels = ['Breakfast', 'Lunch', 'Dinner', 'Snack'];
+      const mealValues = mealLabels.map(mealType => {
+        return mealBreakdown[mealType.toLowerCase()]?.[metric] || 0;
+      });
+      
+      // Check if we have any data to show
+      const totalValue = mealValues.reduce((sum, val) => sum + val, 0);
+      if (totalValue === 0) return null;
+      
+      return {
+        labels: mealLabels,
+        datasets: [{
+          label: `${metric.charAt(0).toUpperCase() + metric.slice(1)} by Meal (Today)`,
+          data: mealValues,
+          backgroundColor: selectedChartType === 'line' ? 'rgba(0,0,0,0.05)' : colorForType,
+          borderColor: colorForType,
+          borderWidth: 2,
+          fill: selectedChartType === 'line',
+          tension: 0.4,
+          pointBackgroundColor: colorForType,
+          pointBorderColor: '#fff',
+          pointBorderWidth: 2,
+          pointRadius: 4,
+          pointHoverRadius: 6
+        }]
+      };
+    }
+    
+    // For multi-day views, use the original daily history approach
     const today = new Date();
     const dateList: string[] = [];
     const valueList: number[] = [];
@@ -850,29 +923,37 @@ const ConsumptionHistory: React.FC = () => {
 
 
 
-  // Cumulative intake throughout the day (for carbohydrates)
+  // Cumulative intake throughout the day (for carbohydrates) - FIXED TO USE REAL MEAL DATA
   const generateCumulativeChartData = (metric: keyof NutritionalInfo, data: any[], color: string) => {
-    if (!data || data.length === 0) return null;
+    if (!mealAnalytics?.meal_breakdown) return null;
     
+    const mealBreakdown = mealAnalytics.meal_breakdown;
     const mealTimes = ['6:00 AM', '9:00 AM', '12:00 PM', '3:00 PM', '6:00 PM', '9:00 PM'];
-    const latest = data[data.length - 1];
-    const totalValue = (latest as any)[metric] || 0;
     
-    if (totalValue === 0) return null;
+    // Get actual meal values from real consumption data
+    const breakfastValue = mealBreakdown.breakfast?.[metric] || 0;
+    const lunchValue = mealBreakdown.lunch?.[metric] || 0;
+    const dinnerValue = mealBreakdown.dinner?.[metric] || 0;
+    const snackValue = mealBreakdown.snack?.[metric] || 0;
     
+    // Create cumulative data based on actual consumption
     const cumulativeData = [
-      0,
-      totalValue * 0.25,
-      totalValue * 0.25,
-      totalValue * 0.60,
-      totalValue * 0.60,
-      totalValue
+      0, // Start of day
+      breakfastValue, // After breakfast
+      breakfastValue, // Mid-morning (same as breakfast)
+      breakfastValue + lunchValue, // After lunch
+      breakfastValue + lunchValue, // Mid-afternoon (same as lunch total)
+      breakfastValue + lunchValue + dinnerValue + snackValue // End of day total
     ];
+    
+    // If no data, return null
+    const totalValue = cumulativeData[cumulativeData.length - 1];
+    if (totalValue === 0) return null;
     
     return {
       labels: mealTimes,
       datasets: [{
-        label: `${metric.charAt(0).toUpperCase() + metric.slice(1)} Cumulative`,
+        label: `${metric.charAt(0).toUpperCase() + metric.slice(1)} Cumulative (Real Data)`,
         data: cumulativeData,
         borderColor: color,
         backgroundColor: `${color}20`,
@@ -885,8 +966,32 @@ const ConsumptionHistory: React.FC = () => {
     };
   };
 
-  // Ratio visualization (for fat vs other macros)
+  // Ratio visualization (for fat vs other macros) - FIXED TO USE REAL DATA
   const generateRatioChartData = (metric: keyof NutritionalInfo, data: any[], color: string) => {
+    // For "Today" view, use meal analytics for more accurate data
+    const selectedDays = parseInt(selectedTimeRange, 10);
+    if (selectedDays === 1 && mealAnalytics?.daily_totals) {
+      const dailyTotals = mealAnalytics.daily_totals;
+      const fatValue = dailyTotals.fat || 0;
+      const proteinValue = dailyTotals.protein || 0;
+      const carbsValue = dailyTotals.carbohydrates || 0;
+      
+      if (fatValue === 0 && proteinValue === 0 && carbsValue === 0) return null;
+      
+      return {
+        labels: ['Fat', 'Protein', 'Carbohydrates'],
+        datasets: [{
+          label: 'Macronutrient Distribution (Today - Real Data)',
+          data: [fatValue, proteinValue, carbsValue],
+          backgroundColor: [color, '#4ECDC4', '#45B7D1'],
+          borderColor: ['#fff', '#fff', '#fff'],
+          borderWidth: 2,
+          hoverOffset: 4
+        }]
+      };
+    }
+    
+    // For multi-day views, use daily nutrition history
     if (!data || data.length === 0) return null;
     
     const latest = data[data.length - 1];
@@ -911,34 +1016,37 @@ const ConsumptionHistory: React.FC = () => {
 
 
 
-  // Distribution by meal type (for sugar)
+  // Distribution by meal type (for sugar) - FIXED TO USE REAL MEAL DATA
   const generateDistributionChartData = (metric: keyof NutritionalInfo, data: any[], color: string) => {
-    if (!data || data.length === 0) return null;
+    if (!mealAnalytics?.meal_breakdown) return null;
     
-    const latest = data[data.length - 1];
-    const totalValue = (latest as any)[metric] || 0;
+    const mealBreakdown = mealAnalytics.meal_breakdown;
     
+    // Get actual meal values from real consumption data
+    const breakfastValue = mealBreakdown.breakfast?.[metric] || 0;
+    const lunchValue = mealBreakdown.lunch?.[metric] || 0;
+    const dinnerValue = mealBreakdown.dinner?.[metric] || 0;
+    const snackValue = mealBreakdown.snack?.[metric] || 0;
+    
+    // Calculate total and check if we have any data
+    const totalValue = breakfastValue + lunchValue + dinnerValue + snackValue;
     if (totalValue === 0) return null;
     
     return {
-      labels: ['Breakfast', 'Morning Snack', 'Lunch', 'Afternoon Snack', 'Dinner', 'Evening Snack'],
+      labels: ['Breakfast', 'Lunch', 'Dinner', 'Snack'],
       datasets: [{
-        label: `${metric.charAt(0).toUpperCase() + metric.slice(1)} Distribution`,
+        label: `${metric.charAt(0).toUpperCase() + metric.slice(1)} Distribution (Real Data)`,
         data: [
-          totalValue * 0.30,
-          totalValue * 0.10,
-          totalValue * 0.25,
-          totalValue * 0.15,
-          totalValue * 0.15,
-          totalValue * 0.05
+          breakfastValue,
+          lunchValue,
+          dinnerValue,
+          snackValue
         ],
         backgroundColor: [
           color + 'FF',
           color + 'CC',
           color + '99',
-          color + '77',
-          color + '44',
-          color + '22'
+          color + '77'
         ].map(c => c.length === 7 ? c + 'FF' : c),
         borderWidth: 0
       }]
