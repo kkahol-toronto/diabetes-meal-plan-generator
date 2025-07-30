@@ -14,15 +14,7 @@ import asyncio
 # Database imports
 from database import interactions_container
 
-# OpenAI client
-from openai import AzureOpenAI
-
-# Initialize OpenAI client
-client = AzureOpenAI(
-    api_key=os.getenv("AZURE_OPENAI_API_KEY"),
-    api_version=os.getenv("AZURE_OPENAI_API_VERSION"),
-    azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT")
-)
+# OpenAI client - Use centralized service from services.openai_service when needed
 
 class ConsumptionTracker:
     """Complete consumption tracking system with AI integration"""

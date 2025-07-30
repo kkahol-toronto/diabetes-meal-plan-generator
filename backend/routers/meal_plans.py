@@ -32,21 +32,13 @@ from database import (
 # Import auth dependency
 from routers.auth import get_current_user
 
-# Import OpenAI client (assuming it's available globally or will be imported)
-import openai
-from openai import AzureOpenAI
+# Import centralized OpenAI service
+from services.openai_service import get_openai_client, robust_openai_call
 
 router = APIRouter()
 
-# Initialize Azure OpenAI client for APIM Gateway
-client = AzureOpenAI(
-    api_key=os.getenv("AZURE_OPENAI_KEY"),  # This will be used as Ocp-Apim-Subscription-Key
-    azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
-    api_version=os.getenv("AZURE_OPENAI_API_VERSION"),
-    default_headers={
-        "Ocp-Apim-Subscription-Key": os.getenv("AZURE_OPENAI_KEY")
-    }
-)
+# Use centralized OpenAI client
+client = get_openai_client()
 
 def consolidate_ingredients(recipes):
     """Consolidate ingredients from multiple recipes, combining quantities."""
@@ -220,19 +212,24 @@ Please provide the meal plan in the following JSON format:
 Make sure all meals are appropriate for diabetes management and provide variety across the {days} days."""
 
         try:
-            # Make the API call to Azure OpenAI
-            response = client.chat.completions.create(
-                model=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
+            # Use centralized robust OpenAI service
+            api_result = await robust_openai_call(
                 messages=[
                     {"role": "system", "content": "You are a registered dietitian specializing in diabetes meal planning. Always respond with valid JSON."},
                     {"role": "user", "content": prompt}
                 ],
                 max_tokens=MEAL_PLAN_MAX_TOKENS,
                 temperature=CREATIVE_TEMPERATURE,
-                response_format={"type": "json_object"}
+                response_format={"type": "json_object"},
+                context="meal_plan_generation"
             )
             
-            meal_plan_content = response.choices[0].message.content
+            if not api_result["success"]:
+                raise Exception(f"OpenAI API failed: {api_result['error']}")
+                
+            response_content = api_result["content"]
+            
+            meal_plan_content = response_content
             print(f"Raw meal plan response: {meal_plan_content}")
             
             # Parse the JSON response
@@ -398,19 +395,24 @@ Format the response as a JSON array of recipe objects with the following structu
 Make sure all recipes are diabetes-friendly with low glycemic index ingredients."""
 
         try:
-            # Make API call to Azure OpenAI
-            response = client.chat.completions.create(
-                model=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
+            # Use centralized robust OpenAI service  
+            api_result = await robust_openai_call(
                 messages=[
                     {"role": "system", "content": "You are a registered dietitian specializing in diabetes-friendly recipes. Always respond with valid JSON."},
                     {"role": "user", "content": prompt}
                 ],
                 max_tokens=RECIPE_MAX_TOKENS,
                 temperature=CREATIVE_TEMPERATURE,
-                response_format={"type": "json_object"}
+                response_format={"type": "json_object"},
+                context="recipe_generation"
             )
             
-            recipes_content = response.choices[0].message.content
+            if not api_result["success"]:
+                raise Exception(f"OpenAI API failed: {api_result['error']}")
+                
+            response_content = api_result["content"]
+            
+            recipes_content = response_content
             print(f"Raw recipes response: {recipes_content}")
             
             # Parse the JSON response
@@ -526,19 +528,22 @@ Provide the recipe in the following JSON format:
 }}"""
 
         try:
-            # Make API call
-            response = client.chat.completions.create(
-                model=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
+            # Use centralized robust OpenAI service
+            api_result = await robust_openai_call(
                 messages=[
                     {"role": "system", "content": "You are a registered dietitian specializing in diabetes-friendly recipes. Always respond with valid JSON."},
                     {"role": "user", "content": prompt}
                 ],
                 max_tokens=RECIPE_MAX_TOKENS,
                 temperature=PRECISE_TEMPERATURE,
-                response_format={"type": "json_object"}
+                response_format={"type": "json_object"},
+                context="single_recipe_generation"
             )
             
-            recipe_content = response.choices[0].message.content
+            if not api_result["success"]:
+                raise Exception(f"OpenAI API failed: {api_result['error']}")
+                
+            recipe_content = api_result["content"]
             print(f"Raw recipe response: {recipe_content}")
             
             # Parse JSON response
@@ -621,19 +626,22 @@ async def generate_shopping_list(
                     }}"""
 
         try:
-            # Make API call
-            response = client.chat.completions.create(
-                model=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
+            # Use centralized robust OpenAI service
+            api_result = await robust_openai_call(
                 messages=[
                     {"role": "system", "content": "You are a helpful grocery shopping assistant for Canadian shoppers. Always respond with valid JSON."},
                     {"role": "user", "content": prompt}
                 ],
                 max_tokens=DEFAULT_MAX_TOKENS,
                 temperature=PRECISE_TEMPERATURE,
-                response_format={"type": "json_object"}
+                response_format={"type": "json_object"},
+                context="shopping_list_generation"
             )
             
-            shopping_content = response.choices[0].message.content
+            if not api_result["success"]:
+                raise Exception(f"OpenAI API failed: {api_result['error']}")
+                
+            shopping_content = api_result["content"]
             print(f"Raw shopping list response: {shopping_content}")
             
             # Parse JSON response

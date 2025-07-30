@@ -8,7 +8,6 @@ import tiktoken
 import json
 import traceback
 import logging
-from openai import AzureOpenAI
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -34,12 +33,7 @@ database = client.get_database_client("diabetes_diet_manager")
 interactions_container = database.get_container_client(INTERACTIONS_CONTAINER)
 user_container = database.get_container_client(USER_INFORMATION_CONTAINER)
 
-# Initialize Azure OpenAI client
-openai_client = AzureOpenAI(
-    api_key=os.getenv("AZURE_OPENAI_KEY"),
-    azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
-    api_version=os.getenv("AZURE_OPENAI_API_VERSION"),
-)
+# OpenAI client - Use centralized service from services.openai_service when needed
 
 def generate_session_id():
     """Generate a unique session ID"""
