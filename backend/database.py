@@ -2,12 +2,13 @@ import os
 from azure.cosmos import CosmosClient
 from azure.cosmos.exceptions import CosmosResourceNotFoundError
 from dotenv import load_dotenv
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import uuid
 import tiktoken
 import json
 import traceback
 import logging
+from services.cache_service import invalidate_meal_plan_cache
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -366,7 +367,7 @@ async def delete_meal_plan_by_id(plan_id: str, user_id: str):
             plan_id = f'meal_plan_{plan_id}'
 
         # First, verify the meal plan belongs to the user and get its partition key
-        query = f"SELECT c.id, c.user_id, c.created_at, c.dailyCalories, c.macronutrients FROM c WHERE c.type = 'meal_plan' AND c.id = '{plan_id}' AND c.user_id = '{user_id}'"
+        query = f"SELECT c.id, c.user_id, c.created_at, c.dailyCalories, c.macronutrients FROM c WHERE (c.type = 'meal_plan' OR c.type = 'full_meal_plan') AND c.id = '{plan_id}' AND c.user_id = '{user_id}'"
         print(f"[delete_meal_plan_by_id] Verification query: {query}")
         items = list(interactions_container.query_items(
             query=query,
@@ -401,6 +402,11 @@ async def delete_meal_plan_by_id(plan_id: str, user_id: str):
         print(f"[delete_meal_plan_by_id] Found valid plan with id: {plan_id}. Attempting deletion.")
         interactions_container.delete_item(item=plan_id, partition_key=partition_key)
         print(f"[delete_meal_plan_by_id] Deletion successful for plan_id: {plan_id}")
+        
+        # Invalidate meal plan cache for this user
+        invalidate_meal_plan_cache(user_id)
+        print(f"[delete_meal_plan_by_id] Cache invalidated for user: {user_id}")
+        
         return True
 
     except CosmosResourceNotFoundError:
@@ -420,7 +426,7 @@ async def delete_all_user_meal_plans(user_id: str):
              return 0 # Or raise an error, depending on desired behavior
 
         # Find all meal plans for the user, including their partition key (user_id)
-        query = f"SELECT c.id, c.user_id FROM c WHERE c.type = 'meal_plan' AND c.user_id = '{user_id}'"
+        query = f"SELECT c.id, c.user_id FROM c WHERE (c.type = 'meal_plan' OR c.type = 'full_meal_plan') AND c.user_id = '{user_id}'"
         print(f"[delete_all_user_meal_plans] Query for items: {query}")
         items = interactions_container.query_items(
             query=query,
@@ -460,6 +466,12 @@ async def delete_all_user_meal_plans(user_id: str):
              print(f"[delete_all_user_meal_plans] Finished deletion with failed items: {failed_deletions}")
 
         print(f"[delete_all_user_meal_plans] Total deleted count: {deleted_count}")
+        
+        # Invalidate meal plan cache for this user if any deletions occurred
+        if deleted_count > 0:
+            invalidate_meal_plan_cache(user_id)
+            print(f"[delete_all_user_meal_plans] Cache invalidated for user: {user_id}")
+            
         return deleted_count
 
     except Exception as e:

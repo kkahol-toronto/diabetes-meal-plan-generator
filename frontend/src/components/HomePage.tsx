@@ -311,6 +311,369 @@ const getProfileCompletionStatus = (userProfile: any) => {
   return { percentage, status, color };
 };
 
+// Smart Daily Meal Plan Component
+const SmartDailyMealPlan: React.FC = () => {
+  const [smartMealPlan, setSmartMealPlan] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchSmartMealPlan = useCallback(async () => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+
+    try {
+      setLoading(true);
+      setError(null);
+      
+      const response = await fetch(`${config.API_URL}/coach/smart-daily-meal-plan`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (response.status === 401) {
+        localStorage.removeItem('token');
+        window.location.href = '/login';
+        return;
+      }
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch smart meal plan: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      console.log('Smart meal plan data:', data);
+      setSmartMealPlan(data);
+      
+    } catch (err) {
+      console.error('Error fetching smart meal plan:', err);
+      setError('Unable to load meal plan. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchSmartMealPlan();
+  }, [fetchSmartMealPlan]);
+
+  // Helper function to format meal type display
+  const formatMealType = (mealType: string): string => {
+    return mealType.charAt(0).toUpperCase() + mealType.slice(1);
+  };
+
+  // Helper function to get meal icon
+  const getMealIcon = (mealType: string) => {
+    switch (mealType) {
+      case 'breakfast': return '🌅';
+      case 'lunch': return '🌞';
+      case 'dinner': return '🌙';
+      case 'snack': return '🍏';
+      default: return '🍽️';
+    }
+  };
+
+  // Helper function to determine if a meal is consumed
+  const isMealConsumed = (mealType: string): boolean => {
+    return smartMealPlan?.consumption_summary[mealType]?.length > 0;
+  };
+
+  // Helper function to get consumed meal details
+  const getConsumedMealDetails = (mealType: string) => {
+    const consumed = smartMealPlan?.consumption_summary[mealType] || [];
+    if (consumed.length === 0) return null;
+    
+    const totalCalories = consumed.reduce((sum: number, item: any) => sum + item.calories, 0);
+    const foodNames = consumed.map((item: any) => item.food_name).join(', ');
+    
+    return { foodNames, totalCalories, items: consumed };
+  };
+
+  if (loading) {
+    return (
+      <Card sx={{ 
+        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+        color: 'white'
+      }}>
+        <CardContent>
+          <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
+            <PlanIcon sx={{ mr: 1 }} />
+            Smart Daily Meal Plan
+            <Chip 
+              label="AI Powered" 
+              size="small" 
+              sx={{ ml: 1, bgcolor: 'rgba(255,255,255,0.2)', color: 'white' }}
+            />
+          </Typography>
+          <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}>
+            <CircularProgress sx={{ color: 'white' }} />
+          </Box>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (error) {
+    return (
+      <Card sx={{ 
+        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+        color: 'white'
+      }}>
+        <CardContent>
+          <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
+            <PlanIcon sx={{ mr: 1 }} />
+            Smart Daily Meal Plan
+          </Typography>
+          <Box sx={{ textAlign: 'center', py: 3 }}>
+            <Typography variant="body2" color="rgba(255,255,255,0.8)">
+              {error}
+            </Typography>
+            <Button 
+              variant="outlined" 
+              onClick={fetchSmartMealPlan}
+              sx={{ 
+                mt: 2, 
+                color: 'white', 
+                borderColor: 'rgba(255,255,255,0.5)',
+                '&:hover': { borderColor: 'white' }
+              }}
+            >
+              Try Again
+            </Button>
+          </Box>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <Card sx={{ 
+      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+      color: 'white',
+      boxShadow: '0 4px 20px rgba(0,0,0,0.1)'
+    }}>
+      <CardContent>
+        <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', fontWeight: 600, color: 'white' }}>
+          <PlanIcon sx={{ mr: 1, color: 'white' }} />
+          Smart Daily Meal Plan
+          <Chip 
+            label="AI Powered" 
+            size="small" 
+            sx={{ ml: 1, bgcolor: 'rgba(255,255,255,0.3)', color: 'white', fontWeight: 500 }}
+          />
+        </Typography>
+
+        {/* Calorie Summary */}
+        <Box sx={{ mb: 3, p: 2, bgcolor: 'rgba(255,255,255,0.15)', borderRadius: 2, border: '1px solid rgba(255,255,255,0.3)' }}>
+          <Grid container spacing={2} alignItems="center">
+            <Grid item xs={12} sm={6}>
+              <Typography variant="body1" sx={{ color: 'white', fontWeight: 600 }}>
+                Daily Progress: {smartMealPlan?.calories_consumed || 0} / {smartMealPlan?.target_calories || 2000} calories
+              </Typography>
+              <LinearProgress 
+                variant="determinate" 
+                value={Math.min(((smartMealPlan?.calories_consumed || 0) / (smartMealPlan?.target_calories || 2000)) * 100, 100)}
+                sx={{ 
+                  mt: 1, 
+                  bgcolor: 'rgba(255,255,255,0.2)', 
+                  '& .MuiLinearProgress-bar': { bgcolor: '#4CAF50' },
+                  height: 8,
+                  borderRadius: 4
+                }}
+              />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <Typography variant="body1" sx={{ color: 'white', fontWeight: 600 }}>
+                Remaining: {smartMealPlan?.remaining_calories || 0} calories
+              </Typography>
+              <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.9)', fontWeight: 400 }}>
+                Next meals: {smartMealPlan?.remaining_meals?.join(', ') || 'All meals planned'}
+              </Typography>
+            </Grid>
+          </Grid>
+        </Box>
+
+        {/* Meal Cards */}
+        <Grid container spacing={2}>
+          {['breakfast', 'lunch', 'dinner', 'snack'].map((mealType) => {
+            const isConsumed = isMealConsumed(mealType);
+            const consumedDetails = getConsumedMealDetails(mealType);
+            const suggestion = smartMealPlan?.smart_suggestions?.[mealType];
+            const isUpcoming = smartMealPlan?.remaining_meals?.includes(mealType);
+
+            return (
+              <Grid item xs={12} sm={6} key={mealType}>
+                <Card sx={{ 
+                  bgcolor: isConsumed ? 'rgba(76, 175, 80, 0.2)' : 
+                           isUpcoming ? 'rgba(255, 193, 7, 0.2)' : 'rgba(255, 255, 255, 0.15)',
+                  border: isConsumed ? '2px solid rgba(76, 175, 80, 0.8)' : 
+                          isUpcoming ? '2px solid rgba(255, 193, 7, 0.8)' : '1px solid rgba(255, 255, 255, 0.3)',
+                  height: '100%',
+                  minHeight: '140px'
+                }}>
+                  <CardContent sx={{ p: 2 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                      <Typography 
+                        variant="subtitle2" 
+                        sx={{ 
+                          color: 'white',
+                          fontWeight: 'bold',
+                          textTransform: 'capitalize',
+                          flexGrow: 1,
+                          fontSize: '1rem'
+                        }}
+                      >
+                        {getMealIcon(mealType)} {formatMealType(mealType)}
+                      </Typography>
+                      {isConsumed && (
+                        <CheckCircleIcon sx={{ 
+                          color: '#81C784', 
+                          fontSize: '1.2rem' 
+                        }} />
+                      )}
+                      {isUpcoming && !isConsumed && (
+                        <Chip 
+                          label="Next" 
+                          size="small" 
+                          sx={{ 
+                            bgcolor: 'rgba(255, 193, 7, 0.8)', 
+                            color: 'white',
+                            fontSize: '0.75rem',
+                            height: '22px',
+                            fontWeight: 500
+                          }}
+                        />
+                      )}
+                    </Box>
+                    
+                    {/* Consumed Meal Display */}
+                    {isConsumed && consumedDetails ? (
+                      <>
+                        <Typography 
+                          variant="body2" 
+                          sx={{ 
+                            color: 'white',
+                            fontSize: '0.9rem',
+                            lineHeight: 1.4,
+                            mb: 1,
+                            fontWeight: 500
+                          }}
+                        >
+                          ✅ You ate: {consumedDetails.foodNames}
+                        </Typography>
+                        <Typography variant="caption" sx={{ 
+                          color: '#81C784',
+                          fontSize: '0.85rem',
+                          display: 'block',
+                          fontWeight: 600,
+                          backgroundColor: 'rgba(255,255,255,0.1)',
+                          padding: '2px 6px',
+                          borderRadius: '4px',
+                          border: '1px solid rgba(129, 199, 132, 0.3)'
+                        }}>
+                          {consumedDetails.totalCalories} calories consumed
+                        </Typography>
+                      </>
+                    ) : suggestion ? (
+                      /* Suggested Meal Display */
+                      <>
+                        <Typography 
+                          variant="body2" 
+                          sx={{ 
+                            color: 'white',
+                            fontSize: '0.9rem',
+                            lineHeight: 1.4,
+                            mb: 1,
+                            fontWeight: 500
+                          }}
+                        >
+                          💡 {suggestion}
+                        </Typography>
+                        {isUpcoming && (
+                          <Typography variant="caption" sx={{ 
+                            color: '#FFB74D',
+                            fontSize: '0.8rem',
+                            fontWeight: 500
+                          }}>
+                            Smart suggestion based on your day
+                          </Typography>
+                        )}
+                      </>
+                    ) : (
+                      /* No plan/suggestion */
+                      <Typography 
+                        variant="body2" 
+                        sx={{ 
+                          color: 'rgba(255,255,255,0.7)',
+                          fontSize: '0.9rem',
+                          lineHeight: 1.4,
+                          fontStyle: 'italic',
+                          fontWeight: 400
+                        }}
+                      >
+                        {isUpcoming ? 'Generating smart suggestion...' : 'No plan for this meal'}
+                      </Typography>
+                    )}
+                  </CardContent>
+                </Card>
+              </Grid>
+            );
+          })}
+        </Grid>
+
+        {/* Adaptive Notes */}
+        {smartMealPlan?.adaptive_notes?.length > 0 && (
+          <Box sx={{ mt: 3, p: 2, bgcolor: 'rgba(255,255,255,0.15)', borderRadius: 2, border: '1px solid rgba(255,255,255,0.3)' }}>
+            <Typography variant="subtitle2" sx={{ mb: 1, color: 'white', fontWeight: 600 }}>
+              🧠 Smart Insights:
+            </Typography>
+            {smartMealPlan.adaptive_notes.map((note: string, index: number) => (
+              <Typography 
+                key={index} 
+                variant="body2" 
+                sx={{ 
+                  color: 'white', 
+                  fontSize: '0.9rem',
+                  mb: 0.5,
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  fontWeight: 400
+                }}
+              >
+                <span style={{ marginRight: '8px', fontSize: '0.8rem', color: '#FFD54F' }}>•</span>
+                {note}
+              </Typography>
+            ))}
+          </Box>
+        )}
+
+        {/* Refresh Button */}
+        <Box sx={{ mt: 2, textAlign: 'center' }}>
+          <Button
+            variant="contained"
+            size="medium"
+            onClick={fetchSmartMealPlan}
+            disabled={loading}
+            sx={{ 
+              bgcolor: 'rgba(255,255,255,0.2)', 
+              color: 'white',
+              fontWeight: 600,
+              px: 3,
+              py: 1,
+              border: '1px solid rgba(255,255,255,0.3)',
+              '&:hover': { bgcolor: 'rgba(255,255,255,0.3)' },
+              '&:disabled': { bgcolor: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.5)' }
+            }}
+          >
+            {loading ? <CircularProgress size={16} /> : 'REFRESH PLAN'}
+          </Button>
+        </Box>
+      </CardContent>
+    </Card>
+  );
+};
+
 const HomePage: React.FC = () => {
   const navigate = useNavigate();
   const theme = useTheme();
@@ -2398,8 +2761,13 @@ const HomePage: React.FC = () => {
             </Card>
           </Grid>
 
-          {/* Today's Meal Plan */}
+          {/* Smart Daily Meal Plan */}
           <Grid item xs={12}>
+            <SmartDailyMealPlan />
+          </Grid>
+
+          {/* Original Meal Plan (Hidden) */}
+          <Grid item xs={12} sx={{ display: 'none' }}>
             <Card sx={{ 
               background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
               color: 'white'
@@ -2419,7 +2787,9 @@ const HomePage: React.FC = () => {
                 
                 {(() => {
                   const planData: any = todaysMealPlan?.meal_plan || todaysMealPlan;
-                  if (!planData || !planData.meals) return null;
+                  if (!planData || !planData.meals) {
+                    return null;
+                  }
                   return (
                     <>
                       {planData.health_conditions?.length > 0 && (

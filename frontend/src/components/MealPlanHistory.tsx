@@ -71,110 +71,12 @@ const MealPlanHistory = () => {
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedMealPlans, setSelectedMealPlans] = useState<string[]>([]);
-  const [snackbarOpen, setSnackbarOpen] = useState(false);
   const [snackbarMessage, setSnackbarMessage] = useState('');
-  const [snackbarSeverity, setSnackbarSeverity] = useState<'success' | 'error' | 'info' | 'warning'>('success');
+  const [snackbarSeverity, setSnackbarSeverity] = useState<'success' | 'error' | 'info'>('success');
+  const [snackbarOpen, setSnackbarOpen] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
   const [details, setDetails] = useState('');
   const navigate = useNavigate();
-
-  // Helper functions to manage permanently deleted IDs with enhanced robustness
-  const getDeletedIds = (): string[] => {
-    try {
-      const stored = localStorage.getItem('deleted_meal_plan_ids');
-      if (!stored) return [];
-      
-      const parsed = JSON.parse(stored);
-      
-      // Validate that it's an array of strings
-      if (!Array.isArray(parsed)) {
-        console.warn('Invalid deleted IDs format in localStorage, resetting...');
-        localStorage.removeItem('deleted_meal_plan_ids');
-        return [];
-      }
-      
-      // Filter out invalid entries
-      const validIds = parsed.filter(id => id && typeof id === 'string' && id.length > 0);
-      
-      // If we filtered out some invalid entries, update localStorage
-      if (validIds.length !== parsed.length) {
-        console.warn('Found invalid deleted IDs, cleaning up localStorage...');
-        try {
-          localStorage.setItem('deleted_meal_plan_ids', JSON.stringify(validIds));
-        } catch (error) {
-          console.error('Failed to clean up invalid deleted IDs:', error);
-        }
-      }
-      
-      return validIds;
-    } catch (error) {
-      console.error('Error reading deleted IDs from localStorage:', error);
-      // Clear corrupted data
-      try {
-        localStorage.removeItem('deleted_meal_plan_ids');
-      } catch (clearError) {
-        console.error('Failed to clear corrupted deleted IDs:', clearError);
-      }
-      return [];
-    }
-  };
-
-  const addDeletedIds = (ids: string[]) => {
-    try {
-      console.log('addDeletedIds called with:', ids);
-      
-      // Validate input
-      const validIds = ids.filter(id => id && typeof id === 'string' && id.length > 0);
-      if (validIds.length === 0) {
-        console.warn('No valid IDs provided to addDeletedIds');
-        return;
-      }
-      
-      const existingDeleted = getDeletedIds();
-      console.log('Existing deleted IDs:', existingDeleted);
-      
-      const uniqueIds = new Set([...existingDeleted, ...validIds]);
-      const newDeleted = Array.from(uniqueIds);
-      console.log('New deleted IDs array to store:', newDeleted);
-      
-      // Create backup before updating
-      const backupKey = 'deleted_meal_plan_ids_backup';
-      const currentValue = localStorage.getItem('deleted_meal_plan_ids');
-      if (currentValue) {
-        localStorage.setItem(backupKey, currentValue);
-      }
-      
-      localStorage.setItem('deleted_meal_plan_ids', JSON.stringify(newDeleted));
-      console.log('Successfully stored deleted IDs in localStorage');
-      
-      // Clean up backup after successful update
-      localStorage.removeItem(backupKey);
-    } catch (error) {
-      console.error('Failed to save deleted IDs to localStorage:', error);
-      
-      // Try to restore from backup
-      try {
-        const backup = localStorage.getItem('deleted_meal_plan_ids_backup');
-        if (backup) {
-          localStorage.setItem('deleted_meal_plan_ids', backup);
-          localStorage.removeItem('deleted_meal_plan_ids_backup');
-          console.log('Restored deleted IDs from backup');
-        }
-      } catch (restoreError) {
-        console.error('Failed to restore deleted IDs from backup:', restoreError);
-      }
-    }
-  };
-
-  const clearAllDeletedIds = () => {
-    try {
-      console.log('Clearing all deleted meal plan IDs from localStorage');
-      localStorage.removeItem('deleted_meal_plan_ids');
-      localStorage.removeItem('deleted_meal_plan_ids_backup');
-    } catch (error) {
-      console.error('Failed to clear deleted IDs from localStorage:', error);
-    }
-  };
 
   const fetchMealPlans = async () => {
     setLoading(true);
@@ -189,52 +91,24 @@ const MealPlanHistory = () => {
       const data = await mealPlanApi.getHistory() as { meal_plans: MealPlanData[] };
       console.log('Fetched meal plans from backend:', data);
       
-      // Get permanently deleted IDs with robust error handling
-      const deletedIds = getDeletedIds();
-      console.log('Permanently deleted IDs from localStorage:', deletedIds);
-      
-      // Validate localStorage integrity - check for corruption
-      if (deletedIds.length > 0) {
-        const validDeletedIds = deletedIds.filter(id => id && typeof id === 'string' && id.length > 0);
-        if (validDeletedIds.length !== deletedIds.length) {
-          console.warn('Found corrupted deleted IDs in localStorage, cleaning up...');
-          // Update localStorage with only valid IDs
-          try {
-            localStorage.setItem('deleted_meal_plan_ids', JSON.stringify(validDeletedIds));
-          } catch (error) {
-            console.error('Failed to update localStorage with valid deleted IDs:', error);
-          }
-        }
-      }
-      
-      // Filter out permanently deleted meal plans
+      // Use all meal plans directly from backend (no localStorage filtering)
       const allPlans = data.meal_plans || [];
-      console.log('All plans from backend (before filtering):', allPlans.map((p: MealPlanData) => ({ id: p.id, created_at: p.created_at })));
+      console.log('All plans from backend:', allPlans.map((p: MealPlanData) => ({ id: p.id, created_at: p.created_at })));
       
-      const visiblePlans = allPlans.filter((plan: MealPlanData) => {
-        const planId = plan.id;
-        const isDeleted = planId && deletedIds.includes(planId);
-        console.log(`Plan ${planId}: deleted=${isDeleted}`);
-        return planId && !isDeleted;
+      // Sort plans by creation date (newest first)
+      const sortedPlans = allPlans.sort((a: MealPlanData, b: MealPlanData) => {
+        const dateA = new Date(a.created_at || '');
+        const dateB = new Date(b.created_at || '');
+        return dateB.getTime() - dateA.getTime();
       });
+
+      setMealPlans(sortedPlans);
+      setFilteredPlans(sortedPlans);
+      console.log(`Loaded ${sortedPlans.length} meal plans successfully`);
       
-      console.log('Visible plans after filtering:', visiblePlans.length, 'of', allPlans.length);
-      console.log('Visible plan IDs:', visiblePlans.map((p: MealPlanData) => p.id));
-      
-      // Additional safeguard: if we suddenly have way more plans than before, something might be wrong
-      if (mealPlans.length > 0 && visiblePlans.length > mealPlans.length * 2) {
-        console.warn(`Detected large increase in meal plans (${mealPlans.length} -> ${visiblePlans.length}), checking for localStorage issues...`);
-        // This could indicate localStorage was cleared or corrupted
-        // In this case, we should preserve the user's current view and warn them
-        const currentDeletedIds = getDeletedIds();
-        console.log('Current deleted IDs after recheck:', currentDeletedIds);
-      }
-      
-      setMealPlans(visiblePlans);
-      setFilteredPlans(visiblePlans);
-    } catch (err) {
-      console.error('Error fetching meal plans:', err);
-      setError(err instanceof Error ? err.message : 'Failed to fetch meal plans.');
+    } catch (error) {
+      console.error('Error fetching meal plans:', error);
+      setError('Failed to load meal plans. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -326,29 +200,37 @@ const MealPlanHistory = () => {
     
     console.log('Selected plans to delete:', selectedIds);
 
-    // Add ALL selected IDs to permanently deleted list (just like Clear All does)
-    addDeletedIds(selectedIds);
+    // Set loading state
+    setLoading(true);
 
-    // IMMEDIATELY remove selected plans from UI (just like Clear All does)
-    const remainingPlans = mealPlans.filter(plan => !selectedIds.includes(plan.id || ''));
-    setMealPlans(remainingPlans);
-    setFilteredPlans(remainingPlans);
-    setSelectedMealPlans([]);
-
-    // Show success message
-    setSnackbarMessage(`${selectedIds.length} meal plan(s) permanently removed from your history!`);
-    setSnackbarSeverity('success');
-    setSnackbarOpen(true);
-
-    console.log('Selected plans deleted from frontend. Remaining plans:', remainingPlans.length);
-
-    // Try backend deletion in background (optional - user doesn't care)
     try {
-      mealPlanApi.delete(selectedIds).catch(() => {
-        console.log('Backend deletion failed, but UI already updated');
-      });
+      // Perform actual backend deletion FIRST
+      console.log('Performing backend deletion...');
+      const result = await mealPlanApi.delete(selectedIds);
+      console.log('Backend deletion successful:', result);
+
+      // Only update UI after successful backend deletion
+      const remainingPlans = mealPlans.filter(plan => !selectedIds.includes(plan.id || ''));
+      setMealPlans(remainingPlans);
+      setFilteredPlans(remainingPlans);
+      setSelectedMealPlans([]);
+
+      // Show success message
+      setSnackbarMessage(`${selectedIds.length} meal plan(s) deleted successfully!`);
+      setSnackbarSeverity('success');
+      setSnackbarOpen(true);
+
+      console.log('Selected plans deleted successfully. Remaining plans:', remainingPlans.length);
+
     } catch (error) {
-      console.log('Backend deletion failed, but UI already updated');
+      console.error('Failed to delete selected meal plans:', error);
+      
+      // Show error message
+      setSnackbarMessage('Failed to delete selected meal plans. Please try again.');
+      setSnackbarSeverity('error');
+      setSnackbarOpen(true);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -364,33 +246,38 @@ const MealPlanHistory = () => {
       return;
     }
 
-    // Get all current meal plan IDs to permanently delete
-    const allCurrentIds = mealPlans.map(plan => plan.id).filter(Boolean) as string[];
-    
-    // Add all current IDs to permanently deleted list FIRST
-    addDeletedIds(allCurrentIds);
-
-    // IMMEDIATELY clear all from UI - user doesn't want to see them anymore
+    // Set loading state
+    setLoading(true);
     const totalCount = mealPlans.length;
-    setSelectedMealPlans([]);
-    setMealPlans([]);
-    setFilteredPlans([]);
-    setSearchQuery('');
 
-    // Show success message immediately
-    setSnackbarMessage(`All ${totalCount} meal plans permanently removed from your history!`);
-    setSnackbarSeverity('success');
-    setSnackbarOpen(true);
-
-    // Try to delete from backend in the background (optional - user doesn't care if this fails)
     try {
-      mealPlanApi.deleteAll().catch(() => {
-        // Silent fail - user doesn't care about backend errors
-        console.log('Backend clear all failed, but UI already updated');
-      });
+      // Perform actual backend deletion FIRST
+      console.log('Performing backend clear all...');
+      const result = await mealPlanApi.deleteAll();
+      console.log('Backend clear all successful:', result);
+
+      // Only clear UI after successful backend deletion
+      setSelectedMealPlans([]);
+      setMealPlans([]);
+      setFilteredPlans([]);
+      setSearchQuery('');
+
+      // Show success message
+      setSnackbarMessage(`All ${totalCount} meal plans deleted successfully!`);
+      setSnackbarSeverity('success');
+      setSnackbarOpen(true);
+
+      console.log('All meal plans cleared successfully');
+
     } catch (error) {
-      // Silent fail - user doesn't care about backend errors
-      console.log('Backend clear all failed, but UI already updated');
+      console.error('Failed to clear all meal plans:', error);
+      
+      // Show error message
+      setSnackbarMessage('Failed to delete all meal plans. Please try again.');
+      setSnackbarSeverity('error');
+      setSnackbarOpen(true);
+    } finally {
+      setLoading(false);
     }
   };
 

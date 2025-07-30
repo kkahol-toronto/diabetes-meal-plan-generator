@@ -2237,6 +2237,269 @@ def analyze_meal_patterns(meal_history: list) -> dict:
 
 # Privacy data export functions moved to routers/privacy_data.py
 
+@app.get("/coach/smart-daily-meal-plan")
+async def get_smart_daily_meal_plan(current_user: User = Depends(get_current_user)):
+    """
+    Smart AI-operated daily meal plan that adapts based on actual consumption.
+    Resets daily and provides intelligent adjustments for remaining meals.
+    """
+    try:
+        print(f"[smart_daily_meal_plan] Getting smart meal plan for user {current_user['email']}")
+        
+        user_email = current_user["email"]
+        profile = current_user.get("profile", {})
+        user_timezone = profile.get("timezone", "UTC")
+        
+        # Get today's consumption records
+        today_consumption = await get_today_consumption_records_async(user_email, user_timezone)
+        print(f"[smart_daily_meal_plan] Found {len(today_consumption)} consumption records today")
+        
+        # Get user's target calories and dietary preferences
+        target_calories = int(profile.get('calorieTarget', '2000'))
+        dietary_restrictions = profile.get('dietaryRestrictions', [])
+        food_preferences = profile.get('foodPreferences', [])
+        strong_dislikes = profile.get('strongDislikes', [])
+        
+        # Calculate calories consumed so far
+        calories_consumed = sum(
+            record.get('nutritional_info', {}).get('calories', 0) 
+            for record in today_consumption
+        )
+        
+        # Organize consumption by meal type
+        consumption_by_meal = {}
+        for record in today_consumption:
+            meal_type = record.get('meal_type', 'snack').lower()
+            if meal_type not in consumption_by_meal:
+                consumption_by_meal[meal_type] = []
+            consumption_by_meal[meal_type].append({
+                'food_name': record.get('food_name', ''),
+                'calories': record.get('nutritional_info', {}).get('calories', 0),
+                'protein': record.get('nutritional_info', {}).get('protein', 0),
+                'carbs': record.get('nutritional_info', {}).get('carbs', 0),
+                'fat': record.get('nutritional_info', {}).get('fat', 0),
+                'timestamp': record.get('timestamp', '')
+            })
+        
+        # Get current time to determine which meals are still upcoming
+        from datetime import datetime
+        import pytz
+        
+        try:
+            user_tz = pytz.timezone(user_timezone)
+            current_time = datetime.now(user_tz)
+            current_hour = current_time.hour
+        except:
+            current_hour = datetime.utcnow().hour
+        
+        # Determine remaining meals based on time of day
+        remaining_meals = []
+        if current_hour < 10:  # Before 10 AM
+            remaining_meals = ['breakfast', 'lunch', 'dinner', 'snack']
+        elif current_hour < 14:  # Before 2 PM
+            remaining_meals = ['lunch', 'dinner', 'snack']
+        elif current_hour < 18:  # Before 6 PM
+            remaining_meals = ['dinner', 'snack']
+        elif current_hour < 22:  # Before 10 PM
+            remaining_meals = ['snack']
+        
+        # Calculate remaining calories needed
+        remaining_calories = max(0, target_calories - calories_consumed)
+        
+        # Generate smart adaptive meal suggestions for remaining meals
+        smart_meal_plan = await _generate_smart_adaptive_meals(
+            user_email,
+            remaining_meals,
+            remaining_calories,
+            consumption_by_meal,
+            dietary_restrictions,
+            food_preferences,
+            strong_dislikes,
+            current_hour
+        )
+        
+        # Build the response
+        response = {
+            "date": datetime.utcnow().date().isoformat(),
+            "user_timezone": user_timezone,
+            "current_time": current_time.isoformat() if 'current_time' in locals() else datetime.utcnow().isoformat(),
+            "target_calories": target_calories,
+            "calories_consumed": calories_consumed,
+            "remaining_calories": remaining_calories,
+            "consumption_summary": {
+                "breakfast": consumption_by_meal.get('breakfast', []),
+                "lunch": consumption_by_meal.get('lunch', []),
+                "dinner": consumption_by_meal.get('dinner', []),
+                "snack": consumption_by_meal.get('snack', [])
+            },
+            "remaining_meals": remaining_meals,
+            "smart_suggestions": smart_meal_plan,
+            "adaptive_notes": _generate_adaptive_notes(
+                calories_consumed, target_calories, consumption_by_meal, remaining_meals
+            )
+        }
+        
+        print(f"[smart_daily_meal_plan] Generated response with {len(smart_meal_plan)} meal suggestions")
+        return response
+        
+    except Exception as e:
+        print(f"[smart_daily_meal_plan] Error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Failed to get smart meal plan: {str(e)}")
+
+
+async def _generate_smart_adaptive_meals(
+    user_email: str,
+    remaining_meals: list,
+    remaining_calories: int,
+    consumption_by_meal: dict,
+    dietary_restrictions: list,
+    food_preferences: list,
+    strong_dislikes: list,
+    current_hour: int
+) -> dict:
+    """Generate smart meal suggestions that adapt based on what was already consumed."""
+    
+    if not remaining_meals:
+        return {}
+    
+    # Calculate how heavy/light the consumed meals were
+    breakfast_calories = sum(item['calories'] for item in consumption_by_meal.get('breakfast', []))
+    lunch_calories = sum(item['calories'] for item in consumption_by_meal.get('lunch', []))
+    
+    # Adaptive logic based on consumption patterns
+    adaptation_context = ""
+    if breakfast_calories > 600:  # Heavy breakfast
+        adaptation_context += "User had a heavy breakfast, suggesting lighter lunch/dinner. "
+    elif breakfast_calories > 0 and breakfast_calories < 250:  # Light breakfast
+        adaptation_context += "User had a light breakfast, can accommodate heartier lunch/dinner. "
+    
+    if lunch_calories > 700:  # Heavy lunch
+        adaptation_context += "User had a heavy lunch, suggesting lighter dinner. "
+    elif lunch_calories > 0 and lunch_calories < 300:  # Light lunch
+        adaptation_context += "User had a light lunch, dinner can be more substantial. "
+    
+    # Distribute remaining calories across remaining meals
+    calories_per_meal = remaining_calories // max(len(remaining_meals), 1) if remaining_calories > 0 else 300
+    
+    # Build the AI prompt for smart suggestions
+    dietary_info = ", ".join(dietary_restrictions) if dietary_restrictions else "no specific restrictions"
+    preferences_info = ", ".join(food_preferences) if food_preferences else "no specific preferences"
+    dislikes_info = ", ".join(strong_dislikes) if strong_dislikes else "no specific dislikes"
+    
+    prompt = f"""Generate smart, adaptive meal suggestions for a diabetes-friendly diet.
+
+CONTEXT:
+- Remaining meals to plan: {', '.join(remaining_meals)}
+- Remaining calories to distribute: {remaining_calories}
+- Target calories per meal: ~{calories_per_meal}
+- Current time context: {current_hour}:00 (hour of day)
+- Dietary restrictions: {dietary_info}
+- Food preferences: {preferences_info}
+- Dislikes to avoid: {dislikes_info}
+
+ADAPTATION CONTEXT:
+{adaptation_context}
+
+CONSUMED TODAY:
+{_format_consumption_for_ai(consumption_by_meal)}
+
+Generate meal suggestions that:
+1. Are diabetes-friendly (low GI, balanced macros)
+2. Adapt to what was already consumed today
+3. Respect dietary restrictions and preferences
+4. Are realistic and easy to prepare
+5. Account for the time of day
+
+Return ONLY a JSON object with this structure:
+{{
+  "breakfast": "meal suggestion" (if breakfast in remaining_meals),
+  "lunch": "meal suggestion" (if lunch in remaining_meals),
+  "dinner": "meal suggestion" (if dinner in remaining_meals),
+  "snack": "meal suggestion" (if snack in remaining_meals)
+}}"""
+
+    try:
+        from services.openai_service import robust_openai_call
+        
+        ai_response = await robust_openai_call(
+            [{"role": "user", "content": prompt}],
+            temperature=0.7,
+            max_tokens=800
+        )
+        
+        if ai_response and ai_response.strip():
+            # Parse the AI response
+            import json
+            try:
+                suggestions = json.loads(ai_response.strip())
+                # Filter to only include remaining meals
+                filtered_suggestions = {
+                    meal: suggestion for meal, suggestion in suggestions.items()
+                    if meal in remaining_meals
+                }
+                return filtered_suggestions
+            except json.JSONDecodeError:
+                print(f"[smart_adaptive] Failed to parse AI response: {ai_response}")
+        
+    except Exception as e:
+        print(f"[smart_adaptive] AI generation failed: {e}")
+    
+    # Fallback suggestions
+    fallback_suggestions = {
+        'breakfast': 'Steel-cut oats with fresh berries and almonds',
+        'lunch': 'Quinoa salad with grilled vegetables and chickpeas',
+        'dinner': 'Baked salmon with roasted sweet potato and steamed broccoli',
+        'snack': 'Greek yogurt with cucumber slices and a handful of nuts'
+    }
+    
+    return {meal: fallback_suggestions[meal] for meal in remaining_meals if meal in fallback_suggestions}
+
+
+def _format_consumption_for_ai(consumption_by_meal: dict) -> str:
+    """Format consumption data for AI context."""
+    if not consumption_by_meal:
+        return "No meals consumed yet today."
+    
+    formatted = []
+    for meal_type, items in consumption_by_meal.items():
+        if items:
+            total_calories = sum(item['calories'] for item in items)
+            food_names = [item['food_name'] for item in items]
+            formatted.append(f"{meal_type.title()}: {', '.join(food_names)} ({total_calories} calories)")
+    
+    return '\n'.join(formatted) if formatted else "No meals consumed yet today."
+
+
+def _generate_adaptive_notes(calories_consumed: int, target_calories: int, consumption_by_meal: dict, remaining_meals: list) -> list:
+    """Generate adaptive notes based on consumption patterns."""
+    notes = []
+    
+    # Calorie tracking note
+    if calories_consumed > target_calories * 0.8:  # Consumed more than 80% of daily calories
+        notes.append("You're close to your daily calorie goal. Consider lighter portions for remaining meals.")
+    elif calories_consumed < target_calories * 0.3:  # Consumed less than 30% of daily calories
+        notes.append("You have plenty of calories left for the day. You can enjoy more substantial meals.")
+    
+    # Meal timing notes
+    breakfast_consumed = len(consumption_by_meal.get('breakfast', []))
+    lunch_consumed = len(consumption_by_meal.get('lunch', []))
+    
+    if breakfast_consumed == 0 and 'breakfast' not in remaining_meals:
+        notes.append("You skipped breakfast today. Consider a protein-rich snack to maintain energy levels.")
+    
+    if lunch_consumed == 0 and 'lunch' not in remaining_meals:
+        notes.append("You skipped lunch. Your dinner suggestions are adjusted to be more substantial.")
+    
+    # Adaptation notes
+    if consumption_by_meal.get('breakfast'):
+        breakfast_calories = sum(item['calories'] for item in consumption_by_meal['breakfast'])
+        if breakfast_calories > 600:
+            notes.append("Your breakfast was quite hearty. The remaining meal suggestions are adjusted to be lighter.")
+    
+    return notes
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000) 

@@ -190,7 +190,7 @@ export const mealPlanApi = {
   generate: (data: any) => api.post('/generate-meal-plan', data, { timeout: 60000 }),
   getHistory: () => api.get('/meal_plans'),
   getById: (id: string) => api.get(`/meal_plans/${id}`),
-  delete: (ids: string[]) => api.post('/meal_plans/bulk_delete', ids),
+  delete: (ids: string[]) => api.post('/meal_plans/bulk_delete', { plan_ids: ids }),
   deleteAll: () => api.delete('/meal_plans/all'),
 };
 

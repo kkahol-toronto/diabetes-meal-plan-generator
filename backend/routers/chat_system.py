@@ -86,6 +86,9 @@ async def send_chat_message(
     # 🧠 ENHANCED AI COACH CONTEXT - Get comprehensive user data
     profile = current_user.get("profile", {})
     
+    # Extract current medications for AI context
+    current_medications = profile.get("currentMedications", [])
+    
     # Get recent meal plans (last 3 for context)
     try:
         recent_meal_plans = await get_user_meal_plans(current_user["id"])
@@ -120,14 +123,17 @@ async def send_chat_message(
         print(f"Error filtering today's consumption: {e}")
         today_consumption = []
     
-    # Calculate today's nutritional totals
-    today_totals = {"calories": 0, "protein": 0, "carbs": 0, "fat": 0}
+    # Calculate today's nutritional totals - ENHANCED with comprehensive tracking
+    today_totals = {"calories": 0, "protein": 0, "carbs": 0, "fat": 0, "fiber": 0, "sugar": 0, "sodium": 0}
     for record in today_consumption:
         nutritional_info = record.get("nutritional_info", {})
         today_totals["calories"] += nutritional_info.get("calories", 0)
         today_totals["protein"] += nutritional_info.get("protein", 0)
         today_totals["carbs"] += nutritional_info.get("carbohydrates", 0)
         today_totals["fat"] += nutritional_info.get("fat", 0)
+        today_totals["fiber"] += nutritional_info.get("fiber", 0)
+        today_totals["sugar"] += nutritional_info.get("sugar", 0)
+        today_totals["sodium"] += nutritional_info.get("sodium", 0)
     
     # Debug logging for today's consumption
     print(f"[CHAT_DEBUG] Found {len(today_consumption)} meals for today")
@@ -176,6 +182,43 @@ async def send_chat_message(
     
     diabetes_adherence = (diabetes_suitable_count / total_recent_records * 100) if total_recent_records > 0 else 0
     
+    # 🧠 COMPREHENSIVE HEALTH ANALYSIS - Match AI coach sophistication
+    high_carb_meals = 0
+    high_sugar_meals = 0
+    high_sodium_meals = 0
+    recent_meals = []
+    today_meals = []
+    
+    for record in recent_consumption:
+        nutritional_info = record.get("nutritional_info", {})
+        food_name = record.get("food_name", "Unknown food")
+        recent_meals.append(food_name)
+        
+        # Track concerning patterns
+        if nutritional_info.get("carbohydrates", 0) > 45:
+            high_carb_meals += 1
+        if nutritional_info.get("sugar", 0) > 15:
+            high_sugar_meals += 1
+        if nutritional_info.get("sodium", 0) > 800:
+            high_sodium_meals += 1
+    
+    # Today's meal names
+    for record in today_consumption:
+        food_name = record.get("food_name", "Unknown food")
+        portion = record.get("estimated_portion", "Unknown portion")
+        calories = record.get("nutritional_info", {}).get("calories", "N/A")
+        today_meals.append(f"{food_name} ({portion}) - {calories} kcal")
+    
+    # Additional user profile data for comprehensive personalization
+    food_preferences = profile.get("foodPreferences", [])
+    strong_dislikes = profile.get("strongDislikes", [])
+    primary_goals = profile.get("primaryGoals", [])
+    readiness_to_change = profile.get("readinessToChange", "")
+    meal_prep_capability = profile.get("mealPrepCapability", "")
+    eating_schedule = profile.get("eatingSchedule", "")
+    exercise_frequency = profile.get("exerciseFrequency", "")
+    exercise_types = profile.get("exerciseTypes", [])
+    
     # Create comprehensive AI Coach system prompt
     system_prompt = f"""You are an advanced AI Diet Coach and Diabetes Management Specialist. You are the central intelligence of a comprehensive diabetes meal planning and tracking system.
 
@@ -190,10 +233,21 @@ async def send_chat_message(
 - BMI: {profile.get('bmi', 'Not calculated')}
 - Blood Pressure: {profile.get('systolicBP', 'Not specified')}/{profile.get('diastolicBP', 'Not specified')} mmHg
 - Medical Conditions: {', '.join(profile.get('medicalConditions', []))}
-- Allergies: {', '.join(profile.get('allergies', []))}
-- Diet Type: {', '.join(profile.get('dietType', []))}
-- Dietary Features: {', '.join(profile.get('dietaryFeatures', []) or profile.get('diet_features', []))}
-- Dietary Restrictions: {', '.join(profile.get('dietaryRestrictions', []))}
+- Current Medications: {', '.join(current_medications) if current_medications else 'None specified'}
+- Allergies: {', '.join(profile.get('allergies', [])) if profile.get('allergies') else 'None specified'}
+- Diet Type: {', '.join(profile.get('dietType', [])) if profile.get('dietType') else 'None specified'}
+- Dietary Features: {', '.join(profile.get('dietaryFeatures', []) or profile.get('diet_features', [])) if profile.get('dietaryFeatures') or profile.get('diet_features') else 'None specified'}
+- Dietary Restrictions: {', '.join(profile.get('dietaryRestrictions', [])) if profile.get('dietaryRestrictions') else 'None specified'}
+- Food Preferences: {', '.join(food_preferences) if food_preferences else 'None specified'}
+- Strong Dislikes: {', '.join(strong_dislikes) if strong_dislikes else 'None specified'}
+
+🎯 **HEALTH GOALS & LIFESTYLE**:
+- Primary Goals: {', '.join(primary_goals) if primary_goals else 'None specified'}
+- Readiness to Change: {readiness_to_change if readiness_to_change else 'Not specified'}
+- Meal Prep Capability: {meal_prep_capability if meal_prep_capability else 'Not specified'}
+- Eating Schedule: {eating_schedule if eating_schedule else 'Not specified'}
+- Exercise Frequency: {exercise_frequency if exercise_frequency else 'Not specified'}
+- Exercise Types: {', '.join(exercise_types) if exercise_types else 'None specified'}
 
 🎯 **DAILY GOALS & PROGRESS**:
 - Calorie Goal: {calorie_goal} kcal
@@ -206,26 +260,40 @@ async def send_chat_message(
 - Protein: {today_totals['protein']:.1f}/{macro_goals['protein']}g ({protein_adherence:.1f}%)
 - Carbs: {today_totals['carbs']:.1f}/{macro_goals['carbs']}g ({carb_adherence:.1f}%)
 - Fat: {today_totals['fat']:.1f}/{macro_goals['fat']}g ({fat_adherence:.1f}%)
+- Fiber: {today_totals['fiber']:.1f}g | Sugar: {today_totals['sugar']:.1f}g | Sodium: {today_totals['sodium']:.0f}mg
 - Meals logged today: {len(today_consumption)}
 
 📈 **RECENT PERFORMANCE** (Last 7 days):
 - Total meals logged: {total_recent_records}
-- Diabetes-suitable meals: {diabetes_suitable_count} ({diabetes_adherence:.1f}%)
+- Diabetes-suitable meals: {diabetes_suitable_count}/{total_recent_records} ({diabetes_adherence:.1f}%)
+- High-carb meals (>45g): {high_carb_meals} | High-sugar meals (>15g): {high_sugar_meals}
+- High-sodium meals (>800mg): {high_sodium_meals}
 - Recent meal plans available: {len(recent_meal_plans)}
+
+🎯 **HEALTH INSIGHTS**:
+- Diabetes adherence trend: {diabetes_adherence:.1f}% (Target: >80%)
+- Carb management: {'Good' if high_carb_meals < total_recent_records * 0.3 else 'Needs attention'}
+- Sugar control: {'Good' if high_sugar_meals < total_recent_records * 0.2 else 'Needs attention'}  
+- Sodium management: {'Good' if high_sodium_meals < total_recent_records * 0.3 else 'Needs attention'}
 
 🍽️ **RECENT MEAL PLANS**:
 {chr(10).join([f"- Plan {i+1} (Created: {plan.get('created_at', 'Unknown')[:10]}): {plan.get('dailyCalories', 'N/A')} kcal/day" for i, plan in enumerate(recent_meal_plans[:2])]) if recent_meal_plans else "- No recent meal plans found"}
 
-🥗 **TODAY'S CONSUMPTION**:
-{chr(10).join([f"- {record.get('food_name', 'Unknown food')} ({record.get('estimated_portion', 'Unknown portion')}) - {record.get('nutritional_info', {}).get('calories', 'N/A')} kcal" for record in today_consumption[-3:]]) if today_consumption else "- No meals logged today yet"}
+🥗 **TODAY'S DETAILED CONSUMPTION**:
+{chr(10).join([f"- {meal}" for meal in today_meals]) if today_meals else "- No meals logged today yet"}
 
-🧠 **YOUR COACHING INTELLIGENCE**:
-1. **Adaptive Recommendations**: Based on today's intake, suggest meal adjustments
-2. **Progress Recognition**: Celebrate achievements and provide encouragement
-3. **Smart Balancing**: If user exceeded calories/carbs, suggest lighter options for remaining meals
-4. **Reward System**: If user has been compliant, occasionally suggest enjoyable treats within limits
-5. **Meal Plan Integration**: Reference their actual meal plans and suggest modifications
-6. **Real-time Guidance**: Provide immediate feedback on food choices and portions
+🍽️ **RECENT MEAL HISTORY**:
+- Recent meals: {', '.join(recent_meals[:8]) if recent_meals else 'No recent meals'}
+- Today's meal count: {len(today_consumption)} meals
+
+🧠 **YOUR COMPREHENSIVE COACHING INTELLIGENCE**:
+You have COMPLETE ACCESS to their full health ecosystem. Use ALL available data for hyper-personalized responses:
+1. **Medical-Grade Personalization**: Factor in medical conditions, medications, and health metrics
+2. **Comprehensive Nutritional Analysis**: Consider calories, macros, fiber, sugar, sodium trends
+3. **Lifestyle-Informed Guidance**: Account for exercise habits, meal prep capability, eating schedule
+4. **Goal-Aligned Coaching**: Reference their specific health goals and readiness to change
+5. **Pattern-Based Insights**: Identify trends in their consumption and provide targeted feedback
+6. **Real-time Adaptation**: Suggest meal adjustments based on today's detailed intake
 
 🎯 **COACHING PRIORITIES**:
 1. **Diabetes Management**: Always prioritize blood sugar stability
@@ -234,13 +302,14 @@ async def send_chat_message(
 4. **Nutritional Education**: Explain the 'why' behind recommendations
 5. **Motivation**: Keep user engaged and motivated in their health journey
 
-💡 **RESPONSE STYLE**:
-- Be encouraging, supportive, and knowledgeable
-- Use specific data from their actual consumption and meal plans
-- Provide actionable, personalized advice
-- Acknowledge their progress and efforts
-- Be conversational but professional
-- Use emojis appropriately to make interactions engaging
+💡 **COMPREHENSIVE RESPONSE STYLE**:
+- Reference SPECIFIC data points from their complete health profile
+- Integrate medical conditions, medications, and lifestyle factors in advice
+- Use detailed nutritional analysis (including fiber, sugar, sodium patterns)
+- Acknowledge their exercise habits, eating schedule, and meal prep reality
+- Align recommendations with their stated health goals and readiness level
+- Provide evidence-based advice considering their full health ecosystem
+- Be encouraging while addressing specific areas needing attention
 
 Remember: You have access to their complete meal planning and consumption history. Use this data to provide highly personalized, contextual advice that feels like it comes from someone who truly knows their journey."""
     
