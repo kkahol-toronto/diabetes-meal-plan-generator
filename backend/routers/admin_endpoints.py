@@ -1,6 +1,6 @@
 """
 Admin Endpoints Router
-Handles all administrative functionality including patient management, analytics, and Pia's Corner dashboard.
+Handles all administrative functionality including patient management and analytics.
 Requires admin authentication for all endpoints.
 """
 
@@ -163,116 +163,6 @@ async def resend_registration_code(
         print(f"Error resending registration code: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/admin/analytics/comprehensive")
-async def get_comprehensive_analytics(current_user: User = Depends(get_current_user)):
-    """Get comprehensive analytics for Pia's Corner dashboard - REAL DATA ONLY"""
-    if not current_user.get("is_admin"):
-        raise HTTPException(status_code=403, detail="Not authorized")
-    
-    try:
-        print("[PIAS_CORNER] Fetching comprehensive analytics with real data...")
-        
-        # 1. Get all patients
-        all_patients = await get_all_patients()
-        patient_count = len(all_patients)
-        
-        # 2. Get all registered users with consumption data
-        users_query = "SELECT * FROM c WHERE c.type = 'user'"
-        all_users = list(user_container.query_items(query=users_query, enable_cross_partition_query=True))
-        
-        # 3. Get all consumption records
-        consumption_query = "SELECT * FROM c WHERE c.type = 'consumption_record'"
-        all_consumption = list(interactions_container.query_items(query=consumption_query, enable_cross_partition_query=True))
-        
-        # 4. Get all meal plans
-        meal_plans_query = "SELECT * FROM c WHERE c.type = 'meal_plan'"
-        all_meal_plans = list(interactions_container.query_items(query=meal_plans_query, enable_cross_partition_query=True))
-        
-        # 5. Calculate real engagement metrics
-        active_users = []
-        for user in all_users:
-            user_email = user.get("email", user.get("id", ""))
-            user_consumption = [c for c in all_consumption if c.get("user_email") == user_email]
-            user_meal_plans = [m for m in all_meal_plans if m.get("user_id") == user_email]
-            
-            if user_consumption or user_meal_plans:
-                active_users.append({
-                    "email": user_email,
-                    "consumption_count": len(user_consumption),
-                    "meal_plans_count": len(user_meal_plans),
-                    "last_activity": max(
-                        [c.get("timestamp", c.get("created_at", "")) for c in user_consumption] + 
-                        [m.get("created_at", "") for m in user_meal_plans]
-                    ) if (user_consumption or user_meal_plans) else ""
-                })
-        
-        # 6. Calculate nutrition insights
-        total_calories = sum(c.get("nutritional_info", {}).get("calories", 0) for c in all_consumption)
-        avg_calories_per_meal = total_calories / len(all_consumption) if all_consumption else 0
-        
-        # 7. Calculate health suitability
-        diabetes_suitable_count = sum(1 for c in all_consumption 
-                                    if c.get("medical_rating", {}).get("diabetes_suitability") == "high")
-        diabetes_suitability_rate = (diabetes_suitable_count / len(all_consumption) * 100) if all_consumption else 0
-        
-        # 8. Weekly activity trends
-        now = datetime.utcnow()
-        weekly_data = []
-        for i in range(7):
-            day = now - timedelta(days=i)
-            day_start = day.replace(hour=0, minute=0, second=0, microsecond=0)
-            day_end = day.replace(hour=23, minute=59, second=59, microsecond=999999)
-            
-            day_consumption = [c for c in all_consumption 
-                             if day_start.isoformat() <= c.get("timestamp", c.get("created_at", "")) <= day_end.isoformat()]
-            
-            weekly_data.append({
-                "date": day.strftime("%Y-%m-%d"),
-                "day_name": day.strftime("%A"),
-                "consumption_count": len(day_consumption),
-                "calories": sum(c.get("nutritional_info", {}).get("calories", 0) for c in day_consumption)
-            })
-        
-        comprehensive_data = {
-            "overview": {
-                "total_patients": patient_count,
-                "total_users": len(all_users),
-                "active_users": len(active_users),
-                "total_consumption_records": len(all_consumption),
-                "total_meal_plans": len(all_meal_plans),
-                "last_updated": datetime.utcnow().isoformat()
-            },
-            "engagement": {
-                "user_engagement_rate": (len(active_users) / len(all_users) * 100) if all_users else 0,
-                "avg_consumption_per_user": len(all_consumption) / len(active_users) if active_users else 0,
-                "avg_meal_plans_per_user": len(all_meal_plans) / len(active_users) if active_users else 0,
-                "active_users_details": sorted(active_users, key=lambda x: x["consumption_count"], reverse=True)[:10]
-            },
-            "nutrition": {
-                "total_calories_logged": total_calories,
-                "avg_calories_per_meal": round(avg_calories_per_meal, 1),
-                "diabetes_suitability_rate": round(diabetes_suitability_rate, 1),
-                "total_food_items_analyzed": len(all_consumption)
-            },
-            "trends": {
-                "weekly_activity": list(reversed(weekly_data)),
-                "growth_metrics": {
-                    "new_users_this_week": len([u for u in all_users 
-                                              if u.get("created_at", "") >= (now - timedelta(days=7)).isoformat()]),
-                    "consumption_this_week": len([c for c in all_consumption 
-                                                if c.get("timestamp", c.get("created_at", "")) >= (now - timedelta(days=7)).isoformat()])
-                }
-            }
-        }
-        
-        print(f"[PIAS_CORNER] Successfully generated comprehensive analytics")
-        print(f"[PIAS_CORNER] Total patients: {patient_count}, Active users: {len(active_users)}")
-        
-        return comprehensive_data
-        
-    except Exception as e:
-        print(f"[PIAS_CORNER] Error generating comprehensive analytics: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to generate analytics: {str(e)}")
 
 @router.get("/admin/analytics/nutrient-trends")
 async def get_nutrient_trends(days: int = 30, current_user: User = Depends(get_current_user)):

@@ -108,7 +108,7 @@ const Navigation = () => {
   // Add admin panel link if user is admin
   if (userInfo?.is_admin) {
     menuItems.push({ text: 'Admin Panel', icon: <AdminPanelSettingsIcon />, path: '/admin' });
-    menuItems.push({ text: 'Pia\'s Corner', icon: <Psychology />, path: '/admin/pias-corner' });
+
   }
 
   const handleLogout = () => {

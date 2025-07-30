@@ -192,14 +192,7 @@ const AdminPanel: React.FC = () => {
             Admin Panel
           </Typography>
           <Box sx={{ display: 'flex', gap: 2 }}>
-            <Button
-              variant="outlined"
-              color="secondary"
-              onClick={() => navigate('/admin/pias-corner')}
-              startIcon={<Psychology />}
-            >
-              Pia's Corner
-            </Button>
+
             <Button
               variant="contained"
               color="primary"

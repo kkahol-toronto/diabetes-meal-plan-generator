@@ -10,7 +10,7 @@ import Chat from './components/Chat';
 import AdminLogin from './components/AdminLogin';
 import AdminPanel from './components/AdminPanel';
 import AdminPatientProfile from './components/AdminPatientProfile';
-import PiasCorner from './components/PiasCorner';
+
 import Navigation from './components/Navigation';
 import ThankYou from './components/ThankYou';
 import AllRecipesPage from './pages/AllRecipesPage';
@@ -305,14 +305,7 @@ function App() {
               </AdminRoute>
             }
           />
-          <Route
-            path="/admin/pias-corner"
-            element={
-              <AdminRoute>
-                <PiasCorner />
-              </AdminRoute>
-            }
-          />
+
           
           {/* Other User Protected Routes */}
           <Route
