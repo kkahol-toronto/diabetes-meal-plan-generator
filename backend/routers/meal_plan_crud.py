@@ -254,7 +254,11 @@ async def cleanup_meal_plans(current_user: User = Depends(get_current_user)):
         from services.consumption_analysis import get_today_consumption_records_async
         today_consumption = await get_today_consumption_records_async(user_email, profile.get("timezone", "UTC"))
         calories_consumed = sum(r.get("nutritional_info", {}).get("calories", 0) for r in today_consumption)
-        target_calories = int(profile.get('calorieTarget', '2000'))
+        calorie_target_str = profile.get('calorieTarget', '2000')
+        try:
+            target_calories = int(calorie_target_str) if calorie_target_str and calorie_target_str.strip() else 2000
+        except (ValueError, TypeError):
+            target_calories = 2000
         remaining_calories = max(0, target_calories - calories_consumed)
         
         # Get dietary restrictions

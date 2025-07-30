@@ -157,7 +157,11 @@ async def _generate_fresh_dietary_plan(
         # Get today's consumption for calorie calculation
         today_consumption = await get_today_consumption_records_async(user_email, user_timezone="UTC")
         calories_consumed = sum(r.get("nutritional_info", {}).get("calories", 0) for r in today_consumption)
-        target_calories = int(user_profile.get('calorieTarget', '2000'))
+        calorie_target_str = user_profile.get('calorieTarget', '2000')
+        try:
+            target_calories = int(calorie_target_str) if calorie_target_str and calorie_target_str.strip() else 2000
+        except (ValueError, TypeError):
+            target_calories = 2000
         remaining_calories = max(0, target_calories - calories_consumed)
         
         # Use the optimized fresh generation service

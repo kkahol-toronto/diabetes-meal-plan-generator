@@ -8,6 +8,13 @@ import asyncio
 from functools import lru_cache
 import json
 
+def _safe_int_convert(value: str, default: int) -> int:
+    """Safely convert a string to int, handling empty strings and invalid values."""
+    try:
+        return int(value) if value and str(value).strip() else default
+    except (ValueError, TypeError):
+        return default
+
 # Import only when needed to reduce startup time
 def get_dependencies():
     """Lazy import of heavy dependencies"""
@@ -98,7 +105,7 @@ async def get_todays_meal_plan_ultra_fast(user_email: str, user_profile: dict) -
                     "dinner": templates.get('dinner', ['Balanced dinner'])[0],
                     "snack": templates.get('snacks', ['Healthy snack'])[0]
                 },
-                "dailyCalories": int(user_profile.get('calorieTarget', '2000')),
+                "dailyCalories": _safe_int_convert(user_profile.get('calorieTarget', '2000'), 2000),
                 "created_at": datetime.utcnow().isoformat(),
                 "optimization_note": "⚡ Generated with preloaded templates for maximum speed"
             }
@@ -134,7 +141,7 @@ async def create_adaptive_meal_plan_ultra_fast(user_email: str, user_profile: di
         
         # Get basic parameters quickly
         days = min(int(payload.get("days", 3)), 7)  # Cap at 7 days for speed
-        target_calories = int(user_profile.get("calorieTarget", "2000"))
+        target_calories = _safe_int_convert(user_profile.get("calorieTarget", "2000"), 2000)
         
         # Fast dietary analysis
         dietary_features = user_profile.get("dietaryFeatures", [])

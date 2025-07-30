@@ -765,7 +765,11 @@ Ensure ALL dishes are completely vegetarian and egg-free. Do not include any mea
             # Use the new comprehensive recalibration system
             today_consumption = await get_today_consumption_records_async(current_user["email"], user_timezone="UTC")
             calories_consumed = sum(r.get("nutritional_info", {}).get("calories", 0) for r in today_consumption)
-            target_calories = int(profile.get('calorieTarget', '2000'))
+            calorie_target_str = profile.get('calorieTarget', '2000')
+            try:
+                target_calories = int(calorie_target_str) if calorie_target_str and calorie_target_str.strip() else 2000
+            except (ValueError, TypeError):
+                target_calories = 2000
             remaining_calories = max(0, target_calories - calories_consumed)
             
             # Generate fresh adaptive meal plan
@@ -1019,8 +1023,8 @@ async def create_adaptive_meal_plan_legacy(
         lab_values = user_profile.get("labValues", {})
         
         try:
-            target_calories = int(calorie_target)
-        except:
+            target_calories = int(calorie_target) if calorie_target and calorie_target.strip() else 2000
+        except (ValueError, TypeError):
             target_calories = int(avg_daily_calories) if avg_daily_calories > 1200 else 2000
         
         # CRITICAL: Enhanced dietary restriction detection for patterns like "Vegetarian (no eggs)"
@@ -2133,7 +2137,11 @@ async def get_smart_daily_meal_plan(current_user: User = Depends(get_current_use
         print(f"[smart_daily_meal_plan] Found {len(today_consumption)} consumption records today")
         
         # Get user's target calories and dietary preferences
-        target_calories = int(profile.get('calorieTarget', '2000'))
+        calorie_target_str = profile.get('calorieTarget', '2000')
+        try:
+            target_calories = int(calorie_target_str) if calorie_target_str and calorie_target_str.strip() else 2000
+        except (ValueError, TypeError):
+            target_calories = 2000
         dietary_restrictions = profile.get('dietaryRestrictions', [])
         food_preferences = profile.get('foodPreferences', [])
         strong_dislikes = profile.get('strongDislikes', [])

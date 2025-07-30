@@ -56,6 +56,17 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 # ============================================================================
+# HELPER FUNCTIONS
+# ============================================================================
+
+def _safe_int_convert(value: str, default: int) -> int:
+    """Safely convert a string to int, handling empty strings and invalid values."""
+    try:
+        return int(value) if value and str(value).strip() else default
+    except (ValueError, TypeError):
+        return default
+
+# ============================================================================
 # FALLBACK MEAL PLAN AND RECIPE GENERATION FUNCTIONS
 # ============================================================================
 
@@ -125,7 +136,7 @@ def generate_fallback_meal_plan(user_profile: dict, days: int = 7) -> dict:
         "lunch": lunch_options[:days],
         "dinner": dinner_options[:days],
         "snacks": snack_options[:days],
-        "dailyCalories": int(user_profile.get('calorieTarget', 2000)),
+                    "dailyCalories": _safe_int_convert(user_profile.get('calorieTarget'), 2000),
         "macronutrients": {
             "protein": 100,
             "carbs": 250,
