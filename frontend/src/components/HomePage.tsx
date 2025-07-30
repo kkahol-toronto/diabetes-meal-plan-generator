@@ -954,7 +954,7 @@ const HomePage: React.FC = () => {
     fetchAllData();
     fetchConsumptionAnalytics(selectedTimeRange); // Initial fetch for consumption analytics
     fetchMacroConsumptionAnalytics(macroTimeRange); // Initial fetch for macro analytics
-    fetchMealAnalytics(macroTimeRange); // Initial fetch for meal analytics
+    fetchMealAnalytics(selectedTimeRange); // Fix: Use selectedTimeRange for Advanced Nutritional Analysis
     // Auto-refresh every 5 minutes
     const interval = setInterval(fetchAllData, 5 * 60 * 1000);
     return () => clearInterval(interval);
@@ -967,8 +967,9 @@ const HomePage: React.FC = () => {
       fetchAllData();
       fetchConsumptionAnalytics(selectedTimeRange);
       fetchMacroConsumptionAnalytics(macroTimeRange);
+      fetchMealAnalytics(selectedTimeRange); // Fix: Also refresh meal analytics with correct time range
     }
-  }, [state.foodLoggedTrigger, fetchAllData, fetchConsumptionAnalytics, selectedTimeRange, fetchMacroConsumptionAnalytics, macroTimeRange]);
+  }, [state.foodLoggedTrigger, fetchAllData, fetchConsumptionAnalytics, selectedTimeRange, fetchMacroConsumptionAnalytics, macroTimeRange, fetchMealAnalytics]);
 
   // Carousel auto-cycling effect
   useEffect(() => {
@@ -1623,7 +1624,40 @@ const HomePage: React.FC = () => {
       if (!todayData) return null;
 
       // For daily view, use real meal analytics data instead of estimates - FIXED
-      if (!mealAnalytics?.meal_breakdown) return null;
+      if (!mealAnalytics?.meal_breakdown) {
+        // Fallback: if meal analytics not available, try to use today's total data if available
+        if (todayData && todayData[metric] > 0) {
+          // Distribute the daily total across meals for visualization (approximate)
+          const dailyTotal = todayData[metric];
+          const approximateValues = [
+            dailyTotal * 0.25, // breakfast
+            dailyTotal * 0.35, // lunch  
+            dailyTotal * 0.35, // dinner
+            dailyTotal * 0.05  // snack
+          ];
+          
+          return {
+            labels: mealLabels,
+            datasets: [{
+              label: `${chartConfig?.title || metric} by Meal (Estimated)`,
+              data: approximateValues,
+              backgroundColor: analyticsChartType === 'line' ? 'rgba(0,0,0,0.05)' : 
+                               analyticsChartType === 'area' ? mealColors.map(c => `${c}30`) : mealColors,
+              borderColor: analyticsChartType === 'line' ? color : mealColors,
+              borderWidth: 2,
+              borderDash: [5, 5], // Dashed lines to indicate estimated data
+              fill: analyticsChartType === 'area',
+              tension: 0.4,
+              pointBackgroundColor: analyticsChartType === 'line' ? color : mealColors,
+              pointBorderColor: '#fff',
+              pointBorderWidth: 2,
+              pointRadius: 4,
+              pointHoverRadius: 6
+            }]
+          };
+        }
+        return null;
+      }
       
       const mealBreakdown = mealAnalytics.meal_breakdown;
       const values = mealTypes.map(mealType => {
@@ -1632,7 +1666,19 @@ const HomePage: React.FC = () => {
       
       // Check if we have any real data to show
       const totalConsumed = values.reduce((sum, val) => sum + val, 0);
-      if (totalConsumed === 0) return null;
+      if (totalConsumed === 0) {
+        // Show a message that no data is available rather than hiding the chart
+        return {
+          labels: mealLabels,
+          datasets: [{
+            label: `${chartConfig?.title || metric} by Meal - No Data`,
+            data: [0, 0, 0, 0],
+            backgroundColor: ['#f0f0f0', '#f0f0f0', '#f0f0f0', '#f0f0f0'],
+            borderColor: ['#d0d0d0', '#d0d0d0', '#d0d0d0', '#d0d0d0'],
+            borderWidth: 1
+          }]
+        };
+      }
 
       return {
         labels: mealLabels,
@@ -3511,6 +3557,7 @@ const HomePage: React.FC = () => {
                   if (newTimeRange) {
                     setSelectedTimeRange(newTimeRange);
                     fetchConsumptionAnalytics(newTimeRange);
+                    fetchMealAnalytics(newTimeRange); // Fix: Also fetch meal analytics for Advanced Nutritional Analysis
                   }
                 }}
                 aria-label="time range selection"
