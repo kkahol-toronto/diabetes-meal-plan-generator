@@ -875,11 +875,12 @@ async def view_meal_plans(user_id: str):
 def log_debug(msg):
     print(f"[DEBUG] {msg}") 
 
-async def save_consumption_record(user_id: str, consumption_data: dict, meal_type: str | None = None):
+async def save_consumption_record(user_id: str, consumption_data: dict, meal_type: str | None = None, user_timezone: str = "UTC"):
     """Save a consumption history record to the database"""
     try:
         print(f"[save_consumption_record] Starting save for user {user_id}")
         print(f"[save_consumption_record] Consumption data: {consumption_data}")
+        print(f"[save_consumption_record] User timezone: {user_timezone}")
         
         # Generate a unique session ID for this consumption record
         session_id = f"consumption_{user_id}_{datetime.utcnow().timestamp()}"
@@ -888,25 +889,22 @@ async def save_consumption_record(user_id: str, consumption_data: dict, meal_typ
         if not meal_type:
             meal_type = consumption_data.get("meal_type", "")
         
-        # If meal_type is still empty, determine based on current time
+        # If meal_type is still empty, determine based on current time using user's actual timezone
         if not meal_type or meal_type == "":
-            # Use local time for meal type determination
-            # For now, we'll use a simple offset approach since we don't have timezone info here
-            # TODO: Pass timezone information to this function
             current_time = datetime.utcnow()
             
-            # Assume most users are in US timezones (EST/PST), so subtract 5-8 hours from UTC
-            # This is a rough approximation - in a production system, we'd store user timezone
+            # Use the user's actual timezone from their profile, not hardcoded assumptions
             import pytz
             try:
-                # Default to US Eastern timezone as a reasonable assumption
-                eastern = pytz.timezone('America/New_York')
+                user_tz = pytz.timezone(user_timezone)
                 utc_time = current_time.replace(tzinfo=pytz.utc)
-                local_time = utc_time.astimezone(eastern)
+                local_time = utc_time.astimezone(user_tz)
                 hour = local_time.hour
-            except:
+                print(f"[save_consumption_record] Using user timezone {user_timezone}: {local_time} (hour: {hour})")
+            except Exception as tz_error:
                 # Fallback to UTC if timezone conversion fails
                 hour = current_time.hour
+                print(f"[save_consumption_record] Timezone conversion failed, using UTC: {tz_error}")
             
             if 5 <= hour < 11:
                 meal_type = "breakfast"

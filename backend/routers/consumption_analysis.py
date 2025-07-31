@@ -193,7 +193,9 @@ async def analyze_and_record_food(
         
         # Save to consumption history
         print(f"[analyze_and_record_food] Attempting to save consumption record for user {current_user['id']}")
-        consumption_record = await save_consumption_record(current_user["email"], consumption_data, meal_type=meal_type or "")
+        # Get user timezone for proper meal type determination
+        user_timezone = current_user.get("profile", {}).get("timezone", "UTC")
+        consumption_record = await save_consumption_record(current_user["email"], consumption_data, meal_type=meal_type or "", user_timezone=user_timezone)
         print(f"[analyze_and_record_food] Successfully saved consumption record with ID: {consumption_record['id']}")
         
         # Also save to chat if session_id is provided
