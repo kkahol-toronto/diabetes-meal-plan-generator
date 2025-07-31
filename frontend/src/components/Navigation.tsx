@@ -28,6 +28,7 @@ import { Psychology } from '@mui/icons-material';
 import AccountCircleIcon from '@mui/icons-material/AccountCircle';
 import HistoryIcon from '@mui/icons-material/History';
 import SettingsIcon from '@mui/icons-material/Settings';
+import AnalyticsIcon from '@mui/icons-material/Analytics';
 import { isTokenExpired } from '../utils/auth';
 import { useApp } from '../contexts/AppContext';
 import ShoppingCartIcon from '@mui/icons-material/ShoppingCart';
@@ -108,7 +109,7 @@ const Navigation = () => {
   // Add admin panel link if user is admin
   if (userInfo?.is_admin) {
     menuItems.push({ text: 'Admin Panel', icon: <AdminPanelSettingsIcon />, path: '/admin' });
-
+    menuItems.push({ text: "Pia's Corner", icon: <AnalyticsIcon />, path: '/admin/analytics' });
   }
 
   const handleLogout = () => {

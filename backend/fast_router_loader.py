@@ -29,7 +29,8 @@ class FastRouterLoader:
             'pending_consumption': ('routers.pending_consumption_system', 'router', ['pending_consumption']),
             'pdf_generation': ('routers.pdf_generation_system', 'router', ['pdf_generation']),
             'coaching_insights': ('routers.coaching_insights_system', 'router', ['coaching_insights']),
-            'consumption_management': ('routers.consumption_management', 'router', ['consumption_management'])
+            'consumption_management': ('routers.consumption_management', 'router', ['consumption_management']),
+            'pias_corner': ('routers.pias_corner', 'router', ['admin_analytics'])
         }
     
     @lru_cache(maxsize=32)
