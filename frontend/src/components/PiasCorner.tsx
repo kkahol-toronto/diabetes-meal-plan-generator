@@ -37,6 +37,7 @@ import {
   Button,
   TableSortLabel,
   Badge,
+  IconButton,
 } from '@mui/material';
 import {
   TrendingUp,
@@ -61,6 +62,8 @@ import {
   Visibility,
   CalendarToday,
   NoteAdd,
+  Email as EmailIcon,
+  Check as CheckIcon,
 } from '@mui/icons-material';
 import {
   Chart as ChartJS,
@@ -1868,36 +1871,393 @@ const PiasCorner: React.FC = () => {
               <CircularProgress />
             </Box>
           ) : engagementData || !engagementData ? (
-            // Show charts with default data if no data loaded yet
+            // Enhanced Engagement Metrics with Funnel Analysis and Missed Log Tracking
             <Grid container spacing={3}>
-              {/* Login Frequency Over Time - Line Chart */}
+              {/* Engagement Funnel Chart */}
               <Grid item xs={12} md={6}>
                 <Card>
                   <CardContent>
                     <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
-                      <AccessTime sx={{ mr: 1, color: 'primary.main' }} />
-                      Login Frequency Over Time
+                      <Timeline sx={{ mr: 1, color: 'primary.main' }} />
+                      Engagement Funnel Analysis
                     </Typography>
-                    <Box sx={{ height: 300 }}>
+                    <Box sx={{ height: 350, p: 2, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                      {/* Custom Funnel Chart */}
+                      {engagementData?.funnel_analysis?.stages?.map((stage: any, index: number) => {
+                        const isBottleneck = engagementData?.funnel_analysis?.bottlenecks?.includes(stage.name);
+                        const width = Math.max(20, stage.percentage); // Minimum width for visibility
+                        return (
+                          <Box key={index} sx={{ mb: 1, cursor: 'pointer', '&:hover': { opacity: 0.8 } }}>
+                            <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.5 }}>
+                              <Typography variant="body2" sx={{ minWidth: 120, fontSize: '0.875rem' }}>
+                                {stage.name}
+                              </Typography>
+                              <Box 
+                                sx={{ 
+                                  width: `${width}%`,
+                                  height: 32,
+                                  background: isBottleneck 
+                                    ? 'linear-gradient(45deg, #f44336, #ff7961)'
+                                    : index === 0 
+                                      ? 'linear-gradient(45deg, #4caf50, #81c784)'
+                                      : 'linear-gradient(45deg, #2196f3, #64b5f6)',
+                                  borderRadius: 1,
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  color: 'white',
+                                  fontWeight: 'bold',
+                                  fontSize: '0.75rem',
+                                  position: 'relative',
+                                  ml: 1
+                                }}
+                              >
+                                {stage.count} ({stage.percentage}%)
+                                {stage.conversion_rate && (
+                                  <Typography 
+                                    variant="caption" 
+                                    sx={{ 
+                                      position: 'absolute', 
+                                      right: -30, 
+                                      top: -15, 
+                                      bgcolor: isBottleneck ? 'error.main' : 'success.main',
+                                      color: 'white',
+                                      px: 0.5,
+                                      borderRadius: 0.5,
+                                      fontSize: '0.625rem'
+                                    }}
+                                  >
+                                    {stage.conversion_rate}%
+                                  </Typography>
+                                )}
+                              </Box>
+                            </Box>
+                          </Box>
+                        );
+                      }) || (
+                        // Default funnel data
+                        [
+                          { name: 'Registration', count: 120, percentage: 100, conversion_rate: null },
+                          { name: 'First Login', count: 98, percentage: 82, conversion_rate: 82 },
+                          { name: 'Daily Logging', count: 75, percentage: 63, conversion_rate: 77 },
+                          { name: 'Trend Reporting', count: 52, percentage: 43, conversion_rate: 69 },
+                          { name: 'Long-term Engagement', count: 38, percentage: 32, conversion_rate: 73 }
+                        ].map((stage, index) => {
+                          const isBottleneck = ['First Login', 'Daily Logging'].includes(stage.name);
+                          const width = Math.max(20, stage.percentage);
+                          return (
+                            <Box key={index} sx={{ mb: 1, cursor: 'pointer', '&:hover': { opacity: 0.8 } }}>
+                              <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.5 }}>
+                                <Typography variant="body2" sx={{ minWidth: 120, fontSize: '0.875rem' }}>
+                                  {stage.name}
+                                </Typography>
+                                <Box 
+                                  sx={{ 
+                                    width: `${width}%`,
+                                    height: 32,
+                                    background: isBottleneck 
+                                      ? 'linear-gradient(45deg, #f44336, #ff7961)'
+                                      : index === 0 
+                                        ? 'linear-gradient(45deg, #4caf50, #81c784)'
+                                        : 'linear-gradient(45deg, #2196f3, #64b5f6)',
+                                    borderRadius: 1,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    color: 'white',
+                                    fontWeight: 'bold',
+                                    fontSize: '0.75rem',
+                                    position: 'relative',
+                                    ml: 1
+                                  }}
+                                >
+                                  {stage.count} ({stage.percentage}%)
+                                  {stage.conversion_rate && (
+                                    <Typography 
+                                      variant="caption" 
+                                      sx={{ 
+                                        position: 'absolute', 
+                                        right: -30, 
+                                        top: -15, 
+                                        bgcolor: isBottleneck ? 'error.main' : 'success.main',
+                                        color: 'white',
+                                        px: 0.5,
+                                        borderRadius: 0.5,
+                                        fontSize: '0.625rem'
+                                      }}
+                                    >
+                                      {stage.conversion_rate}%
+                                    </Typography>
+                                  )}
+                                </Box>
+                              </Box>
+                            </Box>
+                          );
+                        })
+                      )}
+                      <Typography variant="caption" color="text.secondary" sx={{ mt: 2 }}>
+                        Click stages to view patient details • Red indicates bottlenecks
+                      </Typography>
+                    </Box>
+                  </CardContent>
+                </Card>
+              </Grid>
+
+              {/* Missed Logs Calendar Heatmap */}
+              <Grid item xs={12} md={6}>
+                <Card>
+                  <CardContent>
+                    <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
+                      <CalendarToday sx={{ mr: 1, color: 'primary.main' }} />
+                      Missed Logs Calendar (Last 30 Days)
+                    </Typography>
+                    <Box sx={{ height: 350, p: 1 }}>
+                      {/* Calendar Header */}
+                      <Box sx={{ display: 'flex', gap: 0.5, mb: 1 }}>
+                        {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((day, i) => (
+                          <Typography key={i} variant="caption" sx={{ width: 30, textAlign: 'center', fontWeight: 'bold' }}>
+                            {day}
+                          </Typography>
+                        ))}
+                      </Box>
+                      
+                      {/* Calendar Grid */}
+                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, maxWidth: 220 }}>
+                        {(engagementData?.missed_logs_analysis?.calendar_heatmap || Array.from({ length: 30 }, (_, i) => {
+                          const totalPatients = 45;
+                          const missedCount = Math.floor(Math.random() * 15) + 2;
+                          return {
+                            date: new Date(Date.now() - (29 - i) * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+                            missed_count: missedCount,
+                            total_patients: totalPatients,
+                            percentage: Math.round((missedCount / totalPatients) * 100 * 10) / 10
+                          };
+                        })).map((day: any, index: number) => {
+                          const intensity = day.percentage / 40; // Normalize to 0-1 range (40% max for color)
+                          const isWeekend = new Date(day.date).getDay() % 6 === 0;
+                          return (
+                            <Box
+                              key={index}
+                              sx={{
+                                width: 28,
+                                height: 28,
+                                backgroundColor: intensity > 0.7 
+                                  ? '#d32f2f' 
+                                  : intensity > 0.4 
+                                    ? '#ff9800' 
+                                    : intensity > 0.2 
+                                      ? '#ffeb3b' 
+                                      : '#4caf50',
+                                border: '1px solid #e0e0e0',
+                                borderRadius: 1,
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                fontSize: '0.625rem',
+                                color: intensity > 0.4 ? 'white' : 'black',
+                                cursor: 'pointer',
+                                '&:hover': {
+                                  transform: 'scale(1.1)',
+                                  zIndex: 1,
+                                  boxShadow: 2
+                                }
+                              }}
+                              title={`${day.date}: ${day.missed_count}/${day.total_patients} patients missed logs (${day.percentage}%)`}
+                            >
+                              {day.missed_count}
+                            </Box>
+                          );
+                        })}
+                      </Box>
+                      
+                      {/* Legend */}
+                      <Box sx={{ mt: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Typography variant="caption" color="text.secondary">
+                          Less
+                        </Typography>
+                        {[0, 0.2, 0.4, 0.6, 0.8].map((level, i) => (
+                          <Box
+                            key={i}
+                            sx={{
+                              width: 12,
+                              height: 12,
+                              backgroundColor: level > 0.6 
+                                ? '#d32f2f' 
+                                : level > 0.3 
+                                  ? '#ff9800' 
+                                  : level > 0.1 
+                                    ? '#ffeb3b' 
+                                    : '#4caf50',
+                              border: '1px solid #e0e0e0',
+                              borderRadius: 1
+                            }}
+                          />
+                        ))}
+                        <Typography variant="caption" color="text.secondary">
+                          More
+                        </Typography>
+                      </Box>
+
+                      {/* Weekly Pattern Summary */}
+                      <Box sx={{ mt: 2 }}>
+                        <Typography variant="caption" sx={{ fontWeight: 'bold', display: 'block', mb: 1 }}>
+                          Weekly Pattern:
+                        </Typography>
+                        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                          {Object.entries(engagementData?.missed_logs_analysis?.weekly_patterns || {
+                            monday: 15, tuesday: 12, wednesday: 18, thursday: 14,
+                            friday: 22, saturday: 28, sunday: 31
+                          }).map(([day, count]) => (
+                            <Typography key={day} variant="caption" sx={{ 
+                              bgcolor: (count as number) > 25 ? 'error.light' : 'success.light',
+                              color: (count as number) > 25 ? 'error.dark' : 'success.dark',
+                              px: 0.5,
+                              borderRadius: 0.5,
+                              fontSize: '0.6rem'
+                            }}>
+                              {`${day.slice(0, 3)}: ${count}`}
+                            </Typography>
+                          ))}
+                        </Box>
+                      </Box>
+                    </Box>
+                  </CardContent>
+                </Card>
+              </Grid>
+
+              {/* Irregular Reporting Alerts Table */}
+              <Grid item xs={12}>
+                <Card>
+                  <CardContent>
+                    <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
+                      <Warning sx={{ mr: 1, color: 'primary.main' }} />
+                      Irregular Reporting Alerts
+                    </Typography>
+                    <TableContainer>
+                      <Table size="small">
+                        <TableHead>
+                          <TableRow>
+                            <TableCell>Patient</TableCell>
+                            <TableCell align="right">Days Since Last Log</TableCell>
+                            <TableCell align="right">Avg Gap (Days)</TableCell>
+                            <TableCell align="right">Consistency Score</TableCell>
+                            <TableCell align="center">Risk Level</TableCell>
+                            <TableCell align="center">Actions</TableCell>
+                          </TableRow>
+                        </TableHead>
+                        <TableBody>
+                          {(engagementData?.irregular_reporting || [
+                            { patient_id: "p001", patient_name: "John Smith", days_since_last_log: 8, avg_gap_days: 3.2, consistency_score: 45, risk_level: "high", last_login: "2024-01-07" },
+                            { patient_id: "p002", patient_name: "Sarah Johnson", days_since_last_log: 4, avg_gap_days: 2.1, consistency_score: 72, risk_level: "medium", last_login: "2024-01-11" },
+                            { patient_id: "p003", patient_name: "Michael Brown", days_since_last_log: 15, avg_gap_days: 5.8, consistency_score: 28, risk_level: "critical", last_login: "2023-12-31" },
+                            { patient_id: "p004", patient_name: "Emma Davis", days_since_last_log: 6, avg_gap_days: 2.8, consistency_score: 68, risk_level: "medium", last_login: "2024-01-09" },
+                            { patient_id: "p005", patient_name: "David Wilson", days_since_last_log: 12, avg_gap_days: 4.5, consistency_score: 35, risk_level: "critical", last_login: "2024-01-03" }
+                          ]).map((patient: any) => (
+                            <TableRow key={patient.patient_id} hover>
+                              <TableCell>
+                                <Typography variant="body2" sx={{ fontWeight: 'medium' }}>
+                                  {patient.patient_name}
+                                </Typography>
+                                <Typography variant="caption" color="text.secondary">
+                                  ID: {patient.patient_id}
+                                </Typography>
+                              </TableCell>
+                              <TableCell align="right">
+                                <Typography variant="body2" sx={{ 
+                                  color: patient.days_since_last_log > 10 ? 'error.main' : patient.days_since_last_log > 5 ? 'warning.main' : 'text.primary',
+                                  fontWeight: patient.days_since_last_log > 7 ? 'bold' : 'normal'
+                                }}>
+                                  {patient.days_since_last_log}
+                                </Typography>
+                              </TableCell>
+                              <TableCell align="right">{patient.avg_gap_days}</TableCell>
+                              <TableCell align="right">
+                                <Typography variant="body2" sx={{ 
+                                  color: patient.consistency_score < 40 ? 'error.main' : patient.consistency_score < 70 ? 'warning.main' : 'success.main'
+                                }}>
+                                  {patient.consistency_score}%
+                                </Typography>
+                              </TableCell>
+                              <TableCell align="center">
+                                <Chip 
+                                  label={patient.risk_level.toUpperCase()}
+                                  size="small"
+                                  color={patient.risk_level === 'critical' ? 'error' : patient.risk_level === 'high' ? 'warning' : 'default'}
+                                  variant={patient.risk_level === 'critical' ? 'filled' : 'outlined'}
+                                />
+                              </TableCell>
+                              <TableCell align="center">
+                                <Box sx={{ display: 'flex', gap: 0.5 }}>
+                                  <IconButton size="small" color="primary" title="Send Reminder">
+                                    <EmailIcon sx={{ fontSize: 16 }} />
+                                  </IconButton>
+                                  <IconButton size="small" color="info" title="View Profile">
+                                    <Person sx={{ fontSize: 16 }} />
+                                  </IconButton>
+                                  <IconButton size="small" color="success" title="Mark Contacted">
+                                    <CheckIcon sx={{ fontSize: 16 }} />
+                                  </IconButton>
+                                </Box>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </TableContainer>
+                  </CardContent>
+                </Card>
+              </Grid>
+
+              {/* Enhanced Engagement Time-Series */}
+              <Grid item xs={12}>
+                <Card>
+                  <CardContent>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                      <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center' }}>
+                        <TrendingUp sx={{ mr: 1, color: 'primary.main' }} />
+                        Enhanced Engagement Trends
+                      </Typography>
+                      <Box sx={{ display: 'flex', gap: 1 }}>
+                        <Button size="small" variant="outlined">Weekly</Button>
+                        <Button size="small" variant="contained">Monthly</Button>
+                      </Box>
+                    </Box>
+                    <Box sx={{ height: 350 }}>
                       <Line
                         data={{
-                          labels: engagementData?.loginLabels || ['Week 1', 'Week 2', 'Week 3', 'Week 4', 'Week 5', 'Week 6', 'Week 7', 'Week 8'],
+                          labels: engagementData?.engagement_timeseries?.labels || ['Week 1', 'Week 2', 'Week 3', 'Week 4', 'Week 5', 'Week 6'],
                           datasets: [
                             {
-                              label: 'Daily Logins',
-                              data: engagementData?.loginFrequency || [3, 5, 4, 6, 7, 5, 6, 8],
-                              borderColor: 'rgb(75, 192, 192)',
-                              backgroundColor: 'rgba(75, 192, 192, 0.2)',
-                              tension: 0.1,
-                              fill: true
+                              label: 'Daily Actives ↗️',
+                              data: engagementData?.engagement_timeseries?.daily_actives?.data || [35, 38, 33, 41, 39, 42],
+                              borderColor: '#4caf50',
+                              backgroundColor: 'rgba(76, 175, 80, 0.1)',
+                              tension: 0.3,
+                              yAxisID: 'y'
                             },
                             {
-                              label: 'Session Duration (min)',
-                              data: engagementData?.sessionDuration || [15, 18, 12, 22, 25, 20, 18, 28],
-                              borderColor: 'rgb(255, 99, 132)',
-                              backgroundColor: 'rgba(255, 99, 132, 0.2)',
-                              tension: 0.1,
+                              label: 'Session Duration (min) ↗️',
+                              data: engagementData?.engagement_timeseries?.session_duration?.data || [15.2, 16.1, 14.8, 17.3, 18.1, 18.9],
+                              borderColor: '#2196f3',
+                              backgroundColor: 'rgba(33, 150, 243, 0.1)',
+                              tension: 0.3,
                               yAxisID: 'y1'
+                            },
+                            {
+                              label: 'Logging Consistency (%) ↗️',
+                              data: engagementData?.engagement_timeseries?.logging_consistency?.data || [68, 72, 65, 75, 78, 81],
+                              borderColor: '#ff9800',
+                              backgroundColor: 'rgba(255, 152, 0, 0.1)',
+                              tension: 0.3,
+                              yAxisID: 'y2'
+                            },
+                            {
+                              label: 'Feature Usage (%) →',
+                              data: engagementData?.engagement_timeseries?.feature_usage?.data || [85, 87, 83, 89, 91, 93],
+                              borderColor: '#9c27b0',
+                              backgroundColor: 'rgba(156, 39, 176, 0.1)',
+                              tension: 0.3,
+                              yAxisID: 'y2'
                             }
                           ]
                         }}
@@ -1920,7 +2280,7 @@ const PiasCorner: React.FC = () => {
                               position: 'left' as const,
                               title: {
                                 display: true,
-                                text: 'Number of Logins'
+                                text: 'Daily Active Users'
                               }
                             },
                             y1: {
@@ -1932,8 +2292,14 @@ const PiasCorner: React.FC = () => {
                               },
                               title: {
                                 display: true,
-                                text: 'Duration (minutes)'
+                                text: 'Session Duration (min)'
                               }
+                            },
+                            y2: {
+                              type: 'linear' as const,
+                              display: false,
+                              min: 0,
+                              max: 100
                             }
                           }
                         }}
@@ -1943,74 +2309,15 @@ const PiasCorner: React.FC = () => {
                 </Card>
               </Grid>
 
-              {/* Weekly Meal Logging Consistency - Bar Chart */}
+              {/* Compact Activity Heatmap */}
               <Grid item xs={12} md={6}>
-                <Card>
-                  <CardContent>
-                    <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
-                      <Restaurant sx={{ mr: 1, color: 'primary.main' }} />
-                      Weekly Meal Logging Consistency
-                    </Typography>
-                    <Box sx={{ height: 300 }}>
-                      <Bar
-                        data={{
-                          labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
-                          datasets: [
-                            {
-                              label: 'Meals Logged',
-                              data: engagementData?.mealLogging || [3, 3, 2, 3, 3, 2, 2],
-                              backgroundColor: 'rgba(54, 162, 235, 0.8)',
-                              borderColor: 'rgba(54, 162, 235, 1)',
-                              borderWidth: 1
-                            },
-                            {
-                              label: 'Expected Meals',
-                              data: [3, 3, 3, 3, 3, 3, 3],
-                              backgroundColor: 'rgba(201, 203, 207, 0.3)',
-                              borderColor: 'rgba(201, 203, 207, 1)',
-                              borderWidth: 1
-                            }
-                          ]
-                        }}
-                        options={{
-                          responsive: true,
-                          maintainAspectRatio: false,
-                          plugins: {
-                            legend: {
-                              position: 'top' as const,
-                            },
-                            tooltip: {
-                              mode: 'index' as const,
-                              intersect: false,
-                            }
-                          },
-                          scales: {
-                            y: {
-                              beginAtZero: true,
-                              max: 4,
-                              title: {
-                                display: true,
-                                text: 'Number of Meals'
-                              }
-                            }
-                          }
-                        }}
-                      />
-                    </Box>
-                  </CardContent>
-                </Card>
-              </Grid>
-
-              {/* Activity Heatmap Calendar View */}
-              <Grid item xs={12}>
                 <Card>
                   <CardContent>
                     <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
                       <LocalActivity sx={{ mr: 1, color: 'primary.main' }} />
                       Activity Heatmap - Recent 30 Days
                     </Typography>
-                    <Box sx={{ height: 200, p: 2 }}>
-                      {/* Activity Calendar Grid */}
+                    <Box sx={{ height: 120, p: 1 }}>
                       <Grid container spacing={0.5}>
                         {Array.from({ length: 30 }, (_, i) => {
                           const activityLevel = engagementData?.activityHeatmap?.[i] || Math.floor(Math.random() * 5);
@@ -2019,15 +2326,15 @@ const PiasCorner: React.FC = () => {
                             <Grid item key={i}>
                               <Box
                                 sx={{
-                                  width: 24,
-                                  height: 24,
+                                  width: 20,
+                                  height: 20,
                                   backgroundColor: `rgba(75, 192, 192, ${intensity})`,
                                   border: '1px solid #e0e0e0',
                                   borderRadius: 1,
                                   display: 'flex',
                                   alignItems: 'center',
                                   justifyContent: 'center',
-                                  fontSize: 10,
+                                  fontSize: 8,
                                   color: intensity > 0.5 ? 'white' : 'text.primary',
                                   cursor: 'pointer',
                                   '&:hover': {
@@ -2043,32 +2350,12 @@ const PiasCorner: React.FC = () => {
                           );
                         })}
                       </Grid>
-                      <Box sx={{ mt: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <Typography variant="caption" color="text.secondary">
-                          Less
-                        </Typography>
-                        {[0, 1, 2, 3, 4].map((level) => (
-                          <Box
-                            key={level}
-                            sx={{
-                              width: 12,
-                              height: 12,
-                              backgroundColor: `rgba(75, 192, 192, ${level / 4})`,
-                              border: '1px solid #e0e0e0',
-                              borderRadius: 1
-                            }}
-                          />
-                        ))}
-                        <Typography variant="caption" color="text.secondary">
-                          More
-                        </Typography>
-                      </Box>
                     </Box>
                   </CardContent>
                 </Card>
               </Grid>
 
-              {/* Feature Usage Breakdown - Doughnut Chart */}
+              {/* Feature Usage Breakdown - Compact */}
               <Grid item xs={12} md={6}>
                 <Card>
                   <CardContent>
@@ -2076,7 +2363,7 @@ const PiasCorner: React.FC = () => {
                       <EmojiEvents sx={{ mr: 1, color: 'primary.main' }} />
                       Feature Usage Breakdown
                     </Typography>
-                    <Box sx={{ height: 300, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+                    <Box sx={{ height: 200, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
                       <Doughnut
                         data={{
                           labels: ['Meal Plans', 'AI Coach', 'Progress Tracking', 'Recipes', 'Shopping Lists'],
@@ -2104,61 +2391,13 @@ const PiasCorner: React.FC = () => {
                           maintainAspectRatio: false,
                           plugins: {
                             legend: {
-                              position: 'right' as const,
+                              position: 'bottom' as const,
                             },
                             tooltip: {
                               callbacks: {
                                 label: function(context) {
                                   return `${context.label}: ${context.parsed}%`;
                                 }
-                              }
-                            }
-                          }
-                        }}
-                      />
-                    </Box>
-                  </CardContent>
-                </Card>
-              </Grid>
-
-              {/* Engagement Score Trends */}
-              <Grid item xs={12} md={6}>
-                <Card>
-                  <CardContent>
-                    <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
-                      <TrendingUp sx={{ mr: 1, color: 'primary.main' }} />
-                      Engagement Score Trends
-                    </Typography>
-                    <Box sx={{ height: 300 }}>
-                      <Line
-                        data={{
-                          labels: engagementData?.scoreLabels || ['Week 1', 'Week 2', 'Week 3', 'Week 4', 'Week 5', 'Week 6'],
-                          datasets: [
-                            {
-                              label: 'Overall Engagement Score',
-                              data: engagementData?.engagementScore || [65, 70, 68, 75, 80, 82],
-                              borderColor: 'rgb(255, 159, 64)',
-                              backgroundColor: 'rgba(255, 159, 64, 0.2)',
-                              tension: 0.4,
-                              fill: true
-                            }
-                          ]
-                        }}
-                        options={{
-                          responsive: true,
-                          maintainAspectRatio: false,
-                          plugins: {
-                            legend: {
-                              position: 'top' as const,
-                            }
-                          },
-                          scales: {
-                            y: {
-                              beginAtZero: true,
-                              max: 100,
-                              title: {
-                                display: true,
-                                text: 'Engagement Score (%)'
                               }
                             }
                           }
