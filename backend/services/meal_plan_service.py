@@ -399,8 +399,8 @@ async def _generate_ai_meal_plan(
     cuisine_preference = req_cuisine if req_cuisine else ', '.join(dietary_info["diet_type"]) if dietary_info["diet_type"] else 'Mixed international'
     target_calories = analysis["target_calories"]
     
-    # Streamlined prompt for faster processing
-    prompt = f"""Create a {req_days}-day diabetes meal plan:
+    # Enhanced prompt for variety and creativity
+    prompt = f"""Create a {req_days}-day diabetes meal plan with MAXIMUM VARIETY:
 
 USER PROFILE:
 - Cuisine: {cuisine_preference}
@@ -410,10 +410,13 @@ USER PROFILE:
 - Target calories: {target_calories}/day
 - Adherence rate: {analysis['adherence_rate']:.0f}%
 
-REQUIREMENTS:
+CRITICAL REQUIREMENTS:
 {'- VEGETARIAN: No meat, poultry, fish, seafood' if dietary_info['is_vegetarian'] else ''}
 {'- NO EGGS: Avoid eggs and egg-based dishes' if dietary_info['no_eggs'] else ''}
+- MAXIMUM VARIETY: Every single meal must be completely different - NO REPETITION
+- Each breakfast, lunch, dinner, and snack should be unique and creative
 - Diabetes-friendly (low glycemic index)
+- Use diverse cooking methods, ingredients, and flavor profiles
 - Specific dish names with portions
 
 Return JSON:
@@ -421,56 +424,235 @@ Return JSON:
     "plan_name": "Adaptive Plan - {datetime.now().strftime('%Y-%m-%d')}",
     "duration_days": {req_days},
     "dailyCalories": {target_calories},
-    "breakfast": ["{req_days} specific breakfast dishes"],
-    "lunch": ["{req_days} specific lunch dishes"], 
-    "dinner": ["{req_days} specific dinner dishes"],
-    "snacks": ["{req_days} specific snacks"],
+    "breakfast": ["{req_days} COMPLETELY DIFFERENT breakfast dishes"],
+    "lunch": ["{req_days} COMPLETELY DIFFERENT lunch dishes"], 
+    "dinner": ["{req_days} COMPLETELY DIFFERENT dinner dishes"],
+    "snacks": ["{req_days} COMPLETELY DIFFERENT snacks"],
+    "macronutrients": {{
+        "protein": 25,
+        "carbs": 45,
+        "fats": 30
+    }},
     "adaptations": ["Brief adaptation notes"],
     "coaching_notes": "Brief coaching advice"
 }}"""
 
     try:
+        print(f"[ai_meal_plan] Attempt 1/2 - Calling OpenAI API...")
         api_result = await robust_openai_call(
             messages=[
-                {"role": "system", "content": f"You are a dietitian specializing in {cuisine_preference} diabetes meal planning. Always respond with valid JSON."},
+                {"role": "system", "content": f"You are a dietitian specializing in {cuisine_preference} diabetes meal planning. Always respond with valid JSON matching the exact structure requested."},
                 {"role": "user", "content": prompt}
             ],
-            max_tokens=1000,  # Reduced for faster response
+            max_tokens=1500,  # Increased for complete response
             temperature=0.7,
-            max_retries=2,    # Reduced for faster response
-            timeout=30,       # Shorter timeout
+            max_retries=1,    
+            timeout=45,       # Longer timeout for complete response
             context="adaptive_meal_plan"
         )
         
-        if api_result["success"]:
-            start_idx = api_result["content"].find('{')
-            end_idx = api_result["content"].rfind('}') + 1
+        print(f"[ai_meal_plan] API result success: {api_result.get('success', False)}")
+        if api_result.get("success"):
+            content = api_result.get("content", "")
+            print(f"[ai_meal_plan] API response length: {len(content)}")
+            print(f"[ai_meal_plan] API response preview: {content[:200]}...")
+            
+            if content.strip():
+                start_idx = content.find('{')
+                end_idx = content.rfind('}') + 1
+                if start_idx != -1 and end_idx != -1:
+                    json_str = content[start_idx:end_idx]
+                    try:
+                        meal_plan = json.loads(json_str)
+                        print(f"[ai_meal_plan] Successfully parsed JSON meal plan")
+                        return meal_plan
+                    except json.JSONDecodeError as json_err:
+                        print(f"[ai_meal_plan] JSON parsing error: {json_err}")
+                        print(f"[ai_meal_plan] Problematic JSON: {json_str[:500]}...")
+                else:
+                    print(f"[ai_meal_plan] No valid JSON structure found in response")
+            else:
+                print(f"[ai_meal_plan] Empty response from API")
+        else:
+            print(f"[ai_meal_plan] API call failed: {api_result.get('error', 'Unknown error')}")
+            
+        # Try one more time with simpler prompt
+        print(f"[ai_meal_plan] Attempt 2/2 - Trying with simpler prompt...")
+        simple_prompt = f"""Create a {req_days}-day meal plan for diabetes management.
+Cuisine: {cuisine_preference}
+Restrictions: {', '.join(dietary_info['dietary_restrictions']) if dietary_info['dietary_restrictions'] else 'None'}
+Allergies: {', '.join(dietary_info['allergies']) if dietary_info['allergies'] else 'None'}
+Target calories: {target_calories}/day
+
+Return only valid JSON:
+{{
+    "plan_name": "Plan name",
+    "duration_days": {req_days},
+    "dailyCalories": {target_calories},
+    "breakfast": ["meal1", "meal2", "meal3"],
+    "lunch": ["meal1", "meal2", "meal3"],
+    "dinner": ["meal1", "meal2", "meal3"],
+    "snacks": ["snack1", "snack2", "snack3"]
+}}"""
+
+        api_result2 = await robust_openai_call(
+            messages=[
+                {"role": "system", "content": "You are a diabetes dietitian. Respond only with valid JSON."},
+                {"role": "user", "content": simple_prompt}
+            ],
+            max_tokens=800,
+            temperature=0.5,
+            max_retries=1,
+            timeout=30,
+            context="adaptive_meal_plan_simple"
+        )
+        
+        if api_result2.get("success") and api_result2.get("content"):
+            content2 = api_result2.get("content", "")
+            start_idx = content2.find('{')
+            end_idx = content2.rfind('}') + 1
             if start_idx != -1 and end_idx != -1:
-                json_str = api_result["content"][start_idx:end_idx]
-                return json.loads(json_str)
+                json_str = content2[start_idx:end_idx]
+                try:
+                    meal_plan = json.loads(json_str)
+                    print(f"[ai_meal_plan] Simple prompt succeeded!")
+                    return meal_plan
+                except json.JSONDecodeError:
+                    print(f"[ai_meal_plan] Simple prompt also failed JSON parsing")
+        
+        print(f"[ai_meal_plan] All API attempts failed, using fallback")
                 
     except Exception as e:
-        print(f"[ai_meal_plan] Error: {e}")
+        print(f"[ai_meal_plan] Exception during API calls: {e}")
+        import traceback
+        traceback.print_exc()
     
     # Fallback meal plan
     return _create_fallback_adaptive_plan(req_days, target_calories, cuisine_preference, dietary_info)
 
 
 def _create_fallback_adaptive_plan(req_days: int, target_calories: int, cuisine: str, dietary_info: Dict[str, Any]) -> Dict[str, Any]:
-    """Create fallback adaptive meal plan."""
-    print(f"[fallback_plan] Creating fallback plan for {req_days} days, {target_calories} calories, cuisine: {cuisine}")
+    """Create fallback adaptive meal plan with VARIETY."""
+    print(f"[fallback_plan] Creating VARIED fallback plan for {req_days} days, {target_calories} calories, cuisine: {cuisine}")
     
-    # Simple cuisine-appropriate meals
-    if 'indian' in cuisine.lower():
-        breakfast = ["Upma with vegetables"] * req_days
-        lunch = ["Dal with roti"] * req_days  
-        dinner = ["Vegetable curry with quinoa"] * req_days
-    else:
-        breakfast = ["Oatmeal with berries"] * req_days
-        lunch = ["Quinoa salad with vegetables"] * req_days
-        dinner = ["Vegetable stir-fry with tofu"] * req_days
+    # Varied cuisine-appropriate meals
+    if 'mediterranean' in cuisine.lower():
+        breakfast_options = [
+            "Greek yogurt with honey and nuts",
+            "Avocado toast with tomatoes",
+            "Mediterranean omelet with spinach",
+            "Oatmeal with fresh berries and olive oil drizzle",
+            "Cottage cheese with olives and herbs",
+            "Whole grain toast with hummus",
+            "Chia pudding with Mediterranean fruits"
+        ]
+        lunch_options = [
+            "Greek salad with chickpeas",
+            "Lentil soup with whole grain bread",
+            "Quinoa tabbouleh with vegetables",
+            "Mediterranean wrap with hummus",
+            "Grilled vegetables with feta",
+            "Bean and vegetable stew",
+            "Caprese salad with whole grain crackers"
+        ]
+        dinner_options = [
+            "Baked fish with roasted vegetables",
+            "Lentil and vegetable curry",
+            "Stuffed bell peppers with quinoa",
+            "Mediterranean vegetable pasta",
+            "Chickpea and spinach stew",
+            "Roasted eggplant with herbs",
+            "Vegetable and bean casserole"
+        ]
+        snack_options = [
+            "Hummus with vegetable sticks",
+            "Mixed nuts and olives",
+            "Greek yogurt with berries",
+            "Whole grain crackers with avocado",
+            "Fresh fruit with almonds",
+            "Roasted chickpeas",
+            "Cucumber with tzatziki"
+        ]
+    elif 'indian' in cuisine.lower() or 'south asian' in cuisine.lower():
+        breakfast_options = [
+            "Upma with vegetables",
+            "Poha with peas and carrots",
+            "Idli with sambar",
+            "Vegetable dalia",
+            "Besan chilla with vegetables",
+            "Oats upma",
+            "Quinoa khichdi"
+        ]
+        lunch_options = [
+            "Dal with brown rice",
+            "Vegetable curry with roti",
+            "Sambar with quinoa",
+            "Chickpea curry with chapati",
+            "Mixed vegetable dal",
+            "Lentil soup with bread",
+            "Vegetable khichdi"
+        ]
+        dinner_options = [
+            "Vegetable curry with quinoa",
+            "Dal tadka with brown rice",
+            "Mixed vegetable sabzi",
+            "Spinach and lentil curry",
+            "Cauliflower and pea curry",
+            "Bottle gourd curry",
+            "Okra and onion stir-fry"
+        ]
+        snack_options = [
+            "Roasted chana",
+            "Vegetable soup",
+            "Fruit chat",
+            "Roasted makhana",
+            "Buttermilk with spices",
+            "Steamed dhokla",
+            "Sprouts salad"
+        ]
+    else:  # Western/General
+        breakfast_options = [
+            "Oatmeal with fresh berries",
+            "Scrambled eggs with spinach",
+            "Greek yogurt parfait with granola",
+            "Avocado toast with tomatoes",
+            "Cottage cheese with fruit",
+            "Smoothie bowl with nuts",
+            "Whole grain cereal with almond milk"
+        ]
+        lunch_options = [
+            "Quinoa salad with vegetables",
+            "Lentil and vegetable soup",
+            "Turkey and avocado wrap",
+            "Chickpea salad with herbs",
+            "Vegetable stir-fry with brown rice",
+            "Black bean and sweet potato bowl",
+            "Mediterranean wrap with hummus"
+        ]
+        dinner_options = [
+            "Baked salmon with vegetables",
+            "Grilled chicken with quinoa",
+            "Vegetable stir-fry with tofu",
+            "Lentil and vegetable curry",
+            "Stuffed bell peppers",
+            "Bean and vegetable chili",
+            "Roasted vegetables with grains"
+        ]
+        snack_options = [
+            "Apple with almond butter",
+            "Greek yogurt with berries",
+            "Mixed nuts and seeds",
+            "Carrot sticks with hummus",
+            "Whole grain crackers with avocado",
+            "Fresh fruit salad",
+            "Roasted chickpeas"
+        ]
     
-    snacks = ["Apple with almond butter"] * req_days
+    # Create varied meals by cycling through options
+    breakfast = [breakfast_options[i % len(breakfast_options)] for i in range(req_days)]
+    lunch = [lunch_options[i % len(lunch_options)] for i in range(req_days)]
+    dinner = [dinner_options[i % len(dinner_options)] for i in range(req_days)]
+    snacks = [snack_options[i % len(snack_options)] for i in range(req_days)]
     
     fallback_plan = {
         "plan_name": f"Adaptive {cuisine} Plan - {datetime.now().strftime('%Y-%m-%d')}",

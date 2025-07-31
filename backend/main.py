@@ -888,21 +888,36 @@ async def create_adaptive_meal_plan_new(
     payload: dict = Body(...),
     current_user: User = Depends(get_current_user)
 ):
-    """⚡ Ultra-fast adaptive meal plan creation with performance tracking"""
-    from services.ultra_fast_meal_service import create_adaptive_meal_plan_ultra_fast
+    """🧠 Comprehensive AI adaptive meal plan creation using full user profile"""
+    from services.meal_plan_service import create_adaptive_meal_plan_optimized
     from services.performance_monitor import track_performance
     
     @track_performance("create_adaptive_meal_plan")
     async def _create_meal_plan():
-        return await create_adaptive_meal_plan_ultra_fast(
+        # Get the user's FULL profile from database
+        user_doc = await get_user_by_email(current_user["email"])
+        if not user_doc:
+            raise HTTPException(status_code=404, detail="User profile not found")
+            
+        # Use the comprehensive profile, not the empty one from current_user
+        full_user_profile = user_doc.get("profile", {})
+        req_days = payload.get("days", 7)
+        req_cuisine = payload.get("cuisine", "")
+        
+        print(f"[ADAPTIVE_PLAN] Using FULL user profile: {full_user_profile}")
+        print(f"[ADAPTIVE_PLAN] Requested days: {req_days}, cuisine: {req_cuisine}")
+        
+        return await create_adaptive_meal_plan_optimized(
             current_user["email"], 
-            current_user.get("profile", {}),
-            payload
+            full_user_profile,  # Use FULL profile with medical info, preferences, etc.
+            req_days,
+            req_cuisine
         )
     
     try:
         return await _create_meal_plan()
     except Exception as e:
+        print(f"[ADAPTIVE_PLAN] Error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Adaptive meal plan failed: {str(e)}")
 
 # Original heavy function moved to services/meal_plan_service.py  

@@ -407,47 +407,60 @@ async def generate_meal_plan(
 
         # If previous_meal_plan is provided, use it for 70/30 overlap
         def get_overlap_meals(prev_meals, new_meals):
+            """Prioritize variety - use minimal overlap (20%) and maximum new meals (80%) for better variety"""
             import re
             if not prev_meals or not isinstance(prev_meals, list):
                 return new_meals
-            overlap_count = int(0.7 * len(new_meals))
+                
+            # Changed from 70/30 to 20/80 for much more variety
+            overlap_count = max(1, int(0.2 * len(new_meals)))  # Only 20% overlap
             new_count = len(new_meals) - overlap_count
+            
+            # Take a small sample from previous meals
             prev_sample = random.sample(prev_meals, min(overlap_count, len(prev_meals)))
-            # Remove any duplicates from new_meals
+            
+            # Prioritize completely new meals
             remaining_new = [m for m in new_meals if m not in prev_sample]
-
-            # Helper: extract keywords from meal name
-            def extract_keywords(meal):
-                return set(re.findall(r"\w+", meal.lower()))
-
-            prev_keywords = set()
-            for meal in prev_sample:
-                prev_keywords.update(extract_keywords(meal))
-
-            # Find new meals that share a keyword with any previous meal
-            related_new = []
-            unrelated_new = []
-            for meal in remaining_new:
-                if extract_keywords(meal) & prev_keywords:
-                    related_new.append(meal)
-                else:
-                    unrelated_new.append(meal)
-
-            # Prefer related new meals for the 30% new
-            new_sample = []
-            if len(related_new) >= new_count:
-                new_sample = random.sample(related_new, new_count)
-            else:
-                new_sample = related_new + random.sample(unrelated_new, min(new_count - len(related_new), len(unrelated_new)))
+            new_sample = random.sample(remaining_new, min(new_count, len(remaining_new)))
+            
+            # If we need more meals, add from new_meals
+            total_selected = len(prev_sample) + len(new_sample)
+            if total_selected < len(new_meals):
+                additional_meals = [m for m in new_meals if m not in prev_sample and m not in new_sample]
+                new_sample.extend(additional_meals[:len(new_meals) - total_selected])
 
             return prev_sample + new_sample
 
-        # Define a robust JSON structure based on selected days - SAFE VEGETARIAN OPTIONS
+        # Define a diverse JSON structure with extensive meal variety
         example_meals = {
-            "breakfast": ["Oatmeal with berries", "Whole grain toast with avocado", "Greek yogurt with granola", "Quinoa breakfast bowl", "Smoothie bowl", "Avocado toast", "Chia pudding with fruit"],
-            "lunch": ["Quinoa and vegetable salad", "Quinoa bowl with beans", "Vegetable wrap", "Vegetable soup", "Pasta with marinara", "Hummus and vegetable wrap", "Buddha bowl"],
-            "dinner": ["Lentil curry with vegetables", "Vegetable stir-fry with tofu", "Bean and vegetable stew", "Vegetable curry", "Quinoa with roasted vegetables", "Chickpea curry", "Roasted vegetables with grains"],
-            "snacks": ["Apple with almonds", "Plant-based yogurt", "Carrot sticks with hummus", "Mixed nuts", "Fruit and nut bars", "Berries with seeds", "Green smoothie"]
+            "breakfast": [
+                "Steel-cut oats with fresh berries and almonds", "Avocado toast with tomato and herbs", "Greek yogurt parfait with granola", 
+                "Quinoa breakfast bowl with banana", "Green smoothie bowl with chia seeds", "Whole grain toast with almond butter",
+                "Chia pudding with mixed fruits", "Vegetable omelet with spinach", "Overnight oats with cinnamon",
+                "Fruit and nut granola bowl", "Sweet potato hash with herbs", "Protein smoothie with berries",
+                "Whole grain pancakes with fruit", "Breakfast quinoa with nuts", "Veggie scramble with peppers"
+            ],
+            "lunch": [
+                "Mediterranean quinoa salad", "Black bean and sweet potato bowl", "Vegetable wrap with hummus",
+                "Lentil and vegetable soup", "Caprese salad with whole grain bread", "Chickpea curry with rice",
+                "Buddha bowl with tahini dressing", "Stuffed bell peppers with quinoa", "Vegetable stir-fry with brown rice",
+                "Greek salad with chickpeas", "Roasted vegetable sandwich", "Quinoa-stuffed tomatoes",
+                "Mediterranean wrap with vegetables", "Lentil salad with herbs", "Vegetable pasta salad"
+            ],
+            "dinner": [
+                "Lentil curry with steamed vegetables", "Vegetable stir-fry with tofu", "Stuffed portobello mushrooms", 
+                "Bean and vegetable chili", "Quinoa with roasted seasonal vegetables", "Chickpea and vegetable curry",
+                "Roasted vegetables with quinoa pilaf", "Vegetable pasta with marinara", "Black bean tacos with avocado",
+                "Ratatouille with herbs", "Vegetable and bean stew", "Grilled vegetable stack",
+                "Eggplant parmesan with side salad", "Vegetable curry with naan", "Stuffed zucchini with quinoa"
+            ],
+            "snacks": [
+                "Apple slices with almond butter", "Mixed nuts and seeds", "Carrot sticks with hummus",
+                "Greek yogurt with berries", "Whole grain crackers with avocado", "Trail mix with dried fruit",
+                "Cucumber slices with tzatziki", "Roasted chickpeas", "Fresh fruit salad",
+                "Vegetable sticks with guacamole", "Homemade granola bars", "Berry and nut mix",
+                "Celery with peanut butter", "Baked sweet potato chips", "Fruit and yogurt parfait"
+            ]
         }
         
         # Create exactly the right number of meals for each type based on days
@@ -559,7 +572,7 @@ CRITICAL INSTRUCTIONS:
    - DO NOT substitute with health food alternatives unless specifically requested - give authentic traditional dishes
 4. CULTURAL CONSIDERATIONS: Incorporate ethnicity and cultural food preferences where specified.
 5. ACTIVITY ALIGNMENT: Consider physical activity level for calorie and macronutrient targets.
-6. MEAL CONTINUITY: For each meal type (breakfast, lunch, dinner, snacks), reuse about 70% of meals from the previous plan and create 30% new similar meals.
+6. MEAL VARIETY: Create diverse, varied meals for each day. If there was a previous plan, you may incorporate some similar meal concepts but prioritize variety and new options over repeating the same dishes.
 7. APPLIANCE CONSTRAINTS: Only suggest meals that can be prepared with available appliances.
 
 Return a JSON object with exactly this structure:
@@ -586,21 +599,21 @@ REQUIREMENTS:
 CRITICAL INSTRUCTIONS:
 1. DIETARY COMPLIANCE (TOP PRIORITY): Absolutely MUST follow ALL dietary restrictions, features, and allergies listed above. If patient has "Vegetarian (no eggs)" selected, completely exclude ALL eggs, omelets, quiche, french toast, mayonnaise, and all egg-containing dishes.
 2. MEDICAL SAFETY: Carefully consider all medical conditions, medications, and lab values. Ensure meals are appropriate for diabetes management and any other health conditions.
-3. DIET TYPE ADHERENCE: **CRITICALLY IMPORTANT** - Follow the specified Diet Type exactly, but ALWAYS respect dietary restrictions above all else:
-   - If "Western" or "European": Include traditional European/Western dishes modified for dietary restrictions:
-     * BREAKFAST: Oatmeal with berries, avocado toast, quinoa breakfast bowl, smoothie bowls, chia pudding (modify based on restrictions)
-     * LUNCH: Vegetable sandwiches, salads with appropriate proteins, quinoa bowls, vegetable soups (adapt proteins to dietary needs)
-     * DINNER: Pasta with marinara, vegetable stir-fries, grain bowls, lentil dishes (choose proteins based on dietary requirements)
-     * SNACKS: Fresh fruit, nuts, hummus with vegetables, yogurt (select based on dietary restrictions)
-   - If "Mediterranean": Focus on Mediterranean cuisine with olive oil, fish, vegetables, legumes, etc.
-   - If "South Asian": Include curries, rice dishes, lentils, chapati, etc.
-   - If "East Asian": Include stir-fries, rice, noodles, steamed dishes, etc.
-   - If "Caribbean": Include rice and beans, plantains, jerk seasonings, etc.
-   - DO NOT substitute with health food alternatives unless specifically requested - give authentic traditional dishes
-4. CULTURAL CONSIDERATIONS: Incorporate ethnicity and cultural food preferences where specified.
-5. ACTIVITY ALIGNMENT: Consider physical activity level for calorie and macronutrient targets.
-6. APPLIANCE CONSTRAINTS: Only suggest meals that can be prepared with available appliances.
-7. PERSONALIZATION: Use lifestyle preferences and eating schedule to optimize meal timing and preparation.
+3. MEAL VARIETY (CRITICAL): Create completely different, diverse meals for each day. NO REPETITION ALLOWED. Each breakfast, lunch, dinner, and snack must be unique and varied. Use your creativity to provide maximum variety within the dietary constraints.
+4. DIET TYPE ADHERENCE: **CRITICALLY IMPORTANT** - Follow the specified Diet Type exactly, but ALWAYS respect dietary restrictions above all else:
+   - If "Western" or "European": Include diverse traditional European/Western dishes modified for dietary restrictions:
+     * BREAKFAST: Varied options like oatmeal with berries, avocado toast, quinoa breakfast bowl, smoothie bowls, chia pudding, pancakes, granola bowls, egg dishes (if allowed)
+     * LUNCH: Diverse options like vegetable sandwiches, salads with varied proteins, quinoa bowls, different soups, wraps, grain bowls, pasta salads
+     * DINNER: Varied dishes like pasta with different sauces, vegetable stir-fries, grain bowls, lentil dishes, different curry types, roasted vegetables with varied grains
+     * SNACKS: Diverse options like fresh fruit, different nuts, hummus with vegetables, yogurt varieties, granola bars, vegetable sticks with different dips
+   - If "Mediterranean": Focus on diverse Mediterranean cuisine with olive oil, varied fish dishes, different vegetables, legumes, grains, etc.
+   - If "South Asian": Include varied curries, different rice dishes, diverse lentil preparations, different breads, varied vegetable dishes, etc.
+   - If "East Asian": Include different stir-fries, varied rice and noodle dishes, different steamed dishes, diverse vegetable preparations, etc.
+   - If "Caribbean": Include varied rice and bean combinations, different plantain preparations, diverse jerk seasonings, different tropical dishes, etc.
+5. CULTURAL CONSIDERATIONS: Incorporate ethnicity and cultural food preferences where specified.
+6. ACTIVITY ALIGNMENT: Consider physical activity level for calorie and macronutrient targets.
+7. APPLIANCE CONSTRAINTS: Only suggest meals that can be prepared with available appliances.
+8. PERSONALIZATION: Use lifestyle preferences and eating schedule to optimize meal timing and preparation.
 
 Return a JSON object with exactly this structure:
 {json_structure}

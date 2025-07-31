@@ -35,20 +35,84 @@ CACHE_DURATION = 300  # 5 minutes cache
 
 @lru_cache(maxsize=128)
 def get_fallback_meals(cuisine_type: str = "international", is_vegetarian: bool = False):
-    """Fast fallback meals with caching"""
+    """Fast fallback meals with variety for different days"""
     if 'vegetarian' in cuisine_type.lower() or is_vegetarian:
         return {
-            "breakfast": "Steel-cut oats with almond milk and fresh berries",
-            "lunch": "Quinoa Buddha bowl with roasted vegetables and tahini",
-            "dinner": "Lentil curry with brown rice and steamed broccoli", 
-            "snack": "Apple slices with almond butter"
+            "breakfast": [
+                "Steel-cut oats with almond milk and fresh berries",
+                "Avocado toast on whole grain bread with tomatoes",
+                "Chia pudding with fruits and nuts",
+                "Quinoa breakfast bowl with banana and almonds",
+                "Smoothie bowl with spinach, berries, and granola",
+                "Whole grain toast with peanut butter and banana",
+                "Greek yogurt parfait with granola and mixed berries"
+            ],
+            "lunch": [
+                "Quinoa Buddha bowl with roasted vegetables and tahini",
+                "Mediterranean wrap with hummus and vegetables",
+                "Lentil and vegetable soup with whole grain bread",
+                "Chickpea salad with cucumber and olive oil dressing",
+                "Vegetable stir-fry with brown rice",
+                "Caprese salad with whole grain crackers",
+                "Black bean and sweet potato bowl"
+            ],
+            "dinner": [
+                "Lentil curry with brown rice and steamed broccoli",
+                "Stuffed bell peppers with quinoa and vegetables",
+                "Vegetable pasta with marinara sauce",
+                "Tofu stir-fry with mixed vegetables and brown rice",
+                "Chickpea and vegetable curry with naan",
+                "Roasted vegetable and quinoa stuffed portobello mushrooms",
+                "Bean and vegetable chili with cornbread"
+            ],
+            "snack": [
+                "Apple slices with almond butter",
+                "Mixed nuts and dried fruits",
+                "Carrot sticks with hummus",
+                "Greek yogurt with berries",
+                "Whole grain crackers with avocado",
+                "Banana with peanut butter",
+                "Trail mix with seeds and nuts"
+            ]
         }
     else:
         return {
-            "breakfast": "Greek yogurt with berries and nuts",
-            "lunch": "Grilled chicken salad with mixed vegetables",
-            "dinner": "Baked salmon with sweet potato and steamed vegetables",
-            "snack": "Hummus with cucumber slices"
+            "breakfast": [
+                "Greek yogurt with berries and nuts",
+                "Scrambled eggs with whole grain toast",
+                "Oatmeal with banana and walnuts",
+                "Cottage cheese with fruit and granola",
+                "Avocado toast with poached egg",
+                "Protein smoothie with berries and spinach",
+                "Whole grain cereal with milk and fresh fruit"
+            ],
+            "lunch": [
+                "Grilled chicken salad with mixed vegetables",
+                "Turkey and avocado wrap with whole grain tortilla",
+                "Quinoa bowl with grilled salmon and vegetables",
+                "Chicken and vegetable soup with whole grain bread",
+                "Tuna salad with mixed greens and olive oil",
+                "Grilled chicken breast with sweet potato",
+                "Mediterranean chicken bowl with hummus"
+            ],
+            "dinner": [
+                "Baked salmon with sweet potato and steamed vegetables",
+                "Grilled chicken with quinoa and roasted vegetables",
+                "Lean beef stir-fry with brown rice",
+                "Baked cod with asparagus and wild rice",
+                "Turkey meatballs with zucchini noodles",
+                "Grilled pork tenderloin with Brussels sprouts",
+                "Baked chicken thighs with roasted root vegetables"
+            ],
+            "snack": [
+                "Hummus with cucumber slices",
+                "String cheese with apple slices",
+                "Greek yogurt with almonds",
+                "Hard-boiled egg with whole grain crackers",
+                "Turkey roll-ups with bell pepper strips",
+                "Cottage cheese with berries",
+                "Mixed nuts and a small piece of fruit"
+            ]
         }
 
 async def get_todays_meal_plan_ultra_fast(user_email: str, user_profile: dict) -> dict:
@@ -95,15 +159,25 @@ async def get_todays_meal_plan_ultra_fast(user_email: str, user_profile: dict) -
             if not templates:  # Fallback to cached templates
                 templates = get_fallback_meals(is_vegetarian=is_vegetarian) 
             
+            # Handle both old single-meal format and new array format
+            def get_meal_from_template(meal_type, fallback_default):
+                meal_data = templates.get(meal_type, fallback_default)
+                if isinstance(meal_data, list):
+                    # Use first item from array for today's plan
+                    return meal_data[0] if meal_data else fallback_default
+                else:
+                    # Old single-meal format
+                    return meal_data
+            
             todays_plan = {
                 "id": f"template_{user_email}_{today.isoformat()}",
                 "date": today.isoformat(),
                 "type": "preloaded_template",
                 "meals": {
-                    "breakfast": templates.get('breakfast', ['Oatmeal with berries'])[0],
-                    "lunch": templates.get('lunch', ['Healthy salad'])[0],
-                    "dinner": templates.get('dinner', ['Balanced dinner'])[0],
-                    "snack": templates.get('snacks', ['Healthy snack'])[0]
+                    "breakfast": get_meal_from_template('breakfast', 'Oatmeal with berries'),
+                    "lunch": get_meal_from_template('lunch', 'Healthy salad'),
+                    "dinner": get_meal_from_template('dinner', 'Balanced dinner'),
+                    "snack": get_meal_from_template('snacks', 'Healthy snack')
                 },
                 "dailyCalories": _safe_int_convert(user_profile.get('calorieTarget', '2000'), 2000),
                 "created_at": datetime.utcnow().isoformat(),
@@ -150,18 +224,23 @@ async def create_adaptive_meal_plan_ultra_fast(user_email: str, user_profile: di
         
         is_vegetarian = any('vegetarian' in str(f).lower() for f in dietary_features + dietary_restrictions)
         
-        # Quick meal generation
+        # Quick meal generation with variety
         fallback_meals = get_fallback_meals(is_vegetarian=is_vegetarian)
         
-        # Generate plan data
+        # Create varied meals for each day
+        def get_varied_meals(meal_list, num_days):
+            """Cycle through meal options to provide variety"""
+            return [meal_list[i % len(meal_list)] for i in range(num_days)]
+        
+        # Generate plan data with variety
         meal_plan_data = {
             "plan_name": f"Ultra Fast Plan - {datetime.now().strftime('%Y-%m-%d')}",
             "duration_days": days,
             "dailyCalories": target_calories,
-            "breakfast": [fallback_meals["breakfast"]] * days,
-            "lunch": [fallback_meals["lunch"]] * days,
-            "dinner": [fallback_meals["dinner"]] * days,
-            "snacks": [fallback_meals["snack"]] * days,
+            "breakfast": get_varied_meals(fallback_meals["breakfast"], days),
+            "lunch": get_varied_meals(fallback_meals["lunch"], days),
+            "dinner": get_varied_meals(fallback_meals["dinner"], days),
+            "snacks": get_varied_meals(fallback_meals["snack"], days),
             "macronutrients": {
                 "protein": int(target_calories * 0.2 / 4),
                 "carbs": int(target_calories * 0.45 / 4), 
