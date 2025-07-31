@@ -132,6 +132,19 @@ const PiasCorner: React.FC = () => {
     fetchAnalyticsData();
   }, [analyticsMode, selectedPatient]);
 
+  useEffect(() => {
+    // Reset nutrient data when switching modes or patients to avoid stale data
+    setNutrientData(null);
+    
+    // Auto-fetch nutrient data when switching to individual mode with a selected patient
+    // or when changing patients in individual mode, and we're on the nutrient analysis tab
+    if (analyticsMode === 'individual' && selectedPatient && tabValue === 1 && !nutrientData) {
+      setTimeout(() => {
+        fetchNutrientData();
+      }, 200);
+    }
+  }, [analyticsMode, selectedPatient, tabValue]);
+
   const fetchPatients = async () => {
     try {
       const response = await fetch(`${config.API_URL}/admin/analytics/patients-list`, {
@@ -179,11 +192,21 @@ const PiasCorner: React.FC = () => {
 
   const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
     setTabValue(newValue);
+    
+    // If switching to nutrient analysis tab and we have a selected patient but no data, auto-load
+    if (newValue === 1 && analyticsMode === 'individual' && selectedPatient && !nutrientData) {
+      setTimeout(() => {
+        fetchNutrientData();
+      }, 100);
+    }
   };
 
   const handleModeChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const newMode = event.target.value as 'individual' | 'cohort';
     setAnalyticsMode(newMode);
+    // Reset all cached data when switching modes
+    setNutrientData(null);
+    setEngagementData(null);
     if (newMode === 'cohort') {
       setSelectedPatient('');
     }
@@ -191,6 +214,10 @@ const PiasCorner: React.FC = () => {
 
   const handlePatientChange = (event: SelectChangeEvent) => {
     setSelectedPatient(event.target.value);
+    // Reset cached data when switching patients
+    setNutrientData(null);
+    setEngagementData(null);
+    // The useEffect hook will handle auto-fetching the data
   };
 
   const fetchNutrientData = async () => {
@@ -865,6 +892,173 @@ const PiasCorner: React.FC = () => {
               </CardContent>
             </Card>
           </Grid>
+
+          {/* Patient Compliance Distribution Chart */}
+          <Grid item xs={12}>
+            <Card>
+              <CardContent>
+                <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                  <TrendingUp sx={{ mr: 1, color: 'primary.main' }} />
+                  <Typography variant="h6">Patient Compliance Distribution</Typography>
+                </Box>
+                <Box sx={{ height: 400, position: 'relative' }}>
+                  {analyticsData.patient_compliance_distribution?.length > 0 ? (
+                    <Bar
+                      data={{
+                        labels: analyticsData.patient_compliance_distribution.map((patient: any) => patient.name),
+                        datasets: [{
+                          label: 'Compliance Rate (%)',
+                          data: analyticsData.patient_compliance_distribution.map((patient: any) => patient.compliance_rate),
+                          backgroundColor: analyticsData.patient_compliance_distribution.map((patient: any) => {
+                            const rate = patient.compliance_rate;
+                            if (rate >= 75) return 'rgba(76, 175, 80, 0.8)'; // Green for high compliance
+                            if (rate >= 50) return 'rgba(255, 193, 7, 0.8)'; // Yellow for medium compliance
+                            return 'rgba(244, 67, 54, 0.8)'; // Red for low compliance
+                          }),
+                          borderColor: analyticsData.patient_compliance_distribution.map((patient: any) => {
+                            const rate = patient.compliance_rate;
+                            if (rate >= 75) return 'rgba(76, 175, 80, 1)';
+                            if (rate >= 50) return 'rgba(255, 193, 7, 1)';
+                            return 'rgba(244, 67, 54, 1)';
+                          }),
+                          borderWidth: 2,
+                          hoverBackgroundColor: analyticsData.patient_compliance_distribution.map((patient: any) => {
+                            const rate = patient.compliance_rate;
+                            if (rate >= 75) return 'rgba(76, 175, 80, 0.9)';
+                            if (rate >= 50) return 'rgba(255, 193, 7, 0.9)';
+                            return 'rgba(244, 67, 54, 0.9)';
+                          }),
+                        }]
+                      }}
+                      options={{
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        onClick: (event, elements) => {
+                          if (elements.length > 0) {
+                            const clickedIndex = elements[0].index;
+                            const clickedPatient = analyticsData.patient_compliance_distribution[clickedIndex];
+                            if (clickedPatient?.patient_id) {
+                              setAnalyticsMode('individual');
+                              setSelectedPatient(clickedPatient.patient_id);
+                            }
+                          }
+                        },
+                        plugins: {
+                          legend: {
+                            display: false
+                          },
+                          tooltip: {
+                            callbacks: {
+                              title: function(context) {
+                                const patientIndex = context[0].dataIndex;
+                                const patient = analyticsData.patient_compliance_distribution[patientIndex];
+                                return patient.name;
+                              },
+                              label: function(context) {
+                                const patientIndex = context.dataIndex;
+                                const patient = analyticsData.patient_compliance_distribution[patientIndex];
+                                return [
+                                  `Compliance Rate: ${patient.compliance_rate}%`,
+                                  `Completed Plans: ${patient.completed_plans}/${patient.total_plans}`,
+                                  'Click to view individual analytics'
+                                ];
+                              }
+                            }
+                          }
+                        },
+                        scales: {
+                          x: {
+                            display: true,
+                            title: {
+                              display: true,
+                              text: 'Patients'
+                            },
+                            ticks: {
+                              maxRotation: 45,
+                              minRotation: 45
+                            }
+                          },
+                          y: {
+                            display: true,
+                            beginAtZero: true,
+                            max: 100,
+                            title: {
+                              display: true,
+                              text: 'Compliance Rate (%)'
+                            },
+                            ticks: {
+                              callback: function(value) {
+                                return value + '%';
+                              }
+                            }
+                          }
+                        }
+                      }}
+                    />
+                  ) : (
+                    <Box sx={{ 
+                      display: 'flex', 
+                      flexDirection: 'column', 
+                      alignItems: 'center', 
+                      justifyContent: 'center', 
+                      height: '100%',
+                      color: 'text.secondary'
+                    }}>
+                      <TrendingDown sx={{ fontSize: 48, mb: 2 }} />
+                      <Typography variant="h6" gutterBottom>
+                        No Compliance Data Available
+                      </Typography>
+                      <Typography variant="body2">
+                        Patient compliance data will appear here once patients start using meal plans.
+                      </Typography>
+                    </Box>
+                  )}
+                </Box>
+                
+                {/* Legend */}
+                <Box sx={{ mt: 2 }}>
+                  <Typography variant="body2" color="text.secondary" gutterBottom sx={{ textAlign: 'center' }}>
+                    Compliance Thresholds: Green ≥75% (High) • Yellow 50-75% (Medium) • Red &lt;50% (Low)
+                  </Typography>
+                  <Box sx={{ display: 'flex', justifyContent: 'center', gap: 3, mt: 1 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                      <Box sx={{ 
+                        width: 16, 
+                        height: 16, 
+                        backgroundColor: 'rgba(244, 67, 54, 0.8)', 
+                        mr: 1, 
+                        borderRadius: 1 
+                      }} />
+                      <Typography variant="body2">Low (&lt;50%)</Typography>
+                    </Box>
+                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                      <Box sx={{ 
+                        width: 16, 
+                        height: 16, 
+                        backgroundColor: 'rgba(255, 193, 7, 0.8)', 
+                        mr: 1, 
+                        borderRadius: 1 
+                      }} />
+                      <Typography variant="body2">Medium (50-75%)</Typography>
+                    </Box>
+                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                      <Box sx={{ 
+                        width: 16, 
+                        height: 16, 
+                        backgroundColor: 'rgba(76, 175, 80, 0.8)', 
+                        mr: 1, 
+                        borderRadius: 1 
+                      }} />
+                      <Typography variant="body2">High (&gt;75%)</Typography>
+                    </Box>
+                  </Box>
+                  <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', mt: 1 }}>
+                    Click on any bar to view individual patient analytics
+                  </Typography>
+                </Box>
+              </CardContent>
+            </Card>
+          </Grid>
         </Grid>
       );
     }
@@ -1049,29 +1243,137 @@ const PiasCorner: React.FC = () => {
           ) : nutrientData || !nutrientData ? (
             // Show charts with default data if no data loaded yet
             <Grid container spacing={3}>
-              {/* Macronutrient Distribution - Pie Chart */}
+              {/* RDA Achievement Bar Chart */}
               <Grid item xs={12} md={6}>
                 <Card>
                   <CardContent>
                     <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
                       <Restaurant sx={{ mr: 1, color: 'primary.main' }} />
-                      Macronutrient Distribution
+                      {nutrientData?.mode === 'individual' ? 'Individual RDA Achievement' : 'RDA Achievement Rate'}
+                    </Typography>
+                    <Box sx={{ height: 300 }}>
+                      <Bar
+                        data={{
+                          labels: ['Protein', 'Fiber', 'Vitamin D', 'Calcium', 'Iron', 'Vitamin C', 'Folate', 'Magnesium'],
+                          datasets: [{
+                            label: '% Patients Meeting RDA',
+                            data: nutrientData?.rda_achievement ? [
+                              nutrientData.rda_achievement.protein,
+                              nutrientData.rda_achievement.fiber,
+                              nutrientData.rda_achievement.vitamin_d,
+                              nutrientData.rda_achievement.calcium,
+                              nutrientData.rda_achievement.iron,
+                              nutrientData.rda_achievement.vitamin_c,
+                              nutrientData.rda_achievement.folate,
+                              nutrientData.rda_achievement.magnesium
+                            ] : analyticsMode === 'individual' 
+                              ? [92, 72, 60, 85, 89, 87, 80, 76]  // Individual patient default
+                              : [85, 45, 32, 67, 71, 89, 58, 63], // Cohort default
+                            backgroundColor: function(context: any) {
+                              const value = context.parsed.y;
+                              if (value >= 80) return 'rgba(76, 175, 80, 0.8)'; // Green
+                              if (value >= 60) return 'rgba(255, 193, 7, 0.8)'; // Yellow  
+                              return 'rgba(244, 67, 54, 0.8)'; // Red
+                            },
+                            borderColor: function(context: any) {
+                              const value = context.parsed.y;
+                              if (value >= 80) return 'rgba(76, 175, 80, 1)';
+                              if (value >= 60) return 'rgba(255, 193, 7, 1)';
+                              return 'rgba(244, 67, 54, 1)';
+                            },
+                            borderWidth: 1
+                          }]
+                        }}
+                        options={{
+                          responsive: true,
+                          maintainAspectRatio: false,
+                          plugins: {
+                            legend: {
+                              display: false
+                            },
+                            tooltip: {
+                              callbacks: {
+                                label: function(context: any) {
+                                  if (nutrientData?.mode === 'individual') {
+                                    return `${context.parsed.y}% of target achieved`;
+                                  }
+                                  return `${context.parsed.y}% of patients meet RDA`;
+                                }
+                              }
+                            }
+                          },
+                          scales: {
+                            y: {
+                              beginAtZero: true,
+                              max: 100,
+                              title: {
+                                display: true,
+                                text: nutrientData?.mode === 'individual' ? '% of Target Achieved' : '% of Patients Meeting RDA'
+                              }
+                            },
+                            x: {
+                              ticks: {
+                                maxRotation: 45
+                              }
+                            }
+                          }
+                        }}
+                        plugins={[{
+                          id: 'rdaReferenceLine',
+                          beforeDraw: (chart: any) => {
+                            const ctx = chart.ctx;
+                            const yAxis = chart.scales.y;
+                            const xAxis = chart.scales.x;
+                            const targetY = yAxis.getPixelForValue(80);
+                            
+                            ctx.save();
+                            ctx.strokeStyle = 'rgba(244, 67, 54, 0.8)';
+                            ctx.lineWidth = 2;
+                            ctx.setLineDash([5, 5]);
+                            ctx.beginPath();
+                            ctx.moveTo(xAxis.left, targetY);
+                            ctx.lineTo(xAxis.right, targetY);
+                            ctx.stroke();
+                            ctx.restore();
+                          }
+                        }]}
+                      />
+                    </Box>
+                  </CardContent>
+                </Card>
+              </Grid>
+
+              {/* Top Deficiencies Pie Chart */}
+              <Grid item xs={12} md={6}>
+                <Card>
+                  <CardContent>
+                    <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
+                      <Warning sx={{ mr: 1, color: 'primary.main' }} />
+                      {nutrientData?.mode === 'individual' ? 'Individual Nutrient Deficiencies' : 'Most Common Deficiencies'}
                     </Typography>
                     <Box sx={{ height: 300, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
                       <Pie
                         data={{
-                          labels: ['Protein', 'Carbohydrates', 'Fats'],
+                          labels: nutrientData?.top_deficiencies?.map((d: any) => d.name) || (analyticsMode === 'individual' 
+                            ? ['Low Vitamin D', 'Low Magnesium', 'Low Calcium', 'Low Folate']
+                            : ['Low Fiber', 'Insufficient Vitamin D', 'Excess Sodium', 'Low Iron', 'Other']),
                           datasets: [{
-                            data: nutrientData?.macronutrients || [25, 45, 30],
+                            data: nutrientData?.top_deficiencies?.map((d: any) => d.deficit_percentage || d.percentage) || (analyticsMode === 'individual' 
+                              ? [40, 28, 25, 20]  // Individual patient deficiency percentages
+                              : [35, 25, 20, 12, 8]), // Cohort deficiency percentages
                             backgroundColor: [
                               '#FF6384',
-                              '#36A2EB', 
-                              '#FFCE56'
+                              '#36A2EB',
+                              '#FFCE56',
+                              '#4BC0C0',
+                              '#9966FF'
                             ],
                             borderColor: [
                               '#FF6384',
                               '#36A2EB',
-                              '#FFCE56'
+                              '#FFCE56',
+                              '#4BC0C0',
+                              '#9966FF'
                             ],
                             borderWidth: 2
                           }]
@@ -1085,66 +1387,22 @@ const PiasCorner: React.FC = () => {
                             },
                             tooltip: {
                               callbacks: {
-                                label: function(context) {
+                                label: function(context: any) {
+                                  const deficiency = nutrientData?.top_deficiencies?.[context.dataIndex];
+                                  if (deficiency) {
+                                    if (nutrientData?.mode === 'individual') {
+                                      return [
+                                        `${context.label}: ${context.parsed}% below target`,
+                                        `Current: ${deficiency.current_intake}`,
+                                        `Target: ${deficiency.target_intake}`,
+                                        `Deficit: ${deficiency.deficit}`
+                                      ];
+                                    } else {
+                                      return `${context.label}: ${context.parsed}% (${deficiency.patients_affected} patients)`;
+                                    }
+                                  }
                                   return `${context.label}: ${context.parsed}%`;
                                 }
-                              }
-                            }
-                          }
-                        }}
-                      />
-                    </Box>
-                  </CardContent>
-                </Card>
-              </Grid>
-
-              {/* Daily Nutrient Targets vs Achieved - Bar Chart */}
-              <Grid item xs={12} md={6}>
-                <Card>
-                  <CardContent>
-                    <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
-                      <TrendingUp sx={{ mr: 1, color: 'primary.main' }} />
-                      Daily Targets vs Achieved
-                    </Typography>
-                    <Box sx={{ height: 300 }}>
-                      <Bar
-                        data={{
-                          labels: ['Protein', 'Fiber', 'Vitamin D', 'Calcium', 'Iron', 'Vitamin C'],
-                          datasets: [
-                            {
-                              label: 'Target',
-                              data: nutrientData?.targets || [50, 25, 20, 1000, 18, 90],
-                              backgroundColor: 'rgba(54, 162, 235, 0.6)',
-                              borderColor: 'rgba(54, 162, 235, 1)',
-                              borderWidth: 1
-                            },
-                            {
-                              label: 'Achieved',
-                              data: nutrientData?.achieved || [42, 22, 15, 850, 16, 75],
-                              backgroundColor: 'rgba(75, 192, 192, 0.6)',
-                              borderColor: 'rgba(75, 192, 192, 1)',
-                              borderWidth: 1
-                            }
-                          ]
-                        }}
-                        options={{
-                          responsive: true,
-                          maintainAspectRatio: false,
-                          plugins: {
-                            legend: {
-                              position: 'top' as const,
-                            },
-                            tooltip: {
-                              mode: 'index' as const,
-                              intersect: false,
-                            }
-                          },
-                          scales: {
-                            y: {
-                              beginAtZero: true,
-                              title: {
-                                display: true,
-                                text: 'Amount'
                               }
                             }
                           }
@@ -1161,7 +1419,7 @@ const PiasCorner: React.FC = () => {
                   <CardContent>
                     <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
                       <Timeline sx={{ mr: 1, color: 'primary.main' }} />
-                      Nutrient Trends Over Time
+                      {nutrientData?.mode === 'individual' ? 'Individual Nutrient Trends (8 Weeks)' : 'Cohort Average Nutrient Trends (8 Weeks)'}
                     </Typography>
                     <Box sx={{ height: 400 }}>
                       <Line
@@ -1170,21 +1428,27 @@ const PiasCorner: React.FC = () => {
                           datasets: [
                             {
                               label: 'Protein (g)',
-                              data: nutrientData?.proteinTrend || [45, 48, 42, 50, 47, 52, 49, 51],
+                              data: nutrientData?.proteinTrend || (analyticsMode === 'individual' 
+                                ? [80, 85, 82, 88, 92, 89, 95, 93]  // Individual improving trend
+                                : [78, 79, 81, 83, 84, 86, 87, 89]), // Cohort gradual improvement
                               borderColor: 'rgb(255, 99, 132)',
                               backgroundColor: 'rgba(255, 99, 132, 0.2)',
                               tension: 0.1
                             },
                             {
                               label: 'Fiber (g)',
-                              data: nutrientData?.fiberTrend || [20, 22, 18, 25, 23, 27, 24, 26],
+                              data: nutrientData?.fiberTrend || (analyticsMode === 'individual' 
+                                ? [18, 19, 17, 21, 23, 25, 24, 26]  // Individual variable progress
+                                : [20, 20.5, 21, 22, 22.5, 23, 23.5, 24]), // Cohort steady improvement
                               borderColor: 'rgb(54, 162, 235)',
                               backgroundColor: 'rgba(54, 162, 235, 0.2)',
                               tension: 0.1
                             },
                             {
                               label: 'Vitamin C (mg)',
-                              data: nutrientData?.vitaminCTrend || [65, 70, 62, 75, 68, 78, 72, 76],
+                              data: nutrientData?.vitaminCTrend || (analyticsMode === 'individual' 
+                                ? [70, 75, 68, 78, 82, 79, 85, 88]  // Individual strong improvement
+                                : [68, 69, 71, 72, 74, 75, 76, 77]), // Cohort moderate improvement
                               borderColor: 'rgb(255, 205, 86)',
                               backgroundColor: 'rgba(255, 205, 86, 0.2)',
                               tension: 0.1
@@ -1208,7 +1472,7 @@ const PiasCorner: React.FC = () => {
                               beginAtZero: true,
                               title: {
                                 display: true,
-                                text: 'Amount'
+                                text: nutrientData?.mode === 'individual' ? 'Individual Intake Amount' : 'Average Intake Amount'
                               }
                             },
                             x: {
@@ -1230,6 +1494,151 @@ const PiasCorner: React.FC = () => {
                 </Card>
               </Grid>
 
+              {/* Daily Compliance Heatmap */}
+              <Grid item xs={12}>
+                <Card>
+                  <CardContent>
+                    <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
+                      <AccessTime sx={{ mr: 1, color: 'primary.main' }} />
+                      {nutrientData?.mode === 'individual' ? 'Individual Daily Compliance (4 Weeks)' : 'Average Daily Compliance Heatmap (4 Weeks)'}
+                    </Typography>
+                    <Box sx={{ 
+                      display: 'flex', 
+                      flexDirection: 'column', 
+                      alignItems: 'center',
+                      p: 2
+                    }}>
+                      {/* Day labels */}
+                      <Box sx={{ 
+                        display: 'flex', 
+                        mb: 1,
+                        '& > div:first-of-type': { width: '80px' } // Space for week labels
+                      }}>
+                        <Box sx={{ width: '80px' }}></Box>
+                        {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day) => (
+                          <Box 
+                            key={day}
+                            sx={{ 
+                              width: '50px', 
+                              textAlign: 'center', 
+                              fontSize: '0.875rem',
+                              fontWeight: 'medium',
+                              color: 'text.secondary'
+                            }}
+                          >
+                            {day}
+                          </Box>
+                        ))}
+                      </Box>
+                      
+                      {/* Heatmap grid */}
+                      {(nutrientData?.daily_compliance_heatmap || (analyticsMode === 'individual' ? [
+                        [0.9, 0.85, 0.95, 0.88, 0.82, 0.75, 0.8],   // Individual patient higher compliance
+                        [0.92, 0.87, 0.93, 0.85, 0.79, 0.78, 0.82],
+                        [0.88, 0.91, 0.96, 0.90, 0.84, 0.73, 0.79],
+                        [0.94, 0.89, 0.98, 0.92, 0.86, 0.71, 0.77]
+                      ] : [
+                        [0.8, 0.75, 0.9, 0.85, 0.78, 0.65, 0.7],     // Cohort average compliance
+                        [0.82, 0.77, 0.88, 0.83, 0.76, 0.68, 0.72],
+                        [0.85, 0.79, 0.91, 0.87, 0.74, 0.63, 0.69],
+                        [0.87, 0.81, 0.93, 0.89, 0.72, 0.61, 0.67]
+                      ])).map((week: number[], weekIndex: number) => (
+                        <Box key={weekIndex} sx={{ display: 'flex', mb: 0.5 }}>
+                          <Box sx={{ 
+                            width: '80px', 
+                            display: 'flex', 
+                            alignItems: 'center', 
+                            justifyContent: 'center',
+                            fontSize: '0.875rem',
+                            fontWeight: 'medium',
+                            color: 'text.secondary'
+                          }}>
+                            Week {weekIndex + 1}
+                          </Box>
+                          {week.map((compliance: number, dayIndex: number) => {
+                            const intensity = Math.max(0, Math.min(1, compliance));
+                            const greenValue = Math.floor(255 * intensity);
+                            const alpha = 0.3 + (intensity * 0.7);
+                            
+                            return (
+                              <Box
+                                key={`${weekIndex}-${dayIndex}`}
+                                sx={{
+                                  width: '50px',
+                                  height: '40px',
+                                  bgcolor: `rgba(76, 175, 80, ${alpha})`,
+                                  border: '1px solid',
+                                  borderColor: 'divider',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  fontSize: '0.75rem',
+                                  fontWeight: 'medium',
+                                  color: intensity > 0.5 ? 'white' : 'text.primary',
+                                  cursor: 'pointer',
+                                  transition: 'all 0.2s ease',
+                                  '&:hover': {
+                                    transform: 'scale(1.05)',
+                                    borderColor: 'primary.main',
+                                    borderWidth: '2px'
+                                  }
+                                }}
+                                title={`Week ${weekIndex + 1}, ${['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][dayIndex]}: ${Math.round(compliance * 100)}% ${nutrientData?.mode === 'individual' ? 'individual compliance' : 'average compliance'}`}
+                              >
+                                {Math.round(compliance * 100)}%
+                              </Box>
+                            );
+                          })}
+                        </Box>
+                      ))}
+                      
+                      {/* Legend */}
+                      <Box sx={{ 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        mt: 2, 
+                        gap: 1,
+                        fontSize: '0.875rem'
+                      }}>
+                        <Typography variant="body2" color="text.secondary">
+                          Compliance Level:
+                        </Typography>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                          <Box sx={{ 
+                            width: '16px', 
+                            height: '16px', 
+                            bgcolor: 'rgba(76, 175, 80, 0.3)',
+                            border: '1px solid',
+                            borderColor: 'divider'
+                          }} />
+                          <Typography variant="body2" color="text.secondary">Low</Typography>
+                        </Box>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                          <Box sx={{ 
+                            width: '16px', 
+                            height: '16px', 
+                            bgcolor: 'rgba(76, 175, 80, 0.7)',
+                            border: '1px solid',
+                            borderColor: 'divider'
+                          }} />
+                          <Typography variant="body2" color="text.secondary">Medium</Typography>
+                        </Box>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                          <Box sx={{ 
+                            width: '16px', 
+                            height: '16px', 
+                            bgcolor: 'rgba(76, 175, 80, 1)',
+                            border: '1px solid',
+                            borderColor: 'divider'
+                          }} />
+                          <Typography variant="body2" color="text.secondary">High</Typography>
+                        </Box>
+                      </Box>
+                    </Box>
+                  </CardContent>
+                </Card>
+              </Grid>
+
               {/* Load Data Button */}
               <Grid item xs={12}>
                 <Box sx={{ textAlign: 'center', py: 2 }}>
@@ -1243,15 +1652,22 @@ const PiasCorner: React.FC = () => {
                     '&:hover': { borderColor: 'primary.main', bgcolor: 'action.hover' }
                   }}
                   onClick={() => {
-                    if (!nutrientData) fetchNutrientData();
+                    if (!nutrientData && (analyticsMode !== 'individual' || selectedPatient)) {
+                      fetchNutrientData();
+                    }
                   }}>
                     {!nutrientData ? (
                       <Typography variant="button" color="primary">
-                        Load Real Patient Data
+                        {analyticsMode === 'individual' && selectedPatient 
+                          ? `Load ${patients.find(p => p.id === selectedPatient)?.name || 'Patient'} Data`
+                          : analyticsMode === 'individual' 
+                            ? 'Select Patient First'
+                            : 'Load Cohort Data'
+                        }
                       </Typography>
                     ) : (
                       <Typography variant="body2" color="success.main">
-                        ✓ Real data loaded
+                        ✓ {nutrientData?.mode === 'individual' ? 'Individual' : 'Cohort'} data loaded
                       </Typography>
                     )}
                   </Box>
