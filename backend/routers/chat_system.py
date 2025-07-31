@@ -836,7 +836,8 @@ Would you like me to create a detailed recipe for any of these meal suggestions?
                 "image_analysis": analysis_data.get("analysis_notes"),
                 "image_url": img_str
             }
-            await save_consumption_record(current_user["email"], consumption_data, meal_type=meal_type)
+            user_timezone = current_user.get("profile", {}).get("timezone", "UTC")
+            await save_consumption_record(current_user["email"], consumption_data, meal_type=meal_type, user_timezone=user_timezone)
             pending_id = None
         
         if pending_id:
@@ -918,7 +919,8 @@ Would you like me to log this to your consumption history? Just say "log this as
             "image_analysis": food_data.get("analysis_notes"),
             "image_url": img_str if analysis_data else None
         }
-        await save_consumption_record(current_user["email"], consumption_data, meal_type=meal_type)
+        user_timezone = current_user.get("profile", {}).get("timezone", "UTC")
+        await save_consumption_record(current_user["email"], consumption_data, meal_type=meal_type, user_timezone=user_timezone)
 
         # Trigger meal plan recalibration after logging food
         try:

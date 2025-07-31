@@ -735,7 +735,9 @@ async def get_daily_coaching_insights_data(user_email: str, user_profile: dict) 
         # Protein
         if adherence["protein"] < 70:
             protein_needed = macro_goals["protein"] - today_totals["protein"]
+            print(f"[RECOMMENDATIONS] Getting protein suggestions for user with profile: {user_profile.get('dietaryRestrictions', [])}")
             protein_suggestions = generate_personalized_protein_suggestions(user_profile)
+            print(f"[RECOMMENDATIONS] Generated protein suggestions: {protein_suggestions}")
             recommendations.append({
                 "type": "protein_low",
                 "priority": "high",
@@ -1238,7 +1240,18 @@ async def quick_log_food_data(food_data: dict, user_email: str, user_profile: di
         
         # Save to consumption history using the ORIGINAL save function
         print(f"[quick_log_food] Saving consumption record for user {user_email}")
-        consumption_record = await save_consumption_record(user_email, consumption_data, meal_type=meal_type)
+        
+        # Get user timezone for proper meal type determination
+        user_timezone = "UTC"  # Default fallback
+        try:
+            from database import get_user_by_email
+            user_doc = await get_user_by_email(user_email)
+            if user_doc and "profile" in user_doc:
+                user_timezone = user_doc["profile"].get("timezone", "UTC")
+        except Exception as e:
+            print(f"[coaching_system] Could not get user timezone: {e}")
+        
+        consumption_record = await save_consumption_record(user_email, consumption_data, meal_type=meal_type, user_timezone=user_timezone)
         print(f"[quick_log_food] Successfully saved consumption record with ID: {consumption_record['id']}")
         
         # ------------------
@@ -1282,8 +1295,11 @@ async def quick_log_food_data(food_data: dict, user_email: str, user_profile: di
 def generate_personalized_protein_suggestions(user_profile: dict) -> str:
     """
     Generate personalized protein suggestions based on user's dietary restrictions and preferences.
+    CRITICAL: Must respect vegetarian and egg-free requirements.
     """
     try:
+        print(f"[PROTEIN_SUGGESTIONS] Analyzing user profile: {user_profile}")
+        
         # Get dietary restrictions and preferences
         dietary_restrictions = user_profile.get('dietaryRestrictions', [])
         dietary_features = user_profile.get('dietaryFeatures', []) or user_profile.get('diet_features', [])
@@ -1300,21 +1316,44 @@ def generate_personalized_protein_suggestions(user_profile: dict) -> str:
         
         allergies_lower = [str(allergy).lower() for allergy in allergies]
         
-        # Check dietary restrictions
-        is_vegetarian = any('vegetarian' in info or 'veg' in info or 'plant-based' in info for info in all_dietary_info)
+        print(f"[PROTEIN_SUGGESTIONS] All dietary info: {all_dietary_info}")
+        print(f"[PROTEIN_SUGGESTIONS] Allergies: {allergies_lower}")
+        
+        # ENHANCED VEGETARIAN DETECTION - Handle "Vegetarian (No Eggs)" pattern
+        is_vegetarian = any(
+            'vegetarian' in info or 'veg' in info or 'plant-based' in info 
+            for info in all_dietary_info
+        )
+        
         is_vegan = any('vegan' in info for info in all_dietary_info)
-        no_eggs = (any('no egg' in info or 'egg-free' in info or 'no eggs' in info for info in all_dietary_info) or 
-                   any('egg' in allergy for allergy in allergies_lower))
+        
+        # ENHANCED EGG DETECTION - Handle multiple patterns
+        no_eggs = (
+            any('no egg' in info or 'egg-free' in info or 'no eggs' in info or '(no egg' in info or '(no eggs' in info for info in all_dietary_info) or 
+            any('egg' in allergy for allergy in allergies_lower) or
+            # Special handling for "Vegetarian (No Eggs)" pattern
+            any('vegetarian' in info and '(no egg' in info for info in all_dietary_info)
+        )
+        
         no_dairy = (any('dairy-free' in info or 'no dairy' in info for info in all_dietary_info) or 
                     any('dairy' in allergy or 'milk' in allergy for allergy in allergies_lower))
         no_nuts = any('nut' in allergy for allergy in allergies_lower)
-        no_soy = any('soy' in allergy for allergy in allergies_lower)
+        no_soy = any('soy' in allergy for allergy in allergies_lower)  # FIX: Define no_soy variable
+        
+        print(f"[PROTEIN_SUGGESTIONS] Dietary analysis:")
+        print(f"[PROTEIN_SUGGESTIONS]   - Vegetarian: {is_vegetarian}")
+        print(f"[PROTEIN_SUGGESTIONS]   - Vegan: {is_vegan}")
+        print(f"[PROTEIN_SUGGESTIONS]   - No eggs: {no_eggs}")
+        print(f"[PROTEIN_SUGGESTIONS]   - No dairy: {no_dairy}")
+        print(f"[PROTEIN_SUGGESTIONS]   - No nuts: {no_nuts}")
+        print(f"[PROTEIN_SUGGESTIONS]   - No soy: {no_soy}")
         
         # Build protein suggestions based on restrictions
         protein_options = []
         
         if is_vegan:
-            # Vegan protein sources
+            # Vegan protein sources - NO animal products
+            print("[PROTEIN_SUGGESTIONS] User is VEGAN - providing plant-based options only")
             if not no_soy:
                 protein_options.extend(["tofu", "tempeh"])
             if not no_nuts:
@@ -1322,9 +1361,16 @@ def generate_personalized_protein_suggestions(user_profile: dict) -> str:
             protein_options.extend(["lentils", "chickpeas", "quinoa", "black beans", "nutritional yeast"])
             
         elif is_vegetarian:
-            # Vegetarian protein sources
+            # Vegetarian protein sources - NO meat, fish, or poultry
+            print("[PROTEIN_SUGGESTIONS] User is VEGETARIAN - providing plant-based options only")
+            
+            # CRITICAL: Never suggest eggs if user has "no eggs" restriction
             if not no_eggs:
                 protein_options.append("eggs")
+                print("[PROTEIN_SUGGESTIONS] Added eggs (allowed)")
+            else:
+                print("[PROTEIN_SUGGESTIONS] SKIPPED eggs (user has no-egg restriction)")
+            
             if not no_dairy:
                 protein_options.extend(["Greek yogurt", "cottage cheese", "paneer"])
             if not no_soy:
@@ -1334,7 +1380,8 @@ def generate_personalized_protein_suggestions(user_profile: dict) -> str:
             protein_options.extend(["lentils", "chickpeas", "quinoa", "black beans"])
             
         else:
-            # Non-vegetarian protein sources
+            # Non-vegetarian protein sources - Include meat and fish
+            print("[PROTEIN_SUGGESTIONS] User is NON-VEGETARIAN - including meat and fish")
             protein_options.extend(["lean meats like chicken or turkey", "fish like salmon or tuna"])
             if not no_eggs:
                 protein_options.append("eggs")
@@ -1346,27 +1393,34 @@ def generate_personalized_protein_suggestions(user_profile: dict) -> str:
                 protein_options.extend(["nuts", "almond butter"])
             protein_options.extend(["lentils", "chickpeas", "quinoa"])
         
+        print(f"[PROTEIN_SUGGESTIONS] Final protein options: {protein_options}")
+        
         # Create a natural language suggestion
         if len(protein_options) == 0:
-            return "plant-based protein sources like beans and quinoa"
+            result = "plant-based protein sources like beans and quinoa"
         elif len(protein_options) == 1:
-            return protein_options[0]
+            result = protein_options[0]
         elif len(protein_options) == 2:
-            return f"{protein_options[0]} or {protein_options[1]}"
+            result = f"{protein_options[0]} or {protein_options[1]}"
         else:
             # Take top 3-4 options for readability
             top_options = protein_options[:3]
             if len(top_options) > 2:
-                return f"{', '.join(top_options[:-1])}, or {top_options[-1]}"
+                result = f"{', '.join(top_options[:-1])}, or {top_options[-1]}"
             elif len(top_options) == 2:
-                return f"{top_options[0]} or {top_options[1]}"
+                result = f"{top_options[0]} or {top_options[1]}"
             else:
-                return top_options[0] if top_options else "beans and quinoa"
+                result = top_options[0] if top_options else "beans and quinoa"
+        
+        print(f"[PROTEIN_SUGGESTIONS] Final suggestion: {result}")
+        return result
             
     except Exception as e:
         print(f"[generate_personalized_protein_suggestions] Error: {e}")
+        import traceback
+        traceback.print_exc()
         # Safe fallback that works for most dietary restrictions
-        return "beans, lentils, or quinoa"
+        return "plant-based protein sources like lentils and quinoa"
 
 
 # ✅ COACHING SYSTEM MODULE COMPLETE 

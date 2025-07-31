@@ -90,90 +90,66 @@ async def get_consumption_analytics_endpoint(days: int = 30, current_user: Dict 
 
 async def get_daily_insights_endpoint(current_user: Dict = Depends(get_current_user)) -> Dict[str, Any]:
     """
-    Get daily insights endpoint - integrated with consumption data
+    Get daily insights endpoint - NOW USING SMART AI RECOMMENDATIONS
     """
     try:
-        print(f"[DailyInsightsEndpoint] Getting insights for user {current_user['id']}")
+        print(f"[DailyInsightsEndpoint] Getting SMART AI insights for user {current_user['id']}")
         
-        # Get today's consumption data
-        today_analytics = await consumption_tracker.get_consumption_analytics(
-            user_id=current_user["id"],
-            days=1
-        )
+        # Import the smart coaching system
+        from services.coaching_system import get_daily_coaching_insights_data
+        from database import get_user_by_email
         
-        # Get weekly data for trends
-        weekly_analytics = await consumption_tracker.get_consumption_analytics(
-            user_id=current_user["id"],
-            days=7
-        )
+        # Get user's complete profile for smart recommendations
+        user_data = await get_user_by_email(current_user["email"])
+        user_profile = user_data.get("profile", {})
         
-        # Calculate daily insights
-        today_totals = today_analytics["daily_averages"]
+        print(f"[DailyInsightsEndpoint] User profile loaded with medical conditions: {user_profile.get('medicalConditions', [])}")
+        print(f"[DailyInsightsEndpoint] User medications: {user_profile.get('currentMedications', [])}")
         
-        # Default daily goals
-        goals = {
-            "calories": 2000,
-            "protein": 100,
-            "carbohydrates": 250,
-            "fat": 70
-        }
+        # Use the SMART coaching system that considers full health profile
+        smart_insights = await get_daily_coaching_insights_data(current_user["email"], user_profile)
         
-        # Calculate adherence percentages
-        adherence = {
-            "calories": min(100, (today_totals["calories"] / goals["calories"]) * 100) if goals["calories"] > 0 else 0,
-            "protein": min(100, (today_totals["protein"] / goals["protein"]) * 100) if goals["protein"] > 0 else 0,
-            "carbohydrates": min(100, (today_totals["carbohydrates"] / goals["carbohydrates"]) * 100) if goals["carbohydrates"] > 0 else 0,
-            "fat": min(100, (today_totals["fat"] / goals["fat"]) * 100) if goals["fat"] > 0 else 0
-        }
+        print(f"[DailyInsightsEndpoint] Generated smart insights with {len(smart_insights.get('recommendations', []))} personalized recommendations")
         
-        # Generate recommendations
-        recommendations = []
-        
-        if today_totals["calories"] < goals["calories"] * 0.8:
-            recommendations.append({
-                "type": "nutrition",
-                "priority": "medium",
-                "message": "You're below your daily calorie target. Consider adding a healthy snack.",
-                "action": "log_meal"
-            })
-        
-        if today_totals["protein"] < goals["protein"] * 0.8:
-            recommendations.append({
-                "type": "nutrition",
-                "priority": "high",
-                "message": "Protein intake is low. Include lean proteins in your next meal.",
-                "action": "add_protein"
-            })
-        
-        if weekly_analytics["adherence_stats"]["diabetes_suitable_percentage"] < 70:
-            recommendations.append({
-                "type": "health",
-                "priority": "high",
-                "message": "Focus on diabetes-friendly food choices this week.",
-                "action": "meal_planning"
-            })
-        
-        insights = {
-            "date": today_analytics["date_range"]["end_date"][:10],
-            "goals": goals,
-            "today_totals": today_totals,
-            "adherence": adherence,
-            "meals_logged_today": today_analytics["total_meals"],
-            "weekly_stats": {
-                "total_meals": weekly_analytics["total_meals"],
-                "diabetes_suitable_percentage": weekly_analytics["adherence_stats"]["diabetes_suitable_percentage"],
-                "average_daily_calories": weekly_analytics["daily_averages"]["calories"]
-            },
-            "recommendations": recommendations,
-            "has_meal_plan": False,  # This would be integrated with meal plan system
-            "latest_meal_plan_date": None
-        }
-        
-        print(f"[DailyInsightsEndpoint] Generated insights successfully")
-        
-        return insights
+        return smart_insights
         
     except Exception as e:
-        print(f"[DailyInsightsEndpoint] Error: {str(e)}")
-        print(f"[DailyInsightsEndpoint] Traceback: {traceback.format_exc()}")
-        raise HTTPException(status_code=500, detail=f"Failed to get daily insights: {str(e)}") 
+        print(f"[DailyInsightsEndpoint] Smart insights failed, falling back to basic system: {str(e)}")
+        
+        # Fallback to basic system if smart system fails
+        try:
+            # Get today's consumption data for fallback
+            today_analytics = await consumption_tracker.get_consumption_analytics(
+                user_id=current_user["id"],
+                days=1
+            )
+            
+            today_totals = today_analytics["daily_averages"]
+            
+            # Basic fallback insights
+            fallback_insights = {
+                "date": today_analytics["date_range"]["end_date"][:10],
+                "goals": {"calories": 2000, "protein": 100, "carbohydrates": 250, "fat": 70},
+                "today_totals": today_totals,
+                "adherence": {
+                    "calories": min(100, (today_totals["calories"] / 2000) * 100),
+                    "protein": min(100, (today_totals["protein"] / 100) * 100),
+                    "carbohydrates": min(100, (today_totals["carbohydrates"] / 250) * 100),
+                    "fat": min(100, (today_totals["fat"] / 70) * 100)
+                },
+                "meals_logged_today": today_analytics["total_meals"],
+                "recommendations": [{
+                    "type": "system",
+                    "priority": "medium", 
+                    "message": "Keep logging your meals for personalized recommendations!",
+                    "action": "log_meal"
+                }],
+                "has_meal_plan": False,
+                "latest_meal_plan_date": None
+            }
+            
+            return fallback_insights
+            
+        except Exception as fallback_error:
+            print(f"[DailyInsightsEndpoint] Even fallback failed: {str(fallback_error)}")
+            raise HTTPException(status_code=500, detail=f"Failed to get daily insights: {str(fallback_error)}") 

@@ -205,7 +205,7 @@ class ConsumptionTracker:
             "image_url": None,  # No image for quick log
             
             # Meal type determination
-            "meal_type": self._determine_meal_type(timestamp)
+            "meal_type": self._determine_meal_type(timestamp, user_timezone="UTC")
         }
         
         print(f"[ConsumptionTracker] Creating record: {record}")
@@ -216,19 +216,19 @@ class ConsumptionTracker:
         
         return result
     
-    def _determine_meal_type(self, timestamp: datetime) -> str:
-        """Determine meal type based on time"""
+    def _determine_meal_type(self, timestamp: datetime, user_timezone: str = "UTC") -> str:
+        """Determine meal type based on time using user's actual timezone"""
         try:
-            # Use local time for meal type determination
-            # Default to US Eastern timezone as a reasonable assumption
             import pytz
-            eastern = pytz.timezone('America/New_York')
+            user_tz = pytz.timezone(user_timezone)
             utc_time = timestamp.replace(tzinfo=pytz.utc)
-            local_time = utc_time.astimezone(eastern)
+            local_time = utc_time.astimezone(user_tz)
             hour = local_time.hour
-        except:
+            print(f"[_determine_meal_type] Using timezone {user_timezone}: {local_time} (hour: {hour})")
+        except Exception as tz_error:
             # Fallback to UTC if timezone conversion fails
             hour = timestamp.hour
+            print(f"[_determine_meal_type] Timezone conversion failed, using UTC: {tz_error}")
         
         if 5 <= hour < 11:
             return "breakfast"

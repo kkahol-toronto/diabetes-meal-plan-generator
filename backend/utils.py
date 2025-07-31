@@ -66,6 +66,24 @@ def get_today_utc_boundaries():
     return start_of_today, start_of_tomorrow
 
 
+def validate_user_timezone(user_timezone: str) -> str:
+    """
+    Validate and sanitize user timezone string.
+    Returns a valid timezone string or 'UTC' as fallback.
+    """
+    if not user_timezone or user_timezone.strip() == "":
+        return "UTC"
+    
+    try:
+        import pytz
+        # Try to create timezone object to validate
+        pytz.timezone(user_timezone)
+        return user_timezone
+    except (pytz.exceptions.UnknownTimeZoneError, Exception) as e:
+        print(f"[TIMEZONE_VALIDATION] Invalid timezone '{user_timezone}': {e}. Falling back to UTC.")
+        return "UTC"
+
+
 def get_user_timezone_boundaries(user_timezone: str = "UTC"):
     """
     Get today's boundaries in the user's timezone, converted to UTC.
@@ -74,6 +92,9 @@ def get_user_timezone_boundaries(user_timezone: str = "UTC"):
     try:
         import pytz
         from datetime import datetime, time
+        
+        # Validate timezone first
+        user_timezone = validate_user_timezone(user_timezone)
         
         # Get the user's timezone
         user_tz = pytz.timezone(user_timezone)

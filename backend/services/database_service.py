@@ -117,8 +117,18 @@ async def save_consumption_record_with_cache_invalidation(
     Returns:
         Saved consumption record
     """
+    # Get user timezone from profile if available
+    user_timezone = "UTC"  # Default fallback
+    try:
+        from database import get_user_by_email
+        user_doc = await get_user_by_email(user_email)
+        if user_doc and "profile" in user_doc:
+            user_timezone = user_doc["profile"].get("timezone", "UTC")
+    except Exception as e:
+        print(f"[database_service] Could not get user timezone: {e}")
+    
     # Save to database
-    result = await db_save_consumption_record(user_email, consumption_data, meal_type)
+    result = await db_save_consumption_record(user_email, consumption_data, meal_type, user_timezone)
     
     # Invalidate consumption cache for this user (but keep other caches)
     invalidate_consumption_cache(user_email)
