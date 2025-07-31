@@ -138,14 +138,18 @@ const PiasCorner: React.FC = () => {
   const [nutrientData, setNutrientData] = useState<any>(null);
   const [engagementData, setEngagementData] = useState<any>(null);
   const [clinicalAlertsData, setClinicalAlertsData] = useState<any>(null);
+  const [behaviorClusteringData, setBehaviorClusteringData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [nutrientLoading, setNutrientLoading] = useState(false);
   const [engagementLoading, setEngagementLoading] = useState(false);
   const [clinicalAlertsLoading, setClinicalAlertsLoading] = useState(false);
+  const [behaviorClusteringLoading, setBehaviorClusteringLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [alertSortBy, setAlertSortBy] = useState<'severity' | 'date' | 'patient_name' | 'alert_type'>('severity');
   const [alertSortOrder, setAlertSortOrder] = useState<'asc' | 'desc'>('desc');
   const [alertFilter, setAlertFilter] = useState<'All' | 'Calories' | 'Nutrients' | 'Under-eating'>('All');
+  const [patientModalOpen, setPatientModalOpen] = useState(false);
+  const [selectedCluster, setSelectedCluster] = useState<any>(null);
   const [reviewDialogOpen, setReviewDialogOpen] = useState(false);
   const [selectedAlert, setSelectedAlert] = useState<any>(null);
   const [reviewNotes, setReviewNotes] = useState('');
@@ -232,6 +236,13 @@ const PiasCorner: React.FC = () => {
     if (newValue === 3 && !clinicalAlertsData) {
       setTimeout(() => {
         fetchClinicalAlertsData();
+      }, 100);
+    }
+    
+    // Auto-load behavior clustering data when switching to that tab
+    if (newValue === 4 && !behaviorClusteringData) {
+      setTimeout(() => {
+        fetchBehaviorClusteringData();
       }, 100);
     }
   };
@@ -327,6 +338,40 @@ const PiasCorner: React.FC = () => {
     } finally {
       setClinicalAlertsLoading(false);
     }
+  };
+
+  const fetchBehaviorClusteringData = async () => {
+    setBehaviorClusteringLoading(true);
+    try {
+      const response = await fetch(`${config.API_URL}/admin/analytics/behavior-clustering`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setBehaviorClusteringData(data);
+      } else {
+        setError('Failed to fetch behavior clustering data');
+      }
+    } catch (err) {
+      setError('Failed to fetch behavior clustering data');
+    } finally {
+      setBehaviorClusteringLoading(false);
+    }
+  };
+
+  const handleViewPatients = (archetype: any) => {
+    // Find patients in this cluster from the correlation data
+    const clusterPatients = behaviorClusteringData.behavior_outcome_correlation
+      .filter((patient: any) => patient.cluster === archetype.cluster_id);
+    
+    setSelectedCluster({
+      ...archetype,
+      patients: clusterPatients
+    });
+    setPatientModalOpen(true);
   };
 
   const handleReviewAlert = (alert: any) => {
@@ -1230,11 +1275,18 @@ const PiasCorner: React.FC = () => {
               aria-controls="simple-tabpanel-3"
             />
             <Tab
-              label="Settings"
-              icon={<Settings />}
+              label="Behavior Analysis"
+              icon={<Groups />}
               iconPosition="start"
               id="simple-tab-4"
               aria-controls="simple-tabpanel-4"
+            />
+            <Tab
+              label="Settings"
+              icon={<Settings />}
+              iconPosition="start"
+              id="simple-tab-5"
+              aria-controls="simple-tabpanel-5"
             />
           </Tabs>
         </Box>
@@ -2968,6 +3020,532 @@ const PiasCorner: React.FC = () => {
         </TabPanel>
 
         <TabPanel value={tabValue} index={4}>
+          {/* Behavior Analysis Tab */}
+          {behaviorClusteringLoading ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
+              <CircularProgress />
+            </Box>
+          ) : behaviorClusteringData ? (
+            <Grid container spacing={3}>
+              {/* Behavioral Archetype Dashboard Cards - Top Row */}
+              <Grid item xs={12}>
+                <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
+                  <Groups sx={{ mr: 1, color: 'primary.main' }} />
+                  Behavioral Archetypes
+                </Typography>
+                <Grid container spacing={2}>
+                  {behaviorClusteringData.behavioral_archetypes.map((archetype: any) => (
+                    <Grid item xs={12} md={4} key={archetype.cluster_id}>
+                      <Card sx={{ 
+                        cursor: 'pointer',
+                        transition: 'all 0.3s ease',
+                        '&:hover': { 
+                          transform: 'translateY(-4px)', 
+                          boxShadow: 4,
+                          borderColor: archetype.color
+                        },
+                        border: '2px solid transparent'
+                      }}>
+                        <CardContent>
+                          <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                            <Box sx={{ 
+                              backgroundColor: archetype.color + '20',
+                              borderRadius: 2,
+                              p: 1,
+                              mr: 2
+                            }}>
+                              <Restaurant sx={{ color: archetype.color, fontSize: '2rem' }} />
+                            </Box>
+                            <Box>
+                              <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
+                                {archetype.name}
+                              </Typography>
+                              <Typography variant="body2" color="text.secondary">
+                                {archetype.patient_count} patients
+                              </Typography>
+                            </Box>
+                          </Box>
+                          
+                          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                            {archetype.description}
+                          </Typography>
+                          
+                          <Box sx={{ display: 'flex', gap: 1, mb: 2, flexWrap: 'wrap' }}>
+                            <Chip 
+                              label={`${archetype.avg_outcomes.glucose_improvement}% glucose ↗`}
+                              size="small" 
+                              color="success" 
+                              variant="outlined"
+                            />
+                            <Chip 
+                              label={`${archetype.avg_outcomes.weight_change}kg weight`}
+                              size="small" 
+                              color={archetype.avg_outcomes.weight_change < 0 ? "success" : "warning"}
+                              variant="outlined"
+                            />
+                            <Chip 
+                              label={`${archetype.avg_outcomes.compliance_rate}% compliance`}
+                              size="small" 
+                              color="info" 
+                              variant="outlined"
+                            />
+                          </Box>
+                          
+                          <Button 
+                            variant="outlined" 
+                            size="small" 
+                            onClick={() => handleViewPatients(archetype)}
+                            sx={{ 
+                              borderColor: archetype.color,
+                              color: archetype.color,
+                              '&:hover': { 
+                                backgroundColor: archetype.color + '10',
+                                borderColor: archetype.color
+                              }
+                            }}
+                          >
+                            View Patients
+                          </Button>
+                        </CardContent>
+                      </Card>
+                    </Grid>
+                  ))}
+                </Grid>
+              </Grid>
+
+              {/* Behavior-Outcome Correlation Scatter Plot and Donut Chart - Middle Row */}
+              <Grid item xs={12} md={8}>
+                <Card>
+                  <CardContent>
+                    <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
+                      <AnalyticsIcon sx={{ mr: 1, color: 'primary.main' }} />
+                      Behavior-Outcome Correlation
+                    </Typography>
+                    <Box sx={{ height: 400 }}>
+                      <Scatter
+                        data={{
+                          datasets: behaviorClusteringData.behavioral_archetypes.map((archetype: any) => ({
+                            label: archetype.name,
+                            data: behaviorClusteringData.behavior_outcome_correlation
+                              .filter((patient: any) => patient.cluster === archetype.cluster_id)
+                              .map((patient: any) => ({
+                                x: patient.behavior_score,
+                                y: patient.glucose_improvement
+                              })),
+                            backgroundColor: archetype.color + '80',
+                            borderColor: archetype.color,
+                            pointRadius: 6,
+                            pointHoverRadius: 8
+                          }))
+                        }}
+                        options={{
+                          responsive: true,
+                          maintainAspectRatio: false,
+                          plugins: {
+                            legend: {
+                              position: 'top' as const,
+                            },
+                            tooltip: {
+                              callbacks: {
+                                title: function(context: any) {
+                                  const pointIndex = context[0].dataIndex;
+                                  const datasetIndex = context[0].datasetIndex;
+                                  const archetype = behaviorClusteringData.behavioral_archetypes[datasetIndex];
+                                  const patients = behaviorClusteringData.behavior_outcome_correlation
+                                    .filter((p: any) => p.cluster === archetype.cluster_id);
+                                  return patients[pointIndex]?.patient_name || 'Patient';
+                                },
+                                label: function(context: any) {
+                                  const pointIndex = context.dataIndex;
+                                  const datasetIndex = context.datasetIndex;
+                                  const archetype = behaviorClusteringData.behavioral_archetypes[datasetIndex];
+                                  const patients = behaviorClusteringData.behavior_outcome_correlation
+                                    .filter((p: any) => p.cluster === archetype.cluster_id);
+                                  const patient = patients[pointIndex];
+                                  return [
+                                    `Behavior Score: ${context.parsed.x}`,
+                                    `Glucose Improvement: ${context.parsed.y}%`,
+                                    `Weight Change: ${patient?.weight_change}kg`,
+                                    `Compliance: ${patient?.compliance_rate}%`
+                                  ];
+                                }
+                              }
+                            }
+                          },
+                          scales: {
+                            x: {
+                              title: {
+                                display: true,
+                                text: 'Behavior Score (Consistency, Logging Frequency, Meal Timing)'
+                              },
+                              min: 0,
+                              max: 100
+                            },
+                            y: {
+                              title: {
+                                display: true,
+                                text: 'Glucose Improvement (%)'
+                              },
+                              min: 0
+                            }
+                          }
+                        }}
+                      />
+                    </Box>
+                  </CardContent>
+                </Card>
+              </Grid>
+
+              <Grid item xs={12} md={4}>
+                <Card>
+                  <CardContent>
+                    <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
+                      <People sx={{ mr: 1, color: 'primary.main' }} />
+                      Patient Distribution
+                    </Typography>
+                    <Box sx={{ height: 300, display: 'flex', justifyContent: 'center', alignItems: 'center', position: 'relative' }}>
+                      <Doughnut
+                        data={{
+                          labels: behaviorClusteringData.cluster_distribution.map((cluster: any) => cluster.cluster),
+                          datasets: [{
+                            data: behaviorClusteringData.cluster_distribution.map((cluster: any) => cluster.count),
+                            backgroundColor: behaviorClusteringData.behavioral_archetypes.map((archetype: any) => archetype.color + '80'),
+                            borderColor: behaviorClusteringData.behavioral_archetypes.map((archetype: any) => archetype.color),
+                            borderWidth: 2,
+                            hoverBackgroundColor: behaviorClusteringData.behavioral_archetypes.map((archetype: any) => archetype.color + 'CC'),
+                          }]
+                        }}
+                        options={{
+                          responsive: true,
+                          maintainAspectRatio: false,
+                          plugins: {
+                            legend: {
+                              position: 'bottom' as const,
+                              labels: {
+                                usePointStyle: true,
+                                pointStyle: 'circle',
+                                font: {
+                                  size: 11
+                                }
+                              }
+                            },
+                            tooltip: {
+                              callbacks: {
+                                label: function(context: any) {
+                                  const cluster = behaviorClusteringData.cluster_distribution[context.dataIndex];
+                                  return `${cluster.cluster}: ${cluster.count} patients (${cluster.percentage}%)`;
+                                }
+                              }
+                            }
+                          },
+                          cutout: '60%'
+                        }}
+                      />
+                      <Box sx={{
+                        position: 'absolute',
+                        top: '50%',
+                        left: '50%',
+                        transform: 'translate(-50%, -50%)',
+                        textAlign: 'center'
+                      }}>
+                        <Typography variant="h4" sx={{ fontWeight: 'bold' }}>
+                          {behaviorClusteringData.cluster_distribution.reduce((sum: number, cluster: any) => sum + cluster.count, 0)}
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          Total Patients
+                        </Typography>
+                      </Box>
+                    </Box>
+                  </CardContent>
+                </Card>
+              </Grid>
+
+              {/* Behavioral Trends Timeline and Outcome Comparison - Bottom Row */}
+              <Grid item xs={12} md={6}>
+                <Card>
+                  <CardContent>
+                    <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
+                      <Timeline sx={{ mr: 1, color: 'primary.main' }} />
+                      Behavioral Trends Over Time
+                    </Typography>
+                    <Box sx={{ height: 350 }}>
+                      <Line
+                        data={{
+                          labels: behaviorClusteringData.cluster_trends.labels,
+                          datasets: behaviorClusteringData.cluster_trends.datasets.map((dataset: any) => ({
+                            label: dataset.cluster,
+                            data: dataset.data,
+                            borderColor: dataset.color,
+                            backgroundColor: dataset.color + '20',
+                            borderWidth: 3,
+                            pointRadius: 4,
+                            pointHoverRadius: 6,
+                            tension: 0.3
+                          }))
+                        }}
+                        options={{
+                          responsive: true,
+                          maintainAspectRatio: false,
+                          plugins: {
+                            legend: {
+                              position: 'top' as const,
+                            },
+                            tooltip: {
+                              mode: 'index' as const,
+                              intersect: false,
+                            }
+                          },
+                          scales: {
+                            x: {
+                              title: {
+                                display: true,
+                                text: 'Time Period'
+                              }
+                            },
+                            y: {
+                              title: {
+                                display: true,
+                                text: 'Number of Patients in Cluster'
+                              },
+                              beginAtZero: true
+                            }
+                          },
+                          interaction: {
+                            mode: 'nearest' as const,
+                            axis: 'x' as const,
+                            intersect: false
+                          }
+                        }}
+                      />
+                    </Box>
+                  </CardContent>
+                </Card>
+              </Grid>
+
+              <Grid item xs={12} md={6}>
+                <Card>
+                  <CardContent>
+                    <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
+                      <TrendingUp sx={{ mr: 1, color: 'primary.main' }} />
+                      Outcome Comparison by Cluster
+                    </Typography>
+                    <Box sx={{ height: 350 }}>
+                      <Bar
+                        data={{
+                          labels: behaviorClusteringData.outcome_comparison.clusters,
+                          datasets: [
+                            {
+                              label: 'Glucose Improvement (%)',
+                              data: behaviorClusteringData.outcome_comparison.glucose_improvement,
+                              backgroundColor: 'rgba(76, 175, 80, 0.6)',
+                              borderColor: 'rgba(76, 175, 80, 1)',
+                              borderWidth: 1
+                            },
+                            {
+                              label: 'Weight Change (kg)',
+                              data: behaviorClusteringData.outcome_comparison.weight_change.map((val: number) => Math.abs(val)),
+                              backgroundColor: 'rgba(33, 150, 243, 0.6)',
+                              borderColor: 'rgba(33, 150, 243, 1)',
+                              borderWidth: 1
+                            },
+                            {
+                              label: 'Compliance Rate (%)',
+                              data: behaviorClusteringData.outcome_comparison.compliance_rate,
+                              backgroundColor: 'rgba(255, 152, 0, 0.6)',
+                              borderColor: 'rgba(255, 152, 0, 1)',
+                              borderWidth: 1
+                            }
+                          ]
+                        }}
+                        options={{
+                          responsive: true,
+                          maintainAspectRatio: false,
+                          plugins: {
+                            legend: {
+                              position: 'top' as const,
+                            },
+                            tooltip: {
+                              callbacks: {
+                                label: function(context: any) {
+                                  const datasetLabel = context.dataset.label;
+                                  let value = context.parsed.y;
+                                  
+                                  if (datasetLabel === 'Weight Change (kg)') {
+                                    const originalValue = behaviorClusteringData.outcome_comparison.weight_change[context.dataIndex];
+                                    return `${datasetLabel}: ${originalValue}kg`;
+                                  }
+                                  
+                                  return `${datasetLabel}: ${value}${datasetLabel.includes('%') ? '' : datasetLabel.includes('kg') ? 'kg' : ''}`;
+                                }
+                              }
+                            }
+                          },
+                          scales: {
+                            x: {
+                              title: {
+                                display: true,
+                                text: 'Behavioral Clusters'
+                              }
+                            },
+                            y: {
+                              title: {
+                                display: true,
+                                text: 'Outcome Metrics'
+                              },
+                              beginAtZero: true
+                            }
+                          }
+                        }}
+                      />
+                    </Box>
+                  </CardContent>
+                </Card>
+              </Grid>
+
+              {/* Advanced Analytics Section */}
+              <Grid item xs={12}>
+                <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', mt: 2 }}>
+                  <EmojiEvents sx={{ mr: 1, color: 'primary.main' }} />
+                  Success Stories & Risk Indicators
+                </Typography>
+                
+                <Grid container spacing={2}>
+                  {/* Success Stories */}
+                  <Grid item xs={12} md={6}>
+                    <Card sx={{ height: '100%' }}>
+                      <CardContent>
+                        <Typography variant="subtitle1" sx={{ fontWeight: 'bold', mb: 2, color: 'success.main' }}>
+                          Recent Success Stories
+                        </Typography>
+                        {behaviorClusteringData.success_stories.map((story: any, index: number) => (
+                          <Box key={index} sx={{ mb: 2, p: 2, bgcolor: 'success.light', borderRadius: 1, color: 'success.contrastText' }}>
+                            <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
+                              {story.patient_name}
+                            </Typography>
+                            <Typography variant="caption">
+                              {story.from_cluster} → {story.to_cluster}
+                            </Typography>
+                            <Box sx={{ mt: 1, display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                              <Chip label={story.improvement_metrics.glucose_improvement} size="small" color="success" />
+                              <Chip label={story.improvement_metrics.weight_change} size="small" color="success" />
+                              <Chip label={story.improvement_metrics.compliance_rate} size="small" color="success" />
+                            </Box>
+                            <Typography variant="caption" sx={{ display: 'block', mt: 1, fontStyle: 'italic' }}>
+                              Intervention: {story.intervention}
+                            </Typography>
+                          </Box>
+                        ))}
+                      </CardContent>
+                    </Card>
+                  </Grid>
+
+                  {/* Risk Indicators */}
+                  <Grid item xs={12} md={6}>
+                    <Card sx={{ height: '100%' }}>
+                      <CardContent>
+                        <Typography variant="subtitle1" sx={{ fontWeight: 'bold', mb: 2, color: 'warning.main' }}>
+                          Risk Indicators & Interventions
+                        </Typography>
+                        {behaviorClusteringData.risk_indicators.map((risk: any, index: number) => (
+                          <Box key={index} sx={{ 
+                            mb: 2, 
+                            p: 2, 
+                            bgcolor: risk.risk_level === 'high' ? 'error.light' : 'warning.light', 
+                            borderRadius: 1,
+                            color: risk.risk_level === 'high' ? 'error.contrastText' : 'warning.contrastText'
+                          }}>
+                            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                              <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
+                                {risk.cluster}
+                              </Typography>
+                              <Chip 
+                                label={`${risk.risk_level.toUpperCase()} RISK`} 
+                                size="small" 
+                                color={risk.risk_level === 'high' ? 'error' : 'warning'}
+                                variant="filled"
+                              />
+                            </Box>
+                            <Typography variant="caption" sx={{ display: 'block', mb: 1 }}>
+                              {risk.patients_at_risk} patients at risk
+                            </Typography>
+                            <Typography variant="body2" sx={{ fontSize: '0.875rem' }}>
+                              Recommended: {risk.intervention_needed}
+                            </Typography>
+                          </Box>
+                        ))}
+                      </CardContent>
+                    </Card>
+                  </Grid>
+                </Grid>
+              </Grid>
+
+              {/* Predictive Insights */}
+              <Grid item xs={12}>
+                <Card>
+                  <CardContent>
+                    <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
+                      <CheckCircle sx={{ mr: 1, color: 'primary.main' }} />
+                      Predictive Insights
+                    </Typography>
+                    <Grid container spacing={2}>
+                      {behaviorClusteringData.predictive_insights.map((insight: any, index: number) => (
+                        <Grid item xs={12} md={4} key={index}>
+                          <Box sx={{ 
+                            p: 2, 
+                            border: '1px solid', 
+                            borderColor: 'divider', 
+                            borderRadius: 2,
+                            height: '100%',
+                            bgcolor: 'background.paper'
+                          }}>
+                            <Typography variant="body2" sx={{ mb: 2 }}>
+                              {insight.insight}
+                            </Typography>
+                            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <Typography variant="caption" color="text.secondary">
+                                Sample: {insight.sample_size} patients
+                              </Typography>
+                              <Chip 
+                                label={`${Math.round(insight.confidence * 100)}% confidence`}
+                                size="small"
+                                color={insight.confidence > 0.8 ? 'success' : insight.confidence > 0.7 ? 'warning' : 'default'}
+                                variant="outlined"
+                              />
+                            </Box>
+                          </Box>
+                        </Grid>
+                      ))}
+                    </Grid>
+                  </CardContent>
+                </Card>
+              </Grid>
+            </Grid>
+          ) : (
+            <Box sx={{ textAlign: 'center', py: 4 }}>
+              <Alert severity="info" sx={{ mb: 2 }}>
+                <Typography variant="h6" gutterBottom>
+                  Behavior Analysis Dashboard
+                </Typography>
+                <Typography variant="body1" gutterBottom>
+                  Analyze patient behavioral patterns and link behaviors to health outcomes.
+                </Typography>
+                <Typography variant="body2" color="text.secondary" gutterBottom>
+                  Loading comprehensive behavioral clustering data...
+                </Typography>
+                <Button
+                  variant="contained"
+                  onClick={fetchBehaviorClusteringData}
+                  startIcon={<Groups />}
+                  sx={{ mt: 1 }}
+                >
+                  Load Behavior Analysis
+                </Button>
+              </Alert>
+            </Box>
+          )}
+        </TabPanel>
+
+        <TabPanel value={tabValue} index={5}>
           <Box sx={{ p: 3 }}>
             <Typography variant="h6" gutterBottom>
               Settings Panel
@@ -3171,6 +3749,207 @@ const PiasCorner: React.FC = () => {
             color={reviewAction === 'escalated' ? 'error' : 'primary'}
           >
             {reviewLoading ? 'Submitting...' : `Submit ${reviewAction === 'escalated' ? 'Escalation' : 'Review'}`}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Patient Modal for Behavioral Clusters */}
+      <Dialog 
+        open={patientModalOpen} 
+        onClose={() => setPatientModalOpen(false)}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle sx={{ 
+          backgroundColor: selectedCluster?.color + '10',
+          borderBottom: `2px solid ${selectedCluster?.color}`,
+          display: 'flex',
+          alignItems: 'center'
+        }}>
+          <Box sx={{ 
+            backgroundColor: selectedCluster?.color + '20',
+            borderRadius: 2,
+            p: 1,
+            mr: 2
+          }}>
+            <Restaurant sx={{ color: selectedCluster?.color, fontSize: '1.5rem' }} />
+          </Box>
+          <Box>
+            <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
+              {selectedCluster?.name} Patients
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              {selectedCluster?.patients?.length || 0} patients in this behavioral cluster
+            </Typography>
+          </Box>
+        </DialogTitle>
+        
+        <DialogContent sx={{ p: 0 }}>
+          {selectedCluster?.patients && selectedCluster.patients.length > 0 ? (
+            <TableContainer>
+              <Table>
+                <TableHead>
+                  <TableRow sx={{ backgroundColor: 'grey.50' }}>
+                    <TableCell sx={{ fontWeight: 'bold' }}>Patient Name</TableCell>
+                    <TableCell align="center" sx={{ fontWeight: 'bold' }}>Behavior Score</TableCell>
+                    <TableCell align="center" sx={{ fontWeight: 'bold' }}>Compliance Rate</TableCell>
+                    <TableCell align="center" sx={{ fontWeight: 'bold' }}>Glucose Improvement</TableCell>
+                    <TableCell align="center" sx={{ fontWeight: 'bold' }}>Weight Change</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {selectedCluster.patients.map((patient: any, index: number) => (
+                    <TableRow 
+                      key={patient.patient_id || index}
+                      sx={{ 
+                        '&:hover': { backgroundColor: selectedCluster.color + '05' },
+                        borderLeft: `4px solid ${selectedCluster.color}20`
+                      }}
+                    >
+                      <TableCell>
+                        <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                          <Box sx={{
+                            width: 40,
+                            height: 40,
+                            borderRadius: '50%',
+                            backgroundColor: selectedCluster.color + '20',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            mr: 2
+                          }}>
+                            <Person sx={{ color: selectedCluster.color, fontSize: '1.2rem' }} />
+                          </Box>
+                          <Box>
+                            <Typography variant="body1" sx={{ fontWeight: 'medium' }}>
+                              {patient.patient_name}
+                            </Typography>
+                            <Typography variant="body2" color="text.secondary">
+                              ID: {patient.patient_id}
+                            </Typography>
+                          </Box>
+                        </Box>
+                      </TableCell>
+                      <TableCell align="center">
+                        <Chip 
+                          label={`${patient.behavior_score}`}
+                          size="small"
+                          sx={{ 
+                            backgroundColor: selectedCluster.color + '20',
+                            color: selectedCluster.color,
+                            fontWeight: 'bold'
+                          }}
+                        />
+                      </TableCell>
+                      <TableCell align="center">
+                        <Chip 
+                          label={`${patient.compliance_rate}%`}
+                          size="small"
+                          color={patient.compliance_rate >= 80 ? "success" : patient.compliance_rate >= 60 ? "warning" : "error"}
+                          variant="outlined"
+                        />
+                      </TableCell>
+                      <TableCell align="center">
+                        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          <Typography variant="body2" sx={{ 
+                            color: patient.glucose_improvement > 0 ? 'success.main' : 'text.secondary',
+                            fontWeight: 'medium'
+                          }}>
+                            {patient.glucose_improvement > 0 ? '+' : ''}{patient.glucose_improvement}%
+                          </Typography>
+                          {patient.glucose_improvement > 0 && (
+                            <TrendingUp sx={{ fontSize: '1rem', color: 'success.main', ml: 0.5 }} />
+                          )}
+                        </Box>
+                      </TableCell>
+                      <TableCell align="center">
+                        <Typography variant="body2" sx={{ 
+                          color: patient.weight_change < 0 ? 'success.main' : patient.weight_change > 0 ? 'warning.main' : 'text.secondary',
+                          fontWeight: 'medium'
+                        }}>
+                          {patient.weight_change > 0 ? '+' : ''}{patient.weight_change}kg
+                        </Typography>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          ) : (
+            <Box sx={{ p: 4, textAlign: 'center' }}>
+              <Typography variant="h6" color="text.secondary">
+                No patients found in this cluster
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                This behavioral archetype currently has no assigned patients.
+              </Typography>
+            </Box>
+          )}
+          
+          {/* Cluster Summary */}
+          {selectedCluster && (
+            <Box sx={{ p: 3, backgroundColor: 'grey.50', borderTop: '1px solid', borderColor: 'grey.200' }}>
+              <Typography variant="h6" gutterBottom sx={{ color: selectedCluster.color, fontWeight: 'bold' }}>
+                Cluster Summary
+              </Typography>
+              <Grid container spacing={2}>
+                <Grid item xs={12} md={6}>
+                  <Typography variant="body2" color="text.secondary" gutterBottom>
+                    Description:
+                  </Typography>
+                  <Typography variant="body1" sx={{ mb: 2 }}>
+                    {selectedCluster.description}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary" gutterBottom>
+                    Key Characteristics:
+                  </Typography>
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                    {(selectedCluster.characteristics || []).map((char: string, index: number) => (
+                      <Typography key={index} variant="body2" sx={{ 
+                        display: 'flex', 
+                        alignItems: 'center'
+                      }}>
+                        • {char}
+                      </Typography>
+                    ))}
+                  </Box>
+                </Grid>
+                <Grid item xs={12} md={6}>
+                  <Typography variant="body2" color="text.secondary" gutterBottom>
+                    Average Outcomes:
+                  </Typography>
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                    <Chip 
+                      label={`${selectedCluster.avg_outcomes?.glucose_improvement || 0}% Glucose Improvement`}
+                      color="success" 
+                      variant="outlined"
+                      size="small"
+                    />
+                    <Chip 
+                      label={`${selectedCluster.avg_outcomes?.weight_change || 0}kg Weight Change`}
+                      color={selectedCluster.avg_outcomes?.weight_change < 0 ? "success" : "warning"}
+                      variant="outlined"
+                      size="small"
+                    />
+                    <Chip 
+                      label={`${selectedCluster.avg_outcomes?.compliance_rate || 0}% Compliance Rate`}
+                      color="info" 
+                      variant="outlined"
+                      size="small"
+                    />
+                  </Box>
+                </Grid>
+              </Grid>
+            </Box>
+          )}
+        </DialogContent>
+        
+        <DialogActions sx={{ p: 2 }}>
+          <Button 
+            onClick={() => setPatientModalOpen(false)}
+            variant="outlined"
+          >
+            Close
           </Button>
         </DialogActions>
       </Dialog>
