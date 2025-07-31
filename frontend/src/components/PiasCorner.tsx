@@ -48,6 +48,11 @@ import {
   Groups,
   Restaurant,
   Timeline,
+  DateRange,
+  CalendarToday,
+  ExpandMore,
+  Search,
+  FilterList,
   AccessTime,
   TrendingDown,
   Favorite,
@@ -60,7 +65,6 @@ import {
   Close,
   Save,
   Visibility,
-  CalendarToday,
   NoteAdd,
   Email as EmailIcon,
   Check as CheckIcon,
@@ -155,6 +159,14 @@ const PiasCorner: React.FC = () => {
   const [reviewNotes, setReviewNotes] = useState('');
   const [reviewAction, setReviewAction] = useState<'resolved' | 'monitoring' | 'escalated' | 'dismissed'>('resolved');
   const [reviewLoading, setReviewLoading] = useState(false);
+  
+  // Enhanced analytics state for individual patient mode
+  const [selectedTimeRange, setSelectedTimeRange] = useState('30'); // Default to 30 days
+  const [startDate, setStartDate] = useState<Date | null>(null);
+  const [endDate, setEndDate] = useState<Date | null>(null);
+  const [consumptionHistory, setConsumptionHistory] = useState<any[]>([]);
+  const [macroAnalytics, setMacroAnalytics] = useState<any>(null);
+  const [consumptionLoading, setConsumptionLoading] = useState(false);
 
   useEffect(() => {
     fetchPatients();
@@ -162,7 +174,11 @@ const PiasCorner: React.FC = () => {
 
   useEffect(() => {
     fetchAnalyticsData();
-  }, [analyticsMode, selectedPatient]);
+    // Also fetch consumption history when patient or time range changes
+    if (analyticsMode === 'individual' && selectedPatient) {
+      fetchConsumptionHistory();
+    }
+  }, [analyticsMode, selectedPatient, selectedTimeRange, startDate, endDate]);
 
   useEffect(() => {
     // Reset nutrient data when switching modes or patients to avoid stale data
@@ -199,9 +215,28 @@ const PiasCorner: React.FC = () => {
   const fetchAnalyticsData = async () => {
     setLoading(true);
     try {
-      const url = analyticsMode === 'individual' && selectedPatient
+      let url = analyticsMode === 'individual' && selectedPatient
         ? `${config.API_URL}/admin/analytics/overview?patient_id=${selectedPatient}`
         : `${config.API_URL}/admin/analytics/overview`;
+
+      // Add date range parameters for individual mode
+      if (analyticsMode === 'individual' && selectedPatient) {
+        const params = new URLSearchParams();
+        params.append('patient_id', selectedPatient);
+        
+        if (selectedTimeRange === 'custom' && startDate && endDate) {
+          params.append('start_date', startDate.toISOString().split('T')[0]);
+          params.append('end_date', endDate.toISOString().split('T')[0]);
+        } else if (selectedTimeRange !== 'custom') {
+          const days = parseInt(selectedTimeRange);
+          const endDate = new Date();
+          const startDate = new Date(endDate.getTime() - (days * 24 * 60 * 60 * 1000));
+          params.append('start_date', startDate.toISOString().split('T')[0]);
+          params.append('end_date', endDate.toISOString().split('T')[0]);
+        }
+        
+        url = `${config.API_URL}/admin/analytics/overview?${params.toString()}`;
+      }
 
       const response = await fetch(url, {
         headers: {
@@ -362,6 +397,148 @@ const PiasCorner: React.FC = () => {
     }
   };
 
+  // Fetch real consumption history data for individual patient
+  const fetchConsumptionHistory = async () => {
+    if (!selectedPatient) return;
+    
+    setConsumptionLoading(true);
+    try {
+      // Calculate date range
+      let startDateStr, endDateStr;
+      if (selectedTimeRange === 'custom' && startDate && endDate) {
+        startDateStr = startDate.toISOString().split('T')[0];
+        endDateStr = endDate.toISOString().split('T')[0];
+      } else if (selectedTimeRange !== 'custom') {
+        const days = parseInt(selectedTimeRange);
+        const end = new Date();
+        const start = new Date(end.getTime() - (days * 24 * 60 * 60 * 1000));
+        startDateStr = start.toISOString().split('T')[0];
+        endDateStr = end.toISOString().split('T')[0];
+      }
+
+      const params = new URLSearchParams();
+      params.append('patient_id', selectedPatient);
+      params.append('limit', '500'); // Get more records for comprehensive analysis
+      if (startDateStr) params.append('start_date', startDateStr);
+      if (endDateStr) params.append('end_date', endDateStr);
+
+      const response = await fetch(`${config.API_URL}/admin/analytics/patient-consumption-history?${params.toString()}`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setConsumptionHistory(data.consumption_history || []);
+        
+        // Calculate macro analytics from real consumption data
+        const macroData = calculateMacroAnalytics(data.consumption_history || []);
+        setMacroAnalytics(macroData);
+      } else {
+        setError('Failed to fetch consumption history');
+      }
+    } catch (err) {
+      setError('Failed to fetch consumption history');
+      console.error('Error fetching consumption history:', err);
+    } finally {
+      setConsumptionLoading(false);
+    }
+  };
+
+  // Calculate real macro analytics from consumption records
+  const calculateMacroAnalytics = (records: any[]) => {
+    if (!records || records.length === 0) {
+      return null;
+    }
+
+    const dailyTotals: { [date: string]: any } = {};
+    
+    records.forEach((record) => {
+      const date = record.date || record.timestamp?.split('T')[0];
+      if (!date) return;
+
+      if (!dailyTotals[date]) {
+        dailyTotals[date] = {
+          date,
+          calories: 0,
+          protein: 0,
+          carbohydrates: 0,
+          fat: 0,
+          fiber: 0,
+          sugar: 0,
+          sodium: 0,
+          meal_count: 0
+        };
+      }
+
+      // Parse nutritional_info from real consumption record
+      let nutritionalInfo: any = {};
+      if (record.nutritional_info) {
+        try {
+          nutritionalInfo = typeof record.nutritional_info === 'string' 
+            ? JSON.parse(record.nutritional_info) 
+            : record.nutritional_info;
+        } catch (e) {
+          console.warn('Error parsing nutritional_info:', e);
+        }
+      }
+
+      // Add up the real nutritional values
+      dailyTotals[date].calories += nutritionalInfo.calories || 0;
+      dailyTotals[date].protein += nutritionalInfo.protein || 0;
+      dailyTotals[date].carbohydrates += nutritionalInfo.carbohydrates || 0;
+      dailyTotals[date].fat += nutritionalInfo.fat || 0;
+      dailyTotals[date].fiber += nutritionalInfo.fiber || 0;
+      dailyTotals[date].sugar += nutritionalInfo.sugar || 0;
+      dailyTotals[date].sodium += nutritionalInfo.sodium || 0;
+      dailyTotals[date].meal_count += 1;
+    });
+
+    const dailyValues = Object.values(dailyTotals);
+    const numDays = dailyValues.length;
+
+    if (numDays === 0) return null;
+
+    // Calculate real averages from actual consumption data
+    const totals = dailyValues.reduce((acc: any, day: any) => {
+      acc.calories += day.calories;
+      acc.protein += day.protein;
+      acc.carbohydrates += day.carbohydrates;
+      acc.fat += day.fat;
+      acc.fiber += day.fiber;
+      acc.sugar += day.sugar;
+      acc.sodium += day.sodium;
+      acc.meal_count += day.meal_count;
+      return acc;
+    }, { calories: 0, protein: 0, carbohydrates: 0, fat: 0, fiber: 0, sugar: 0, sodium: 0, meal_count: 0 });
+
+    return {
+      daily_averages: {
+        calories: Math.round(totals.calories / numDays),
+        protein: Math.round(totals.protein / numDays),
+        carbohydrates: Math.round(totals.carbohydrates / numDays),
+        fat: Math.round(totals.fat / numDays),
+        fiber: Math.round(totals.fiber / numDays),
+        sugar: Math.round(totals.sugar / numDays),
+        sodium: Math.round(totals.sodium / numDays),
+      },
+      daily_breakdown: dailyValues,
+      total_records: records.length,
+      total_days: numDays,
+      avg_meals_per_day: Math.round(totals.meal_count / numDays)
+    };
+  };
+
+  const handleTimeRangeChange = (event: SelectChangeEvent) => {
+    setSelectedTimeRange(event.target.value);
+    // Reset custom date range when switching away from custom
+    if (event.target.value !== 'custom') {
+      setStartDate(null);
+      setEndDate(null);
+    }
+  };
+
   const handleViewPatients = (archetype: any) => {
     // Find patients in this cluster from the correlation data
     const clusterPatients = behaviorClusteringData.behavior_outcome_correlation
@@ -437,6 +614,448 @@ const PiasCorner: React.FC = () => {
     }
   };
 
+  // Render time period selector for individual patient mode
+  const renderTimePeriodSelector = () => {
+    if (analyticsMode !== 'individual' || !selectedPatient) return null;
+
+    return (
+      <Card sx={{ mb: 3 }}>
+        <CardContent>
+          <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+            <DateRange sx={{ mr: 1, color: 'primary.main' }} />
+            <Typography variant="h6">Time Period Analysis</Typography>
+          </Box>
+          
+          <Grid container spacing={2} alignItems="center">
+            <Grid item xs={12} sm={6} md={4}>
+              <FormControl fullWidth size="small">
+                <Typography variant="body2" sx={{ mb: 1 }}>Select Time Range</Typography>
+                <Select
+                  value={selectedTimeRange}
+                  onChange={handleTimeRangeChange}
+                  displayEmpty
+                >
+                  <MenuItem value="7">Last 7 days</MenuItem>
+                  <MenuItem value="30">Last 30 days</MenuItem>
+                  <MenuItem value="90">Last 3 months</MenuItem>
+                  <MenuItem value="180">Last 6 months</MenuItem>
+                  <MenuItem value="custom">Custom range</MenuItem>
+                </Select>
+              </FormControl>
+            </Grid>
+            
+            {selectedTimeRange === 'custom' && (
+              <>
+                <Grid item xs={12} sm={3} md={2}>
+                  <FormControl fullWidth size="small">
+                    <Typography variant="body2" sx={{ mb: 1 }}>Start Date</Typography>
+                    <TextField
+                      type="date"
+                      size="small"
+                      value={startDate ? startDate.toISOString().split('T')[0] : ''}
+                      onChange={(e) => setStartDate(e.target.value ? new Date(e.target.value) : null)}
+                      InputLabelProps={{ shrink: true }}
+                    />
+                  </FormControl>
+                </Grid>
+                <Grid item xs={12} sm={3} md={2}>
+                  <FormControl fullWidth size="small">
+                    <Typography variant="body2" sx={{ mb: 1 }}>End Date</Typography>
+                    <TextField
+                      type="date"
+                      size="small"
+                      value={endDate ? endDate.toISOString().split('T')[0] : ''}
+                      onChange={(e) => setEndDate(e.target.value ? new Date(e.target.value) : null)}
+                      InputLabelProps={{ shrink: true }}
+                    />
+                  </FormControl>
+                </Grid>
+              </>
+            )}
+            
+            <Grid item xs={12} sm={6} md={4}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                {consumptionLoading && (
+                  <CircularProgress size={20} />
+                )}
+                <Typography variant="body2" color="text.secondary">
+                  {macroAnalytics ? 
+                    `${macroAnalytics.total_records} consumption records over ${macroAnalytics.total_days} days` : 
+                    'Loading consumption data...'
+                  }
+                </Typography>
+              </Box>
+            </Grid>
+          </Grid>
+        </CardContent>
+      </Card>
+    );
+  };
+
+  // Render consumption history timeline with real patient data
+  const renderConsumptionHistoryTimeline = () => {
+    if (analyticsMode !== 'individual' || !selectedPatient) return null;
+
+    return (
+      <Card sx={{ mb: 3 }}>
+        <CardContent>
+          <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+            <Timeline sx={{ mr: 1, color: 'primary.main' }} />
+            <Typography variant="h6">Consumption History Timeline</Typography>
+            <Box sx={{ ml: 'auto', display: 'flex', alignItems: 'center', gap: 1 }}>
+              {consumptionLoading && <CircularProgress size={20} />}
+              <Chip 
+                label={`${consumptionHistory.length} Records`} 
+                size="small" 
+                color="primary" 
+                variant="outlined" 
+              />
+            </Box>
+          </Box>
+
+          {consumptionHistory.length > 0 ? (
+            <Box sx={{ maxHeight: 400, overflow: 'auto' }}>
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell>Name</TableCell>
+                    <TableCell>Date & Time</TableCell>
+                    <TableCell>Meal Type</TableCell>
+                    <TableCell align="right">Calories</TableCell>
+                    <TableCell align="right">Protein (g)</TableCell>
+                    <TableCell align="right">Carbs (g)</TableCell>
+                    <TableCell align="right">Fat (g)</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {consumptionHistory.slice(0, 50).map((record, index) => {
+                    let nutritionalInfo: any = {};
+                    try {
+                      nutritionalInfo = typeof record.nutritional_info === 'string' 
+                        ? JSON.parse(record.nutritional_info) 
+                        : (record.nutritional_info || {});
+                    } catch (e) {
+                      nutritionalInfo = {};
+                    }
+
+                    const mealTypeColors: { [key: string]: string } = {
+                      'breakfast': '#4caf50',
+                      'lunch': '#2196f3', 
+                      'dinner': '#ff9800',
+                      'snack': '#9c27b0'
+                    };
+
+                    // Parse date from various possible fields
+                    let displayDate = 'N/A';
+                    let displayTime = '';
+                    
+                    try {
+                      let dateObj = null;
+                      if (record.timestamp) {
+                        dateObj = new Date(record.timestamp);
+                      } else if (record.date) {
+                        dateObj = new Date(record.date);
+                      } else if (record.created_at) {
+                        dateObj = new Date(record.created_at);
+                      }
+                      
+                      if (dateObj && !isNaN(dateObj.getTime())) {
+                        displayDate = dateObj.toLocaleDateString();
+                        displayTime = dateObj.toLocaleTimeString();
+                      }
+                    } catch (e) {
+                      console.warn('Error parsing date:', e);
+                    }
+
+                    // Get food name from various possible fields
+                    const foodName = record.food_name || 
+                                    record.name || 
+                                    record.description || 
+                                    record.food_items || 
+                                    record.item_name ||
+                                    record.meal_description ||
+                                    'Unknown Food';
+
+                    return (
+                      <TableRow key={index} hover>
+                        <TableCell>
+                          <Typography variant="body2" sx={{ maxWidth: 250, overflow: 'hidden', textOverflow: 'ellipsis', fontWeight: 'medium' }}>
+                            {foodName}
+                          </Typography>
+                        </TableCell>
+                        <TableCell>
+                          <Typography variant="body2">
+                            {displayDate}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            {displayTime}
+                          </Typography>
+                        </TableCell>
+                        <TableCell>
+                          <Chip 
+                            label={record.meal_type || 'Unknown'} 
+                            size="small"
+                            sx={{ 
+                              backgroundColor: mealTypeColors[record.meal_type?.toLowerCase()] || '#9e9e9e',
+                              color: 'white',
+                              fontSize: '0.75rem'
+                            }}
+                          />
+                        </TableCell>
+                        <TableCell align="right">
+                          <Typography variant="body2" fontWeight="medium">
+                            {Math.round(nutritionalInfo.calories || 0)}
+                          </Typography>
+                        </TableCell>
+                        <TableCell align="right">
+                          <Typography variant="body2">
+                            {Math.round(nutritionalInfo.protein || 0)}
+                          </Typography>
+                        </TableCell>
+                        <TableCell align="right">
+                          <Typography variant="body2">
+                            {Math.round(nutritionalInfo.carbohydrates || 0)}
+                          </Typography>
+                        </TableCell>
+                        <TableCell align="right">
+                          <Typography variant="body2">
+                            {Math.round(nutritionalInfo.fat || 0)}
+                          </Typography>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+              {consumptionHistory.length > 50 && (
+                <Box sx={{ textAlign: 'center', py: 2 }}>
+                  <Typography variant="body2" color="text.secondary">
+                    Showing first 50 of {consumptionHistory.length} records
+                  </Typography>
+                </Box>
+              )}
+            </Box>
+          ) : (
+            <Box sx={{ textAlign: 'center', py: 4 }}>
+              <Typography variant="body2" color="text.secondary">
+                {consumptionLoading ? 'Loading consumption history...' : 'No consumption records found for selected time period'}
+              </Typography>
+            </Box>
+          )}
+        </CardContent>
+      </Card>
+    );
+  };
+
+  // Render macro analytics dashboard with real calculated data
+  const renderMacroAnalyticsDashboard = () => {
+    if (analyticsMode !== 'individual' || !selectedPatient || !macroAnalytics) return null;
+
+    const { daily_averages, daily_breakdown, total_records, total_days, avg_meals_per_day } = macroAnalytics;
+
+    return (
+      <Card sx={{ mb: 3 }}>
+        <CardContent>
+          <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
+            <AnalyticsIcon sx={{ mr: 1, color: 'primary.main' }} />
+            <Typography variant="h6">Macro Intake Analysis</Typography>
+            <Box sx={{ ml: 'auto' }}>
+              <Chip 
+                label={`${total_days} Days Analysis`} 
+                size="small" 
+                color="primary" 
+              />
+            </Box>
+          </Box>
+
+          {/* Daily Averages Cards */}
+          <Grid container spacing={2} sx={{ mb: 3 }}>
+            <Grid item xs={6} sm={3}>
+              <Card variant="outlined">
+                <CardContent sx={{ textAlign: 'center', py: 2 }}>
+                  <Typography variant="h4" color="primary" fontWeight="bold">
+                    {daily_averages.calories}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Avg Calories/Day
+                  </Typography>
+                </CardContent>
+              </Card>
+            </Grid>
+            <Grid item xs={6} sm={3}>
+              <Card variant="outlined">
+                <CardContent sx={{ textAlign: 'center', py: 2 }}>
+                  <Typography variant="h4" color="success.main" fontWeight="bold">
+                    {daily_averages.protein}g
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Avg Protein/Day
+                  </Typography>
+                </CardContent>
+              </Card>
+            </Grid>
+            <Grid item xs={6} sm={3}>
+              <Card variant="outlined">
+                <CardContent sx={{ textAlign: 'center', py: 2 }}>
+                  <Typography variant="h4" color="info.main" fontWeight="bold">
+                    {daily_averages.carbohydrates}g
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Avg Carbs/Day
+                  </Typography>
+                </CardContent>
+              </Card>
+            </Grid>
+            <Grid item xs={6} sm={3}>
+              <Card variant="outlined">
+                <CardContent sx={{ textAlign: 'center', py: 2 }}>
+                  <Typography variant="h4" color="warning.main" fontWeight="bold">
+                    {daily_averages.fat}g
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Avg Fat/Day
+                  </Typography>
+                </CardContent>
+              </Card>
+            </Grid>
+          </Grid>
+
+          {/* Daily Breakdown Chart */}
+          <Grid container spacing={3}>
+            <Grid item xs={12} md={8}>
+              <Box sx={{ height: 300 }}>
+                <Typography variant="h6" gutterBottom>Daily Macro Breakdown</Typography>
+                {daily_breakdown.length > 0 && (
+                  <Line
+                    data={{
+                      labels: daily_breakdown.map((day: any) => new Date(day.date).toLocaleDateString()),
+                      datasets: [
+                        {
+                          label: 'Calories',
+                          data: daily_breakdown.map((day: any) => day.calories),
+                          borderColor: 'rgba(33, 150, 243, 1)',
+                          backgroundColor: 'rgba(33, 150, 243, 0.1)',
+                          borderWidth: 2,
+                          pointRadius: 3,
+                          tension: 0.3,
+                          yAxisID: 'y'
+                        },
+                        {
+                          label: 'Protein (g)',
+                          data: daily_breakdown.map((day: any) => day.protein),
+                          borderColor: 'rgba(76, 175, 80, 1)',
+                          backgroundColor: 'rgba(76, 175, 80, 0.1)',
+                          borderWidth: 2,
+                          pointRadius: 3,
+                          tension: 0.3,
+                          yAxisID: 'y1'
+                        },
+                        {
+                          label: 'Carbs (g)',
+                          data: daily_breakdown.map((day: any) => day.carbohydrates),
+                          borderColor: 'rgba(255, 152, 0, 1)',
+                          backgroundColor: 'rgba(255, 152, 0, 0.1)',
+                          borderWidth: 2,
+                          pointRadius: 3,
+                          tension: 0.3,
+                          yAxisID: 'y1'
+                        },
+                        {
+                          label: 'Fat (g)',
+                          data: daily_breakdown.map((day: any) => day.fat),
+                          borderColor: 'rgba(156, 39, 176, 1)',
+                          backgroundColor: 'rgba(156, 39, 176, 0.1)',
+                          borderWidth: 2,
+                          pointRadius: 3,
+                          tension: 0.3,
+                          yAxisID: 'y1'
+                        }
+                      ]
+                    }}
+                    options={{
+                      responsive: true,
+                      maintainAspectRatio: false,
+                      plugins: {
+                        legend: {
+                          position: 'top' as const,
+                        },
+                        tooltip: {
+                          mode: 'index' as const,
+                          intersect: false,
+                        }
+                      },
+                      scales: {
+                        x: {
+                          display: true,
+                          title: {
+                            display: true,
+                            text: 'Date'
+                          }
+                        },
+                        y: {
+                          type: 'linear' as const,
+                          display: true,
+                          position: 'left' as const,
+                          title: {
+                            display: true,
+                            text: 'Calories'
+                          }
+                        },
+                        y1: {
+                          type: 'linear' as const,
+                          display: true,
+                          position: 'right' as const,
+                          title: {
+                            display: true,
+                            text: 'Grams (Protein/Carbs/Fat)'
+                          },
+                          grid: {
+                            drawOnChartArea: false,
+                          },
+                        }
+                      }
+                    }}
+                  />
+                )}
+              </Box>
+            </Grid>
+            
+            <Grid item xs={12} md={4}>
+              <Typography variant="h6" gutterBottom>Summary Statistics</Typography>
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Typography variant="body2">Total Records:</Typography>
+                  <Typography variant="body2" fontWeight="bold">{total_records}</Typography>
+                </Box>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Typography variant="body2">Active Days:</Typography>
+                  <Typography variant="body2" fontWeight="bold">{total_days}</Typography>
+                </Box>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Typography variant="body2">Avg Meals/Day:</Typography>
+                  <Typography variant="body2" fontWeight="bold">{avg_meals_per_day}</Typography>
+                </Box>
+                <Divider />
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Typography variant="body2">Fiber (avg):</Typography>
+                  <Typography variant="body2" fontWeight="bold">{daily_averages.fiber}g</Typography>
+                </Box>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Typography variant="body2">Sugar (avg):</Typography>
+                  <Typography variant="body2" fontWeight="bold">{daily_averages.sugar}g</Typography>
+                </Box>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Typography variant="body2">Sodium (avg):</Typography>
+                  <Typography variant="body2" fontWeight="bold">{daily_averages.sodium}mg</Typography>
+                </Box>
+              </Box>
+            </Grid>
+          </Grid>
+        </CardContent>
+      </Card>
+    );
+  };
+
   const renderOverviewCards = () => {
     if (!analyticsData) return null;
 
@@ -470,7 +1089,18 @@ const PiasCorner: React.FC = () => {
 
       const { patient_info, metrics } = analyticsData;
       return (
-        <Grid container spacing={3}>
+        <Box>
+          {/* Time Period Selector */}
+          {renderTimePeriodSelector()}
+          
+          {/* Consumption History Timeline */}
+          {renderConsumptionHistoryTimeline()}
+          
+          {/* Macro Analytics Dashboard */}
+          {renderMacroAnalyticsDashboard()}
+          
+          {/* Original Overview Cards */}
+          <Grid container spacing={3}>
           <Grid item xs={12} md={6}>
             <Card>
               <CardContent>
@@ -812,6 +1442,7 @@ const PiasCorner: React.FC = () => {
             </Card>
           </Grid>
         </Grid>
+        </Box>
       );
     } else {
       // Cohort analytics

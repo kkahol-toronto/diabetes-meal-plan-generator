@@ -172,6 +172,8 @@ async def get_patients_list(
 @router.get("/admin/analytics/overview")
 async def get_analytics_overview(
     patient_id: str = None,
+    start_date: str = None,
+    end_date: str = None,
     current_user: User = Depends(get_current_user)
 ):
     """Get analytics overview data for dashboard"""
@@ -2097,6 +2099,95 @@ async def get_engagement_metrics(
             
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/admin/analytics/patient-consumption-history")
+async def get_patient_consumption_history_with_date_range(
+    patient_id: str,
+    start_date: str = None,
+    end_date: str = None,
+    limit: int = 500,
+    current_user: User = Depends(get_current_user)
+):
+    """Get consumption history for a specific patient with date range filtering using REAL data"""
+    # Check if user is admin
+    if not current_user.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    try:
+        # Get patient information to find associated user
+        patient = await get_patient_by_id(patient_id)
+        if not patient:
+            # Try by registration code
+            patient = await get_patient_by_registration_code(patient_id)
+        
+        if not patient:
+            raise HTTPException(status_code=404, detail="Patient not found")
+        
+        # Find associated user account by registration code
+        user_email = None
+        try:
+            registration_code = patient.get("registration_code") or patient.get("id")
+            user_query = f"SELECT * FROM c WHERE c.type = 'user' AND c.registration_code = '{registration_code}'"
+            users = list(user_container.query_items(query=user_query, enable_cross_partition_query=True))
+            if users:
+                user_email = users[0].get("email")
+        except Exception as e:
+            print(f"Error finding user for patient {patient_id}: {str(e)}")
+        
+        if not user_email:
+            return {
+                "consumption_history": [],
+                "patient_info": patient,
+                "message": "No consumption data found - patient has no associated user account"
+            }
+        
+        # Get real consumption history using existing function
+        consumption_history = await get_user_consumption_history(user_email, limit=limit)
+        
+        # Filter by date range if provided
+        if start_date or end_date:
+            filtered_history = []
+            start_dt = datetime.fromisoformat(start_date) if start_date else datetime.min
+            end_dt = datetime.fromisoformat(end_date) if end_date else datetime.max
+            
+            for record in consumption_history:
+                record_date = None
+                try:
+                    # Try multiple date fields that might be present
+                    if record.get("date"):
+                        record_date = datetime.fromisoformat(record["date"].replace('Z', ''))
+                    elif record.get("timestamp"):
+                        record_date = datetime.fromisoformat(record["timestamp"].replace('Z', ''))
+                    elif record.get("created_at"):
+                        record_date = datetime.fromisoformat(record["created_at"].replace('Z', ''))
+                except (ValueError, TypeError) as e:
+                    print(f"Error parsing date from record: {e}")
+                    continue
+                
+                if record_date and start_dt <= record_date <= end_dt:
+                    filtered_history.append(record)
+            
+            consumption_history = filtered_history
+        
+        # Sort by date (most recent first)
+        consumption_history.sort(key=lambda x: x.get("timestamp", x.get("date", "")), reverse=True)
+        
+        return {
+            "consumption_history": consumption_history,
+            "patient_info": patient,
+            "total_records": len(consumption_history),
+            "date_range": {
+                "start_date": start_date,
+                "end_date": end_date
+            },
+            "patient_email": user_email
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error in get_patient_consumption_history_with_date_range: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 @router.get("/admin/analytics/behavior-clustering")
 async def get_behavior_clustering_analytics(
