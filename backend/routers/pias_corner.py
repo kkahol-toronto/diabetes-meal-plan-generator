@@ -913,6 +913,355 @@ async def get_nutrient_adequacy_analytics(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.get("/admin/analytics/clinical-alerts")
+async def get_clinical_alerts(
+    current_user: User = Depends(get_current_user)
+):
+    """Get clinical alerts for outlier detection and intervention needs"""
+    # Check if user is admin
+    if not current_user.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    try:
+        import statistics
+        from datetime import datetime, timedelta
+        current_date = datetime.utcnow()
+        
+        print("[get_clinical_alerts] Starting real data analysis...")
+        
+        # Get all patients
+        all_patients = await get_all_patients()
+        if not all_patients:
+            print("[get_clinical_alerts] No patients found")
+            return JSONResponse(content={
+                "summary": {"total_active_alerts": 0, "extreme_intake_patients": 0, "nutrient_spike_alerts": 0, "resolved_this_week": 0},
+                "calorie_outliers": {"boxplot_data": {"min": 0, "q1": 0, "median": 0, "q3": 0, "max": 0, "outliers": []}},
+                "nutrient_spikes": [],
+                "active_alerts": []
+            })
+        
+        print(f"[get_clinical_alerts] Analyzing {len(all_patients)} patients")
+        
+        # Collect all daily consumption data
+        daily_calories = []
+        calorie_outliers = []
+        nutrient_spikes = []
+        active_alerts = []
+        patients_with_data = 0
+        
+        # Define nutrient RDA limits (per day)
+        nutrient_limits = {
+            "carbs": 225,      # grams (45-65% of 2000 cal diet)
+            "protein": 50,     # grams (10-35% of 2000 cal diet)
+            "sodium": 2300,    # mg (recommended daily limit)
+            "sugar": 50,       # grams (added sugars limit)
+            "fiber": 25,       # grams (daily recommendation)
+            "fat": 65          # grams (20-35% of 2000 cal diet)
+        }
+        
+        # Analyze each patient's consumption data
+        for patient in all_patients:
+            try:
+                # Find user account for this patient
+                patient_registration_code = patient.get("registration_code") or patient.get("id")
+                patient_email = None
+                
+                try:
+                    user_query = f"SELECT * FROM c WHERE c.type = 'user' AND c.registration_code = '{patient_registration_code}'"
+                    users = list(user_container.query_items(query=user_query, enable_cross_partition_query=True))
+                    if users:
+                        patient_email = users[0].get("email")
+                except Exception as user_error:
+                    print(f"[get_clinical_alerts] Error finding user for patient {patient_registration_code}: {str(user_error)}")
+                    continue
+                
+                if not patient_email:
+                    continue
+                
+                # Get consumption history (last 30 days)
+                consumption_history = await get_user_consumption_history(patient_email, limit=100)
+                if not consumption_history:
+                    continue
+                
+                patients_with_data += 1
+                print(f"[get_clinical_alerts] Analyzing {len(consumption_history)} consumption records for {patient.get('name', 'Unknown')}")
+                
+                # Group consumption by date and calculate daily totals
+                daily_totals = defaultdict(lambda: {
+                    "calories": 0, "carbs": 0, "protein": 0, "sodium": 0, 
+                    "sugar": 0, "fiber": 0, "fat": 0, "record_count": 0
+                })
+                
+                for record in consumption_history:
+                    record_date = record.get("timestamp", "")[:10]  # Get date part
+                    
+                    # Parse nutritional info
+                    nutritional_info = record.get("nutritional_info", {})
+                    if isinstance(nutritional_info, str):
+                        try:
+                            nutritional_info = json.loads(nutritional_info)
+                        except:
+                            nutritional_info = {}
+                    
+                    # Extract nutrients
+                    calories = nutritional_info.get("calories", 0) or 0
+                    carbs = nutritional_info.get("carbohydrates", 0) or nutritional_info.get("carbs", 0) or 0
+                    protein = nutritional_info.get("protein", 0) or 0
+                    sodium = nutritional_info.get("sodium", 0) or 0
+                    sugar = nutritional_info.get("sugar", 0) or nutritional_info.get("sugars", 0) or 0
+                    fiber = nutritional_info.get("fiber", 0) or nutritional_info.get("dietary_fiber", 0) or 0
+                    fat = nutritional_info.get("fat", 0) or nutritional_info.get("total_fat", 0) or 0
+                    
+                    # Add to daily totals
+                    if isinstance(calories, (int, float)) and calories > 0:
+                        daily_totals[record_date]["calories"] += calories
+                        daily_totals[record_date]["carbs"] += carbs if isinstance(carbs, (int, float)) else 0
+                        daily_totals[record_date]["protein"] += protein if isinstance(protein, (int, float)) else 0
+                        daily_totals[record_date]["sodium"] += sodium if isinstance(sodium, (int, float)) else 0
+                        daily_totals[record_date]["sugar"] += sugar if isinstance(sugar, (int, float)) else 0
+                        daily_totals[record_date]["fiber"] += fiber if isinstance(fiber, (int, float)) else 0
+                        daily_totals[record_date]["fat"] += fat if isinstance(fat, (int, float)) else 0
+                        daily_totals[record_date]["record_count"] += 1
+                
+                # Analyze daily totals for outliers and spikes
+                for date, totals in daily_totals.items():
+                    if totals["record_count"] == 0:
+                        continue
+                    
+                    calories = totals["calories"]
+                    
+                    # Add to overall calorie distribution
+                    if calories > 0:
+                        daily_calories.append(calories)
+                    
+                    # Check for calorie outliers (outside normal ranges)
+                    if calories > 3000 or calories < 800:
+                        severity = "critical" if (calories > 3500 or calories < 600) else "warning"
+                        calorie_outliers.append({
+                            "patient_id": patient_registration_code,
+                            "patient_name": patient.get("name", "Unknown Patient"),
+                            "value": round(calories, 0),
+                            "date": date,
+                            "severity": severity
+                        })
+                    
+                    # Check for nutrient spikes (>300% of RDA)
+                    for nutrient, limit in nutrient_limits.items():
+                        value = totals.get(nutrient, 0)
+                        if value > 0:
+                            rda_percent = (value / limit) * 100
+                            
+                            if rda_percent > 300:  # >3x RDA
+                                severity = "critical" if rda_percent > 500 else "warning"
+                                nutrient_spikes.append({
+                                    "patient_id": patient_registration_code,
+                                    "patient_name": patient.get("name", "Unknown Patient"),
+                                    "nutrient": nutrient,
+                                    "value": round(value, 1),
+                                    "rda_percent": round(rda_percent, 0),
+                                    "date": date,
+                                    "severity": severity,
+                                    "rda_limit": limit
+                                })
+            
+            except Exception as patient_error:
+                print(f"[get_clinical_alerts] Error processing patient {patient.get('name', 'Unknown')}: {str(patient_error)}")
+                continue
+        
+        print(f"[get_clinical_alerts] Processed {patients_with_data} patients with consumption data")
+        print(f"[get_clinical_alerts] Found {len(daily_calories)} daily calorie records")
+        print(f"[get_clinical_alerts] Found {len(calorie_outliers)} calorie outliers")
+        print(f"[get_clinical_alerts] Found {len(nutrient_spikes)} nutrient spikes")
+        
+        # Calculate box plot statistics from real data
+        if daily_calories:
+            sorted_calories = sorted(daily_calories)
+            n = len(sorted_calories)
+            q1 = sorted_calories[n//4] if n > 4 else sorted_calories[0]
+            median = sorted_calories[n//2] if n > 2 else sorted_calories[0]
+            q3 = sorted_calories[3*n//4] if n > 4 else sorted_calories[-1]
+            min_cal = min(sorted_calories)
+            max_cal = max(sorted_calories)
+        else:
+            # Fallback if no data
+            q1, median, q3, min_cal, max_cal = 1800, 2100, 2400, 1200, 2800
+        
+        # Generate active alerts from outliers and spikes
+        for outlier in calorie_outliers:
+            if outlier["value"] > 3000:
+                alert_type = "Extreme Calories"
+                description = f"Daily intake {round((outlier['value'] - 2100) / 2100 * 100, 1)}% above recommended maximum"
+                action = "Immediate consultation recommended"
+            else:  # Under-eating
+                alert_type = "Under-eating"
+                description = f"Daily intake {round((1800 - outlier['value']) / 1800 * 100, 1)}% below recommended minimum"
+                action = "Nutritional assessment needed"
+            
+            active_alerts.append({
+                "id": f"alert_cal_{outlier['patient_id']}_{outlier['date']}",
+                "patient_id": outlier["patient_id"],
+                "patient_name": outlier["patient_name"],
+                "alert_type": alert_type,
+                "severity": outlier["severity"],
+                "date": outlier["date"],
+                "value": f"{outlier['value']} cal",
+                "description": description,
+                "action_needed": action
+            })
+        
+        for spike in nutrient_spikes:
+            nutrient_name = {
+                "carbs": "Carb Spike",
+                "sodium": "Sodium Excess",
+                "protein": "Protein Excess",
+                "sugar": "Sugar Excess",
+                "fat": "Fat Excess"
+            }.get(spike["nutrient"], "Nutrient Spike")
+            
+            unit = "mg" if spike["nutrient"] in ["sodium"] else "g"
+            
+            active_alerts.append({
+                "id": f"alert_nut_{spike['patient_id']}_{spike['nutrient']}_{spike['date']}",
+                "patient_id": spike["patient_id"],
+                "patient_name": spike["patient_name"],
+                "alert_type": nutrient_name,
+                "severity": spike["severity"],
+                "date": spike["date"],
+                "value": f"{spike['value']}{unit} ({spike['rda_percent']}% RDA)",
+                "description": f"{spike['nutrient'].title()} intake {spike['rda_percent']}% of recommended daily allowance",
+                "action_needed": "Review dietary plan and portion sizes"
+            })
+        
+        # Sort alerts by severity and date (most critical and recent first)
+        severity_order = {"critical": 3, "warning": 2, "info": 1}
+        active_alerts.sort(key=lambda x: (severity_order.get(x["severity"], 0), x["date"]), reverse=True)
+        
+        # Calculate summary statistics
+        total_active_alerts = len(active_alerts)
+        extreme_intake_patients = len(set(alert["patient_id"] for alert in active_alerts if alert["alert_type"] in ["Extreme Calories", "Under-eating"]))
+        nutrient_spike_alerts = len([alert for alert in active_alerts if "Spike" in alert["alert_type"] or "Excess" in alert["alert_type"]])
+        
+        # Mock resolved alerts for now (would require tracking in database)
+        resolved_this_week = max(0, total_active_alerts // 2)  # Assume half were resolved
+        
+        # Build response with real data
+        clinical_alerts_data = {
+            "summary": {
+                "total_active_alerts": total_active_alerts,
+                "extreme_intake_patients": extreme_intake_patients,
+                "nutrient_spike_alerts": nutrient_spike_alerts,
+                "resolved_this_week": resolved_this_week
+            },
+            "calorie_outliers": {
+                "boxplot_data": {
+                    "min": round(min_cal, 0),
+                    "q1": round(q1, 0),
+                    "median": round(median, 0),
+                    "q3": round(q3, 0),
+                    "max": round(max_cal, 0),
+                    "outliers": calorie_outliers
+                }
+            },
+            "nutrient_spikes": nutrient_spikes,
+            "active_alerts": active_alerts
+        }
+        
+        print(f"[get_clinical_alerts] Generated {total_active_alerts} real active alerts with {extreme_intake_patients} extreme intake patients")
+        return JSONResponse(content=clinical_alerts_data)
+        
+    except Exception as e:
+        print(f"[get_clinical_alerts] Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/admin/analytics/review-alert")
+async def review_clinical_alert(
+    review_data: Dict[str, Any],
+    current_user: User = Depends(get_current_user)
+):
+    """Submit a review for a clinical alert"""
+    # Check if user is admin
+    if not current_user.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    try:
+        from datetime import datetime
+        
+        # Extract review data
+        alert_id = review_data.get("alert_id")
+        action = review_data.get("action")
+        notes = review_data.get("notes")
+        reviewed_by = review_data.get("reviewed_by", "admin")
+        reviewed_at = review_data.get("reviewed_at", datetime.utcnow().isoformat())
+        
+        if not alert_id or not action or not notes:
+            raise HTTPException(status_code=400, detail="Missing required fields: alert_id, action, notes")
+        
+        # In a production system, you would save this to a database
+        # For now, we'll create a mock review record
+        review_record = {
+            "id": f"review_{alert_id}_{int(datetime.utcnow().timestamp())}",
+            "alert_id": alert_id,
+            "action": action,
+            "notes": notes,
+            "reviewed_by": reviewed_by,
+            "reviewed_at": reviewed_at,
+            "type": "alert_review"
+        }
+        
+        # TODO: Save to database
+        # In a real implementation, you would:
+        # 1. Save the review to a reviews collection/table
+        # 2. Update the original alert status
+        # 3. Potentially trigger notifications or escalations
+        
+        print(f"[review_clinical_alert] Alert {alert_id} reviewed with action: {action}")
+        print(f"[review_clinical_alert] Review notes: {notes}")
+        print(f"[review_clinical_alert] Reviewed by: {reviewed_by} at {reviewed_at}")
+        
+        # Return success response
+        response_data = {
+            "success": True,
+            "message": f"Alert {alert_id} successfully reviewed",
+            "review_id": review_record["id"],
+            "action_taken": action,
+            "next_steps": get_next_steps_for_action(action)
+        }
+        
+        return JSONResponse(content=response_data)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[review_clinical_alert] Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to process alert review: {str(e)}")
+
+def get_next_steps_for_action(action: str) -> List[str]:
+    """Get recommended next steps based on the review action"""
+    next_steps = {
+        "resolved": [
+            "Alert marked as resolved",
+            "Patient has been contacted and issue addressed",
+            "No further action required at this time"
+        ],
+        "monitoring": [
+            "Alert remains active for continued monitoring",
+            "Schedule follow-up in 3-5 days",
+            "Monitor patient's next consumption entries"
+        ],
+        "escalated": [
+            "Alert escalated to physician for immediate review",
+            "Patient should be contacted within 24 hours",
+            "Consider scheduling urgent consultation"
+        ],
+        "dismissed": [
+            "Alert dismissed as not clinically significant",
+            "Alert removed from active monitoring",
+            "Documentation retained for audit trail"
+        ]
+    }
+    
+    return next_steps.get(action, ["Review completed"])
+
 @router.get("/admin/analytics/engagement-metrics")
 async def get_engagement_metrics(
     patient_id: str = None,

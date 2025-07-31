@@ -18,6 +18,12 @@ import {
   MenuItem,
   SelectChangeEvent,
   Chip,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  TextField,
+  Divider,
   Table,
   TableBody,
   TableCell,
@@ -28,6 +34,9 @@ import {
   Alert,
   useTheme,
   useMediaQuery,
+  Button,
+  TableSortLabel,
+  Badge,
 } from '@mui/material';
 import {
   TrendingUp,
@@ -46,6 +55,12 @@ import {
   Warning,
   CheckCircle,
   Settings,
+  ReportProblem,
+  Close,
+  Save,
+  Visibility,
+  CalendarToday,
+  NoteAdd,
 } from '@mui/icons-material';
 import {
   Chart as ChartJS,
@@ -60,7 +75,7 @@ import {
   ArcElement,
   Filler,
 } from 'chart.js';
-import { Bar, Line, Pie, Doughnut } from 'react-chartjs-2';
+import { Bar, Line, Pie, Doughnut, Scatter } from 'react-chartjs-2';
 import config from '../config/environment';
 
 // Register Chart.js components
@@ -119,10 +134,20 @@ const PiasCorner: React.FC = () => {
   const [analyticsData, setAnalyticsData] = useState<any>(null);
   const [nutrientData, setNutrientData] = useState<any>(null);
   const [engagementData, setEngagementData] = useState<any>(null);
+  const [clinicalAlertsData, setClinicalAlertsData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [nutrientLoading, setNutrientLoading] = useState(false);
   const [engagementLoading, setEngagementLoading] = useState(false);
+  const [clinicalAlertsLoading, setClinicalAlertsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [alertSortBy, setAlertSortBy] = useState<'severity' | 'date' | 'patient_name' | 'alert_type'>('severity');
+  const [alertSortOrder, setAlertSortOrder] = useState<'asc' | 'desc'>('desc');
+  const [alertFilter, setAlertFilter] = useState<'All' | 'Calories' | 'Nutrients' | 'Under-eating'>('All');
+  const [reviewDialogOpen, setReviewDialogOpen] = useState(false);
+  const [selectedAlert, setSelectedAlert] = useState<any>(null);
+  const [reviewNotes, setReviewNotes] = useState('');
+  const [reviewAction, setReviewAction] = useState<'resolved' | 'monitoring' | 'escalated' | 'dismissed'>('resolved');
+  const [reviewLoading, setReviewLoading] = useState(false);
 
   useEffect(() => {
     fetchPatients();
@@ -199,6 +224,13 @@ const PiasCorner: React.FC = () => {
         fetchNutrientData();
       }, 100);
     }
+    
+    // Auto-load clinical alerts data when switching to that tab
+    if (newValue === 3 && !clinicalAlertsData) {
+      setTimeout(() => {
+        fetchClinicalAlertsData();
+      }, 100);
+    }
   };
 
   const handleModeChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -269,6 +301,91 @@ const PiasCorner: React.FC = () => {
       setError('Failed to fetch engagement data');
     } finally {
       setEngagementLoading(false);
+    }
+  };
+
+  const fetchClinicalAlertsData = async () => {
+    setClinicalAlertsLoading(true);
+    try {
+      const response = await fetch(`${config.API_URL}/admin/analytics/clinical-alerts`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setClinicalAlertsData(data);
+      } else {
+        setError('Failed to fetch clinical alerts data');
+      }
+    } catch (err) {
+      setError('Failed to fetch clinical alerts data');
+    } finally {
+      setClinicalAlertsLoading(false);
+    }
+  };
+
+  const handleReviewAlert = (alert: any) => {
+    setSelectedAlert(alert);
+    setReviewNotes('');
+    setReviewAction('resolved');
+    setReviewDialogOpen(true);
+  };
+
+  const handleCloseReviewDialog = () => {
+    setReviewDialogOpen(false);
+    setSelectedAlert(null);
+    setReviewNotes('');
+    setReviewAction('resolved');
+  };
+
+  const handleSubmitReview = async () => {
+    if (!selectedAlert) return;
+    
+    setReviewLoading(true);
+    try {
+      const reviewData = {
+        alert_id: selectedAlert.id,
+        action: reviewAction,
+        notes: reviewNotes,
+        reviewed_by: 'current_admin', // In production, get from auth context
+        reviewed_at: new Date().toISOString()
+      };
+
+      const response = await fetch(`${config.API_URL}/admin/analytics/review-alert`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(reviewData)
+      });
+
+      if (response.ok) {
+        // Update the local alert data to reflect the review
+        if (clinicalAlertsData && clinicalAlertsData.active_alerts) {
+          const updatedAlerts = clinicalAlertsData.active_alerts.map((alert: any) => 
+            alert.id === selectedAlert.id 
+              ? { ...alert, reviewed: true, review_status: reviewAction, review_notes: reviewNotes, reviewed_at: new Date().toISOString() }
+              : alert
+          );
+          
+          setClinicalAlertsData({
+            ...clinicalAlertsData,
+            active_alerts: updatedAlerts
+          });
+        }
+        
+        setError(null);
+        handleCloseReviewDialog();
+      } else {
+        setError('Failed to submit alert review');
+      }
+    } catch (err) {
+      setError('Failed to submit alert review');
+    } finally {
+      setReviewLoading(false);
     }
   };
 
@@ -1103,11 +1220,18 @@ const PiasCorner: React.FC = () => {
               aria-controls="simple-tabpanel-2"
             />
             <Tab
-              label="Settings"
-              icon={<Settings />}
+              label="Clinical Alerts"
+              icon={<ReportProblem />}
               iconPosition="start"
               id="simple-tab-3"
               aria-controls="simple-tabpanel-3"
+            />
+            <Tab
+              label="Settings"
+              icon={<Settings />}
+              iconPosition="start"
+              id="simple-tab-4"
+              aria-controls="simple-tabpanel-4"
             />
           </Tabs>
         </Box>
@@ -2083,6 +2207,528 @@ const PiasCorner: React.FC = () => {
         </TabPanel>
 
         <TabPanel value={tabValue} index={3}>
+          {/* Clinical Alerts Tab */}
+          {clinicalAlertsLoading ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
+              <CircularProgress />
+            </Box>
+          ) : clinicalAlertsData ? (
+            <Grid container spacing={3}>
+              {/* Summary Cards */}
+              <Grid item xs={12} sm={6} md={3}>
+                <Card sx={{ 
+                  bgcolor: 'error.light', 
+                  color: 'error.contrastText',
+                  position: 'relative',
+                  overflow: 'visible'
+                }}>
+                  <CardContent>
+                    <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                      <Warning sx={{ mr: 1, fontSize: '2rem' }} />
+                      <Typography variant="h6">Total Active Alerts</Typography>
+                    </Box>
+                    <Typography variant="h3" sx={{ fontWeight: 'bold', mb: 1 }}>
+                      {clinicalAlertsData?.summary?.total_active_alerts || 0}
+                    </Typography>
+                    <Typography variant="body2">
+                      requiring attention
+                    </Typography>
+                    {/* Pulse animation for critical alerts */}
+                    <Box
+                      sx={{
+                        position: 'absolute',
+                        top: 8,
+                        right: 8,
+                        width: 12,
+                        height: 12,
+                        bgcolor: 'error.main',
+                        borderRadius: '50%',
+                        animation: 'pulse 2s infinite',
+                        '@keyframes pulse': {
+                          '0%': { opacity: 1, transform: 'scale(1)' },
+                          '50%': { opacity: 0.5, transform: 'scale(1.2)' },
+                          '100%': { opacity: 1, transform: 'scale(1)' }
+                        }
+                      }}
+                    />
+                  </CardContent>
+                </Card>
+              </Grid>
+
+              <Grid item xs={12} sm={6} md={3}>
+                <Card sx={{ bgcolor: 'warning.light', color: 'warning.contrastText' }}>
+                  <CardContent>
+                    <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                      <TrendingDown sx={{ mr: 1, fontSize: '2rem' }} />
+                      <Typography variant="h6">Extreme Intake</Typography>
+                    </Box>
+                    <Typography variant="h3" sx={{ fontWeight: 'bold', mb: 1 }}>
+                      {clinicalAlertsData?.summary?.extreme_intake_patients || 0}
+                    </Typography>
+                    <Typography variant="body2">
+                      patients affected
+                    </Typography>
+                  </CardContent>
+                </Card>
+              </Grid>
+
+              <Grid item xs={12} sm={6} md={3}>
+                <Card sx={{ bgcolor: 'info.light', color: 'info.contrastText' }}>
+                  <CardContent>
+                    <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                      <AnalyticsIcon sx={{ mr: 1, fontSize: '2rem' }} />
+                      <Typography variant="h6">Nutrient Spikes</Typography>
+                    </Box>
+                    <Typography variant="h3" sx={{ fontWeight: 'bold', mb: 1 }}>
+                      {clinicalAlertsData?.summary?.nutrient_spike_alerts || 0}
+                    </Typography>
+                    <Typography variant="body2">
+                      spike events
+                    </Typography>
+                  </CardContent>
+                </Card>
+              </Grid>
+
+              <Grid item xs={12} sm={6} md={3}>
+                <Card sx={{ bgcolor: 'success.light', color: 'success.contrastText' }}>
+                  <CardContent>
+                    <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                      <CheckCircle sx={{ mr: 1, fontSize: '2rem' }} />
+                      <Typography variant="h6">Resolved This Week</Typography>
+                    </Box>
+                    <Typography variant="h3" sx={{ fontWeight: 'bold', mb: 1 }}>
+                      {clinicalAlertsData?.summary?.resolved_this_week || 0}
+                    </Typography>
+                    <Typography variant="body2">
+                      interventions successful
+                    </Typography>
+                  </CardContent>
+                </Card>
+              </Grid>
+
+              {/* Calorie Outliers Box Plot */}
+              <Grid item xs={12} md={6}>
+                <Card>
+                  <CardContent>
+                    <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
+                      <TrendingDown sx={{ mr: 1, color: 'warning.main' }} />
+                      Calorie Distribution & Outliers
+                    </Typography>
+                    <Box sx={{ height: 350, position: 'relative' }}>
+                      {/* Custom Box Plot Implementation */}
+                      <Box sx={{ p: 2, display: 'flex', flexDirection: 'column', height: '100%' }}>
+                        <Box sx={{ flex: 1, position: 'relative', border: '1px solid', borderColor: 'divider', borderRadius: 1, p: 2 }}>
+                          {/* Y-axis labels */}
+                          <Box sx={{ position: 'absolute', left: -10, top: 10, fontSize: '0.75rem' }}>3500</Box>
+                          <Box sx={{ position: 'absolute', left: -10, top: '25%', fontSize: '0.75rem' }}>2800</Box>
+                          <Box sx={{ position: 'absolute', left: -10, top: '50%', fontSize: '0.75rem' }}>2100</Box>
+                          <Box sx={{ position: 'absolute', left: -10, top: '75%', fontSize: '0.75rem' }}>1400</Box>
+                          <Box sx={{ position: 'absolute', left: -10, bottom: 10, fontSize: '0.75rem' }}>700</Box>
+                          
+                          {/* Box plot visualization */}
+                          <Box sx={{ position: 'relative', width: '80%', left: '10%', height: '100%' }}>
+                            {/* Quartile box */}
+                            <Box 
+                              sx={{ 
+                                position: 'absolute',
+                                left: '25%',
+                                width: '50%',
+                                top: '35%',
+                                height: '30%',
+                                border: '2px solid',
+                                borderColor: 'primary.main',
+                                bgcolor: 'primary.light',
+                                opacity: 0.3
+                              }}
+                            />
+                            {/* Median line */}
+                            <Box 
+                              sx={{ 
+                                position: 'absolute',
+                                left: '25%',
+                                width: '50%',
+                                top: '47%',
+                                height: '2px',
+                                bgcolor: 'primary.main'
+                              }}
+                            />
+                            {/* Whiskers */}
+                            <Box sx={{ position: 'absolute', left: '49%', top: '20%', width: '2px', height: '15%', bgcolor: 'text.secondary' }} />
+                            <Box sx={{ position: 'absolute', left: '49%', bottom: '20%', width: '2px', height: '15%', bgcolor: 'text.secondary' }} />
+                            
+                            {/* Outlier points */}
+                            {(clinicalAlertsData?.calorie_outliers?.outliers || []).map((outlier: any, index: number) => {
+                              const isHigh = outlier.value > 2800;
+                              const yPosition = isHigh ? `${Math.max(5, 20 - (outlier.value - 2800) / 100)}%` : `${Math.min(95, 80 + (1400 - outlier.value) / 100)}%`;
+                              return (
+                                <Box
+                                  key={index}
+                                  sx={{
+                                    position: 'absolute',
+                                    left: `${40 + (index * 8)}%`,
+                                    top: yPosition,
+                                    width: 12,
+                                    height: 12,
+                                    borderRadius: '50%',
+                                    bgcolor: outlier.severity === 'critical' ? 'error.main' : 'warning.main',
+                                    cursor: 'pointer',
+                                    '&:hover': { transform: 'scale(1.2)' }
+                                  }}
+                                  title={`${outlier.patient_name}: ${outlier.value} cal`}
+                                />
+                              );
+                            })}
+                          </Box>
+                        </Box>
+                        
+                        <Box sx={{ mt: 1, textAlign: 'center' }}>
+                          <Typography variant="body2" color="text.secondary">Patient Calorie Distribution</Typography>
+                        </Box>
+                        
+                        {/* Legend */}
+                        <Box sx={{ display: 'flex', justifyContent: 'center', gap: 2, mt: 1 }}>
+                          <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                            <Box sx={{ width: 12, height: 12, borderRadius: '50%', bgcolor: 'error.main', mr: 0.5 }} />
+                            <Typography variant="caption">Critical (&gt;3000 cal)</Typography>
+                          </Box>
+                          <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                            <Box sx={{ width: 12, height: 12, borderRadius: '50%', bgcolor: 'warning.main', mr: 0.5 }} />
+                            <Typography variant="caption">Warning (&lt;800 cal)</Typography>
+                          </Box>
+                        </Box>
+                      </Box>
+                    </Box>
+                  </CardContent>
+                </Card>
+              </Grid>
+
+              {/* Nutrient Spike Detection Chart */}
+              <Grid item xs={12} md={6}>
+                <Card>
+                  <CardContent>
+                    <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
+                      <AnalyticsIcon sx={{ mr: 1, color: 'info.main' }} />
+                      Nutrient Spike Detection
+                    </Typography>
+                    <Box sx={{ height: 350 }}>
+                      <Scatter
+                        data={{
+                          datasets: (clinicalAlertsData?.nutrient_spikes || []).map((spike: any, index: number) => ({
+                            label: `${spike.patient_name} - ${spike.nutrient}`,
+                            data: [{
+                              x: new Date(spike.date).getTime(),
+                              y: spike.rda_percent
+                            }],
+                            backgroundColor: spike.severity === 'critical' ? 'rgba(244, 67, 54, 0.8)' : 'rgba(255, 152, 0, 0.8)',
+                            borderColor: spike.severity === 'critical' ? 'rgba(244, 67, 54, 1)' : 'rgba(255, 152, 0, 1)',
+                            pointRadius: 8,
+                            pointHoverRadius: 10
+                          }))
+                        }}
+                        options={{
+                          responsive: true,
+                          maintainAspectRatio: false,
+                          plugins: {
+                            legend: {
+                              display: false
+                            },
+                            tooltip: {
+                              callbacks: {
+                                title: function(context: any) {
+                                  const spikes = clinicalAlertsData?.nutrient_spikes || [];
+                                  const spike = spikes[context[0]?.datasetIndex];
+                                  return spike ? `${spike.patient_name} - ${spike.nutrient.toUpperCase()}` : '';
+                                },
+                                label: function(context: any) {
+                                  const spikes = clinicalAlertsData?.nutrient_spikes || [];
+                                  const spike = spikes[context.datasetIndex];
+                                  return spike ? [
+                                    `Value: ${spike.value}mg`,
+                                    `RDA %: ${spike.rda_percent}%`,
+                                    `Date: ${spike.date}`,
+                                    `Severity: ${spike.severity}`
+                                  ] : [];
+                                }
+                              }
+                            }
+                          },
+                          scales: {
+                            x: {
+                              type: 'linear' as const,
+                              title: {
+                                display: true,
+                                text: 'Date'
+                              },
+                              ticks: {
+                                callback: function(value: any) {
+                                  const date = new Date(value);
+                                  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                                }
+                              }
+                            },
+                            y: {
+                              beginAtZero: true,
+                              title: {
+                                display: true,
+                                text: 'Nutrient Level (% of RDA)'
+                              }
+                            }
+                          },
+                          onClick: (event, elements) => {
+                            if (elements.length > 0) {
+                              const clickedIndex = elements[0].datasetIndex;
+                              const spikes = clinicalAlertsData?.nutrient_spikes || [];
+                              const clickedSpike = spikes[clickedIndex];
+                              if (clickedSpike) {
+                                // Could switch to individual patient view here
+                                console.log('Clicked spike:', clickedSpike);
+                              }
+                            }
+                          }
+                        }}
+                      />
+                    </Box>
+                    {/* Reference line legend */}
+                    <Box sx={{ mt: 1, display: 'flex', justifyContent: 'center' }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                        <Box sx={{ width: 20, height: 2, bgcolor: 'error.main', mr: 1 }} />
+                        <Typography variant="caption">300% RDA Alert Threshold (hover points for details)</Typography>
+                      </Box>
+                    </Box>
+                  </CardContent>
+                </Card>
+              </Grid>
+
+              {/* Active Alerts Table */}
+              <Grid item xs={12}>
+                <Card>
+                  <CardContent>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                      <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center' }}>
+                        <Warning sx={{ mr: 1, color: 'warning.main' }} />
+                        Active Clinical Alerts
+                      </Typography>
+                      <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+                        <Select
+                          size="small"
+                          value={alertFilter}
+                          onChange={(e) => setAlertFilter(e.target.value as any)}
+                          sx={{ minWidth: 120 }}
+                        >
+                          <MenuItem value="All">All Alerts</MenuItem>
+                          <MenuItem value="Calories">Calories</MenuItem>
+                          <MenuItem value="Nutrients">Nutrients</MenuItem>
+                          <MenuItem value="Under-eating">Under-eating</MenuItem>
+                        </Select>
+                        <Button
+                          variant="outlined"
+                          size="small"
+                          onClick={() => fetchClinicalAlertsData()}
+                          startIcon={<CheckCircle />}
+                        >
+                          Refresh
+                        </Button>
+                      </Box>
+                    </Box>
+                    
+                    <TableContainer>
+                      <Table size="small">
+                        <TableHead>
+                          <TableRow>
+                            <TableCell>
+                              <TableSortLabel
+                                active={alertSortBy === 'patient_name'}
+                                direction={alertSortBy === 'patient_name' ? alertSortOrder : 'asc'}
+                                onClick={() => {
+                                  if (alertSortBy === 'patient_name') {
+                                    setAlertSortOrder(alertSortOrder === 'asc' ? 'desc' : 'asc');
+                                  } else {
+                                    setAlertSortBy('patient_name');
+                                    setAlertSortOrder('asc');
+                                  }
+                                }}
+                              >
+                                Patient Name
+                              </TableSortLabel>
+                            </TableCell>
+                            <TableCell>
+                              <TableSortLabel
+                                active={alertSortBy === 'alert_type'}
+                                direction={alertSortBy === 'alert_type' ? alertSortOrder : 'asc'}
+                                onClick={() => {
+                                  if (alertSortBy === 'alert_type') {
+                                    setAlertSortOrder(alertSortOrder === 'asc' ? 'desc' : 'asc');
+                                  } else {
+                                    setAlertSortBy('alert_type');
+                                    setAlertSortOrder('asc');
+                                  }
+                                }}
+                              >
+                                Alert Type
+                              </TableSortLabel>
+                            </TableCell>
+                            <TableCell>
+                              <TableSortLabel
+                                active={alertSortBy === 'severity'}
+                                direction={alertSortBy === 'severity' ? alertSortOrder : 'asc'}
+                                onClick={() => {
+                                  if (alertSortBy === 'severity') {
+                                    setAlertSortOrder(alertSortOrder === 'asc' ? 'desc' : 'asc');
+                                  } else {
+                                    setAlertSortBy('severity');
+                                    setAlertSortOrder('desc'); // Default to desc for severity
+                                  }
+                                }}
+                              >
+                                Severity
+                              </TableSortLabel>
+                            </TableCell>
+                            <TableCell>
+                              <TableSortLabel
+                                active={alertSortBy === 'date'}
+                                direction={alertSortBy === 'date' ? alertSortOrder : 'asc'}
+                                onClick={() => {
+                                  if (alertSortBy === 'date') {
+                                    setAlertSortOrder(alertSortOrder === 'asc' ? 'desc' : 'asc');
+                                  } else {
+                                    setAlertSortBy('date');
+                                    setAlertSortOrder('desc');
+                                  }
+                                }}
+                              >
+                                Date
+                              </TableSortLabel>
+                            </TableCell>
+                            <TableCell>Value</TableCell>
+                            <TableCell>Action</TableCell>
+                          </TableRow>
+                        </TableHead>
+                        <TableBody>
+                          {(clinicalAlertsData?.active_alerts || [])
+                            .filter((alert: any) => {
+                              if (alertFilter === 'All') return true;
+                              if (alertFilter === 'Calories') return alert.alert_type.includes('Calories');
+                              if (alertFilter === 'Nutrients') return alert.alert_type.includes('Spike') || alert.alert_type.includes('Excess');
+                              if (alertFilter === 'Under-eating') return alert.alert_type.includes('Under-eating');
+                              return true;
+                            })
+                            .sort((a: any, b: any) => {
+                              const order = alertSortOrder === 'asc' ? 1 : -1;
+                              if (alertSortBy === 'severity') {
+                                const severityOrder = { critical: 3, warning: 2, info: 1 };
+                                return ((severityOrder as any)[a.severity] - (severityOrder as any)[b.severity]) * order;
+                              }
+                              if (alertSortBy === 'date') {
+                                return (new Date(a.date).getTime() - new Date(b.date).getTime()) * order;
+                              }
+                              return (a[alertSortBy] > b[alertSortBy] ? 1 : -1) * order;
+                            })
+                            .map((alert: any, index: number) => (
+                              <TableRow 
+                                key={alert.id} 
+                                hover
+                                sx={{ 
+                                  cursor: 'pointer',
+                                  '&:hover': { bgcolor: 'action.hover' }
+                                }}
+                                onClick={() => {
+                                  // Could switch to individual patient view
+                                  console.log('Clicked alert:', alert);
+                                }}
+                              >
+                                <TableCell>{alert.patient_name}</TableCell>
+                                <TableCell>
+                                  <Chip
+                                    label={alert.alert_type}
+                                    size="small"
+                                    color={
+                                      alert.alert_type.includes('Calories') ? 'warning' :
+                                      alert.alert_type.includes('Spike') || alert.alert_type.includes('Excess') ? 'info' :
+                                      'error'
+                                    }
+                                  />
+                                </TableCell>
+                                <TableCell>
+                                  <Chip
+                                    label={alert.severity.toUpperCase()}
+                                    size="small"
+                                    color={alert.severity === 'critical' ? 'error' : alert.severity === 'warning' ? 'warning' : 'info'}
+                                    sx={{
+                                      animation: alert.severity === 'critical' ? 'pulse 2s infinite' : 'none',
+                                      '@keyframes pulse': {
+                                        '0%': { opacity: 1 },
+                                        '50%': { opacity: 0.7 },
+                                        '100%': { opacity: 1 }
+                                      }
+                                    }}
+                                  />
+                                </TableCell>
+                                <TableCell>{new Date(alert.date).toLocaleDateString()}</TableCell>
+                                <TableCell sx={{ fontFamily: 'monospace' }}>{alert.value}</TableCell>
+                                <TableCell>
+                                  <Button
+                                    size="small"
+                                    variant={alert.reviewed ? "contained" : "outlined"}
+                                    color={alert.reviewed ? "success" : "primary"}
+                                    startIcon={alert.reviewed ? <CheckCircle /> : <Visibility />}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleReviewAlert(alert);
+                                    }}
+                                  >
+                                    {alert.reviewed ? 'Reviewed' : 'Review'}
+                                  </Button>
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                        </TableBody>
+                      </Table>
+                    </TableContainer>
+                    
+                    <Box sx={{ mt: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Typography variant="body2" color="text.secondary">
+                        Showing {(clinicalAlertsData?.active_alerts || []).filter((alert: any) => {
+                          if (alertFilter === 'All') return true;
+                          if (alertFilter === 'Calories') return alert.alert_type.includes('Calories');
+                          if (alertFilter === 'Nutrients') return alert.alert_type.includes('Spike') || alert.alert_type.includes('Excess');
+                          if (alertFilter === 'Under-eating') return alert.alert_type.includes('Under-eating');
+                          return true;
+                        }).length} of {(clinicalAlertsData?.active_alerts || []).length} alerts
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        Auto-refresh: 5 minutes • Last updated: {new Date().toLocaleTimeString()}
+                      </Typography>
+                    </Box>
+                  </CardContent>
+                </Card>
+              </Grid>
+            </Grid>
+          ) : (
+            <Box sx={{ textAlign: 'center', py: 4 }}>
+              <Alert severity="info" sx={{ mb: 2 }}>
+                <Typography variant="h6" gutterBottom>
+                  Clinical Alerts Dashboard
+                </Typography>
+                <Typography variant="body1" gutterBottom>
+                  Monitor patient outliers and intervention needs in real-time.
+                </Typography>
+                <Typography variant="body2" color="text.secondary" gutterBottom>
+                  Analyzing real consumption data from all patients...
+                </Typography>
+                <Button
+                  variant="contained"
+                  onClick={fetchClinicalAlertsData}
+                  startIcon={<ReportProblem />}
+                  sx={{ mt: 1 }}
+                >
+                  Load Real Clinical Alerts
+                </Button>
+              </Alert>
+            </Box>
+          )}
+        </TabPanel>
+
+        <TabPanel value={tabValue} index={4}>
           <Box sx={{ p: 3 }}>
             <Typography variant="h6" gutterBottom>
               Settings Panel
@@ -2101,6 +2747,194 @@ const PiasCorner: React.FC = () => {
           </Box>
         </TabPanel>
       </Paper>
+
+      {/* Review Alert Dialog */}
+      <Dialog 
+        open={reviewDialogOpen} 
+        onClose={handleCloseReviewDialog}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center' }}>
+            <ReportProblem sx={{ mr: 2, color: selectedAlert?.severity === 'critical' ? 'error.main' : 'warning.main' }} />
+            Review Clinical Alert
+          </Box>
+          <Button onClick={handleCloseReviewDialog} size="small">
+            <Close />
+          </Button>
+        </DialogTitle>
+        
+        <DialogContent>
+          {selectedAlert && (
+            <Box sx={{ pt: 1 }}>
+              {/* Alert Overview */}
+              <Card sx={{ mb: 3, bgcolor: 'grey.50' }}>
+                <CardContent>
+                  <Grid container spacing={2}>
+                    <Grid item xs={12} md={6}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                        <Person sx={{ mr: 1, color: 'primary.main' }} />
+                        <Typography variant="h6">{selectedAlert.patient_name}</Typography>
+                      </Box>
+                      <Typography variant="body2" color="text.secondary" gutterBottom>
+                        Patient ID: {selectedAlert.patient_id}
+                      </Typography>
+                    </Grid>
+                    
+                    <Grid item xs={12} md={6}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                        <CalendarToday sx={{ mr: 1, color: 'primary.main' }} />
+                        <Typography variant="h6">Alert Details</Typography>
+                      </Box>
+                      <Typography variant="body2" color="text.secondary">
+                        Date: {new Date(selectedAlert.date).toLocaleDateString()}
+                      </Typography>
+                    </Grid>
+                    
+                    <Grid item xs={12}>
+                      <Divider sx={{ my: 2 }} />
+                      <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
+                        <Chip
+                          label={selectedAlert.alert_type}
+                          color={
+                            selectedAlert.alert_type.includes('Calories') ? 'warning' :
+                            selectedAlert.alert_type.includes('Spike') || selectedAlert.alert_type.includes('Excess') ? 'info' :
+                            'error'
+                          }
+                          size="medium"
+                        />
+                        <Chip
+                          label={`${selectedAlert.severity.toUpperCase()} PRIORITY`}
+                          color={selectedAlert.severity === 'critical' ? 'error' : 'warning'}
+                          variant="outlined"
+                          size="medium"
+                        />
+                      </Box>
+                      
+                      <Typography variant="h6" gutterBottom>Value:</Typography>
+                      <Typography variant="body1" sx={{ fontFamily: 'monospace', bgcolor: 'grey.100', p: 1, borderRadius: 1, mb: 2 }}>
+                        {selectedAlert.value}
+                      </Typography>
+                      
+                      <Typography variant="h6" gutterBottom>Description:</Typography>
+                      <Typography variant="body1" paragraph>
+                        {selectedAlert.description}
+                      </Typography>
+                      
+                      <Typography variant="h6" gutterBottom>Recommended Action:</Typography>
+                      <Typography variant="body1" paragraph sx={{ color: 'warning.main', fontWeight: 'medium' }}>
+                        {selectedAlert.action_needed}
+                      </Typography>
+                    </Grid>
+                  </Grid>
+                </CardContent>
+              </Card>
+
+              {/* Review Form */}
+              <Card>
+                <CardContent>
+                  <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
+                    <NoteAdd sx={{ mr: 1, color: 'primary.main' }} />
+                    Clinical Review
+                  </Typography>
+                  
+                  <FormControl component="fieldset" sx={{ mb: 3, width: '100%' }}>
+                    <FormLabel component="legend" sx={{ mb: 2 }}>Review Action</FormLabel>
+                    <RadioGroup
+                      value={reviewAction}
+                      onChange={(e) => setReviewAction(e.target.value as any)}
+                    >
+                      <FormControlLabel 
+                        value="resolved" 
+                        control={<Radio />} 
+                        label={
+                          <Box>
+                            <Typography variant="body1" fontWeight="medium">Resolved</Typography>
+                            <Typography variant="body2" color="text.secondary">
+                              Issue has been addressed and resolved
+                            </Typography>
+                          </Box>
+                        }
+                      />
+                      <FormControlLabel 
+                        value="monitoring" 
+                        control={<Radio />} 
+                        label={
+                          <Box>
+                            <Typography variant="body1" fontWeight="medium">Continue Monitoring</Typography>
+                            <Typography variant="body2" color="text.secondary">
+                              Keep alert active and monitor patient progress
+                            </Typography>
+                          </Box>
+                        }
+                      />
+                      <FormControlLabel 
+                        value="escalated" 
+                        control={<Radio />} 
+                        label={
+                          <Box>
+                            <Typography variant="body1" fontWeight="medium">Escalate to Physician</Typography>
+                            <Typography variant="body2" color="text.secondary">
+                              Requires immediate medical attention
+                            </Typography>
+                          </Box>
+                        }
+                      />
+                      <FormControlLabel 
+                        value="dismissed" 
+                        control={<Radio />} 
+                        label={
+                          <Box>
+                            <Typography variant="body1" fontWeight="medium">Dismiss</Typography>
+                            <Typography variant="body2" color="text.secondary">
+                              Alert is not clinically significant
+                            </Typography>
+                          </Box>
+                        }
+                      />
+                    </RadioGroup>
+                  </FormControl>
+
+                  <TextField
+                    fullWidth
+                    multiline
+                    rows={4}
+                    label="Clinical Notes"
+                    placeholder="Enter your clinical assessment, actions taken, and any follow-up instructions..."
+                    value={reviewNotes}
+                    onChange={(e) => setReviewNotes(e.target.value)}
+                    sx={{ mb: 2 }}
+                  />
+                  
+                  <Typography variant="body2" color="text.secondary">
+                    Review will be logged with timestamp and reviewer information.
+                  </Typography>
+                </CardContent>
+              </Card>
+            </Box>
+          )}
+        </DialogContent>
+        
+        <DialogActions sx={{ p: 3, gap: 1 }}>
+          <Button 
+            onClick={handleCloseReviewDialog}
+            variant="outlined"
+            disabled={reviewLoading}
+          >
+            Cancel
+          </Button>
+          <Button 
+            onClick={handleSubmitReview}
+            variant="contained"
+            startIcon={reviewLoading ? <CircularProgress size={20} /> : <Save />}
+            disabled={reviewLoading || !reviewNotes.trim()}
+            color={reviewAction === 'escalated' ? 'error' : 'primary'}
+          >
+            {reviewLoading ? 'Submitting...' : `Submit ${reviewAction === 'escalated' ? 'Escalation' : 'Review'}`}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Container>
   );
 };
