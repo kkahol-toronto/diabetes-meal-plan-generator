@@ -191,6 +191,13 @@ const PiasCorner: React.FC = () => {
         fetchNutrientData();
       }, 200);
     }
+    
+    // Auto-fetch engagement data when we're on the engagement metrics tab (cohort-only)
+    if (tabValue === 2) {
+      setTimeout(() => {
+        fetchEngagementData();
+      }, 200);
+    }
   }, [analyticsMode, selectedPatient, tabValue]);
 
   const fetchPatients = async () => {
@@ -267,6 +274,13 @@ const PiasCorner: React.FC = () => {
       }, 100);
     }
     
+    // Auto-load engagement metrics data when switching to that tab (cohort-only)
+    if (newValue === 2 && !engagementData) {
+      setTimeout(() => {
+        fetchEngagementData();
+      }, 100);
+    }
+    
     // Auto-load clinical alerts data when switching to that tab
     if (newValue === 3 && !clinicalAlertsData) {
       setTimeout(() => {
@@ -285,9 +299,8 @@ const PiasCorner: React.FC = () => {
   const handleModeChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const newMode = event.target.value as 'individual' | 'cohort';
     setAnalyticsMode(newMode);
-    // Reset all cached data when switching modes
+    // Reset nutrient data when switching modes (engagement data stays since it's cohort-only)
     setNutrientData(null);
-    setEngagementData(null);
     if (newMode === 'cohort') {
       setSelectedPatient('');
     }
@@ -295,9 +308,8 @@ const PiasCorner: React.FC = () => {
 
   const handlePatientChange = (event: SelectChangeEvent) => {
     setSelectedPatient(event.target.value);
-    // Reset cached data when switching patients
+    // Reset nutrient data when switching patients (engagement data stays since it's cohort-only)
     setNutrientData(null);
-    setEngagementData(null);
     // The useEffect hook will handle auto-fetching the data
   };
 
@@ -330,9 +342,8 @@ const PiasCorner: React.FC = () => {
   const fetchEngagementData = async () => {
     setEngagementLoading(true);
     try {
-      const url = analyticsMode === 'individual' && selectedPatient
-        ? `${config.API_URL}/admin/analytics/engagement-metrics?patient_id=${selectedPatient}`
-        : `${config.API_URL}/admin/analytics/engagement-metrics`;
+      // Always fetch cohort engagement metrics (no patient_id parameter)
+      const url = `${config.API_URL}/admin/analytics/engagement-metrics`;
 
       const response = await fetch(url, {
         headers: {
@@ -2494,59 +2505,15 @@ const PiasCorner: React.FC = () => {
         </TabPanel>
 
         <TabPanel value={tabValue} index={2}>
-          {/* Engagement Metrics Tab */}
+          {/* Engagement Metrics Tab - Cohort Analytics Only */}
           <Box sx={{ mb: 3 }}>
-            <FormControl component="fieldset" sx={{ mb: 2 }}>
-              <FormLabel component="legend">Analytics Mode</FormLabel>
-              <RadioGroup
-                row
-                aria-label="analytics-mode"
-                name="analytics-mode"
-                value={analyticsMode}
-                onChange={handleModeChange}
-              >
-                <FormControlLabel
-                  value="cohort"
-                  control={<Radio />}
-                  label={
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <Groups sx={{ mr: 1 }} />
-                      Cohort Analytics
-                    </Box>
-                  }
-                />
-                <FormControlLabel
-                  value="individual"
-                  control={<Radio />}
-                  label={
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <Person sx={{ mr: 1 }} />
-                      Individual Patient
-                    </Box>
-                  }
-                />
-              </RadioGroup>
-            </FormControl>
-
-            {analyticsMode === 'individual' && (
-              <FormControl sx={{ minWidth: 200, ml: 2 }}>
-                <Select
-                  value={selectedPatient}
-                  onChange={handlePatientChange}
-                  displayEmpty
-                  placeholder="Select Patient"
-                >
-                  <MenuItem value="">
-                    <em>Select a patient</em>
-                  </MenuItem>
-                  {patients.map((patient) => (
-                    <MenuItem key={patient.id} value={patient.id}>
-                      {patient.name} ({patient.condition})
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            )}
+            <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+              <Groups sx={{ mr: 1, color: 'primary.main' }} />
+              Cohort Engagement Analytics
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              Platform-wide engagement patterns and user behavior analysis across all patients.
+            </Typography>
           </Box>
 
           {engagementLoading ? (
@@ -2829,13 +2796,7 @@ const PiasCorner: React.FC = () => {
                           </TableRow>
                         </TableHead>
                         <TableBody>
-                          {(engagementData?.irregular_reporting || [
-                            { patient_id: "p001", patient_name: "John Smith", days_since_last_log: 8, avg_gap_days: 3.2, consistency_score: 45, risk_level: "high", last_login: "2024-01-07" },
-                            { patient_id: "p002", patient_name: "Sarah Johnson", days_since_last_log: 4, avg_gap_days: 2.1, consistency_score: 72, risk_level: "medium", last_login: "2024-01-11" },
-                            { patient_id: "p003", patient_name: "Michael Brown", days_since_last_log: 15, avg_gap_days: 5.8, consistency_score: 28, risk_level: "critical", last_login: "2023-12-31" },
-                            { patient_id: "p004", patient_name: "Emma Davis", days_since_last_log: 6, avg_gap_days: 2.8, consistency_score: 68, risk_level: "medium", last_login: "2024-01-09" },
-                            { patient_id: "p005", patient_name: "David Wilson", days_since_last_log: 12, avg_gap_days: 4.5, consistency_score: 35, risk_level: "critical", last_login: "2024-01-03" }
-                          ]).map((patient: any) => (
+                          {(engagementData?.irregular_reporting || []).map((patient: any) => (
                             <TableRow key={patient.patient_id} hover>
                               <TableCell>
                                 <Typography variant="body2" sx={{ fontWeight: 'medium' }}>
@@ -3091,33 +3052,7 @@ const PiasCorner: React.FC = () => {
                 </Card>
               </Grid>
 
-              {/* Load Data Button */}
-              <Grid item xs={12}>
-                <Box sx={{ textAlign: 'center', py: 2 }}>
-                  <Box sx={{ 
-                    p: 2, 
-                    border: '1px solid', 
-                    borderColor: 'divider', 
-                    borderRadius: 2,
-                    cursor: 'pointer',
-                    bgcolor: 'background.paper',
-                    '&:hover': { borderColor: 'primary.main', bgcolor: 'action.hover' }
-                  }}
-                  onClick={() => {
-                    if (!engagementData) fetchEngagementData();
-                  }}>
-                    {!engagementData ? (
-                      <Typography variant="button" color="primary">
-                        Load Real Engagement Data
-                      </Typography>
-                    ) : (
-                      <Typography variant="body2" color="success.main">
-                        ✓ Real data loaded
-                      </Typography>
-                    )}
-                  </Box>
-                </Box>
-              </Grid>
+
             </Grid>
           ) : (
             <Box sx={{ textAlign: 'center', py: 4 }}>

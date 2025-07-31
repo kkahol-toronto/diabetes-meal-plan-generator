@@ -1278,7 +1278,7 @@ async def get_engagement_metrics(
         if patient_id:
             # Individual patient engagement with REAL data
             from datetime import datetime, timedelta
-            from backend.database import user_container, interactions_container
+            from database import user_container, interactions_container
             
             try:
                 # Get patient information
@@ -1599,12 +1599,17 @@ async def get_engagement_metrics(
                         "most_discussed_topics": ["Meal Planning", "Blood Sugar Management", "Exercise"]  # Would need topic analysis
                     }
                 }
+                
+                print(f"[INDIVIDUAL_ENGAGEMENT] Successfully calculated REAL data for patient {patient_id}: {len(patient_consumption)} consumption records, {len(patient_chats)} chats")
                 return JSONResponse(content=real_individual_engagement)
                 
             except Exception as e:
-                print(f"[INDIVIDUAL_ENGAGEMENT] Error: {str(e)}")
-                # Return fallback data if real data fails
-                mock_individual_engagement = {
+                print(f"[INDIVIDUAL_ENGAGEMENT] Critical error calculating real data: {str(e)}")
+                import traceback
+                traceback.print_exc()
+                
+                # Return minimal fallback data if real data calculation completely fails
+                fallback_individual_engagement = {
                     "patient_info": {"id": patient_id, "name": "Selected Patient"},
                     "error": f"Could not load real data: {str(e)}",
                     "loginLabels": ['Week 1', 'Week 2', 'Week 3', 'Week 4', 'Week 5', 'Week 6', 'Week 7', 'Week 8'],
@@ -1614,49 +1619,77 @@ async def get_engagement_metrics(
                     "activityHeatmap": [0] * 30,
                     "featureUsage": [0, 0, 0, 0, 0],
                     "scoreLabels": ['Week 1', 'Week 2', 'Week 3', 'Week 4', 'Week 5', 'Week 6'],
-                    "engagementScore": [0, 0, 0, 0, 0, 0]
+                    "engagementScore": [0, 0, 0, 0, 0, 0],
+                    "funnel_analysis": {"stages": [], "bottlenecks": []},
+                    "missed_logs_analysis": {"calendar_heatmap": [], "weekly_patterns": {}},
+                    "irregular_reporting": [],
+                    "engagement_timeseries": {"labels": [], "daily_actives": {"data": [], "trend": "stable"}}
                 }
-                return JSONResponse(content=mock_individual_engagement)
+                return JSONResponse(content=fallback_individual_engagement)
         else:
             # Cohort engagement metrics with REAL data from database
             from datetime import datetime, timedelta
-            from backend.database import user_container, interactions_container
+            from database import user_container, interactions_container
             
             try:
+                print("[ENGAGEMENT_METRICS] Starting database queries...")
+                
                 # Get all users from database
                 users_query = "SELECT * FROM c WHERE c.type = 'user'"
+                print(f"[ENGAGEMENT_METRICS] Executing users query: {users_query}")
                 all_users = list(user_container.query_items(query=users_query, enable_cross_partition_query=True))
+                print(f"[ENGAGEMENT_METRICS] Users query successful: {len(all_users)} users found")
                 
                 # Get all consumption records
                 consumption_query = "SELECT * FROM c WHERE c.type = 'consumption_record'"
+                print(f"[ENGAGEMENT_METRICS] Executing consumption query: {consumption_query}")
                 all_consumption = list(interactions_container.query_items(query=consumption_query, enable_cross_partition_query=True))
+                print(f"[ENGAGEMENT_METRICS] Consumption query successful: {len(all_consumption)} records found")
                 
                 # Get chat messages for session data
                 chat_query = "SELECT * FROM c WHERE c.type = 'chat_message'"
+                print(f"[ENGAGEMENT_METRICS] Executing chat query: {chat_query}")
                 all_chats = list(interactions_container.query_items(query=chat_query, enable_cross_partition_query=True))
+                print(f"[ENGAGEMENT_METRICS] Chat query successful: {len(all_chats)} messages found")
                 
                 # Get meal plans for feature usage
                 meal_plan_query = "SELECT * FROM c WHERE c.type = 'meal_plan' OR c.type = 'full_meal_plan'"
+                print(f"[ENGAGEMENT_METRICS] Executing meal plan query: {meal_plan_query}")
                 all_meal_plans = list(interactions_container.query_items(query=meal_plan_query, enable_cross_partition_query=True))
+                print(f"[ENGAGEMENT_METRICS] Meal plan query successful: {len(all_meal_plans)} plans found")
                 
-                print(f"[ENGAGEMENT_METRICS] Found {len(all_users)} users, {len(all_consumption)} consumption records, {len(all_chats)} chats, {len(all_meal_plans)} meal plans")
+                print(f"[ENGAGEMENT_METRICS] Final counts: {len(all_users)} users, {len(all_consumption)} consumption records, {len(all_chats)} chats, {len(all_meal_plans)} meal plans")
                 
                 # Calculate funnel stages
                 total_users = len(all_users)
+                print(f"[ENGAGEMENT_METRICS] Total users: {total_users}")
+                
                 users_with_consumption = len(set(c.get("user_id") for c in all_consumption if c.get("user_id")))
+                print(f"[ENGAGEMENT_METRICS] Users with consumption: {users_with_consumption}")
+                
                 users_with_chats = len(set(c.get("user_id") for c in all_chats if c.get("user_id")))
+                print(f"[ENGAGEMENT_METRICS] Users with chats: {users_with_chats}")
+                
                 users_with_meal_plans = len(set(mp.get("user_id") for mp in all_meal_plans if mp.get("user_id")))
+                print(f"[ENGAGEMENT_METRICS] Users with meal plans: {users_with_meal_plans}")
                 
                 # Calculate users with recent activity (last 7 days)
-                seven_days_ago = datetime.now() - timedelta(days=7)
-                recent_active_users = set()
-                for record in all_consumption:
-                    try:
-                        timestamp = datetime.fromisoformat(record.get("timestamp", "").replace('Z', '+00:00'))
-                        if timestamp >= seven_days_ago:
-                            recent_active_users.add(record.get("user_id"))
-                    except:
-                        continue
+                print("[ENGAGEMENT_METRICS] Calculating recent active users...")
+                try:
+                    seven_days_ago = datetime.now() - timedelta(days=7)
+                    recent_active_users = set()
+                    for record in all_consumption:
+                        try:
+                            timestamp = datetime.fromisoformat(record.get("timestamp", "").replace('Z', '+00:00'))
+                            if timestamp >= seven_days_ago:
+                                recent_active_users.add(record.get("user_id"))
+                        except Exception as date_error:
+                            print(f"[ENGAGEMENT_METRICS] Date parsing error for record: {str(date_error)}")
+                            continue
+                    print(f"[ENGAGEMENT_METRICS] Recent active users calculated: {len(recent_active_users)}")
+                except Exception as recent_error:
+                    print(f"[ENGAGEMENT_METRICS] Error calculating recent users: {str(recent_error)}")
+                    recent_active_users = set()
                 
                 # Calculate users with consistent logging (multiple records over time)
                 user_activity_spans = {}
@@ -1782,14 +1815,27 @@ async def get_engagement_metrics(
                 
             except Exception as e:
                 print(f"[ENGAGEMENT_METRICS] Database error: {str(e)}")
-                # Fallback to default values if database query fails
-                total_users = 120
-                users_with_consumption = 98
-                users_with_chats = 85
-                consistent_users = 52
-                recent_active_users = set(range(38))
+                import traceback
+                traceback.print_exc()
+                
+                # Return REAL empty data instead of fake data
+                total_users = 0
+                users_with_consumption = 0
+                users_with_chats = 0
+                consistent_users = 0
+                recent_active_users = set()
                 calendar_heatmap = []
                 irregular_patients = []
+                
+                # Try a simpler query to see if we can at least get user count
+                try:
+                    simple_user_query = "SELECT * FROM c WHERE c.type = 'user'"
+                    simple_users = list(user_container.query_items(query=simple_user_query, enable_cross_partition_query=True))
+                    total_users = len(simple_users)
+                    print(f"[ENGAGEMENT_METRICS] Fallback: Found {total_users} users with simple query")
+                except Exception as simple_error:
+                    print(f"[ENGAGEMENT_METRICS] Even simple query failed: {str(simple_error)}")
+                    total_users = 0
                 
             # Separate robust calculation for irregular patients (even if main queries fail)
             if not irregular_patients:  # Only if we don't have real data yet
@@ -2018,7 +2064,8 @@ async def get_engagement_metrics(
                 else:
                     return "stable"
             
-            mock_cohort_engagement = {
+            # Build the real cohort engagement response with calculated data
+            real_cohort_engagement = {
                 # Enhanced funnel analysis with REAL data
                 "funnel_analysis": {
                     "stages": funnel_stages,
@@ -2095,7 +2142,9 @@ async def get_engagement_metrics(
                     round((users_with_meal_plans / max(total_users, 1)) * 60)   # Shopping Lists (estimate)
                 ]
             }
-            return JSONResponse(content=mock_cohort_engagement)
+            
+            print(f"[ENGAGEMENT_METRICS] Returning REAL cohort data: {len(funnel_stages)} funnel stages, {len(irregular_patients)} irregular patients, {len(calendar_heatmap)} calendar days")
+            return JSONResponse(content=real_cohort_engagement)
             
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
