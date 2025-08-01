@@ -19,7 +19,7 @@ import {
   DialogActions,
   Snackbar,
 } from '@mui/material';
-import { Psychology } from '@mui/icons-material';
+import { Psychology, Analytics } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import config from '../config/environment';
 
@@ -192,7 +192,14 @@ const AdminPanel: React.FC = () => {
             Admin Panel
           </Typography>
           <Box sx={{ display: 'flex', gap: 2 }}>
-
+            <Button
+              variant="outlined"
+              color="secondary"
+              startIcon={<Analytics />}
+              onClick={() => navigate('/admin/pias-corner')}
+            >
+              Pia's Corner
+            </Button>
             <Button
               variant="contained"
               color="primary"
