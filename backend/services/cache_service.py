@@ -197,10 +197,24 @@ def invalidate_consumption_cache(user_email: str) -> None:
         if key.startswith(f"consumption:{user_email}:"):
             keys_to_delete.append(key)
     
+    # Also invalidate related caches that might contain consumption data
+    related_patterns = [
+        f"daily_insights:{user_email}",
+        f"consumption_progress:{user_email}",
+        f"coaching_insights:{user_email}",
+        f"user_context:{user_email}"
+    ]
+    
+    for pattern in related_patterns:
+        for key in list(consumption_cache.cache.keys()):
+            if key.startswith(pattern):
+                keys_to_delete.append(key)
+    
     for key in keys_to_delete:
         consumption_cache.delete(key)
     
-    print(f"[cache] Invalidated consumption cache for {user_email}")
+    print(f"[cache] Invalidated {len(keys_to_delete)} cache entries for {user_email}")
+    print(f"[cache] Deleted keys: {keys_to_delete}")
 
 
 def invalidate_meal_plan_cache(user_email: str) -> None:

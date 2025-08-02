@@ -10,7 +10,7 @@ from twilio.rest import Client
 from fastapi.security import OAuth2PasswordBearer
 
 # Security configuration
-SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-here")
+SECRET_KEY = os.getenv("SECRET_KEY", "your-super-long-secret-key-for-testing-purposes")
 ALGORITHM = "HS256"
 
 # Password context
@@ -53,7 +53,7 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
 def get_today_utc_boundaries():
     """
     Get today's UTC boundaries for proper daily filtering.
-    Returns start and end of today in UTC.
+    Returns start and end of today in UTC as ISO format strings.
     """
     now_utc = datetime.utcnow()
     
@@ -63,7 +63,7 @@ def get_today_utc_boundaries():
     # Get start of tomorrow (00:00:00 UTC next day)
     start_of_tomorrow = start_of_today + timedelta(days=1)
     
-    return start_of_today, start_of_tomorrow
+    return start_of_today.isoformat() + 'Z', start_of_tomorrow.isoformat() + 'Z'
 
 
 def validate_user_timezone(user_timezone: str) -> str:
@@ -119,7 +119,7 @@ def get_user_timezone_boundaries(user_timezone: str = "UTC"):
         print(f"[TIMEZONE] Start of today (UTC): {start_of_today_utc}")
         print(f"[TIMEZONE] Start of tomorrow (UTC): {start_of_tomorrow_utc}")
         
-        return start_of_today_utc, start_of_tomorrow_utc
+        return start_of_today_utc.isoformat() + 'Z', start_of_tomorrow_utc.isoformat() + 'Z'
         
     except Exception as e:
         print(f"Error getting timezone boundaries: {e}")
@@ -185,6 +185,18 @@ def robust_json_parse(json_string: str, context: str = "json_parse") -> Dict[str
     Returns:
         Dict containing parsed JSON or error information
     """
+    # Handle dict input (already parsed)
+    if isinstance(json_string, dict):
+        return {"success": True, "data": json_string}
+    
+    # Handle empty or None input
+    if not json_string or json_string.strip() == "":
+        return {
+            "success": False, 
+            "error": f"Empty JSON string in {context}",
+            "raw_data": ""
+        }
+    
     try:
         # First, try to parse as-is
         return {"success": True, "data": json.loads(json_string)}
@@ -239,10 +251,10 @@ def send_registration_code(phone: str, code: str):
             to=phone
         )
         print(f"Twilio message sent successfully: {message.sid}")
-        return message.sid
+        return True
     except Exception as e:
         print(f"Failed to send SMS: {str(e)}")
-        return None
+        return False
 
 
 # Profile validation utilities

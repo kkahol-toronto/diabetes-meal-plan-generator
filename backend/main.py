@@ -29,6 +29,7 @@ from constants import (
 )
 from routers.auth import router as auth_router, get_current_user
 from routers.meal_plan_generation import router as meal_plan_generation_router
+from routers.admin_endpoints import router as admin_endpoints_router
 from services.openai_service import robust_openai_call, get_openai_client
 from services.consumption_analysis import (
     generate_consumption_aware_meal_plan,
@@ -271,6 +272,141 @@ def generate_recipe_prompt(meal_name: str, user_profile: UserProfile) -> str:
     return "This function has been replaced with comprehensive profile analysis"
 
 # Comprehensive AI Health Coach System moved to routers/ai_coach_system.py
+
+# Utility function for comprehensive user context
+async def get_comprehensive_user_context(user_email: str):
+    """
+    Get complete user context including profile, consumption history, meal plans, and health conditions.
+    This creates a unified view of the user for the AI health coach.
+    """
+    try:
+        # Get user profile with all health conditions
+        user_data = await get_user_by_email(user_email)
+        user_profile = user_data.get("profile", {})
+        
+        # Get consumption history (last 30 days)
+        consumption_history = await get_user_consumption_history(user_email, limit=100)
+        
+        # Get meal plan history
+        meal_plans = await get_user_meal_plans(user_email)
+        latest_meal_plan = meal_plans[0] if meal_plans else None
+        
+        # Extract health conditions and medications
+        medical_conditions = user_profile.get("medicalConditions", []) or user_profile.get("medical_conditions", [])
+        current_medications = user_profile.get("currentMedications", [])
+        
+        # Get dietary restrictions and preferences
+        dietary_restrictions = user_profile.get("dietaryRestrictions", [])
+        dietary_features = user_profile.get("dietaryFeatures", []) or user_profile.get("diet_features", [])
+        food_preferences = user_profile.get("foodPreferences", [])
+        allergies = user_profile.get("allergies", [])
+        strong_dislikes = user_profile.get("strongDislikes", [])
+        
+        # Get physical metrics
+        age = user_profile.get("age")
+        weight = user_profile.get("weight")
+        height = user_profile.get("height")
+        bmi = user_profile.get("bmi")
+        
+        # Get vital signs
+        systolic_bp = user_profile.get("systolicBP") or user_profile.get("systolic_bp")
+        diastolic_bp = user_profile.get("diastolicBP") or user_profile.get("diastolic_bp")
+        
+        # Get goals and targets
+        calorie_target = user_profile.get("calorieTarget", "2000")
+        primary_goals = user_profile.get("primaryGoals", [])
+        wants_weight_loss = user_profile.get("wantsWeightLoss", False) or user_profile.get("weight_loss_goal", False)
+        
+        # Analyze recent consumption patterns
+        recent_consumption = []
+        thirty_days_ago = datetime.utcnow() - timedelta(days=30)
+        
+        total_calories = 0
+        condition_adherence = {"total_meals": 0, "condition_friendly": 0}
+        favorite_foods = {}
+        
+        for entry in consumption_history:
+            try:
+                entry_date = datetime.fromisoformat(entry.get("timestamp", "").replace("Z", "+00:00"))
+                if entry_date >= thirty_days_ago:
+                    recent_consumption.append(entry)
+                    
+                    # Track nutrition
+                    nutrition = entry.get("nutritional_info", {})
+                    total_calories += nutrition.get("calories", 0)
+                    
+                    # Track food frequency
+                    food_name = entry.get("food_name", "").lower()
+                    favorite_foods[food_name] = favorite_foods.get(food_name, 0) + 1
+                    
+                    # Track condition-specific adherence
+                    condition_adherence["total_meals"] += 1
+                    medical_rating = entry.get("medical_rating", {})
+                    
+                    # Check suitability for user's specific conditions
+                    is_suitable = True
+                    for condition in medical_conditions:
+                        condition_key = f"{condition.lower()}_suitability"
+                        if condition_key in medical_rating:
+                            suitability = medical_rating[condition_key].lower()
+                            if suitability not in ["high", "good", "suitable"]:
+                                is_suitable = False
+                                break
+                    
+                    if is_suitable:
+                        condition_adherence["condition_friendly"] += 1
+                        
+            except:
+                continue
+        
+        # Calculate adherence rate
+        adherence_rate = 0
+        if condition_adherence["total_meals"] > 0:
+            adherence_rate = (condition_adherence["condition_friendly"] / condition_adherence["total_meals"]) * 100
+        
+        # Get top favorite foods
+        top_favorites = sorted(favorite_foods.items(), key=lambda x: x[1], reverse=True)[:10]
+        favorite_foods_list = [food for food, count in top_favorites]
+        
+        # Calculate average daily calories
+        avg_daily_calories = (total_calories / 30) if total_calories > 0 else 2000
+        
+        return {
+            "user_profile": {
+                "medical_conditions": medical_conditions,
+                "current_medications": current_medications,
+                "dietary_restrictions": dietary_restrictions,
+                "dietary_features": dietary_features,
+                "food_preferences": food_preferences,
+                "allergies": allergies,
+                "strong_dislikes": strong_dislikes,
+                "age": age,
+                "weight": weight,
+                "height": height,
+                "bmi": bmi,
+                "systolic_bp": systolic_bp,
+                "diastolic_bp": diastolic_bp,
+                "calorie_target": calorie_target,
+                "primary_goals": primary_goals,
+                "wants_weight_loss": wants_weight_loss
+            },
+            "consumption_analysis": {
+                "total_recent_meals": len(recent_consumption),
+                "avg_daily_calories": avg_daily_calories,
+                "adherence_rate": adherence_rate,
+                "favorite_foods": favorite_foods_list,
+                "recent_consumption": recent_consumption[-10:]  # Last 10 meals for context
+            },
+            "meal_plan_context": {
+                "has_active_plan": latest_meal_plan is not None,
+                "latest_plan": latest_meal_plan,
+                "total_plans_created": len(meal_plans)
+            }
+        }
+        
+    except Exception as e:
+        print(f"Error getting comprehensive user context: {str(e)}")
+        return None
 
 # ============================================================================
 # API ENDPOINTS
@@ -2133,6 +2269,28 @@ def analyze_meal_patterns(meal_history: list) -> dict:
 # Consumption fix-meal-types endpoint moved to routers/consumption_management.py
 
 # Privacy data export functions moved to routers/privacy_data.py
+
+@app.get("/coach/daily-insights")
+async def get_daily_coaching_insights(
+    force_refresh: bool = False,
+    current_user: User = Depends(get_current_user)
+):
+    """Get daily insights - USING ORIGINAL LOGIC with better integration and cache bypass option"""
+    try:
+        # Get user profile
+        profile = current_user.get("profile", {})
+        
+        # If force_refresh is requested, clear all related caches first
+        if force_refresh:
+            print(f"[get_daily_insights] Force refresh requested - clearing all caches for {current_user['email']}")
+            from services.cache_service import invalidate_consumption_cache
+            invalidate_consumption_cache(current_user["email"])
+        
+        # Use the extracted coaching system function
+        return await get_daily_coaching_insights_data(current_user["email"], profile)
+    except Exception as e:
+        print(f"[get_daily_insights] Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get daily insights: {str(e)}")
 
 @app.get("/coach/smart-daily-meal-plan")
 async def get_smart_daily_meal_plan(current_user: User = Depends(get_current_user)):

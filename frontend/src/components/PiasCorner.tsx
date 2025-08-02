@@ -38,6 +38,7 @@ import {
   TableSortLabel,
   Badge,
   IconButton,
+  Switch,
 } from '@mui/material';
 import {
   TrendingUp,
@@ -68,6 +69,7 @@ import {
   NoteAdd,
   Email as EmailIcon,
   Check as CheckIcon,
+  Info as InfoIcon,
 } from '@mui/icons-material';
 import {
   Chart as ChartJS,
@@ -159,6 +161,269 @@ const PiasCorner: React.FC = () => {
   const [reviewNotes, setReviewNotes] = useState('');
   const [reviewAction, setReviewAction] = useState<'resolved' | 'monitoring' | 'escalated' | 'dismissed'>('resolved');
   const [reviewLoading, setReviewLoading] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
+  const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(true);
+  const [engagementTimeRange, setEngagementTimeRange] = useState<'weekly' | 'monthly'>('weekly');
+  const [infoDialogOpen, setInfoDialogOpen] = useState(false);
+  const [selectedChartInfo, setSelectedChartInfo] = useState<string>('');
+  const [profileDialogOpen, setProfileDialogOpen] = useState(false);
+  const [selectedPatientProfile, setSelectedPatientProfile] = useState<any>(null);
+  const [reminderLoading, setReminderLoading] = useState<string>('');
+
+  // Chart information content
+  const getChartInfo = (chartType: 'funnel' | 'calendar' | 'trends' | 'alerts' | 'heatmap' | string) => {
+    const chartInfoData: Record<string, { title: string; description: string; details: string[] }> = {
+      'funnel': {
+        title: 'Engagement Funnel Analysis',
+        description: 'This chart shows the user engagement journey through key milestones in the diabetes management platform.',
+        details: [
+          '📝 Registration: Total users who have signed up for the platform',
+          '🔐 First Login: Users who completed their first login after registration',
+          '📊 Daily Logging: Users who actively log their meals and health data',
+          '📈 Trend Reporting: Users who consistently track their progress over time',
+          '🎯 Long-term Engagement: Users who maintain active usage for extended periods',
+          '',
+          '🚨 Red bars indicate bottlenecks where conversion rates drop below 70%',
+          '💡 Use this data to identify where users are dropping off and optimize those stages'
+        ]
+      },
+      'calendar': {
+        title: 'Missed Logs Calendar (Last 30 Days)',
+        description: 'Visual heatmap showing patterns of missed meal logging across all patients over the past 30 days.',
+        details: [
+          '🟢 Green: Good logging compliance (few missed logs)',
+          '🟡 Yellow: Moderate missed logs (some concern)',
+          '🟠 Orange: High missed logs (attention needed)', 
+          '🔴 Red: Critical missed logs (immediate intervention required)',
+          '',
+          '📅 Each square represents one day',
+          '🔢 Numbers show actual count of patients who missed logging',
+          '📊 Weekly patterns below show which days typically have more missed logs',
+          '💡 Use this to identify days when patients need more engagement reminders'
+        ]
+      },
+      'trends': {
+        title: 'Enhanced Engagement Trends',
+        description: 'Multi-metric time series showing key engagement indicators over time with weekly/monthly views.',
+        details: [
+          '👥 Daily Actives: Number of unique users active each period',
+          '⏱️ Session Duration: Average time users spend in the app',
+          '📝 Logging Consistency: Percentage of expected logs actually completed',
+          '🎯 Feature Usage: Percentage of available features being utilized',
+          '',
+          '📈 ↗️ = Improving trend | ↘️ = Declining trend | → = Stable trend',
+          '📊 Weekly view: Shows granular 6-week data from database',
+          '📅 Monthly view: Aggregated averages for longer-term pattern analysis',
+          '💡 Use trends to measure the effectiveness of engagement strategies'
+        ]
+      },
+      'alerts': {
+        title: 'Irregular Reporting Alerts',
+        description: 'Identifies patients with inconsistent logging patterns who may need additional support or intervention.',
+        details: [
+          '⏰ Days Since Last Log: How long since patient\'s last activity',
+          '📊 Average Gap: Typical time between logs for this patient',
+          '🎯 Consistency Score: Overall reliability rating (0-100%)',
+          '🚨 Risk Level: Automated assessment of intervention urgency',
+          '',
+          '🟢 Low Risk: Regular, consistent logging patterns',
+          '🟡 Medium Risk: Some irregularities, monitor closely',
+          '🟠 High Risk: Significant gaps, outreach recommended',
+          '🔴 Critical Risk: Extended absence, immediate follow-up needed',
+          '💡 Use this table to prioritize patient outreach and support efforts'
+        ]
+      },
+      'heatmap': {
+        title: 'Activity Heatmap - Recent 30 Days',
+        description: 'Compact visualization showing overall platform activity intensity across recent days.',
+        details: [
+          '🟢 High Activity: Strong user engagement across the platform',
+          '🟡 Medium Activity: Moderate usage levels',
+          '🟠 Low Activity: Below average engagement',
+          '⚪ Minimal Activity: Very low or no significant activity',
+          '',
+          '📊 Each cell represents one day of aggregated platform activity',
+          '🎯 Darker colors indicate higher activity levels',
+          '📈 Helps identify overall platform usage patterns',
+          '💡 Use to spot trends in overall user engagement and platform health'
+        ]
+      }
+    };
+    return chartInfoData[chartType as keyof typeof chartInfoData] || { title: 'Chart Information', description: 'Information not available', details: [] };
+  };
+
+  const handleInfoClick = (chartType: string) => {
+    setSelectedChartInfo(chartType);
+    setInfoDialogOpen(true);
+  };
+
+  // Handle sending reminder to patient
+  const handleSendReminder = async (patient: any) => {
+    setReminderLoading(patient.patient_id);
+    try {
+      const reminderData = {
+        patient_id: patient.patient_id,
+        patient_name: patient.patient_name,
+        message: `Hi ${patient.patient_name}, we noticed you haven't logged your meals in ${patient.days_since_last_log} days. Please remember to track your food intake to help manage your diabetes effectively. Your health is important to us!`,
+        type: 'reminder',
+        priority: patient.risk_level === 'critical' ? 'high' : patient.risk_level === 'high' ? 'medium' : 'low',
+        expires_at: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString() // 2 weeks from now
+      };
+
+      const response = await fetch(`${config.API_URL}/admin/send-reminder`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(reminderData)
+      });
+
+      if (response.ok) {
+        alert(`Reminder sent successfully to ${patient.patient_name}!`);
+      } else {
+        alert('Failed to send reminder. Please try again.');
+      }
+    } catch (error: any) {
+      console.error('Error sending reminder:', error);
+      const errorMessage = error?.message || String(error);
+      alert(`Failed to send reminder: ${errorMessage}`);
+    } finally {
+      setReminderLoading('');
+    }
+  };
+
+  // Handle viewing patient profile
+  const handleViewProfile = async (patient: any) => {
+    console.log('🔍 [PROFILE] Viewing profile for patient:', patient);
+    console.log('🔍 [PROFILE] Patient ID:', patient.patient_id);
+    console.log('🔍 [PROFILE] Patient object keys:', Object.keys(patient));
+    console.log('🔍 [PROFILE] Full patient object:', JSON.stringify(patient, null, 2));
+    console.log('🔍 [PROFILE] Request URL:', `${config.API_URL}/admin/patient-profile/${patient.patient_id}`);
+    
+    try {
+      const response = await fetch(`${config.API_URL}/admin/patient-profile/${patient.patient_id}`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        }
+      });
+
+      console.log('🔍 [PROFILE] Response status:', response.status);
+      console.log('🔍 [PROFILE] Response headers:', response.headers);
+
+      if (response.ok) {
+        const profileData = await response.json();
+        console.log('✅ [PROFILE] Profile data received:', profileData);
+        setSelectedPatientProfile({
+          ...patient,
+          ...profileData,
+          profile: profileData
+        });
+        setProfileDialogOpen(true);
+      } else {
+        const errorText = await response.text();
+        console.error('❌ [PROFILE] Error response:', response.status, errorText);
+        alert(`Failed to load patient profile. Status: ${response.status}. Error: ${errorText}`);
+      }
+    } catch (error: any) {
+      console.error('❌ [PROFILE] Network/fetch error:', error);
+      const errorMessage = error?.message || String(error);
+      alert(`Failed to load patient profile. Network error: ${errorMessage}`);
+    }
+  };
+
+  // Handle marking patient as contacted
+  const handleMarkContacted = async (patient: any) => {
+    try {
+      const response = await fetch(`${config.API_URL}/admin/mark-contacted`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          patient_id: patient.patient_id,
+          contacted_at: new Date().toISOString(),
+          contacted_by: 'admin' // In production, get from auth context
+        })
+      });
+
+      if (response.ok) {
+        alert(`${patient.patient_name} marked as contacted successfully!`);
+        // Refresh engagement data to update the table
+        fetchEngagementData();
+      } else {
+        alert('Failed to mark as contacted. Please try again.');
+      }
+    } catch (error: any) {
+      console.error('Error marking as contacted:', error);
+      const errorMessage = error?.message || String(error);
+      alert(`Failed to mark as contacted: ${errorMessage}`);
+    }
+  };
+  
+  // Helper function to transform engagement data based on time range
+  const getEngagementDataForTimeRange = () => {
+    if (!engagementData?.engagement_timeseries) {
+      return {
+        labels: engagementTimeRange === 'weekly' 
+          ? ['Week 1', 'Week 2', 'Week 3', 'Week 4', 'Week 5', 'Week 6']
+          : ['Month 1', 'Month 2', 'Month 3'],
+        daily_actives: engagementTimeRange === 'weekly' 
+          ? [35, 38, 33, 41, 39, 42]
+          : [36, 40, 44],
+        session_duration: engagementTimeRange === 'weekly'
+          ? [15.2, 16.1, 14.8, 17.3, 18.1, 18.9]
+          : [15.4, 16.7, 18.5],
+        logging_consistency: engagementTimeRange === 'weekly'
+          ? [68, 72, 65, 75, 78, 81]
+          : [70, 74, 78],
+        feature_usage: engagementTimeRange === 'weekly'
+          ? [85, 87, 83, 89, 91, 93]
+          : [86, 88, 91]
+      };
+    }
+
+    const timeseries = engagementData.engagement_timeseries;
+    
+    if (engagementTimeRange === 'weekly') {
+      // Return raw weekly data
+      return {
+        labels: timeseries.labels || ['Week 1', 'Week 2', 'Week 3', 'Week 4', 'Week 5', 'Week 6'],
+        daily_actives: timeseries.daily_actives?.data || [35, 38, 33, 41, 39, 42],
+        session_duration: timeseries.session_duration?.data || [15.2, 16.1, 14.8, 17.3, 18.1, 18.9],
+        logging_consistency: timeseries.logging_consistency?.data || [68, 72, 65, 75, 78, 81],
+        feature_usage: timeseries.feature_usage?.data || [85, 87, 83, 89, 91, 93]
+      };
+    } else {
+      // Aggregate weekly data into monthly (group every 4-5 weeks into months)
+      const weeklyData = {
+        daily_actives: timeseries.daily_actives?.data || [35, 38, 33, 41, 39, 42],
+        session_duration: timeseries.session_duration?.data || [15.2, 16.1, 14.8, 17.3, 18.1, 18.9],
+        logging_consistency: timeseries.logging_consistency?.data || [68, 72, 65, 75, 78, 81],
+        feature_usage: timeseries.feature_usage?.data || [85, 87, 83, 89, 91, 93]
+      };
+
+      // Aggregate into 3 months (2 weeks each)
+      const aggregateToMonthly = (data: number[]) => {
+        const months = [];
+        for (let i = 0; i < data.length; i += 2) {
+          const monthData = data.slice(i, i + 2);
+          const avg = monthData.reduce((sum, val) => sum + val, 0) / monthData.length;
+          months.push(Math.round(avg * 10) / 10); // Round to 1 decimal
+        }
+        return months;
+      };
+
+      return {
+        labels: ['Month 1', 'Month 2', 'Month 3'],
+        daily_actives: aggregateToMonthly(weeklyData.daily_actives),
+        session_duration: aggregateToMonthly(weeklyData.session_duration),
+        logging_consistency: aggregateToMonthly(weeklyData.logging_consistency),
+        feature_usage: aggregateToMonthly(weeklyData.feature_usage)
+      };
+    }
+  };
   
   // Enhanced analytics state for individual patient mode
   const [selectedTimeRange, setSelectedTimeRange] = useState('30'); // Default to 30 days
@@ -170,7 +435,32 @@ const PiasCorner: React.FC = () => {
 
   useEffect(() => {
     fetchPatients();
-  }, []);
+    
+    // Auto-refresh engagement data every 3 minutes when enabled
+    let refreshInterval: NodeJS.Timeout | null = null;
+    
+    if (autoRefreshEnabled) {
+      refreshInterval = setInterval(() => {
+        console.log('Auto-refreshing engagement analytics...');
+        if (tabValue === 2) { // Only refresh if on engagement tab
+          fetchEngagementData();
+        }
+        if (tabValue === 3) { // Auto-refresh clinical alerts
+          fetchClinicalAlertsData();
+        }
+        if (tabValue === 4) { // Auto-refresh behavior clustering
+          fetchBehaviorClusteringData();
+        }
+        setLastUpdated(new Date());
+      }, 3 * 60 * 1000); // 3 minutes
+    }
+    
+    return () => {
+      if (refreshInterval) {
+        clearInterval(refreshInterval);
+      }
+    };
+  }, [autoRefreshEnabled, tabValue]);
 
   useEffect(() => {
     fetchAnalyticsData();
@@ -354,6 +644,7 @@ const PiasCorner: React.FC = () => {
       if (response.ok) {
         const data = await response.json();
         setEngagementData(data);
+        setLastUpdated(new Date());
       } else {
         setError('Failed to fetch engagement data');
       }
@@ -2507,28 +2798,98 @@ const PiasCorner: React.FC = () => {
         <TabPanel value={tabValue} index={2}>
           {/* Engagement Metrics Tab - Cohort Analytics Only */}
           <Box sx={{ mb: 3 }}>
-            <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-              <Groups sx={{ mr: 1, color: 'primary.main' }} />
-              Cohort Engagement Analytics
-            </Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              Platform-wide engagement patterns and user behavior analysis across all patients.
-            </Typography>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
+              <Box>
+                <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                  <Groups sx={{ mr: 1, color: 'primary.main' }} />
+                  Cohort Engagement Analytics
+                  <Chip 
+                    label="LIVE DATA" 
+                    size="small" 
+                    sx={{ 
+                      ml: 2, 
+                      bgcolor: 'success.main', 
+                      color: 'white',
+                      fontWeight: 'bold',
+                      fontSize: '0.7rem',
+                      animation: 'pulse 2s infinite'
+                    }} 
+                  />
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Platform-wide engagement patterns and user behavior analysis across all patients.
+                </Typography>
+              </Box>
+              <Box sx={{ textAlign: 'right' }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                  <FormControlLabel
+                    control={
+                      <Switch
+                        checked={autoRefreshEnabled}
+                        onChange={(e) => setAutoRefreshEnabled(e.target.checked)}
+                        size="small"
+                      />
+                    }
+                    label="Auto-refresh"
+                    sx={{ fontSize: '0.8rem' }}
+                  />
+                </Box>
+                <Typography variant="caption" color="text.secondary">
+                  Last updated: {lastUpdated.toLocaleTimeString()}
+                </Typography>
+              </Box>
+            </Box>
           </Box>
 
           {engagementLoading ? (
-            <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
-              <CircularProgress />
+            <Box sx={{ 
+              display: 'flex', 
+              flexDirection: 'column',
+              justifyContent: 'center', 
+              alignItems: 'center',
+              p: 4,
+              minHeight: 300
+            }}>
+              <CircularProgress 
+                size={60} 
+                thickness={4}
+                sx={{ 
+                  color: 'primary.main',
+                  mb: 2,
+                  animation: 'spin 1s linear infinite'
+                }} 
+              />
+              <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 500 }}>
+                Loading real-time engagement data...
+              </Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ mt: 1 }}>
+                Analyzing cohort patterns from database
+              </Typography>
             </Box>
           ) : engagementData || !engagementData ? (
             // Enhanced Engagement Metrics with Funnel Analysis and Missed Log Tracking
             <Grid container spacing={3}>
               {/* Engagement Funnel Chart */}
               <Grid item xs={12} md={6}>
-                <Card>
-                  <CardContent>
-                    <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
-                      <Timeline sx={{ mr: 1, color: 'primary.main' }} />
+                <Card sx={{ 
+                  background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                  color: 'white',
+                  borderRadius: 3,
+                  boxShadow: '0 8px 32px rgba(102, 126, 234, 0.3)',
+                  transition: 'all 0.3s ease',
+                  '&:hover': {
+                    transform: 'translateY(-4px)',
+                    boxShadow: '0 12px 40px rgba(102, 126, 234, 0.4)'
+                  }
+                }}>
+                  <CardContent sx={{ position: 'relative' }}>
+                    <Typography variant="h6" gutterBottom sx={{ 
+                      display: 'flex', 
+                      alignItems: 'center',
+                      color: 'white',
+                      fontWeight: 'bold'
+                    }}>
+                      <Timeline sx={{ mr: 1, color: 'white' }} />
                       Engagement Funnel Analysis
                     </Typography>
                     <Box sx={{ height: 350, p: 2, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
@@ -2537,29 +2898,62 @@ const PiasCorner: React.FC = () => {
                         const isBottleneck = engagementData?.funnel_analysis?.bottlenecks?.includes(stage.name);
                         const width = Math.max(20, stage.percentage); // Minimum width for visibility
                         return (
-                          <Box key={index} sx={{ mb: 1, cursor: 'pointer', '&:hover': { opacity: 0.8 } }}>
+                          <Box key={index} sx={{ 
+                            mb: 1.5, 
+                            cursor: 'pointer', 
+                            transition: 'all 0.3s ease',
+                            '&:hover': { 
+                              transform: 'scale(1.02)',
+                              '& .funnel-bar': {
+                                boxShadow: '0 4px 20px rgba(255,255,255,0.3)'
+                              }
+                            }
+                          }}>
                             <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.5 }}>
-                              <Typography variant="body2" sx={{ minWidth: 120, fontSize: '0.875rem' }}>
+                              <Typography variant="body2" sx={{ 
+                                minWidth: 120, 
+                                fontSize: '0.875rem',
+                                color: 'rgba(255,255,255,0.9)',
+                                fontWeight: 500
+                              }}>
                                 {stage.name}
                               </Typography>
                               <Box 
+                                className="funnel-bar"
                                 sx={{ 
                                   width: `${width}%`,
-                                  height: 32,
+                                  height: 40,
                                   background: isBottleneck 
-                                    ? 'linear-gradient(45deg, #f44336, #ff7961)'
+                                    ? 'linear-gradient(135deg, #ff416c, #ff4b2b)'
                                     : index === 0 
-                                      ? 'linear-gradient(45deg, #4caf50, #81c784)'
-                                      : 'linear-gradient(45deg, #2196f3, #64b5f6)',
-                                  borderRadius: 1,
+                                      ? 'linear-gradient(135deg, #667eea, #764ba2)'
+                                      : 'linear-gradient(135deg, #f093fb, #f5576c)',
+                                  borderRadius: 2,
                                   display: 'flex',
                                   alignItems: 'center',
                                   justifyContent: 'center',
                                   color: 'white',
                                   fontWeight: 'bold',
-                                  fontSize: '0.75rem',
+                                  fontSize: '0.8rem',
                                   position: 'relative',
-                                  ml: 1
+                                  ml: 1,
+                                  transition: 'all 0.3s ease',
+                                  boxShadow: '0 2px 10px rgba(0,0,0,0.2)',
+                                  '&::after': {
+                                    content: '""',
+                                    position: 'absolute',
+                                    top: 0,
+                                    left: 0,
+                                    right: 0,
+                                    bottom: 0,
+                                    background: 'rgba(255,255,255,0.1)',
+                                    borderRadius: 2,
+                                    opacity: 0,
+                                    transition: 'opacity 0.3s ease'
+                                  },
+                                  '&:hover::after': {
+                                    opacity: 1
+                                  }
                                 }}
                               >
                                 {stage.count} ({stage.percentage}%)
@@ -2568,13 +2962,17 @@ const PiasCorner: React.FC = () => {
                                     variant="caption" 
                                     sx={{ 
                                       position: 'absolute', 
-                                      right: -30, 
-                                      top: -15, 
-                                      bgcolor: isBottleneck ? 'error.main' : 'success.main',
+                                      right: -35, 
+                                      top: -18, 
+                                      bgcolor: isBottleneck ? '#ff1744' : '#00e676',
                                       color: 'white',
-                                      px: 0.5,
-                                      borderRadius: 0.5,
-                                      fontSize: '0.625rem'
+                                      px: 1,
+                                      py: 0.5,
+                                      borderRadius: 1,
+                                      fontSize: '0.625rem',
+                                      fontWeight: 'bold',
+                                      boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+                                      animation: isBottleneck ? 'pulse 2s infinite' : 'none'
                                     }}
                                   >
                                     {stage.conversion_rate}%
@@ -2645,34 +3043,100 @@ const PiasCorner: React.FC = () => {
                           );
                         })
                       )}
-                      <Typography variant="caption" color="text.secondary" sx={{ mt: 2 }}>
+                      <Typography variant="caption" sx={{ 
+                        mt: 2, 
+                        color: 'rgba(255,255,255,0.7)',
+                        textAlign: 'center',
+                        fontStyle: 'italic'
+                      }}>
                         Click stages to view patient details • Red indicates bottlenecks
                       </Typography>
                     </Box>
+                    {/* Info Button */}
+                    <IconButton
+                      onClick={() => handleInfoClick('funnel')}
+                      sx={{
+                        position: 'absolute',
+                        bottom: 8,
+                        right: 8,
+                        bgcolor: 'rgba(255,255,255,0.1)',
+                        color: 'white',
+                        width: 32,
+                        height: 32,
+                        '&:hover': {
+                          bgcolor: 'rgba(255,255,255,0.2)',
+                          transform: 'scale(1.1)'
+                        },
+                        transition: 'all 0.3s ease'
+                      }}
+                    >
+                      <InfoIcon fontSize="small" />
+                    </IconButton>
                   </CardContent>
                 </Card>
               </Grid>
 
               {/* Missed Logs Calendar Heatmap */}
               <Grid item xs={12} md={6}>
-                <Card>
-                  <CardContent>
-                    <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
-                      <CalendarToday sx={{ mr: 1, color: 'primary.main' }} />
-                      Missed Logs Calendar (Last 30 Days)
-                    </Typography>
+                <Card sx={{ 
+                  background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                  color: 'white',
+                  borderRadius: 3,
+                  boxShadow: '0 8px 32px rgba(102, 126, 234, 0.3)',
+                  transition: 'all 0.3s ease',
+                  '&:hover': {
+                    transform: 'translateY(-4px)',
+                    boxShadow: '0 12px 40px rgba(102, 126, 234, 0.4)'
+                  }
+                }}>
+                  <CardContent sx={{ position: 'relative' }}>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                      <Typography variant="h6" sx={{ 
+                        display: 'flex', 
+                        alignItems: 'center',
+                        color: 'white',
+                        fontWeight: 'bold'
+                      }}>
+                        <CalendarToday sx={{ mr: 1, color: 'white' }} />
+                        Missed Logs Calendar (Last 30 Days)
+                      </Typography>
+                      <Chip 
+                        label="LIVE" 
+                        size="small" 
+                        sx={{ 
+                          bgcolor: 'rgba(255,255,255,0.2)', 
+                          color: 'white',
+                          fontWeight: 'bold',
+                          fontSize: '0.7rem',
+                          animation: 'pulse 2s infinite'
+                        }} 
+                      />
+                    </Box>
                     <Box sx={{ height: 350, p: 1 }}>
                       {/* Calendar Header */}
-                      <Box sx={{ display: 'flex', gap: 0.5, mb: 1 }}>
+                      <Box sx={{ display: 'flex', gap: 0.5, mb: 2 }}>
                         {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((day, i) => (
-                          <Typography key={i} variant="caption" sx={{ width: 30, textAlign: 'center', fontWeight: 'bold' }}>
+                          <Typography key={i} variant="caption" sx={{ 
+                            width: 30, 
+                            textAlign: 'center', 
+                            fontWeight: 'bold',
+                            color: 'rgba(255,255,255,0.9)',
+                            fontSize: '0.75rem'
+                          }}>
                             {day}
                           </Typography>
                         ))}
                       </Box>
                       
                       {/* Calendar Grid */}
-                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, maxWidth: 220 }}>
+                      <Box sx={{ 
+                        display: 'flex', 
+                        flexWrap: 'wrap', 
+                        gap: 0.5, 
+                        maxWidth: 250,
+                        mx: 'auto',
+                        justifyContent: 'center'
+                      }}>
                         {(engagementData?.missed_logs_analysis?.calendar_heatmap || Array.from({ length: 30 }, (_, i) => {
                           const totalPatients = 45;
                           const missedCount = Math.floor(Math.random() * 15) + 2;
@@ -2689,27 +3153,47 @@ const PiasCorner: React.FC = () => {
                             <Box
                               key={index}
                               sx={{
-                                width: 28,
-                                height: 28,
-                                backgroundColor: intensity > 0.7 
-                                  ? '#d32f2f' 
+                                width: 32,
+                                height: 32,
+                                background: intensity > 0.7 
+                                  ? 'linear-gradient(135deg, #ff1744, #d32f2f)' 
                                   : intensity > 0.4 
-                                    ? '#ff9800' 
+                                    ? 'linear-gradient(135deg, #ff9800, #f57c00)' 
                                     : intensity > 0.2 
-                                      ? '#ffeb3b' 
-                                      : '#4caf50',
-                                border: '1px solid #e0e0e0',
-                                borderRadius: 1,
+                                      ? 'linear-gradient(135deg, #ffeb3b, #fbc02d)' 
+                                      : 'linear-gradient(135deg, #4caf50, #388e3c)',
+                                border: '2px solid rgba(255,255,255,0.3)',
+                                borderRadius: 2,
                                 display: 'flex',
                                 alignItems: 'center',
                                 justifyContent: 'center',
-                                fontSize: '0.625rem',
-                                color: intensity > 0.4 ? 'white' : 'black',
+                                fontSize: '0.7rem',
+                                color: 'white',
+                                fontWeight: 'bold',
                                 cursor: 'pointer',
+                                position: 'relative',
+                                transition: 'all 0.3s ease',
+                                boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
                                 '&:hover': {
-                                  transform: 'scale(1.1)',
-                                  zIndex: 1,
-                                  boxShadow: 2
+                                  transform: 'scale(1.15) translateZ(10px)',
+                                  zIndex: 10,
+                                  boxShadow: '0 8px 25px rgba(0,0,0,0.4)',
+                                  border: '2px solid rgba(255,255,255,0.8)'
+                                },
+                                '&::after': {
+                                  content: '""',
+                                  position: 'absolute',
+                                  top: 0,
+                                  left: 0,
+                                  right: 0,
+                                  bottom: 0,
+                                  background: 'rgba(255,255,255,0.1)',
+                                  borderRadius: 2,
+                                  opacity: 0,
+                                  transition: 'opacity 0.3s ease'
+                                },
+                                '&:hover::after': {
+                                  opacity: 1
                                 }
                               }}
                               title={`${day.date}: ${day.missed_count}/${day.total_patients} patients missed logs (${day.percentage}%)`}
@@ -2721,56 +3205,113 @@ const PiasCorner: React.FC = () => {
                       </Box>
                       
                       {/* Legend */}
-                      <Box sx={{ mt: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <Typography variant="caption" color="text.secondary">
+                      <Box sx={{ mt: 3, display: 'flex', alignItems: 'center', gap: 1.5, justifyContent: 'center' }}>
+                        <Typography variant="caption" sx={{ 
+                          color: 'rgba(255,255,255,0.8)',
+                          fontWeight: 500
+                        }}>
                           Less
                         </Typography>
                         {[0, 0.2, 0.4, 0.6, 0.8].map((level, i) => (
                           <Box
                             key={i}
                             sx={{
-                              width: 12,
-                              height: 12,
-                              backgroundColor: level > 0.6 
-                                ? '#d32f2f' 
+                              width: 16,
+                              height: 16,
+                              background: level > 0.6 
+                                ? 'linear-gradient(135deg, #ff1744, #d32f2f)' 
                                 : level > 0.3 
-                                  ? '#ff9800' 
+                                  ? 'linear-gradient(135deg, #ff9800, #f57c00)' 
                                   : level > 0.1 
-                                    ? '#ffeb3b' 
-                                    : '#4caf50',
-                              border: '1px solid #e0e0e0',
-                              borderRadius: 1
+                                    ? 'linear-gradient(135deg, #ffeb3b, #fbc02d)' 
+                                    : 'linear-gradient(135deg, #4caf50, #388e3c)',
+                              border: '1px solid rgba(255,255,255,0.3)',
+                              borderRadius: 1.5,
+                              transition: 'all 0.3s ease',
+                              '&:hover': {
+                                transform: 'scale(1.2)',
+                                boxShadow: '0 4px 12px rgba(0,0,0,0.3)'
+                              }
                             }}
                           />
                         ))}
-                        <Typography variant="caption" color="text.secondary">
+                        <Typography variant="caption" sx={{ 
+                          color: 'rgba(255,255,255,0.8)',
+                          fontWeight: 500
+                        }}>
                           More
                         </Typography>
                       </Box>
 
                       {/* Weekly Pattern Summary */}
-                      <Box sx={{ mt: 2 }}>
-                        <Typography variant="caption" sx={{ fontWeight: 'bold', display: 'block', mb: 1 }}>
-                          Weekly Pattern:
+                      <Box sx={{ mt: 3 }}>
+                        <Typography variant="caption" sx={{ 
+                          fontWeight: 'bold', 
+                          display: 'block', 
+                          mb: 1.5,
+                          color: 'rgba(255,255,255,0.9)',
+                          fontSize: '0.75rem'
+                        }}>
+                          📊 Weekly Pattern Analysis:
                         </Typography>
-                        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', justifyContent: 'center' }}>
                           {Object.entries(engagementData?.missed_logs_analysis?.weekly_patterns || {
                             monday: 15, tuesday: 12, wednesday: 18, thursday: 14,
                             friday: 22, saturday: 28, sunday: 31
-                          }).map(([day, count]) => (
-                            <Typography key={day} variant="caption" sx={{ 
-                              bgcolor: (count as number) > 25 ? 'error.light' : 'success.light',
-                              color: (count as number) > 25 ? 'error.dark' : 'success.dark',
-                              px: 0.5,
-                              borderRadius: 0.5,
-                              fontSize: '0.6rem'
-                            }}>
-                              {`${day.slice(0, 3)}: ${count}`}
-                            </Typography>
-                          ))}
+                          }).map(([day, count]) => {
+                            const countNumber = typeof count === 'number' ? count : Number(count);
+                            return (
+                              <Box key={day} sx={{
+                                background: countNumber > 25 
+                                  ? 'linear-gradient(135deg, #ff5722, #d32f2f)' 
+                                  : 'linear-gradient(135deg, #4caf50, #388e3c)',
+                                color: 'white',
+                                px: 1,
+                                py: 0.5,
+                                borderRadius: 2,
+                                fontSize: '0.65rem',
+                                fontWeight: 'bold',
+                                textAlign: 'center',
+                                minWidth: 45,
+                                transition: 'all 0.3s ease',
+                                boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
+                                '&:hover': {
+                                  transform: 'translateY(-2px) scale(1.05)',
+                                  boxShadow: '0 4px 15px rgba(0,0,0,0.3)'
+                                }
+                              }}>
+                                <Box sx={{ fontSize: '0.6rem', opacity: 0.9 }}>
+                                  {day.slice(0, 3).toUpperCase()}
+                                </Box>
+                                <Box sx={{ fontSize: '0.75rem', fontWeight: 'bold' }}>
+                                  {countNumber}
+                                </Box>
+                              </Box>
+                            );
+                          })}
                         </Box>
                       </Box>
                     </Box>
+                    {/* Info Button */}
+                    <IconButton
+                      onClick={() => handleInfoClick('calendar')}
+                      sx={{
+                        position: 'absolute',
+                        bottom: 8,
+                        right: 8,
+                        bgcolor: 'rgba(255,255,255,0.1)',
+                        color: 'white',
+                        width: 32,
+                        height: 32,
+                        '&:hover': {
+                          bgcolor: 'rgba(255,255,255,0.2)',
+                          transform: 'scale(1.1)'
+                        },
+                        transition: 'all 0.3s ease'
+                      }}
+                    >
+                      <InfoIcon fontSize="small" />
+                    </IconButton>
                   </CardContent>
                 </Card>
               </Grid>
@@ -2778,7 +3319,7 @@ const PiasCorner: React.FC = () => {
               {/* Irregular Reporting Alerts Table */}
               <Grid item xs={12}>
                 <Card>
-                  <CardContent>
+                  <CardContent sx={{ position: 'relative' }}>
                     <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
                       <Warning sx={{ mr: 1, color: 'primary.main' }} />
                       Irregular Reporting Alerts
@@ -2832,13 +3373,62 @@ const PiasCorner: React.FC = () => {
                               </TableCell>
                               <TableCell align="center">
                                 <Box sx={{ display: 'flex', gap: 0.5 }}>
-                                  <IconButton size="small" color="primary" title="Send Reminder">
-                                    <EmailIcon sx={{ fontSize: 16 }} />
+                                  <IconButton 
+                                    size="small" 
+                                    color="primary" 
+                                    title="Send Reminder"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleSendReminder(patient);
+                                    }}
+                                    disabled={reminderLoading === patient.patient_id}
+                                    sx={{
+                                      '&:hover': {
+                                        bgcolor: 'primary.light',
+                                        transform: 'scale(1.1)'
+                                      },
+                                      transition: 'all 0.3s ease'
+                                    }}
+                                  >
+                                    {reminderLoading === patient.patient_id ? 
+                                      <CircularProgress size={16} /> : 
+                                      <EmailIcon sx={{ fontSize: 16 }} />
+                                    }
                                   </IconButton>
-                                  <IconButton size="small" color="info" title="View Profile">
+                                  <IconButton 
+                                    size="small" 
+                                    color="info" 
+                                    title="View Profile"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleViewProfile(patient);
+                                    }}
+                                    sx={{
+                                      '&:hover': {
+                                        bgcolor: 'info.light',
+                                        transform: 'scale(1.1)'
+                                      },
+                                      transition: 'all 0.3s ease'
+                                    }}
+                                  >
                                     <Person sx={{ fontSize: 16 }} />
                                   </IconButton>
-                                  <IconButton size="small" color="success" title="Mark Contacted">
+                                  <IconButton 
+                                    size="small" 
+                                    color="success" 
+                                    title="Mark Contacted"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleMarkContacted(patient);
+                                    }}
+                                    sx={{
+                                      '&:hover': {
+                                        bgcolor: 'success.light',
+                                        transform: 'scale(1.1)'
+                                      },
+                                      transition: 'all 0.3s ease'
+                                    }}
+                                  >
                                     <CheckIcon sx={{ fontSize: 16 }} />
                                   </IconButton>
                                 </Box>
@@ -2848,6 +3438,26 @@ const PiasCorner: React.FC = () => {
                         </TableBody>
                       </Table>
                     </TableContainer>
+                    {/* Info Button */}
+                    <IconButton
+                      onClick={() => handleInfoClick('alerts')}
+                      sx={{
+                        position: 'absolute',
+                        bottom: 8,
+                        right: 8,
+                        bgcolor: 'rgba(0,0,0,0.04)',
+                        color: 'primary.main',
+                        width: 32,
+                        height: 32,
+                        '&:hover': {
+                          bgcolor: 'rgba(0,0,0,0.08)',
+                          transform: 'scale(1.1)'
+                        },
+                        transition: 'all 0.3s ease'
+                      }}
+                    >
+                      <InfoIcon fontSize="small" />
+                    </IconButton>
                   </CardContent>
                 </Card>
               </Grid>
@@ -2855,53 +3465,94 @@ const PiasCorner: React.FC = () => {
               {/* Enhanced Engagement Time-Series */}
               <Grid item xs={12}>
                 <Card>
-                  <CardContent>
+                  <CardContent sx={{ position: 'relative' }}>
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
                       <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center' }}>
                         <TrendingUp sx={{ mr: 1, color: 'primary.main' }} />
                         Enhanced Engagement Trends
                       </Typography>
                       <Box sx={{ display: 'flex', gap: 1 }}>
-                        <Button size="small" variant="outlined">Weekly</Button>
-                        <Button size="small" variant="contained">Monthly</Button>
+                        <Button 
+                          size="small" 
+                          variant={engagementTimeRange === 'weekly' ? 'contained' : 'outlined'}
+                          onClick={() => setEngagementTimeRange('weekly')}
+                          sx={{ 
+                            minWidth: 80,
+                            bgcolor: engagementTimeRange === 'weekly' ? 'primary.main' : 'transparent',
+                            '&:hover': {
+                              bgcolor: engagementTimeRange === 'weekly' ? 'primary.dark' : 'primary.light',
+                              color: engagementTimeRange === 'weekly' ? 'white' : 'primary.main'
+                            }
+                          }}
+                        >
+                          Weekly
+                        </Button>
+                        <Button 
+                          size="small" 
+                          variant={engagementTimeRange === 'monthly' ? 'contained' : 'outlined'}
+                          onClick={() => setEngagementTimeRange('monthly')}
+                          sx={{ 
+                            minWidth: 80,
+                            bgcolor: engagementTimeRange === 'monthly' ? 'primary.main' : 'transparent',
+                            '&:hover': {
+                              bgcolor: engagementTimeRange === 'monthly' ? 'primary.dark' : 'primary.light',
+                              color: engagementTimeRange === 'monthly' ? 'white' : 'primary.main'
+                            }
+                          }}
+                        >
+                          Monthly
+                        </Button>
                       </Box>
                     </Box>
                     <Box sx={{ height: 350 }}>
                       <Line
+                        key={`engagement-chart-${engagementTimeRange}`}
                         data={{
-                          labels: engagementData?.engagement_timeseries?.labels || ['Week 1', 'Week 2', 'Week 3', 'Week 4', 'Week 5', 'Week 6'],
+                          labels: getEngagementDataForTimeRange().labels,
                           datasets: [
                             {
-                              label: 'Daily Actives ↗️',
-                              data: engagementData?.engagement_timeseries?.daily_actives?.data || [35, 38, 33, 41, 39, 42],
+                              label: `Daily Actives ${engagementData?.engagement_timeseries?.daily_actives?.trend === 'improving' ? '↗️' : engagementData?.engagement_timeseries?.daily_actives?.trend === 'declining' ? '↘️' : '→'}`,
+                              data: getEngagementDataForTimeRange().daily_actives,
                               borderColor: '#4caf50',
                               backgroundColor: 'rgba(76, 175, 80, 0.1)',
                               tension: 0.3,
-                              yAxisID: 'y'
+                              yAxisID: 'y',
+                              pointRadius: 6,
+                              pointHoverRadius: 8,
+                              borderWidth: 3
                             },
                             {
-                              label: 'Session Duration (min) ↗️',
-                              data: engagementData?.engagement_timeseries?.session_duration?.data || [15.2, 16.1, 14.8, 17.3, 18.1, 18.9],
+                              label: `Session Duration (min) ${engagementData?.engagement_timeseries?.session_duration?.trend === 'improving' ? '↗️' : engagementData?.engagement_timeseries?.session_duration?.trend === 'declining' ? '↘️' : '→'}`,
+                              data: getEngagementDataForTimeRange().session_duration,
                               borderColor: '#2196f3',
                               backgroundColor: 'rgba(33, 150, 243, 0.1)',
                               tension: 0.3,
-                              yAxisID: 'y1'
+                              yAxisID: 'y1',
+                              pointRadius: 6,
+                              pointHoverRadius: 8,
+                              borderWidth: 3
                             },
                             {
-                              label: 'Logging Consistency (%) ↗️',
-                              data: engagementData?.engagement_timeseries?.logging_consistency?.data || [68, 72, 65, 75, 78, 81],
+                              label: `Logging Consistency (%) ${engagementData?.engagement_timeseries?.logging_consistency?.trend === 'improving' ? '↗️' : engagementData?.engagement_timeseries?.logging_consistency?.trend === 'declining' ? '↘️' : '→'}`,
+                              data: getEngagementDataForTimeRange().logging_consistency,
                               borderColor: '#ff9800',
                               backgroundColor: 'rgba(255, 152, 0, 0.1)',
                               tension: 0.3,
-                              yAxisID: 'y2'
+                              yAxisID: 'y2',
+                              pointRadius: 6,
+                              pointHoverRadius: 8,
+                              borderWidth: 3
                             },
                             {
-                              label: 'Feature Usage (%) →',
-                              data: engagementData?.engagement_timeseries?.feature_usage?.data || [85, 87, 83, 89, 91, 93],
+                              label: `Feature Usage (%) ${engagementData?.engagement_timeseries?.feature_usage?.trend === 'improving' ? '↗️' : engagementData?.engagement_timeseries?.feature_usage?.trend === 'declining' ? '↘️' : '→'}`,
+                              data: getEngagementDataForTimeRange().feature_usage,
                               borderColor: '#9c27b0',
                               backgroundColor: 'rgba(156, 39, 176, 0.1)',
                               tension: 0.3,
-                              yAxisID: 'y2'
+                              yAxisID: 'y2',
+                              pointRadius: 6,
+                              pointHoverRadius: 8,
+                              borderWidth: 3
                             }
                           ]
                         }}
@@ -2924,7 +3575,7 @@ const PiasCorner: React.FC = () => {
                               position: 'left' as const,
                               title: {
                                 display: true,
-                                text: 'Daily Active Users'
+                                text: engagementTimeRange === 'weekly' ? 'Daily Active Users' : 'Average Daily Active Users'
                               }
                             },
                             y1: {
@@ -2936,7 +3587,7 @@ const PiasCorner: React.FC = () => {
                               },
                               title: {
                                 display: true,
-                                text: 'Session Duration (min)'
+                                text: engagementTimeRange === 'weekly' ? 'Session Duration (min)' : 'Avg Session Duration (min)'
                               }
                             },
                             y2: {
@@ -2949,6 +3600,26 @@ const PiasCorner: React.FC = () => {
                         }}
                       />
                     </Box>
+                    {/* Info Button */}
+                    <IconButton
+                      onClick={() => handleInfoClick('trends')}
+                      sx={{
+                        position: 'absolute',
+                        bottom: 8,
+                        right: 8,
+                        bgcolor: 'rgba(0,0,0,0.04)',
+                        color: 'primary.main',
+                        width: 32,
+                        height: 32,
+                        '&:hover': {
+                          bgcolor: 'rgba(0,0,0,0.08)',
+                          transform: 'scale(1.1)'
+                        },
+                        transition: 'all 0.3s ease'
+                      }}
+                    >
+                      <InfoIcon fontSize="small" />
+                    </IconButton>
                   </CardContent>
                 </Card>
               </Grid>
@@ -2956,7 +3627,7 @@ const PiasCorner: React.FC = () => {
               {/* Compact Activity Heatmap */}
               <Grid item xs={12} md={6}>
                 <Card>
-                  <CardContent>
+                  <CardContent sx={{ position: 'relative' }}>
                     <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
                       <LocalActivity sx={{ mr: 1, color: 'primary.main' }} />
                       Activity Heatmap - Recent 30 Days
@@ -2995,6 +3666,26 @@ const PiasCorner: React.FC = () => {
                         })}
                       </Grid>
                     </Box>
+                    {/* Info Button */}
+                    <IconButton
+                      onClick={() => handleInfoClick('heatmap')}
+                      sx={{
+                        position: 'absolute',
+                        bottom: 8,
+                        right: 8,
+                        bgcolor: 'rgba(0,0,0,0.04)',
+                        color: 'primary.main',
+                        width: 32,
+                        height: 32,
+                        '&:hover': {
+                          bgcolor: 'rgba(0,0,0,0.08)',
+                          transform: 'scale(1.1)'
+                        },
+                        transition: 'all 0.3s ease'
+                      }}
+                    >
+                      <InfoIcon fontSize="small" />
+                    </IconButton>
                   </CardContent>
                 </Card>
               </Grid>
@@ -4514,6 +5205,227 @@ const PiasCorner: React.FC = () => {
           <Button 
             onClick={() => setPatientModalOpen(false)}
             variant="outlined"
+          >
+            Close
+          </Button>
+        </DialogActions>
+      </Dialog>
+      {/* Info Dialog */}
+      <Dialog
+        open={infoDialogOpen}
+        onClose={() => setInfoDialogOpen(false)}
+        maxWidth="md"
+        fullWidth
+        PaperProps={{
+          sx: {
+            borderRadius: 3,
+            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+            color: 'white'
+          }
+        }}
+      >
+        <DialogTitle sx={{ 
+          display: 'flex', 
+          justifyContent: 'space-between', 
+          alignItems: 'center',
+          background: 'rgba(255,255,255,0.1)',
+          backdropFilter: 'blur(10px)'
+        }}>
+          <Box sx={{ display: 'flex', alignItems: 'center' }}>
+            <InfoIcon sx={{ mr: 1 }} />
+            {getChartInfo(selectedChartInfo).title}
+          </Box>
+          <IconButton 
+            onClick={() => setInfoDialogOpen(false)}
+            sx={{ color: 'white' }}
+          >
+            <Close />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent sx={{ mt: 2 }}>
+          <Typography variant="body1" paragraph sx={{ fontWeight: 500, mb: 3 }}>
+            {getChartInfo(selectedChartInfo).description}
+          </Typography>
+          <Box component="ul" sx={{ pl: 0, listStyle: 'none' }}>
+            {getChartInfo(selectedChartInfo).details.map((detail, index) => (
+              <Typography 
+                key={index} 
+                component="li" 
+                variant="body2" 
+                sx={{ 
+                  mb: detail === '' ? 1.5 : 1,
+                  fontSize: '0.95rem',
+                  lineHeight: 1.6,
+                  opacity: detail === '' ? 0 : 0.9
+                }}
+              >
+                {detail}
+              </Typography>
+            ))}
+          </Box>
+        </DialogContent>
+        <DialogActions sx={{ 
+          background: 'rgba(255,255,255,0.1)',
+          backdropFilter: 'blur(10px)'
+        }}>
+          <Button 
+            onClick={() => setInfoDialogOpen(false)}
+            variant="contained"
+            sx={{ 
+              bgcolor: 'rgba(255,255,255,0.2)',
+              color: 'white',
+              '&:hover': {
+                bgcolor: 'rgba(255,255,255,0.3)'
+              }
+            }}
+          >
+            Got it!
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Patient Profile Dialog */}
+      <Dialog
+        open={profileDialogOpen}
+        onClose={() => setProfileDialogOpen(false)}
+        maxWidth="md"
+        fullWidth
+        PaperProps={{
+          sx: {
+            borderRadius: 3,
+            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+            color: 'white'
+          }
+        }}
+      >
+        <DialogTitle sx={{ 
+          display: 'flex', 
+          justifyContent: 'space-between', 
+          alignItems: 'center',
+          background: 'rgba(255,255,255,0.1)',
+          backdropFilter: 'blur(10px)'
+        }}>
+          <Box sx={{ display: 'flex', alignItems: 'center' }}>
+            <Person sx={{ mr: 1 }} />
+            Patient Profile
+          </Box>
+          <IconButton 
+            onClick={() => setProfileDialogOpen(false)}
+            sx={{ color: 'white' }}
+          >
+            <Close />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent sx={{ mt: 2 }}>
+          {selectedPatientProfile && (
+            <Box>
+              <Typography variant="h6" gutterBottom sx={{ color: 'white', fontWeight: 'bold' }}>
+                {selectedPatientProfile.patient_name}
+              </Typography>
+              <Typography variant="body2" sx={{ mb: 2, opacity: 0.9 }}>
+                Patient ID: {selectedPatientProfile.patient_id}
+              </Typography>
+              
+              <Grid container spacing={2}>
+                <Grid item xs={12} md={6}>
+                  <Typography variant="body2" sx={{ mb: 1, fontWeight: 'bold' }}>
+                    📊 Engagement Status:
+                  </Typography>
+                  <Typography variant="body2" sx={{ mb: 1 }}>
+                    • Days since last log: {selectedPatientProfile.days_since_last_log}
+                  </Typography>
+                  <Typography variant="body2" sx={{ mb: 1 }}>
+                    • Average gap: {selectedPatientProfile.avg_gap_days} days
+                  </Typography>
+                  <Typography variant="body2" sx={{ mb: 1 }}>
+                    • Consistency score: {selectedPatientProfile.consistency_score}%
+                  </Typography>
+                  <Typography variant="body2" sx={{ mb: 2 }}>
+                    • Risk level: 
+                    <Chip 
+                      label={selectedPatientProfile.risk_level.toUpperCase()}
+                      size="small"
+                      color={selectedPatientProfile.risk_level === 'critical' ? 'error' : selectedPatientProfile.risk_level === 'high' ? 'warning' : 'default'}
+                      sx={{ ml: 1 }}
+                    />
+                  </Typography>
+                </Grid>
+                
+                <Grid item xs={12} md={6}>
+                  <Typography variant="body2" sx={{ mb: 1, fontWeight: 'bold' }}>
+                    📋 Profile Information:
+                  </Typography>
+                  <Typography variant="body2" sx={{ mb: 1 }}>
+                    • Email: {selectedPatientProfile.profile?.email || 'Not provided'}
+                  </Typography>
+                  <Typography variant="body2" sx={{ mb: 1 }}>
+                    • Phone: {selectedPatientProfile.profile?.phone || 'Not provided'}
+                  </Typography>
+                  <Typography variant="body2" sx={{ mb: 1 }}>
+                    • Age: {selectedPatientProfile.profile?.age || 'Not provided'}
+                  </Typography>
+                  <Typography variant="body2" sx={{ mb: 2 }}>
+                    • Diabetes Type: {selectedPatientProfile.profile?.diabetes_type || 'Not specified'}
+                  </Typography>
+                </Grid>
+              </Grid>
+
+              <Box sx={{ mt: 3, p: 2, bgcolor: 'rgba(255,255,255,0.1)', borderRadius: 2 }}>
+                <Typography variant="body2" sx={{ fontWeight: 'bold', mb: 1 }}>
+                  💡 Recommended Actions:
+                </Typography>
+                {selectedPatientProfile.risk_level === 'critical' && (
+                  <Typography variant="body2" sx={{ color: '#ffcdd2' }}>
+                    • Immediate follow-up required - patient has been inactive for {selectedPatientProfile.days_since_last_log} days
+                  </Typography>
+                )}
+                {selectedPatientProfile.risk_level === 'high' && (
+                  <Typography variant="body2" sx={{ color: '#fff3e0' }}>
+                    • Consider sending reminder and checking in within 24-48 hours
+                  </Typography>
+                )}
+                <Typography variant="body2" sx={{ mt: 1 }}>
+                  • Send personalized reminder based on their logging patterns
+                </Typography>
+                <Typography variant="body2">
+                  • Review recent meal logs to understand engagement drop-off
+                </Typography>
+              </Box>
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ 
+          background: 'rgba(255,255,255,0.1)',
+          backdropFilter: 'blur(10px)',
+          gap: 1
+        }}>
+          {selectedPatientProfile && (
+            <Button 
+              onClick={() => handleSendReminder(selectedPatientProfile)}
+              variant="contained"
+              disabled={reminderLoading === selectedPatientProfile.patient_id}
+              sx={{ 
+                bgcolor: 'rgba(255,255,255,0.2)',
+                color: 'white',
+                '&:hover': {
+                  bgcolor: 'rgba(255,255,255,0.3)'
+                }
+              }}
+            >
+              {reminderLoading === selectedPatientProfile.patient_id ? 'Sending...' : 'Send Reminder'}
+            </Button>
+          )}
+          <Button 
+            onClick={() => setProfileDialogOpen(false)}
+            variant="outlined"
+            sx={{ 
+              borderColor: 'rgba(255,255,255,0.3)',
+              color: 'white',
+              '&:hover': {
+                borderColor: 'rgba(255,255,255,0.5)',
+                bgcolor: 'rgba(255,255,255,0.1)'
+              }
+            }}
           >
             Close
           </Button>

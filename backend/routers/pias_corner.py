@@ -26,6 +26,8 @@ import random
 
 router = APIRouter()
 
+
+
 def generate_realistic_trend(baseline_value, patient_id, nutrient_type):
     """Generate realistic nutrient trend data over 8 weeks for a specific patient"""
     
@@ -403,6 +405,7 @@ async def get_analytics_overview(
                 # Get all patients
                 all_patients = await get_all_patients()
                 total_patients = len(all_patients)
+                print(f"[COHORT_DEBUG] Retrieved {total_patients} patients from database")
                 
                 if total_patients == 0:
                     # Return empty cohort data if no patients
@@ -432,18 +435,35 @@ async def get_analytics_overview(
                 month_start = current_date.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
                 
                 # Process each patient
-                for patient in all_patients:
+                print(f"[DEMOGRAPHICS_DEBUG] Processing {len(all_patients)} patients for demographics")
+                print(f"[DEMOGRAPHICS_DEBUG] Sample patient keys: {list(all_patients[0].keys()) if all_patients else 'No patients'}")
+                for i, patient in enumerate(all_patients):
                     # Count demographics first (always count all patients)
-                    condition = patient.get("condition", "Unknown").lower()
-                    if "type 1" in condition or "type1" in condition:
+                    condition = patient.get("condition", "Unknown")
+                    condition_lower = condition.lower()
+                    patient_name = patient.get("name", "No name")
+                    
+                    # Debug: Print first 5 patients' conditions
+                    if i < 5:
+                        print(f"[DEMOGRAPHICS_DEBUG] Patient {i+1}: Name='{patient_name}', Condition='{condition}' (lower: '{condition_lower}')")
+                    
+                    if "type 1" in condition_lower or "type1" in condition_lower or condition_lower == "type 1 diabetes":
                         condition_counts["type_1_diabetes"] += 1
-                    elif "type 2" in condition or "type2" in condition:
+                        if i < 5: print(f"[DEMOGRAPHICS_DEBUG] → Counted as Type 1")
+                    elif "type 2" in condition_lower or "type2" in condition_lower or condition_lower == "type 2 diabetes":
                         condition_counts["type_2_diabetes"] += 1
-                    elif "prediabetes" in condition or "pre-diabetes" in condition:
+                        if i < 5: print(f"[DEMOGRAPHICS_DEBUG] → Counted as Type 2")
+                    elif "prediabetes" in condition_lower or "pre-diabetes" in condition_lower or "pre diabetes" in condition_lower:
                         condition_counts["prediabetes"] += 1
+                        if i < 5: print(f"[DEMOGRAPHICS_DEBUG] → Counted as Prediabetes")
                     else:
                         condition_counts["type_2_diabetes"] += 1  # Default assumption
-                    
+                        if i < 5: print(f"[DEMOGRAPHICS_DEBUG] → Defaulted to Type 2 (no match)")
+                
+                print(f"[DEMOGRAPHICS_DEBUG] Final counts: Type 1: {condition_counts['type_1_diabetes']}, Type 2: {condition_counts['type_2_diabetes']}, Prediabetes: {condition_counts['prediabetes']}")
+                
+                # Now process patients for activity data
+                for patient in all_patients:
                     # Find the user account for this patient to get email for consumption data
                     patient_email = None
                     patient_registration_code = patient.get("registration_code") or patient.get("id")
@@ -1936,12 +1956,23 @@ async def get_engagement_metrics(
             def calc_conversion_rate(current, previous):
                 return round((current / previous) * 100) if previous > 0 else 0
             
+            # Fix data consistency: Use the same user counting method as overview
+            try:
+                # Get all patients using the same method as overview for consistency
+                consistent_patients = await get_all_patients()
+                consistent_total_users = len(consistent_patients)
+                print(f"[ENGAGEMENT_METRICS] Using consistent patient count: {consistent_total_users} (was {total_users})")
+            except:
+                # Fallback to original method if get_all_patients fails
+                consistent_total_users = total_users
+                print(f"[ENGAGEMENT_METRICS] Fallback to original count: {total_users}")
+            
             funnel_stages = [
-                {"name": "Registration", "count": total_users, "percentage": 100, "conversion_rate": None},
-                {"name": "First Login", "count": first_login_users, "percentage": calc_conversion_rate(first_login_users, total_users), "conversion_rate": calc_conversion_rate(first_login_users, total_users)},
-                {"name": "Daily Logging", "count": daily_logging_users, "percentage": calc_conversion_rate(daily_logging_users, total_users), "conversion_rate": calc_conversion_rate(daily_logging_users, first_login_users)},
-                {"name": "Trend Reporting", "count": trend_reporting_users, "percentage": calc_conversion_rate(trend_reporting_users, total_users), "conversion_rate": calc_conversion_rate(trend_reporting_users, daily_logging_users)},
-                {"name": "Long-term Engagement", "count": long_term_users, "percentage": calc_conversion_rate(long_term_users, total_users), "conversion_rate": calc_conversion_rate(long_term_users, trend_reporting_users)}
+                {"name": "Registration", "count": consistent_total_users, "percentage": 100, "conversion_rate": None},
+                {"name": "First Login", "count": first_login_users, "percentage": calc_conversion_rate(first_login_users, consistent_total_users), "conversion_rate": calc_conversion_rate(first_login_users, consistent_total_users)},
+                {"name": "Daily Logging", "count": daily_logging_users, "percentage": calc_conversion_rate(daily_logging_users, consistent_total_users), "conversion_rate": calc_conversion_rate(daily_logging_users, first_login_users)},
+                {"name": "Trend Reporting", "count": trend_reporting_users, "percentage": calc_conversion_rate(trend_reporting_users, consistent_total_users), "conversion_rate": calc_conversion_rate(trend_reporting_users, daily_logging_users)},
+                {"name": "Long-term Engagement", "count": long_term_users, "percentage": calc_conversion_rate(long_term_users, consistent_total_users), "conversion_rate": calc_conversion_rate(long_term_users, trend_reporting_users)}
             ]
             
             # Identify bottlenecks (stages with conversion rate < 70%)

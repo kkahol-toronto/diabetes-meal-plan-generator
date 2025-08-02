@@ -127,11 +127,33 @@ async def save_consumption_record_with_cache_invalidation(
     except Exception as e:
         print(f"[database_service] Could not get user timezone: {e}")
     
+    print(f"[database_service] Saving consumption record for {user_email}")
+    
     # Save to database
     result = await db_save_consumption_record(user_email, consumption_data, meal_type, user_timezone)
     
-    # Invalidate consumption cache for this user (but keep other caches)
+    print(f"[database_service] Successfully saved record {result['id']}")
+    
+    # Invalidate consumption cache for this user (including related caches)
+    print(f"[database_service] Invalidating all related caches for {user_email}")
     invalidate_consumption_cache(user_email)
+    
+    # Also invalidate other related caches that might contain stale consumption data
+    from services.cache_service import user_profile_cache, meal_plan_cache
+    
+    # Clear profile cache (in case it contains cached consumption progress)
+    user_profile_cache.delete(f"profile:{user_email}")
+    
+    # Clear meal plan cache (in case it contains consumption-based meal plans)
+    meal_plan_keys_to_delete = []
+    for key in meal_plan_cache.cache.keys():
+        if key.startswith(f"meal_plans:{user_email}:"):
+            meal_plan_keys_to_delete.append(key)
+    
+    for key in meal_plan_keys_to_delete:
+        meal_plan_cache.delete(key)
+    
+    print(f"[database_service] Cache invalidation completed for {user_email}")
     
     return result
 

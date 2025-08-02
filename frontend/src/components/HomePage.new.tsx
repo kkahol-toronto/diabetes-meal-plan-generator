@@ -111,6 +111,43 @@ const HomePage: React.FC = () => {
     }
   };
 
+  const fetchAllDataWithForceRefresh = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        throw new Error('Authentication token not found. Please log in.');
+      }
+
+      // Force refresh with cache bypass for immediate update after food logging
+      const insightsResponse = await fetch(`${config.API_URL}/coach/daily-insights?force_refresh=true`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (!insightsResponse.ok) {
+        if (insightsResponse.status === 401) throw new Error('Unauthorized. Please log in again.');
+        const errorText = await insightsResponse.text();
+        console.error("Backend Error:", errorText);
+        throw new Error('Failed to fetch daily insights from the server.');
+      }
+        
+      const insightsData = await insightsResponse.json();
+      setDailyInsights(insightsData);
+
+      console.log('✅ Data refreshed successfully after food logging');
+
+    } catch (err) {
+      if (err instanceof Error && err.message.includes('Failed to fetch')) {
+        setError("Could not connect to the backend. Please check your internet connection.");
+      } else {
+        setError(err instanceof Error ? err.message : 'An unknown error occurred');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
     fetchAllData();
   }, []);
@@ -140,7 +177,9 @@ const HomePage: React.FC = () => {
       
       setQuickLogFood('');
       setShowQuickLogDialog(false);
-      await fetchAllData();
+      
+      // Force refresh data with cache bypass to ensure immediate update
+      await fetchAllDataWithForceRefresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to log food');
     }

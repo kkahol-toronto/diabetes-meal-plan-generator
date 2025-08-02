@@ -17,14 +17,22 @@ router = APIRouter()
 @router.get("/consumption/history")
 async def get_consumption_history(
     limit: int = 50,
+    force_refresh: bool = False,
     current_user: User = Depends(get_current_user)
 ):
-    """Get consumption history - FIXED USER ID CONSISTENCY"""
+    """Get consumption history - FIXED USER ID CONSISTENCY with cache bypass option"""
     try:
         print(f"[get_consumption_history] *** CRITICAL DEBUG *** Getting history for user {current_user['email']}")
+        print(f"[get_consumption_history] *** CRITICAL DEBUG *** Force refresh: {force_refresh}")
         print(f"[get_consumption_history] *** CRITICAL DEBUG *** current_user keys: {list(current_user.keys())}")
         print(f"[get_consumption_history] *** CRITICAL DEBUG *** current_user['email']: {current_user.get('email')}")
         print(f"[get_consumption_history] *** CRITICAL DEBUG *** current_user['id']: {current_user.get('id')}")
+        
+        # If force_refresh is requested, clear cache first
+        if force_refresh:
+            print(f"[get_consumption_history] Force refresh requested - clearing cache for {current_user['email']}")
+            from services.cache_service import invalidate_consumption_cache
+            invalidate_consumption_cache(current_user["email"])
         
         # Use the original database function with EMAIL (consistent with how we save)
         history = await get_user_consumption_history(current_user["email"], limit)

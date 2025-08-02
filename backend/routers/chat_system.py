@@ -21,7 +21,7 @@ from models import User, ChatMessage
 from routers.auth import get_current_user
 from database import (
     get_user_meal_plans, get_user_consumption_history, get_recent_chat_history,
-    format_chat_history_for_prompt, clear_chat_history, get_user_sessions,
+    format_chat_history_for_prompt, format_chat_history_for_prompt_async, clear_chat_history, get_user_sessions,
     save_chat_message, save_consumption_record
 )
 from services.openai_service import robust_openai_call, get_openai_client
@@ -78,7 +78,7 @@ async def send_chat_message(
 ):
     
     # Get chat history for context
-    chat_history = await format_chat_history_for_prompt(
+    chat_history = await format_chat_history_for_prompt_async(
         current_user["id"],
         message.session_id
     )

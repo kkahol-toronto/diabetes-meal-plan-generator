@@ -9,6 +9,10 @@ from fastapi.responses import JSONResponse
 from typing import Dict, Any, List
 from datetime import datetime, timedelta
 
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+
 from models import User
 from routers.auth import get_current_user
 from database import (

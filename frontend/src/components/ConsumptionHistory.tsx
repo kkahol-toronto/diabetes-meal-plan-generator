@@ -509,8 +509,8 @@ const ConsumptionHistory: React.FC = () => {
 
       // Load raw data (we'll filter client-side for timezone accuracy)
       const [historyResponse, insightsResponse, mealAnalyticsResponse] = await Promise.all([
-        fetch(`${config.API_URL}/consumption/history?limit=${fetchLimit}`, { headers }),
-        fetch(`${config.API_URL}/coach/daily-insights`, { headers }),
+        fetch(`${config.API_URL}/consumption/history?limit=${fetchLimit}&force_refresh=false`, { headers }),
+        fetch(`${config.API_URL}/coach/daily-insights?force_refresh=false`, { headers }),
         fetch(`${config.API_URL}/consumption/meal-analytics?days=${selectedDays}`, { headers })
       ]);
 

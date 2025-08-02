@@ -353,3 +353,193 @@ async def get_patient_engagement(current_user: User = Depends(get_current_user))
     except Exception as e:
         print(f"[PATIENT_ENGAGEMENT] Error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to get patient engagement: {str(e)}")
+
+@router.post("/admin/send-reminder")
+async def send_reminder(
+    reminder_data: Dict[str, Any],
+    current_user: User = Depends(get_current_user)
+):
+    """Send a reminder notification to a patient"""
+    if not current_user.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    try:
+        # Create notification record
+        notification = {
+            "id": f"reminder_{reminder_data['patient_id']}_{int(datetime.now().timestamp())}",
+            "type": "notification",
+            "notification_type": "reminder",
+            "patient_id": reminder_data["patient_id"],
+            "patient_name": reminder_data["patient_name"],
+            "message": reminder_data["message"],
+            "priority": reminder_data.get("priority", "medium"),
+            "created_at": datetime.now().isoformat(),
+            "expires_at": reminder_data.get("expires_at", (datetime.now() + timedelta(days=14)).isoformat()),
+            "read": False,
+            "sent_by": current_user.get("email", "admin"),
+            "created_by": "admin_system"
+        }
+        
+        # Store notification in database
+        interactions_container.create_item(body=notification)
+        
+        print(f"[REMINDER_SENT] Notification sent to patient {reminder_data['patient_id']}: {reminder_data['message']}")
+        
+        return JSONResponse(content={
+            "status": "success",
+            "message": f"Reminder sent successfully to {reminder_data['patient_name']}",
+            "notification_id": notification["id"]
+        })
+        
+    except Exception as e:
+        print(f"[REMINDER_ERROR] Failed to send reminder: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to send reminder: {str(e)}")
+
+@router.get("/admin/patient-profile/{patient_id}")
+async def get_patient_profile_by_id(
+    patient_id: str,
+    current_user: User = Depends(get_current_user)
+):
+    """Get detailed patient profile information"""
+    # URL decode the patient_id in case it contains encoded characters like %40 for @
+    import urllib.parse
+    decoded_patient_id = urllib.parse.unquote(patient_id)
+    
+    print(f"[PATIENT_PROFILE] Request for patient_id: {patient_id}")
+    print(f"[PATIENT_PROFILE] Decoded patient_id: {decoded_patient_id}")
+    print(f"[PATIENT_PROFILE] Current user: {current_user.get('email', 'Unknown')}")
+    
+    if not current_user.get("is_admin"):
+        print(f"[PATIENT_PROFILE] Access denied - user is not admin")
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    try:
+        # Debug: Let's see what users actually exist in the database
+        all_users_query = "SELECT c.id, c.email, c.profile FROM c WHERE c.type = 'user'"
+        all_users = list(user_container.query_items(query=all_users_query, enable_cross_partition_query=True))
+        print(f"[PATIENT_PROFILE] Total users in database: {len(all_users)}")
+        print(f"[PATIENT_PROFILE] Sample user IDs: {[user.get('id', 'No ID')[:50] for user in all_users[:5]]}")
+        
+        # Get patient from users collection using the decoded ID
+        user_query = f"SELECT * FROM c WHERE c.type = 'user' AND c.id = '{decoded_patient_id}'"
+        print(f"[PATIENT_PROFILE] Executing query: {user_query}")
+        
+        users = list(user_container.query_items(query=user_query, enable_cross_partition_query=True))
+        print(f"[PATIENT_PROFILE] Found {len(users)} users with decoded ID")
+        
+        if not users:
+            print(f"[PATIENT_PROFILE] No user found with id: {decoded_patient_id}")
+            
+            # Try with email field instead of id
+            email_query = f"SELECT * FROM c WHERE c.type = 'user' AND c.email = '{decoded_patient_id}'"
+            print(f"[PATIENT_PROFILE] Trying with email field: {email_query}")
+            users = list(user_container.query_items(query=email_query, enable_cross_partition_query=True))
+            print(f"[PATIENT_PROFILE] Found {len(users)} users with email field")
+            
+            if not users:
+                # Also try with the original encoded ID in case that's how it's stored
+                user_query_encoded = f"SELECT * FROM c WHERE c.type = 'user' AND c.id = '{patient_id}'"
+                print(f"[PATIENT_PROFILE] Trying with encoded ID: {user_query_encoded}")
+                users = list(user_container.query_items(query=user_query_encoded, enable_cross_partition_query=True))
+                print(f"[PATIENT_PROFILE] Found {len(users)} users with encoded ID")
+                
+                if not users:
+                    # Try partial matching to see if there's a similar ID
+                    partial_query = f"SELECT * FROM c WHERE c.type = 'user' AND CONTAINS(c.id, 'anka')"
+                    partial_users = list(user_container.query_items(query=partial_query, enable_cross_partition_query=True))
+                    print(f"[PATIENT_PROFILE] Found {len(partial_users)} users with partial match 'anka'")
+                    if partial_users:
+                        print(f"[PATIENT_PROFILE] Similar user IDs: {[user.get('id', 'No ID') for user in partial_users[:3]]}")
+                    
+                    raise HTTPException(status_code=404, detail=f"Patient not found. Searched for: {decoded_patient_id}, {patient_id}. Total users in DB: {len(all_users)}")
+        
+        user = users[0]
+        print(f"[PATIENT_PROFILE] User found: {user.get('email', 'No email')}")
+        
+        # Use the decoded patient_id for all subsequent operations
+        effective_patient_id = decoded_patient_id
+        
+        # Get additional engagement data using the effective patient ID
+        consumption_query = f"SELECT * FROM c WHERE c.type = 'consumption_record' AND c.user_id = '{effective_patient_id}' ORDER BY c.timestamp DESC"
+        print(f"[PATIENT_PROFILE] Consumption query: {consumption_query}")
+        consumption_records = list(interactions_container.query_items(query=consumption_query, enable_cross_partition_query=True))
+        print(f"[PATIENT_PROFILE] Found {len(consumption_records)} consumption records")
+        
+        # Calculate engagement metrics
+        total_logs = len(consumption_records)
+        last_log_date = None
+        if consumption_records:
+            try:
+                last_log_date = datetime.fromisoformat(consumption_records[0].get("timestamp", "").replace('Z', '+00:00'))
+            except:
+                pass
+        
+        days_since_last = (datetime.now() - last_log_date).days if last_log_date else 999
+        
+        profile_data = {
+            "patient_id": effective_patient_id,
+            "patient_name": user.get("profile", {}).get("name", "Unknown"),
+            "email": user.get("email", ""),
+            "profile": {
+                "email": user.get("email", ""),
+                "phone": user.get("profile", {}).get("phone", ""),
+                "age": user.get("profile", {}).get("age", ""),
+                "diabetes_type": user.get("profile", {}).get("diabetes_type", ""),
+                "created_at": user.get("created_at", ""),
+                "last_login": user.get("last_login", ""),
+            },
+            "engagement": {
+                "total_logs": total_logs,
+                "days_since_last_log": days_since_last,
+                "last_log_date": last_log_date.isoformat() if last_log_date else None,
+                "registration_date": user.get("created_at", "")
+            }
+        }
+        
+        return JSONResponse(content=profile_data)
+        
+    except HTTPException as e:
+        print(f"[PATIENT_PROFILE] HTTP Exception: {e.detail}")
+        raise
+    except Exception as e:
+        print(f"[PATIENT_PROFILE] Unexpected error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Failed to get patient profile: {str(e)}")
+
+@router.post("/admin/mark-contacted")
+async def mark_patient_contacted(
+    contact_data: Dict[str, Any],
+    current_user: User = Depends(get_current_user)
+):
+    """Mark a patient as contacted by admin"""
+    if not current_user.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    try:
+        # Create contact record
+        contact_record = {
+            "id": f"contact_{contact_data['patient_id']}_{int(datetime.now().timestamp())}",
+            "type": "admin_contact",
+            "patient_id": contact_data["patient_id"],
+            "contacted_at": contact_data.get("contacted_at", datetime.now().isoformat()),
+            "contacted_by": contact_data.get("contacted_by", current_user.get("email", "admin")),
+            "contact_method": "admin_action",
+            "notes": contact_data.get("notes", "Patient marked as contacted via admin panel"),
+            "created_at": datetime.now().isoformat()
+        }
+        
+        # Store contact record in database
+        interactions_container.create_item(body=contact_record)
+        
+        print(f"[CONTACT_MARKED] Patient {contact_data['patient_id']} marked as contacted by {contact_record['contacted_by']}")
+        
+        return JSONResponse(content={
+            "status": "success", 
+            "message": "Patient marked as contacted successfully",
+            "contact_record_id": contact_record["id"]
+        })
+        
+    except Exception as e:
+        print(f"[CONTACT_ERROR] Failed to mark patient as contacted: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to mark as contacted: {str(e)}")

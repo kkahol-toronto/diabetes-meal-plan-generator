@@ -27,6 +27,20 @@ from jose import JWTError, jwt
 router = APIRouter()
 
 
+async def authenticate_user(email: str, password: str):
+    """Authenticate a user with email and password"""
+    try:
+        user = await get_user_by_email(email)
+        if not user:
+            return False
+        if not verify_password(password, user["hashed_password"]):
+            return False
+        return user
+    except Exception as e:
+        print(f"Authentication error: {e}")
+        return False
+
+
 async def get_current_user(token: str = Depends(oauth2_scheme)):
     print("get_current_user called")
     credentials_exception = HTTPException(
