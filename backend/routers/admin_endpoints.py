@@ -490,12 +490,55 @@ async def get_nutrient_adequacy_analysis(
             print(f"[NUTRIENT_ADEQUACY] Inactive user emails: {list(inactive_users)}")
         
         if active_users_count == 0:
+            # Create all registered patients list even when no active users
+            all_registered_patients = []
+            for patient in admin_patients:
+                patient_email = None
+                patient_name = patient.get("name", "").strip()
+                registration_code = patient.get("registration_code")
+                
+                # Find the email for this patient by matching registration code
+                for user in all_users:
+                    if user.get("registration_code") == registration_code:
+                        patient_email = user.get("email")
+                        break
+                
+                if patient_name and patient_email:
+                    all_registered_patients.append({
+                        "user_id": patient_email,
+                        "user_name": patient_name,
+                        "registration_code": registration_code,
+                        "phone": patient.get("phone", ""),
+                        "condition": patient.get("condition", ""),
+                        "is_active": False  # No active users in this case
+                    })
+            
+            # Add any users not in admin panel but registered in system
+            for user in all_users:
+                user_email = user.get("email")
+                user_reg_code = user.get("registration_code")
+                
+                # Check if this user is already in our admin panel list
+                already_added = any(p["user_id"] == user_email for p in all_registered_patients)
+                
+                if not already_added and user_email:
+                    all_registered_patients.append({
+                        "user_id": user_email,
+                        "user_name": email_to_name.get(user_email, user_email),
+                        "registration_code": user_reg_code or "N/A",
+                        "phone": "N/A",
+                        "condition": "N/A",
+                        "is_active": False  # No active users in this case
+                    })
+            
             return {
                 "cohort_size": active_users_count,
                 "total_registered_patients": total_registered_patients,
                 "total_registered_users": total_users_count,
                 "inactive_patients_count": len(inactive_users),
                 "inactive_patients": [{"user_id": email, "user_name": email_to_name.get(email, email)} for email in inactive_users],
+                "active_patients": [],
+                "all_registered_patients": all_registered_patients,
                 "analysis_period": {
                     "days": days,
                     "start_date": start_date.strftime("%Y-%m-%d"),
@@ -683,12 +726,58 @@ async def get_nutrient_adequacy_analysis(
         # Sort by percentage (most prevalent first)
         deficiency_rankings.sort(key=lambda x: x["percentage"], reverse=True)
         
+        # Create active patients list
+        active_patients = [{"user_id": email, "user_name": email_to_name.get(email, email)} for email in users_with_consumption]
+        
+        # Create all registered patients list (from admin panel)
+        all_registered_patients = []
+        for patient in admin_patients:
+            patient_email = None
+            patient_name = patient.get("name", "").strip()
+            registration_code = patient.get("registration_code")
+            
+            # Find the email for this patient by matching registration code
+            for user in all_users:
+                if user.get("registration_code") == registration_code:
+                    patient_email = user.get("email")
+                    break
+            
+            if patient_name and patient_email:
+                all_registered_patients.append({
+                    "user_id": patient_email,
+                    "user_name": patient_name,
+                    "registration_code": registration_code,
+                    "phone": patient.get("phone", ""),
+                    "condition": patient.get("condition", ""),
+                    "is_active": patient_email in users_with_consumption
+                })
+        
+        # Add any users not in admin panel but registered in system
+        for user in all_users:
+            user_email = user.get("email")
+            user_reg_code = user.get("registration_code")
+            
+            # Check if this user is already in our admin panel list
+            already_added = any(p["user_id"] == user_email for p in all_registered_patients)
+            
+            if not already_added and user_email:
+                all_registered_patients.append({
+                    "user_id": user_email,
+                    "user_name": email_to_name.get(user_email, user_email),
+                    "registration_code": user_reg_code or "N/A",
+                    "phone": "N/A",
+                    "condition": "N/A",
+                    "is_active": user_email in users_with_consumption
+                })
+        
         return {
             "cohort_size": active_users_count,
             "total_registered_patients": total_registered_patients,
             "total_registered_users": total_users_count,
             "inactive_patients_count": len(inactive_users),
             "inactive_patients": [{"user_id": email, "user_name": email_to_name.get(email, email)} for email in inactive_users],
+            "active_patients": active_patients,
+            "all_registered_patients": all_registered_patients,
             "analysis_period": {
                 "days": days,
                 "start_date": start_date.strftime("%Y-%m-%d"),
@@ -880,7 +969,7 @@ async def get_engagement_metrics(
                 if days_since_last_log >= INACTIVE_DAYS_CRITICAL:
                     engagement_level = "critical"
                 elif days_since_last_log >= MISSED_DAYS_WARNING:
-                    engagement_level = "warning"
+                    engagement_level = "fair"  # Changed from "warning" to "fair"
                 elif avg_logs_per_day >= REGULAR_LOGGING_THRESHOLD / 7:  # Convert weekly to daily
                     engagement_level = "excellent"
                 elif avg_logs_per_day >= (REGULAR_LOGGING_THRESHOLD / 7) * 0.5:
@@ -917,7 +1006,7 @@ async def get_engagement_metrics(
                 })
         
         # Sort by engagement level (worst first for doctor attention)
-        engagement_priority = {"inactive": 0, "critical": 1, "warning": 2, "poor": 3, "good": 4, "excellent": 5}
+        engagement_priority = {"inactive": 0, "critical": 1, "fair": 2, "poor": 3, "good": 4, "excellent": 5}  # Changed "warning" to "fair"
         user_engagement_analysis.sort(key=lambda x: engagement_priority.get(x["engagement_level"], 0))
         
         # Calculate weekly patterns
@@ -931,8 +1020,8 @@ async def get_engagement_metrics(
         engagement_summary = {
             "excellent": len([u for u in user_engagement_analysis if u["engagement_level"] == "excellent"]),
             "good": len([u for u in user_engagement_analysis if u["engagement_level"] == "good"]),
+            "fair": len([u for u in user_engagement_analysis if u["engagement_level"] == "fair"]),  # Changed from "warning"
             "poor": len([u for u in user_engagement_analysis if u["engagement_level"] == "poor"]),
-            "warning": len([u for u in user_engagement_analysis if u["engagement_level"] == "warning"]),
             "critical": len([u for u in user_engagement_analysis if u["engagement_level"] == "critical"]),
             "inactive": len([u for u in user_engagement_analysis if u["engagement_level"] == "inactive"])
         }
@@ -957,12 +1046,12 @@ async def get_engagement_metrics(
             "user_engagement_details": user_engagement_analysis,
             "alerts": {
                 "critical_users": [{"user_id": u["user_id"], "user_name": u["user_name"]} for u in user_engagement_analysis if u["engagement_level"] == "critical"],
-                "warning_users": [{"user_id": u["user_id"], "user_name": u["user_name"]} for u in user_engagement_analysis if u["engagement_level"] == "warning"],
+                "fair_users": [{"user_id": u["user_id"], "user_name": u["user_name"]} for u in user_engagement_analysis if u["engagement_level"] == "fair"],  # Changed from "warning_users"
                 "inactive_users": [{"user_id": u["user_id"], "user_name": u["user_name"]} for u in user_engagement_analysis if u["engagement_level"] == "inactive"]
             },
             "recommendations": {
                 "immediate_followup": engagement_summary["critical"] + engagement_summary["inactive"],
-                "needs_encouragement": engagement_summary["warning"] + engagement_summary["poor"],
+                "needs_encouragement": engagement_summary["fair"] + engagement_summary["poor"],  # Changed from "warning"
                 "performing_well": engagement_summary["good"] + engagement_summary["excellent"]
             },
             "generated_at": datetime.utcnow().isoformat()

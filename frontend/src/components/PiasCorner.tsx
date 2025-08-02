@@ -33,7 +33,11 @@ import {
   InputAdornment,
   Tabs,
   Tab,
-  Badge
+  Badge,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions
 } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
@@ -87,6 +91,15 @@ interface PatientInfo {
   user_name: string;
 }
 
+interface DetailedPatientInfo {
+  user_id: string;
+  user_name: string;
+  registration_code: string;
+  phone: string;
+  condition: string;
+  is_active: boolean;
+}
+
 interface AnalysisPeriod {
   days: number;
   total_records_analyzed: number;
@@ -95,13 +108,15 @@ interface AnalysisPeriod {
 }
 
 interface CohortAverages {
-  calories: number;
-  protein: number;
-  carbohydrates: number;
-  fat: number;
-  fiber: number;
-  sodium: number;
-  sugar: number;
+  daily_averages: {
+    calories: number;
+    protein: number;
+    carbohydrates: number;
+    fat: number;
+    fiber: number;
+    sodium: number;
+    sugar: number;
+  };
   vs_rda: {
     protein_deficit: number;
     fiber_deficit: number;
@@ -115,7 +130,14 @@ interface DeficiencyAnalysis {
     percentage: number;
     severity: string;
     affected_patients: number;
+    recommendation?: string;
   }>;
+  summary: {
+    patients_with_fiber_deficiency: number;
+    patients_with_excess_sodium: number;
+    patients_with_excess_sugar: number;
+    patients_with_low_protein: number;
+  };
 }
 
 interface Recommendations {
@@ -129,12 +151,25 @@ interface NutrientAdequacyData {
   total_registered_users: number;
   inactive_patients_count: number;
   inactive_patients: PatientInfo[];
+  active_patients: PatientInfo[];
+  all_registered_patients: DetailedPatientInfo[];
   analysis_period: AnalysisPeriod;
   cohort_averages: CohortAverages;
   rda_compliance: {
-    protein: number;
-    fiber: number;
-    calories: number;
+    [key: string]: {
+      adequate?: {
+        count: number;
+        percentage: number;
+      };
+      low?: {
+        count: number;
+        percentage: number;
+      };
+      high?: {
+        count: number;
+        percentage: number;
+      };
+    };
   };
   deficiency_analysis: DeficiencyAnalysis;
   recommendations: Recommendations;
@@ -145,11 +180,12 @@ interface NutrientAdequacyData {
 interface UserEngagementAnalysis {
   user_id: string;
   user_name: string;
-  logs_count: number;
-  unique_days: number;
-  engagement_score: number;
+  total_logs: number;
+  active_days: number;
+  avg_logs_per_day: number;
+  weekly_logs_avg: number;
   engagement_level: string;
-  last_log_date: string;
+  last_log_date: string | null;
   days_since_last_log: number;
 }
 
@@ -182,7 +218,7 @@ interface EngagementMetricsData {
     end_date: string;
   };
   daily_metrics: DailyMetric[];
-  user_engagement_analysis: UserEngagementAnalysis[];
+  user_engagement_details: UserEngagementAnalysis[];
   engagement_summary: EngagementSummary;
   engagement_trend: EngagementTrend;
 }
@@ -448,6 +484,21 @@ const PiasCorner: React.FC = () => {
   const [analysisPeriod, setAnalysisPeriod] = useState(30);
   const [activeTab, setActiveTab] = useState(0);
   
+  // Patient list modal state
+  const [patientListModal, setPatientListModal] = useState<{
+    open: boolean;
+    title: string;
+    patients: PatientInfo[] | UserEngagementAnalysis[];
+    detailedPatients: DetailedPatientInfo[];
+    type: 'total' | 'active' | 'inactive' | 'records' | 'excellent_engagement' | 'good_engagement' | 'fair_engagement' | 'poor_engagement' | 'critical_engagement' | 'inactive_engagement';
+  }>({
+    open: false,
+    title: '',
+    patients: [],
+    detailedPatients: [],
+    type: 'total'
+  });
+  
   // Table state
   const [searchTerm, setSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState<keyof PatientSummaryProfile>('user_name');
@@ -459,6 +510,31 @@ const PiasCorner: React.FC = () => {
 
   const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
     setActiveTab(newValue);
+  };
+
+  const handleOpenPatientList = (
+    type: 'total' | 'active' | 'inactive' | 'records' | 'excellent_engagement' | 'good_engagement' | 'fair_engagement' | 'poor_engagement' | 'critical_engagement' | 'inactive_engagement',
+    title: string,
+    patients: PatientInfo[] | UserEngagementAnalysis[],
+    detailedPatients?: DetailedPatientInfo[]
+  ) => {
+    setPatientListModal({
+      open: true,
+      title,
+      patients,
+      detailedPatients: detailedPatients || [],
+      type
+    });
+  };
+
+  const handleClosePatientList = () => {
+    setPatientListModal({
+      open: false,
+      title: '',
+      patients: [],
+      detailedPatients: [],
+      type: 'total'
+    });
   };
 
   const fetchNutrientAdequacyData = useCallback(async () => {
@@ -631,21 +707,33 @@ const PiasCorner: React.FC = () => {
 
   // Chart generation functions
   const generatePopulationAveragesChart = () => {
-    if (!data) return null;
+    if (!data || !data.cohort_averages?.daily_averages) {
+      return null;
+    }
 
+    const dailyAverages = data.cohort_averages.daily_averages;
+    
     return {
-      labels: ['Protein', 'Carbs', 'Fat', 'Fiber', 'Sodium', 'Sugar'],
+      labels: ['Protein (g)', 'Carbs (g)', 'Fat (g)', 'Fiber (g)', 'Sodium (g)', 'Sugar (g)'],
       datasets: [{
-        label: 'Daily Average (g/mg)',
+        label: 'Daily Average',
         data: [
-          data.cohort_averages.protein,
-          data.cohort_averages.carbohydrates,
-          data.cohort_averages.fat,
-          data.cohort_averages.fiber,
-          data.cohort_averages.sodium / 1000, // Convert to grams for display
-          data.cohort_averages.sugar
+          dailyAverages.protein || 0,
+          dailyAverages.carbohydrates || 0,
+          dailyAverages.fat || 0,
+          dailyAverages.fiber || 0,
+          (dailyAverages.sodium || 0) / 1000, // Convert mg to grams for display
+          dailyAverages.sugar || 0
         ],
         backgroundColor: [
+          '#FF6384', // Red for Protein
+          '#36A2EB', // Blue for Carbs
+          '#FFCE56', // Yellow for Fat
+          '#4BC0C0', // Teal for Fiber
+          '#9966FF', // Purple for Sodium
+          '#FF9F40'  // Orange for Sugar
+        ],
+        borderColor: [
           '#FF6384',
           '#36A2EB',
           '#FFCE56',
@@ -653,29 +741,53 @@ const PiasCorner: React.FC = () => {
           '#9966FF',
           '#FF9F40'
         ],
-        borderWidth: 1,
+        borderWidth: 2,
       }]
     };
   };
 
   const generateComplianceHeatmapChart = () => {
-    if (!data) return null;
+    if (!data || !data.rda_compliance) {
+      return null;
+    }
+
+    const compliance = data.rda_compliance;
+    const nutrients = Object.keys(compliance);
+    
+    // Extract "adequate" percentage from the nested structure
+    const complianceValues = nutrients.map(nutrient => {
+      const nutrientData = compliance[nutrient];
+      // Get the "adequate" percentage, or 0 if not available
+      return nutrientData?.adequate?.percentage || 0;
+    });
+
+    // Function to get color based on compliance percentage
+    const getComplianceColor = (percentage: number) => {
+      if (percentage >= 80) return '#4CAF50'; // Green - Good
+      if (percentage >= 60) return '#FF9800'; // Orange - Fair  
+      if (percentage >= 40) return '#FF5722'; // Red-Orange - Poor
+      return '#F44336'; // Red - Very Poor
+    };
+
+    // Format nutrient names for display
+    const formatNutrientName = (nutrient: string) => {
+      switch (nutrient) {
+        case 'carbohydrates': return 'Carbs';
+        case 'sodium': return 'Sodium';
+        case 'sugar': return 'Sugar';
+        default: return nutrient.charAt(0).toUpperCase() + nutrient.slice(1);
+      }
+    };
 
     return {
-      labels: ['Protein', 'Fiber', 'Calories'],
+      labels: nutrients.map(nutrient => formatNutrientName(nutrient)),
       datasets: [{
         label: 'RDA Compliance (%)',
-        data: [
-          data.rda_compliance.protein,
-          data.rda_compliance.fiber,
-          data.rda_compliance.calories
-        ],
-        backgroundColor: [
-          data.rda_compliance.protein >= 80 ? '#4CAF50' : data.rda_compliance.protein >= 60 ? '#FF9800' : '#F44336',
-          data.rda_compliance.fiber >= 80 ? '#4CAF50' : data.rda_compliance.fiber >= 60 ? '#FF9800' : '#F44336',
-          data.rda_compliance.calories >= 80 ? '#4CAF50' : data.rda_compliance.calories >= 60 ? '#FF9800' : '#F44336'
-        ],
-        borderWidth: 1,
+        data: complianceValues,
+        backgroundColor: complianceValues.map(value => getComplianceColor(value)),
+        borderColor: complianceValues.map(value => getComplianceColor(value)),
+        borderWidth: 2,
+        maxBarThickness: 60,
       }]
     };
   };
@@ -683,45 +795,87 @@ const PiasCorner: React.FC = () => {
   const generateEngagementFunnelChart = () => {
     if (!engagementData) return null;
 
+    const colors = [
+      '#4CAF50', // Green - Excellent
+      '#2196F3', // Blue - Good
+      '#FF9800', // Orange - Fair
+      '#FF5722', // Red - Poor
+      '#9C27B0', // Purple - Critical
+      '#607D8B'  // Blue-Gray - Inactive
+    ];
+
+    const borderColors = [
+      '#388E3C', // Darker Green - Excellent
+      '#1976D2', // Darker Blue - Good
+      '#F57C00', // Darker Orange - Fair
+      '#D32F2F', // Darker Red - Poor
+      '#7B1FA2', // Darker Purple - Critical
+      '#455A64'  // Darker Blue-Gray - Inactive
+    ];
+
     return {
       labels: ['Excellent', 'Good', 'Fair', 'Poor', 'Critical', 'Inactive'],
       datasets: [{
         label: 'Number of Patients',
         data: [
-          engagementData.engagement_summary.excellent,
-          engagementData.engagement_summary.good,
-          engagementData.engagement_summary.fair,
-          engagementData.engagement_summary.poor,
-          engagementData.engagement_summary.critical,
-          engagementData.engagement_summary.inactive
+          engagementData.engagement_summary.excellent || 0,
+          engagementData.engagement_summary.good || 0,
+          engagementData.engagement_summary.fair || 0,
+          engagementData.engagement_summary.poor || 0,
+          engagementData.engagement_summary.critical || 0,
+          engagementData.engagement_summary.inactive || 0
         ],
-        backgroundColor: [
-          '#4CAF50',
-          '#2196F3',
-          '#FF9800',
-          '#FF5722',
-          '#9C27B0',
-          '#607D8B'
-        ],
-        borderWidth: 1,
+        backgroundColor: colors,
+        borderColor: borderColors,
+        borderWidth: 2,
+        maxBarThickness: 50,
       }]
     };
   };
 
   const generateEngagementTimeSeriesChart = () => {
-    if (!engagementData) return null;
+    if (!engagementData || !engagementData.daily_metrics?.length) return null;
+
+    // Sort metrics by date to ensure proper chronological order
+    const sortedMetrics = [...engagementData.daily_metrics].sort((a, b) => 
+      new Date(a.date).getTime() - new Date(b.date).getTime()
+    );
+
+    // Generate complete date range to fill any gaps
+    const startDate = new Date(sortedMetrics[0].date);
+    const endDate = new Date(sortedMetrics[sortedMetrics.length - 1].date);
+    
+    const completeData = [];
+    const metricsMap = new Map(sortedMetrics.map(m => [m.date, m]));
+    
+    for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
+      const dateKey = d.toISOString().split('T')[0];
+      const metric = metricsMap.get(dateKey);
+      
+      completeData.push({
+        date: dateKey,
+        active_users: metric?.active_users || 0,
+        label: d.toLocaleDateString('en-US', { 
+          month: 'short', 
+          day: 'numeric' 
+        })
+      });
+    }
 
     return {
-      labels: engagementData.daily_metrics.map(metric => 
-        new Date(metric.date).toLocaleDateString()
-      ),
+      labels: completeData.map(item => item.label),
       datasets: [{
         label: 'Active Users',
-        data: engagementData.daily_metrics.map(metric => metric.active_users),
+        data: completeData.map(item => item.active_users),
         borderColor: '#2196F3',
         backgroundColor: 'rgba(33, 150, 243, 0.1)',
         fill: true,
         tension: 0.4,
+        pointBackgroundColor: '#2196F3',
+        pointBorderColor: '#ffffff',
+        pointBorderWidth: 2,
+        pointRadius: 4,
+        pointHoverRadius: 6,
       }]
     };
   };
@@ -836,18 +990,55 @@ const PiasCorner: React.FC = () => {
   });
 
   // Chart options
-  const getChartOptions = (title: string) => ({
+  const getChartOptions = (title: string, isBarChart: boolean = false) => ({
     responsive: true,
     maintainAspectRatio: false,
     plugins: {
       legend: {
         position: 'bottom' as const,
+        display: !isBarChart, // Hide legend for bar charts since colors are meaningful
       },
       title: {
         display: true,
         text: title,
+        font: {
+          size: 14,
+          weight: 'bold' as const
+        }
       },
+      tooltip: {
+        callbacks: {
+          label: function(context: any) {
+            const label = context.label || '';
+            const value = context.parsed?.y ?? context.parsed;
+            
+            if (isBarChart && title.includes('Compliance')) {
+              return `${label}: ${value.toFixed(1)}%`;
+            } else if (label.includes('Sodium')) {
+              return `${label}: ${value.toFixed(2)}g`;
+            } else {
+              return `${label}: ${value.toFixed(1)}g`;
+            }
+          }
+        }
+      }
     },
+    scales: isBarChart ? {
+      y: {
+        beginAtZero: true,
+        max: title.includes('Compliance') ? 100 : undefined,
+        title: {
+          display: true,
+          text: title.includes('Compliance') ? 'Compliance Percentage (%)' : 'Amount (g)'
+        }
+      },
+      x: {
+        title: {
+          display: true,
+          text: 'Nutrients'
+        }
+      }
+    } : undefined
   });
 
   const getFunnelChartOptions = () => ({
@@ -856,19 +1047,48 @@ const PiasCorner: React.FC = () => {
     plugins: {
       legend: {
         position: 'bottom' as const,
+        display: false, // Hide legend since colors are self-explanatory with labels
       },
       title: {
         display: true,
         text: 'Patient Engagement Levels',
+        font: {
+          size: 16,
+          weight: 'bold' as const
+        }
       },
+      tooltip: {
+        callbacks: {
+          label: function(context: any) {
+            const label = context.label || '';
+            const value = context.parsed.y || 0;
+            return `${label}: ${value} patient${value !== 1 ? 's' : ''}`;
+          }
+        }
+      }
     },
     scales: {
+      x: {
+        title: {
+          display: true,
+          text: 'Engagement Level'
+        }
+      },
       y: {
         beginAtZero: true,
         title: {
           display: true,
           text: 'Number of Patients'
+        },
+        ticks: {
+          stepSize: 1,
+          precision: 0
         }
+      }
+    },
+    elements: {
+      bar: {
+        borderRadius: 4
       }
     }
   });
@@ -879,30 +1099,73 @@ const PiasCorner: React.FC = () => {
     plugins: {
       legend: {
         position: 'top' as const,
+        display: false, // Hide legend for single dataset
       },
       title: {
         display: true,
         text: 'Daily Active Users Trend',
+        font: {
+          size: 16,
+          weight: 'bold' as const
+        }
       },
+      tooltip: {
+        mode: 'index' as const,
+        intersect: false,
+        callbacks: {
+          label: function(context: any) {
+            const value = context.parsed.y || 0;
+            return `Active Users: ${value}`;
+          }
+        }
+      }
     },
     scales: {
+      x: {
+        title: {
+          display: true,
+          text: 'Date'
+        },
+        grid: {
+          display: false
+        },
+        ticks: {
+          maxTicksLimit: 31, // Show up to 31 days (month view)
+          maxRotation: 45, // Rotate labels for better readability
+          minRotation: 0,
+          autoSkip: false, // Don't skip any labels - show every day
+          stepSize: 1 // Show every single day
+        }
+      },
       y: {
         beginAtZero: true,
         title: {
           display: true,
           text: 'Active Users'
+        },
+        ticks: {
+          stepSize: 1,
+          precision: 0
+        },
+        grid: {
+          color: 'rgba(0, 0, 0, 0.1)'
         }
       }
+    },
+    interaction: {
+      mode: 'nearest' as const,
+      axis: 'x' as const,
+      intersect: false
     }
   });
 
   // Helper functions
   const getSeverityColor = (severity: string) => {
     switch (severity.toLowerCase()) {
-      case 'severe': return '#f44336';
-      case 'moderate': return '#ff9800';
-      case 'mild': return '#ffeb3b';
-      default: return '#4caf50';
+      case 'high': return '#f44336';    // Red for high severity
+      case 'medium': return '#ff9800';  // Orange for medium severity  
+      case 'low': return '#ffeb3b';     // Yellow for low severity
+      default: return '#4caf50';        // Green for normal/good
     }
   };
 
@@ -1212,7 +1475,7 @@ const PiasCorner: React.FC = () => {
                       {populationAveragesData ? (
                         <Pie 
                           data={populationAveragesData} 
-                          options={getChartOptions('Daily Averages Across Cohort')}
+                          options={getChartOptions('Daily Nutrient Averages Across Patient Cohort')}
                         />
                       ) : (
                         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
@@ -1237,7 +1500,7 @@ const PiasCorner: React.FC = () => {
                       {complianceHeatmapData ? (
                         <Bar 
                           data={complianceHeatmapData} 
-                          options={getChartOptions('Compliance by Nutrient (%)')}
+                          options={getChartOptions('RDA Compliance by Nutrient (%)', true)}
                         />
                       ) : (
                         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
@@ -1259,23 +1522,42 @@ const PiasCorner: React.FC = () => {
                         Top Nutritional Deficiencies
                       </Typography>
                     </Box>
-                    <Grid container spacing={2}>
-                      {data?.deficiency_analysis.top_deficiencies.slice(0, 4).map((deficiency, index) => (
-                        <Grid item xs={12} sm={6} md={3} key={index}>
-                          <Box sx={{ textAlign: 'center', p: 2, border: '1px solid', borderColor: 'warning.light', borderRadius: 1 }}>
-                            <Typography variant="h6" color="warning.dark" fontWeight="bold">
-                              {deficiency.percentage}%
-                            </Typography>
-                            <Typography variant="body2" fontWeight="medium">
-                              {deficiency.issue}
-                            </Typography>
-                            <Typography variant="caption" color="text.secondary">
-                              {deficiency.affected_patients} patients
-                            </Typography>
-                          </Box>
-                        </Grid>
-                      ))}
-                    </Grid>
+                    {data?.deficiency_analysis?.top_deficiencies ? (
+                      <Grid container spacing={2}>
+                        {data.deficiency_analysis.top_deficiencies.slice(0, 4).map((deficiency, index) => (
+                          <Grid item xs={12} sm={6} md={3} key={index}>
+                            <Box sx={{ 
+                              textAlign: 'center', 
+                              p: 2, 
+                              border: '1px solid', 
+                              borderColor: deficiency.severity === 'high' ? 'error.light' : 'warning.light', 
+                              borderRadius: 1,
+                              bgcolor: deficiency.severity === 'high' ? 'error.light' : 'warning.light',
+                              opacity: 0.9
+                            }}>
+                              <Typography variant="h6" color={deficiency.severity === 'high' ? 'error.dark' : 'warning.dark'} fontWeight="bold">
+                                {deficiency.percentage}%
+                              </Typography>
+                              <Typography variant="body2" fontWeight="medium" sx={{ mb: 1 }}>
+                                {deficiency.issue}
+                              </Typography>
+                              <Typography variant="caption" color="text.secondary">
+                                {deficiency.affected_patients} patients
+                              </Typography>
+                              {deficiency.recommendation && (
+                                <Typography variant="caption" sx={{ display: 'block', mt: 1, fontStyle: 'italic' }}>
+                                  {deficiency.recommendation}
+                                </Typography>
+                              )}
+                            </Box>
+                          </Grid>
+                        ))}
+                      </Grid>
+                    ) : (
+                      <Typography color="text.secondary" sx={{ textAlign: 'center', py: 3 }}>
+                        No deficiency data available
+                      </Typography>
+                    )}
                   </CardContent>
                 </Card>
               </Grid>
@@ -1289,35 +1571,118 @@ const PiasCorner: React.FC = () => {
                     </Typography>
                     <Grid container spacing={3}>
                       <Grid item xs={6} sm={3}>
-                        <Box sx={{ textAlign: 'center', p: 2, bgcolor: 'primary.light', borderRadius: 1 }}>
+                        <Box 
+                          sx={{ 
+                            textAlign: 'center', 
+                            p: 2, 
+                            bgcolor: 'primary.light', 
+                            borderRadius: 1,
+                            cursor: 'pointer',
+                            transition: 'all 0.3s ease',
+                            '&:hover': {
+                              bgcolor: 'primary.main',
+                              transform: 'translateY(-2px)',
+                              boxShadow: 3
+                            }
+                          }}
+                          onClick={() => {
+                            const allRegisteredPatients = data?.all_registered_patients || [];
+                            handleOpenPatientList('total', 'All Registered Patients', [], allRegisteredPatients);
+                          }}
+                        >
                           <Typography variant="h4" fontWeight="bold" color="primary.dark">
                             {data?.total_registered_patients}
                           </Typography>
                           <Typography variant="caption" color="primary.dark">Total Patients</Typography>
+                          <Typography variant="caption" sx={{ display: 'block', mt: 1, opacity: 0.8 }}>
+                            Click to view list
+                          </Typography>
                         </Box>
                       </Grid>
                       <Grid item xs={6} sm={3}>
-                        <Box sx={{ textAlign: 'center', p: 2, bgcolor: 'success.light', borderRadius: 1 }}>
+                        <Box 
+                          sx={{ 
+                            textAlign: 'center', 
+                            p: 2, 
+                            bgcolor: 'success.light', 
+                            borderRadius: 1,
+                            cursor: 'pointer',
+                            transition: 'all 0.3s ease',
+                            '&:hover': {
+                              bgcolor: 'success.main',
+                              transform: 'translateY(-2px)',
+                              boxShadow: 3
+                            }
+                          }}
+                          onClick={() => {
+                            const activePatients = data?.active_patients || [];
+                            handleOpenPatientList('active', 'Active Patients (With Recent Food Logs)', activePatients);
+                          }}
+                        >
                           <Typography variant="h4" fontWeight="bold" color="success.dark">
                             {data?.cohort_size}
                           </Typography>
                           <Typography variant="caption" color="success.dark">Active Patients</Typography>
+                          <Typography variant="caption" sx={{ display: 'block', mt: 1, opacity: 0.8 }}>
+                            Click to view list
+                          </Typography>
                         </Box>
                       </Grid>
                       <Grid item xs={6} sm={3}>
-                        <Box sx={{ textAlign: 'center', p: 2, bgcolor: 'secondary.light', borderRadius: 1 }}>
+                        <Box 
+                          sx={{ 
+                            textAlign: 'center', 
+                            p: 2, 
+                            bgcolor: 'secondary.light', 
+                            borderRadius: 1,
+                            cursor: 'pointer',
+                            transition: 'all 0.3s ease',
+                            '&:hover': {
+                              bgcolor: 'secondary.main',
+                              transform: 'translateY(-2px)',
+                              boxShadow: 3
+                            }
+                          }}
+                          onClick={() => {
+                            handleOpenPatientList('records', 'Food Records Information', []);
+                          }}
+                        >
                           <Typography variant="h4" fontWeight="bold" color="secondary.dark">
                             {data?.analysis_period.total_records_analyzed}
                           </Typography>
                           <Typography variant="caption" color="secondary.dark">Food Records</Typography>
+                          <Typography variant="caption" sx={{ display: 'block', mt: 1, opacity: 0.8 }}>
+                            Click for details
+                          </Typography>
                         </Box>
                       </Grid>
                       <Grid item xs={6} sm={3}>
-                        <Box sx={{ textAlign: 'center', p: 2, bgcolor: data?.inactive_patients_count ? 'warning.light' : 'info.light', borderRadius: 1 }}>
+                        <Box 
+                          sx={{ 
+                            textAlign: 'center', 
+                            p: 2, 
+                            bgcolor: data?.inactive_patients_count ? 'warning.light' : 'info.light', 
+                            borderRadius: 1,
+                            cursor: 'pointer',
+                            transition: 'all 0.3s ease',
+                            '&:hover': {
+                              bgcolor: data?.inactive_patients_count ? 'warning.main' : 'info.main',
+                              transform: 'translateY(-2px)',
+                              boxShadow: 3
+                            }
+                          }}
+                          onClick={() => {
+                            const inactivePatients = data?.inactive_patients || [];
+                            handleOpenPatientList('inactive', 'Inactive Patients (No Recent Food Logs)', inactivePatients);
+                          }}
+                        >
                           <Typography variant="h4" fontWeight="bold" color={data?.inactive_patients_count ? 'warning.dark' : 'info.dark'}>
                             {data?.inactive_patients_count ?? 0}
                           </Typography>
                           <Typography variant="caption" color={data?.inactive_patients_count ? 'warning.dark' : 'info.dark'}>Inactive Patients</Typography>
+                          <Typography variant="caption" sx={{ display: 'block', mt: 1, opacity: 0.8 }}>
+                            Click to view list
+                          </Typography>
                         </Box>
                       </Grid>
                     </Grid>
@@ -1348,7 +1713,7 @@ const PiasCorner: React.FC = () => {
                       {populationAveragesData ? (
                         <Pie 
                           data={populationAveragesData} 
-                          options={getChartOptions('Daily Averages Across Cohort')}
+                          options={getChartOptions('Daily Nutrient Averages Across Patient Cohort')}
                         />
                       ) : (
                         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
@@ -1373,7 +1738,7 @@ const PiasCorner: React.FC = () => {
                       {complianceHeatmapData ? (
                         <Bar 
                           data={complianceHeatmapData} 
-                          options={getChartOptions('Compliance by Nutrient (%)')}
+                          options={getChartOptions('RDA Compliance by Nutrient (%)', true)}
                         />
                       ) : (
                         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
@@ -1399,7 +1764,7 @@ const PiasCorner: React.FC = () => {
                       {populationAveragesData ? (
                         <Bar 
                           data={populationAveragesData} 
-                          options={getChartOptions('Average Daily Intake by Nutrient')}
+                          options={getChartOptions('Average Daily Intake by Nutrient', true)}
                         />
                       ) : (
                         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
@@ -1536,9 +1901,22 @@ const PiasCorner: React.FC = () => {
                     {engagementData && (
                       <Grid container spacing={2}>
                         <Grid item xs={6} sm={4} md={2}>
-                          <Card variant="outlined" sx={{ textAlign: 'center', p: 2 }}>
+                          <Card 
+                            variant="outlined" 
+                            sx={{ 
+                              textAlign: 'center', 
+                              p: 2,
+                              cursor: 'pointer',
+                              transition: 'all 0.2s ease-in-out',
+                              '&:hover': {
+                                transform: 'translateY(-2px)',
+                                boxShadow: 2
+                              }
+                            }}
+                            onClick={() => handleOpenPatientList('excellent_engagement', 'Excellent Engagement Patients', engagementData?.user_engagement_details?.filter((u: UserEngagementAnalysis) => u.engagement_level === 'excellent') || [])}
+                          >
                             <Typography variant="h4" color="success.main" fontWeight="bold">
-                              {engagementData.engagement_summary.excellent}
+                              {engagementData.engagement_summary.excellent ?? 0}
                             </Typography>
                             <Typography variant="caption" color="text.secondary">
                               Excellent
@@ -1546,9 +1924,22 @@ const PiasCorner: React.FC = () => {
                           </Card>
                         </Grid>
                         <Grid item xs={6} sm={4} md={2}>
-                          <Card variant="outlined" sx={{ textAlign: 'center', p: 2 }}>
+                          <Card 
+                            variant="outlined" 
+                            sx={{ 
+                              textAlign: 'center', 
+                              p: 2,
+                              cursor: 'pointer',
+                              transition: 'all 0.2s ease-in-out',
+                              '&:hover': {
+                                transform: 'translateY(-2px)',
+                                boxShadow: 2
+                              }
+                            }}
+                            onClick={() => handleOpenPatientList('good_engagement', 'Good Engagement Patients', engagementData?.user_engagement_details?.filter((u: UserEngagementAnalysis) => u.engagement_level === 'good') || [])}
+                          >
                             <Typography variant="h4" color="info.main" fontWeight="bold">
-                              {engagementData.engagement_summary.good}
+                              {engagementData.engagement_summary.good ?? 0}
                             </Typography>
                             <Typography variant="caption" color="text.secondary">
                               Good
@@ -1556,9 +1947,22 @@ const PiasCorner: React.FC = () => {
                           </Card>
                         </Grid>
                         <Grid item xs={6} sm={4} md={2}>
-                          <Card variant="outlined" sx={{ textAlign: 'center', p: 2 }}>
+                          <Card 
+                            variant="outlined" 
+                            sx={{ 
+                              textAlign: 'center', 
+                              p: 2,
+                              cursor: 'pointer',
+                              transition: 'all 0.2s ease-in-out',
+                              '&:hover': {
+                                transform: 'translateY(-2px)',
+                                boxShadow: 2
+                              }
+                            }}
+                            onClick={() => handleOpenPatientList('fair_engagement', 'Fair Engagement Patients', engagementData?.user_engagement_details?.filter((u: UserEngagementAnalysis) => u.engagement_level === 'fair') || [])}
+                          >
                             <Typography variant="h4" color="warning.main" fontWeight="bold">
-                              {engagementData.engagement_summary.fair}
+                              {engagementData.engagement_summary.fair ?? 0}
                             </Typography>
                             <Typography variant="caption" color="text.secondary">
                               Fair
@@ -1566,9 +1970,22 @@ const PiasCorner: React.FC = () => {
                           </Card>
                         </Grid>
                         <Grid item xs={6} sm={4} md={2}>
-                          <Card variant="outlined" sx={{ textAlign: 'center', p: 2 }}>
+                          <Card 
+                            variant="outlined" 
+                            sx={{ 
+                              textAlign: 'center', 
+                              p: 2,
+                              cursor: 'pointer',
+                              transition: 'all 0.2s ease-in-out',
+                              '&:hover': {
+                                transform: 'translateY(-2px)',
+                                boxShadow: 2
+                              }
+                            }}
+                            onClick={() => handleOpenPatientList('poor_engagement', 'Poor Engagement Patients', engagementData?.user_engagement_details?.filter((u: UserEngagementAnalysis) => u.engagement_level === 'poor') || [])}
+                          >
                             <Typography variant="h4" color="error.main" fontWeight="bold">
-                              {engagementData.engagement_summary.poor}
+                              {engagementData.engagement_summary.poor ?? 0}
                             </Typography>
                             <Typography variant="caption" color="text.secondary">
                               Poor
@@ -1576,9 +1993,22 @@ const PiasCorner: React.FC = () => {
                           </Card>
                         </Grid>
                         <Grid item xs={6} sm={4} md={2}>
-                          <Card variant="outlined" sx={{ textAlign: 'center', p: 2 }}>
-                            <Typography variant="h4" color="text.secondary" fontWeight="bold">
-                              {engagementData.engagement_summary.critical}
+                          <Card 
+                            variant="outlined" 
+                            sx={{ 
+                              textAlign: 'center', 
+                              p: 2,
+                              cursor: 'pointer',
+                              transition: 'all 0.2s ease-in-out',
+                              '&:hover': {
+                                transform: 'translateY(-2px)',
+                                boxShadow: 2
+                              }
+                            }}
+                            onClick={() => handleOpenPatientList('critical_engagement', 'Critical Engagement Patients', engagementData?.user_engagement_details?.filter((u: UserEngagementAnalysis) => u.engagement_level === 'critical') || [])}
+                          >
+                            <Typography variant="h4" color="error.dark" fontWeight="bold">
+                              {engagementData.engagement_summary.critical ?? 0}
                             </Typography>
                             <Typography variant="caption" color="text.secondary">
                               Critical
@@ -1586,9 +2016,22 @@ const PiasCorner: React.FC = () => {
                           </Card>
                         </Grid>
                         <Grid item xs={6} sm={4} md={2}>
-                          <Card variant="outlined" sx={{ textAlign: 'center', p: 2 }}>
+                          <Card 
+                            variant="outlined" 
+                            sx={{ 
+                              textAlign: 'center', 
+                              p: 2,
+                              cursor: 'pointer',
+                              transition: 'all 0.2s ease-in-out',
+                              '&:hover': {
+                                transform: 'translateY(-2px)',
+                                boxShadow: 2
+                              }
+                            }}
+                            onClick={() => handleOpenPatientList('inactive_engagement', 'Inactive Engagement Patients', engagementData?.user_engagement_details?.filter((u: UserEngagementAnalysis) => u.engagement_level === 'inactive') || [])}
+                          >
                             <Typography variant="h4" color="action.disabled" fontWeight="bold">
-                              {engagementData.engagement_summary.inactive}
+                              {engagementData.engagement_summary.inactive ?? 0}
                             </Typography>
                             <Typography variant="caption" color="text.secondary">
                               Inactive
@@ -2082,6 +2525,208 @@ const PiasCorner: React.FC = () => {
           </Box>
         )}
       </Paper>
+
+      {/* Patient List Modal */}
+      <Dialog
+        open={patientListModal.open}
+        onClose={handleClosePatientList}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Typography variant="h6">{patientListModal.title}</Typography>
+          <IconButton onClick={handleClosePatientList} size="small">
+            <ArrowBackIcon />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent>
+          {patientListModal.type === 'inactive' && patientListModal.patients.length > 0 ? (
+            <List>
+              {patientListModal.patients.map((patient, index) => (
+                <ListItem key={index} divider>
+                  <ListItemText
+                    primary={patient.user_name}
+                    secondary={`Email: ${patient.user_id}`}
+                  />
+                  <Chip 
+                    label="Inactive" 
+                    color="warning" 
+                    size="small" 
+                    sx={{ ml: 1 }}
+                  />
+                </ListItem>
+              ))}
+            </List>
+          ) : patientListModal.type === 'records' ? (
+            <Box sx={{ textAlign: 'center', py: 3 }}>
+              <Typography variant="h6" gutterBottom>
+                Food Records Analysis
+              </Typography>
+              <Typography variant="body1" sx={{ mb: 2 }}>
+                Total Records: {data?.analysis_period.total_records_analyzed || 0}
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                Analysis Period: {data?.analysis_period.start_date} to {data?.analysis_period.end_date}
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                Records from {data?.cohort_size || 0} active patients over {data?.analysis_period.days || 0} days
+              </Typography>
+            </Box>
+          ) : patientListModal.type === 'total' && patientListModal.detailedPatients.length > 0 ? (
+            <List>
+              {patientListModal.detailedPatients.map((patient, index) => (
+                <ListItem key={index} divider>
+                  <ListItemText
+                    primary={
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Typography variant="body1" fontWeight="medium">
+                          {patient.user_name}
+                        </Typography>
+                        <Chip 
+                          label={patient.is_active ? "Active" : "Inactive"} 
+                          color={patient.is_active ? "success" : "warning"} 
+                          size="small" 
+                        />
+                      </Box>
+                    }
+                    secondary={
+                      <Box sx={{ mt: 1 }}>
+                        <Typography variant="caption" display="block">
+                          Email: {patient.user_id}
+                        </Typography>
+                        <Typography variant="caption" display="block">
+                          Registration: {patient.registration_code}
+                        </Typography>
+                        {patient.phone !== "N/A" && (
+                          <Typography variant="caption" display="block">
+                            Phone: {patient.phone}
+                          </Typography>
+                        )}
+                        {patient.condition !== "N/A" && (
+                          <Typography variant="caption" display="block">
+                            Condition: {patient.condition}
+                          </Typography>
+                        )}
+                      </Box>
+                    }
+                  />
+                </ListItem>
+              ))}
+            </List>
+          ) : patientListModal.type === 'total' ? (
+            <Box sx={{ textAlign: 'center', py: 3 }}>
+              <Typography variant="body1" color="text.secondary">
+                Total Registered Patients: {data?.total_registered_patients || 0}
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
+                This includes all patients registered in the system, both active and inactive.
+              </Typography>
+              <Alert severity="warning" sx={{ mt: 2 }}>
+                No patient data found in the admin panel.
+              </Alert>
+            </Box>
+          ) : patientListModal.type === 'active' && patientListModal.patients.length > 0 ? (
+            <List>
+              {patientListModal.patients.map((patient, index) => (
+                <ListItem key={index} divider>
+                  <ListItemText
+                    primary={patient.user_name}
+                    secondary={`Email: ${patient.user_id}`}
+                  />
+                  <Chip 
+                    label="Active" 
+                    color="success" 
+                    size="small" 
+                    sx={{ ml: 1 }}
+                  />
+                </ListItem>
+              ))}
+            </List>
+          ) : patientListModal.type === 'active' ? (
+            <Box sx={{ textAlign: 'center', py: 3 }}>
+              <Typography variant="body1" color="text.secondary">
+                Active Patients: {data?.cohort_size || 0}
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
+                These are patients who have logged food consumption data in the last {data?.analysis_period.days || 0} days.
+              </Typography>
+              <Alert severity="warning" sx={{ mt: 2 }}>
+                No active patients found in the current analysis period.
+              </Alert>
+            </Box>
+          ) : patientListModal.type.includes('_engagement') && patientListModal.patients.length > 0 ? (
+            <List>
+              {(patientListModal.patients as UserEngagementAnalysis[]).map((patient, index) => (
+                <ListItem key={index} divider>
+                  <ListItemText
+                    primary={
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Typography variant="body1" fontWeight="medium">
+                          {patient.user_name}
+                        </Typography>
+                        <Chip 
+                          label={patient.engagement_level?.charAt(0).toUpperCase() + patient.engagement_level?.slice(1) || 'Unknown'} 
+                          color={
+                            patient.engagement_level === 'excellent' ? 'success' :
+                            patient.engagement_level === 'good' ? 'info' :
+                            patient.engagement_level === 'fair' ? 'warning' :
+                            patient.engagement_level === 'poor' ? 'error' :
+                            patient.engagement_level === 'critical' ? 'error' :
+                            'default'
+                          }
+                          size="small" 
+                        />
+                      </Box>
+                    }
+                    secondary={
+                      <Box sx={{ mt: 1 }}>
+                        <Typography variant="caption" display="block">
+                          Email: {patient.user_id}
+                        </Typography>
+                        <Typography variant="caption" display="block">
+                          Total Logs: {patient.total_logs || 0}
+                        </Typography>
+                        <Typography variant="caption" display="block">
+                          Avg Logs/Day: {patient.avg_logs_per_day || 0}
+                        </Typography>
+                        <Typography variant="caption" display="block">
+                          Days Since Last Log: {patient.days_since_last_log || 0}
+                        </Typography>
+                        {patient.last_log_date && (
+                          <Typography variant="caption" display="block">
+                            Last Log: {patient.last_log_date}
+                          </Typography>
+                        )}
+                      </Box>
+                    }
+                  />
+                </ListItem>
+              ))}
+            </List>
+          ) : patientListModal.type.includes('_engagement') ? (
+            <Box sx={{ textAlign: 'center', py: 3 }}>
+              <Typography variant="body1" color="text.secondary">
+                {patientListModal.type.replace('_engagement', '').charAt(0).toUpperCase() + patientListModal.type.replace('_engagement', '').slice(1)} Engagement: 0 patients
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
+                No patients found with this engagement level in the current analysis period.
+              </Typography>
+              <Alert severity="info" sx={{ mt: 2 }}>
+                This engagement level classification is based on food logging frequency and consistency.
+              </Alert>
+            </Box>
+          ) : (
+            <Typography color="text.secondary" sx={{ textAlign: 'center', py: 3 }}>
+              No patient data available
+            </Typography>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleClosePatientList} variant="contained">
+            Close
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Container>
   );
 };
