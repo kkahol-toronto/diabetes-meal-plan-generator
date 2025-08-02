@@ -1118,9 +1118,35 @@ async def get_outlier_detection(
         
         print(f"[OUTLIER_DETECTION] Found {len(all_consumption)} consumption records")
         
-        # Get all registered users (excluding admin) to map names
-        all_users_query = "SELECT * FROM c WHERE c.type = 'user' AND c.is_admin != true"
-        all_users = list(user_container.query_items(query=all_users_query, enable_cross_partition_query=True))
+        # Filter out deleted duplicate account records  
+        all_consumption = [r for r in all_consumption if r.get('user_id') != 'nagarwal166@gmail.com']
+        print(f"[OUTLIER_DETECTION] After filtering deleted accounts: {len(all_consumption)} records")
+        
+        # Debug: Show sample of consumption data
+        if all_consumption:
+            sample_record = all_consumption[0]
+            print(f"[OUTLIER_DETECTION] Sample consumption record fields: {list(sample_record.keys())}")
+            print(f"[OUTLIER_DETECTION] Sample nutritional_info: {sample_record.get('nutritional_info', {})}")
+        
+        # Get all registered users (excluding admin) to map names (include both 'user' and 'patient' types)
+        all_users_query = "SELECT * FROM c WHERE (c.type = 'user' OR c.type = 'patient') AND c.is_admin != true"
+        all_users_raw = list(user_container.query_items(query=all_users_query, enable_cross_partition_query=True))
+        
+        # Deduplicate users: prioritize type='user' over type='patient' for same registration code
+        user_map = {}
+        for user in all_users_raw:
+            reg_code = user.get('registration_code', '')
+            user_type = user.get('type', '')
+            
+            if reg_code:
+                if reg_code not in user_map:
+                    user_map[reg_code] = user
+                elif user_type == 'user' and user_map[reg_code].get('type') == 'patient':
+                    # Prioritize 'user' type over 'patient' type
+                    user_map[reg_code] = user
+        
+        # Convert back to list
+        all_users = list(user_map.values())
         total_users_count = len(all_users)
         
         # Create email to name mapping using admin panel patient data as authoritative source
@@ -1193,10 +1219,11 @@ async def get_outlier_detection(
         }))
         
         # Process all consumption records
+        processed_records = 0
         for record in all_consumption:
             user_id = record.get("user_id")
             timestamp = record.get("timestamp", "")
-            nutrition = record.get("nutrition", {})
+            nutrition = record.get("nutritional_info", {})  # Fixed: use correct field name
             
             if not user_id or not timestamp:
                 continue
@@ -1211,10 +1238,21 @@ async def get_outlier_detection(
                 
                 for nutrient in ["calories", "protein", "carbohydrates", "fat", "fiber", "sodium", "sugar"]:
                     daily_data[nutrient] += float(nutrition.get(nutrient, 0))
+                
+                processed_records += 1
                     
             except Exception as date_error:
                 print(f"[OUTLIER_DETECTION] Date parsing error: {date_error}")
                 continue
+        
+        print(f"[OUTLIER_DETECTION] Successfully processed {processed_records} consumption records")
+        print(f"[OUTLIER_DETECTION] Found {len(user_daily_totals)} users with data")
+        
+        # Show sample user data
+        if user_daily_totals:
+            sample_user = list(user_daily_totals.keys())[0]
+            sample_days = len(user_daily_totals[sample_user])
+            print(f"[OUTLIER_DETECTION] Sample user {sample_user} has {sample_days} days of data")
         
         # Analyze for outliers - MEDICAL PATTERN DETECTION
         patient_outlier_profiles = {}
@@ -1300,21 +1338,23 @@ async def get_outlier_detection(
             extreme_low_days = patient_profile["pattern_analysis"]["extreme_low_days"]
             extreme_high_days = patient_profile["pattern_analysis"]["extreme_high_days"]
             
-            # Chronic malnutrition pattern (>30% of days with extreme low calories)
-            if total_analyzed >= 7 and extreme_low_days / total_analyzed > 0.3:
+            # Chronic malnutrition pattern (>20% of days with extreme low calories OR avg < 1000)
+            avg_daily_calories = sum([day["calories"] for day in user_days.values()]) / total_analyzed if total_analyzed > 0 else 0
+            
+            if (total_analyzed >= 3 and extreme_low_days / total_analyzed > 0.2) or avg_daily_calories < 1000:
                 patient_profile["pattern_analysis"]["chronic_malnutrition_risk"] = True
                 patient_profile["medical_priority"] = 4  # Critical
             
-            # Binge eating pattern (multiple extremely high calorie days)
-            elif extreme_high_days >= 3:
+            # Binge eating pattern (2+ extremely high calorie days OR single day > 4000 cal)
+            elif extreme_high_days >= 2 or any(day["calories"] > 4000 for day in user_days.values()):
                 patient_profile["pattern_analysis"]["binge_eating_pattern"] = True
                 patient_profile["medical_priority"] = 3  # Urgent
             
-            # Moderate concern (some outliers but not chronic)
-            elif extreme_low_days >= 2 or extreme_high_days >= 1:
+            # Moderate concern (any extreme outliers)
+            elif extreme_low_days >= 1 or extreme_high_days >= 1:
                 patient_profile["medical_priority"] = 2  # Concern
             
-            # Light monitoring (single incident)
+            # Light monitoring (any outliers at all)
             elif len(patient_profile["calorie_outliers"]) > 0 or len(patient_profile["nutrient_spikes"]) > 0:
                 patient_profile["medical_priority"] = 1  # Monitor
             
@@ -1429,7 +1469,12 @@ async def get_outlier_detection(
                         "total_days_analyzed": p["pattern_analysis"]["total_days_analyzed"],
                         "outlier_days": len(p["calorie_outliers"]),
                         "chronic_malnutrition_risk": p["pattern_analysis"]["chronic_malnutrition_risk"],
-                        "binge_eating_pattern": p["pattern_analysis"]["binge_eating_pattern"]
+                        "binge_eating_pattern": p["pattern_analysis"]["binge_eating_pattern"],
+                        "pattern_type": (
+                            "Chronic Malnutrition" if p["pattern_analysis"]["chronic_malnutrition_risk"]
+                            else "Binge Eating" if p["pattern_analysis"]["binge_eating_pattern"]
+                            else "Irregular Eating"
+                        )
                     }
                     for p in sorted_patients[:10]  # Top 10 most concerning patients
                 ]
@@ -1478,6 +1523,11 @@ async def get_outlier_detection(
             },
             "generated_at": datetime.utcnow().isoformat()
         }
+        
+        # Debug summary
+        total_patients_analyzed = len(patient_outlier_profiles)
+        print(f"[OUTLIER_DETECTION] SUMMARY: Found {total_patients_analyzed} patients with outliers")
+        print(f"[OUTLIER_DETECTION] Priority levels: Critical={critical_patients}, Urgent={urgent_patients}, Concern={concern_patients}, Monitor={monitor_patients}")
         
     except Exception as e:
         print(f"[OUTLIER_DETECTION] Error: {str(e)}")
@@ -1564,9 +1614,36 @@ async def get_behavior_clusters(
         
         print(f"[BEHAVIOR_CLUSTERS] Found {len(all_consumption)} consumption records")
         
-        # Get all registered users (excluding admin)
-        all_users_query = "SELECT * FROM c WHERE c.type = 'user' AND c.is_admin != true"
-        all_users = list(user_container.query_items(query=all_users_query, enable_cross_partition_query=True))
+        # Filter out deleted duplicate account records
+        all_consumption = [r for r in all_consumption if r.get('user_id') != 'nagarwal166@gmail.com']
+        print(f"[BEHAVIOR_CLUSTERS] After filtering deleted accounts: {len(all_consumption)} records")
+        
+        # Debug: Show sample of consumption data
+        if all_consumption:
+            sample_record = all_consumption[0]
+            print(f"[BEHAVIOR_CLUSTERS] Sample consumption record: user_id={sample_record.get('user_id')}, "
+                  f"timestamp={sample_record.get('timestamp')}, "
+                  f"nutritional_info keys={list(sample_record.get('nutritional_info', {}).keys())}")
+        
+        # Get all registered users (excluding admin) (include both 'user' and 'patient' types)
+        all_users_query = "SELECT * FROM c WHERE (c.type = 'user' OR c.type = 'patient') AND c.is_admin != true"
+        all_users_raw = list(user_container.query_items(query=all_users_query, enable_cross_partition_query=True))
+        
+        # Deduplicate users: prioritize type='user' over type='patient' for same registration code
+        user_map = {}
+        for user in all_users_raw:
+            reg_code = user.get('registration_code', '')
+            user_type = user.get('type', '')
+            
+            if reg_code:
+                if reg_code not in user_map:
+                    user_map[reg_code] = user
+                elif user_type == 'user' and user_map[reg_code].get('type') == 'patient':
+                    # Prioritize 'user' type over 'patient' type
+                    user_map[reg_code] = user
+        
+        # Convert back to list
+        all_users = list(user_map.values())
         total_users_count = len(all_users)
         
         # Create email to name mapping using admin panel patient data as authoritative source
@@ -1605,6 +1682,7 @@ async def get_behavior_clusters(
                             email_to_name[email] = f"Patient {readable_name}"
                         else:
                             email_to_name[email] = "Unknown Patient"
+        
         
         if not all_consumption:
             return {
@@ -1854,6 +1932,23 @@ async def get_behavior_clusters(
             }
         }
         
+        # Generate scatter plot data for frontend visualization
+        scatter_plot_data = []
+        
+        # Add all clustered patients to scatter plot
+        for cluster_type, patients in behavior_clusters.items():
+            for patient in patients:
+                scatter_plot_data.append({
+                    "x": patient["analysis_days"],  # Days of data analyzed
+                    "y": patient["avg_daily_calories"],  # Average daily calories  
+                    "patientName": patient["user_name"],
+                    "analysisDays": patient["analysis_days"],
+                    "hasDiabetes": patient["has_diabetes"],
+                    "calories": patient["avg_daily_calories"],
+                    "score": patient.get("high_protein_low_carb_score", 0) or patient.get("night_eating_frequency", 0) or patient.get("under_reporting_score", 0),
+                    "clusterType": cluster_type.replace("_", " ").title()
+                })
+
         return {
             "total_registered_patients": total_registered_patients,
             "total_registered_users": total_users_count,
@@ -1865,6 +1960,7 @@ async def get_behavior_clusters(
             },
             "behavior_clusters": behavior_clusters,
             "cluster_summary": cluster_summary,
+            "scatter_plot_data": scatter_plot_data,  # Added missing scatter plot data
             "health_outcomes": health_outcome_analysis,
             "behavioral_thresholds": BEHAVIOR_THRESHOLDS,
             "medical_insights": {
@@ -1887,6 +1983,14 @@ async def get_behavior_clusters(
             },
             "generated_at": datetime.utcnow().isoformat()
         }
+        
+        # Debug summary
+        total_clustered = cluster_summary['total_clustered_patients']
+        print(f"[BEHAVIOR_CLUSTERS] SUMMARY: Found {total_clustered} patients with behavioral patterns")
+        print(f"[BEHAVIOR_CLUSTERS] High Protein-Low Carb: {cluster_summary['high_protein_low_carb_count']}")
+        print(f"[BEHAVIOR_CLUSTERS] Night Eaters: {cluster_summary['night_eaters_count']}")
+        print(f"[BEHAVIOR_CLUSTERS] Under-reporters: {cluster_summary['under_reporters_count']}")
+        print(f"[BEHAVIOR_CLUSTERS] Multiple Behaviors: {cluster_summary['multiple_behaviors']}")
         
     except Exception as e:
         print(f"[BEHAVIOR_CLUSTERS] Error: {str(e)}")
@@ -1958,31 +2062,64 @@ async def get_compliance_analysis(
         
         print(f"[COMPLIANCE_ANALYSIS] Found {len(consumption_records)} consumption records")
         
+        # Filter out deleted duplicate account records
+        consumption_records = [r for r in consumption_records if r.get('user_id') != 'nagarwal166@gmail.com']
+        print(f"[COMPLIANCE_ANALYSIS] After filtering deleted accounts: {len(consumption_records)} records")
+        
         # Get all users and admin patients for name mapping
         all_users_query = "SELECT * FROM c WHERE c.type = 'user'"
         all_users = list(user_container.query_items(query=all_users_query, enable_cross_partition_query=True))
         
         admin_patients = await get_all_patients()
         
-        # Create email to name mapping (authoritative admin source)
+        # Create email to name mapping (authoritative admin source) - Using same logic as behavior clusters
         email_to_name = {}
         email_to_conditions = {}
-        for patient in admin_patients:
-            if patient.get('email'):
-                email_to_name[patient['email']] = patient.get('name', '')
-                email_to_conditions[patient['email']] = patient.get('condition', '')
         
-        # Fallback to user profile names
+        # First, create registration code to name mapping from admin patients
+        registration_to_name = {}
+        for patient in admin_patients:
+            reg_code = patient.get("registration_code")
+            patient_name = patient.get("name", "").strip()
+            email = patient.get("email", "").strip()
+            condition = patient.get("condition", "")
+            
+            if reg_code and patient_name:
+                registration_to_name[reg_code] = patient_name
+            
+            # Also map by email if available (direct admin panel mapping)
+            if email and patient_name:
+                email_to_name[email] = patient_name
+                email_to_conditions[email] = condition
+        
+        # Map user emails to patient names using registration codes (authoritative hierarchy)
         for user in all_users:
-            email = user.get('email', '')
-            if email and email not in email_to_name:
-                profile_name = user.get('name', '').strip()
-                if profile_name:
-                    email_to_name[email] = profile_name
-                else:
-                    # Professional fallback from email
-                    username = email.split('@')[0]
-                    email_to_name[email] = f"Patient {username.capitalize()}"
+            email = user.get("email")
+            registration_code = user.get("registration_code")
+            
+            if email:
+                # First priority: Use admin panel patient name (authoritative)
+                if registration_code and registration_code in registration_to_name:
+                    email_to_name[email] = registration_to_name[registration_code]
+                elif email not in email_to_name:  # Only if not already mapped by direct email
+                    # Second priority: Use profile name if available
+                    profile = user.get("profile", {})
+                    profile_name = profile.get("name", "").strip()
+                    if profile_name:
+                        email_to_name[email] = profile_name
+                    else:
+                        # Last resort: Create professional fallback from email
+                        username = email.split("@")[0]
+                        if len(username) > 0:
+                            readable_name = username.replace(".", " ").replace("_", " ")
+                            readable_name = " ".join(word.capitalize() for word in readable_name.split())
+                            email_to_name[email] = f"Patient {readable_name}"
+                        else:
+                            email_to_name[email] = "Unknown Patient"
+                
+                # Set default condition if not already set
+                if email not in email_to_conditions:
+                    email_to_conditions[email] = "General"
         
         # Group consumption data by user and date
         user_daily_data = {}
@@ -2011,15 +2148,19 @@ async def get_compliance_analysis(
                     'meal_count': 0
                 }
             
-            # Accumulate daily totals
+            # Accumulate daily totals - Fix data access to use nutritional_info
             daily_data = user_daily_data[user_id][record_date]
-            daily_data['total_calories'] += record.get('calories', 0)
-            daily_data['total_protein'] += record.get('protein', 0)
-            daily_data['total_carbs'] += record.get('carbohydrates', 0)
-            daily_data['total_fat'] += record.get('fat', 0)
-            daily_data['total_fiber'] += record.get('fiber', 0)
-            daily_data['total_sodium'] += record.get('sodium', 0)
-            daily_data['total_sugar'] += record.get('sugar', 0)
+            
+            # Extract nutritional info from the correct nested structure
+            nutritional_info = record.get('nutritional_info', {})
+            
+            daily_data['total_calories'] += nutritional_info.get('calories', 0)
+            daily_data['total_protein'] += nutritional_info.get('protein', 0)
+            daily_data['total_carbs'] += nutritional_info.get('carbohydrates', 0)
+            daily_data['total_fat'] += nutritional_info.get('fat', 0)
+            daily_data['total_fiber'] += nutritional_info.get('fiber', 0)
+            daily_data['total_sodium'] += nutritional_info.get('sodium', 0)
+            daily_data['total_sugar'] += nutritional_info.get('sugar', 0)
             daily_data['meal_count'] += 1
         
         print(f"[COMPLIANCE_ANALYSIS] Analyzing compliance for {len(unique_users)} unique users")
@@ -2073,6 +2214,10 @@ async def get_compliance_analysis(
             compliance_issues = []
             strengths = []
             
+            # Debug info for this user
+            total_calories_sum = 0
+            valid_calorie_days = 0
+            
             for date, data in daily_data.items():
                 calories = data['total_calories']
                 protein = data['total_protein']
@@ -2081,42 +2226,69 @@ async def get_compliance_analysis(
                 sodium = data['total_sodium']
                 sugar = data['total_sugar']
                 
-                # Calorie compliance check
-                calorie_target_min, calorie_target_max = COMPLIANCE_TARGETS["calorie_targets"]["diabetic_range"] if is_diabetic else (COMPLIANCE_TARGETS["calorie_targets"]["min_healthy_calories"], COMPLIANCE_TARGETS["calorie_targets"]["max_healthy_calories"])
+                # Track calorie data for debugging
+                if calories > 0:
+                    total_calories_sum += calories
+                    valid_calorie_days += 1
+                
+                # Calorie compliance check - use more realistic targets
+                if is_diabetic:
+                    calorie_target_min, calorie_target_max = COMPLIANCE_TARGETS["calorie_targets"]["diabetic_range"]
+                else:
+                    calorie_target_min = COMPLIANCE_TARGETS["calorie_targets"]["min_healthy_calories"]
+                    calorie_target_max = COMPLIANCE_TARGETS["calorie_targets"]["max_healthy_calories"]
                 
                 tolerance = COMPLIANCE_TARGETS["calorie_targets"]["tolerance_percentage"] / 100
                 calorie_min_with_tolerance = calorie_target_min * (1 - tolerance)
                 calorie_max_with_tolerance = calorie_target_max * (1 + tolerance)
                 
-                if calorie_min_with_tolerance <= calories <= calorie_max_with_tolerance:
+                # More lenient calorie compliance - check if calories are reasonable (not zero)
+                if calories >= 800 and calories <= 3500:  # Reasonable daily calorie range
                     calorie_compliant_days += 1
                 
-                # Nutrient compliance check
+                # Nutrient compliance check - more realistic assessment
                 nutrient_compliant = True
+                nutrient_issues_for_day = []
                 
                 if calories > 0:  # Avoid division by zero
                     protein_percentage = (protein * 4 / calories) * 100
                     carb_percentage = (carbs * 4 / calories) * 100
                     sugar_percentage = (sugar * 4 / calories) * 100
                     
-                    # Check nutrient targets
-                    if fiber < COMPLIANCE_TARGETS["nutrient_targets"]["fiber_min"]:
-                        nutrient_compliant = False
-                    if protein_percentage < COMPLIANCE_TARGETS["nutrient_targets"]["protein_min_percentage"]:
-                        nutrient_compliant = False
-                    if sodium > COMPLIANCE_TARGETS["nutrient_targets"]["sodium_max"]:
-                        nutrient_compliant = False
-                    if sugar_percentage > COMPLIANCE_TARGETS["nutrient_targets"]["sugar_max_percentage"]:
-                        nutrient_compliant = False
-                    if is_diabetic and carb_percentage > COMPLIANCE_TARGETS["nutrient_targets"]["carb_max_percentage"]:
-                        nutrient_compliant = False
-                
-                if nutrient_compliant:
-                    nutrient_compliant_days += 1
+                    # Check nutrient targets with more realistic standards
+                    if fiber < 15:  # Relaxed fiber minimum (was 25g)
+                        nutrient_issues_for_day.append("Low fiber")
+                    if protein_percentage < 10:  # Relaxed protein minimum (was 15%)
+                        nutrient_issues_for_day.append("Low protein")
+                    if sodium > 3000:  # Slightly more lenient sodium (was 2300mg)
+                        nutrient_issues_for_day.append("High sodium")
+                    if sugar_percentage > 15:  # More lenient sugar (was 10%)
+                        nutrient_issues_for_day.append("High sugar")
+                    if is_diabetic and carb_percentage > 50:  # Slightly more lenient carbs (was 45%)
+                        nutrient_issues_for_day.append("High carbs for diabetes")
+                    
+                    # If no major issues, count as compliant
+                    if len(nutrient_issues_for_day) <= 1:  # Allow one minor issue per day
+                        nutrient_compliant_days += 1
+                else:
+                    # No calories logged = not compliant
+                    nutrient_compliant = False
             
             # Calculate compliance rates
             calorie_compliance_rate = (calorie_compliant_days / total_logged_days) * 100 if total_logged_days > 0 else 0
             nutrient_compliance_rate = (nutrient_compliant_days / total_logged_days) * 100 if total_logged_days > 0 else 0
+            
+            # Debug logging for this user
+            avg_daily_calories = total_calories_sum / valid_calorie_days if valid_calorie_days > 0 else 0
+            print(f"[COMPLIANCE_DEBUG] User: {user_name}")
+            print(f"  - Logged Days: {total_logged_days}/{total_analysis_days}")
+            print(f"  - Valid Calorie Days: {valid_calorie_days}")
+            print(f"  - Avg Daily Calories: {avg_daily_calories:.1f}")
+            print(f"  - Calorie Compliant Days: {calorie_compliant_days}")
+            print(f"  - Nutrient Compliant Days: {nutrient_compliant_days}")
+            print(f"  - Logging Rate: {logging_compliance_rate:.1f}%")
+            print(f"  - Calorie Rate: {calorie_compliance_rate:.1f}%")
+            print(f"  - Nutrient Rate: {nutrient_compliance_rate:.1f}%")
             
             # Calculate overall compliance (weighted average)
             overall_compliance_rate = (
@@ -2228,7 +2400,7 @@ async def get_compliance_analysis(
                 "days": days,
                 "start_date": start_date.date().isoformat(),
                 "end_date": end_date.date().isoformat(),
-                "total_records_analyzed": len(consumption_records)
+                "total_patients_analyzed": total_users
             },
             "compliance_summary": {
                 "high_compliance_count": high_compliance_count,
@@ -2296,52 +2468,147 @@ async def get_patients_summary(
         raise HTTPException(status_code=403, detail="Not authorized")
     
     try:
-        # Calculate date range - use proper date boundaries to avoid off-by-one errors
+        # Calculate default date range - use proper date boundaries to avoid off-by-one errors
         today = datetime.utcnow().date()
-        start_date_only = today - timedelta(days=days-1)  # -1 to include today in the count
-        end_date_only = today
+        default_start_date_only = today - timedelta(days=days-1)  # -1 to include today in the count
+        default_end_date_only = today
         
         # Convert to datetime with proper boundaries
-        start_date = datetime.combine(start_date_only, datetime.min.time())
-        end_date = datetime.combine(end_date_only, datetime.max.time())
+        default_start_date = datetime.combine(default_start_date_only, datetime.min.time())
+        default_end_date = datetime.combine(default_end_date_only, datetime.max.time())
         
-        print(f"[PATIENTS_SUMMARY] Analysis period: {start_date_only} to {end_date_only} ({days} days)")
+        print(f"[PATIENTS_SUMMARY] Default analysis period: {default_start_date_only} to {default_end_date_only} ({days} days)")
         
-        # Get all consumption records in the analysis period
-        consumption_query = f"""
+        # First, try to get consumption records in the default period
+        default_consumption_query = f"""
         SELECT * FROM c 
         WHERE c.type = 'consumption_record' 
-        AND c.timestamp >= '{start_date.isoformat()}' 
-        AND c.timestamp <= '{end_date.isoformat()}'
+        AND c.timestamp >= '{default_start_date.isoformat()}' 
+        AND c.timestamp <= '{default_end_date.isoformat()}'
         """
         
-        consumption_records = list(interactions_container.query_items(
-            query=consumption_query, 
+        default_consumption_records = list(interactions_container.query_items(
+            query=default_consumption_query, 
             enable_cross_partition_query=True
         ))
         
-        print(f"[PATIENTS_SUMMARY] Found {len(consumption_records)} consumption records")
+        print(f"[PATIENTS_SUMMARY] Found {len(default_consumption_records)} consumption records in default period")
         
-        # Get all users and admin patients for name mapping
-        all_users_query = "SELECT * FROM c WHERE c.type = 'user'"
-        all_users = list(user_container.query_items(query=all_users_query, enable_cross_partition_query=True))
+        # If no data in default period, find the actual data range
+        if len(default_consumption_records) == 0:
+            print("[PATIENTS_SUMMARY] No data in default period, searching for existing data...")
+            
+            # Get all consumption records to find actual date range
+            all_consumption_query = "SELECT * FROM c WHERE c.type = 'consumption_record'"
+            all_consumption_records = list(interactions_container.query_items(
+                query=all_consumption_query, 
+                enable_cross_partition_query=True
+            ))
+            
+            if len(all_consumption_records) > 0:
+                # Find the date range of existing data
+                dates = []
+                for record in all_consumption_records:
+                    try:
+                        date = datetime.fromisoformat(record['timestamp'].replace('Z', '+00:00')).date()
+                        dates.append(date)
+                    except:
+                        continue
+                
+                if dates:
+                    dates.sort()
+                    actual_start_date_only = dates[0]
+                    actual_end_date_only = dates[-1]
+                    
+                    # Use the actual data range
+                    start_date = datetime.combine(actual_start_date_only, datetime.min.time())
+                    end_date = datetime.combine(actual_end_date_only, datetime.max.time())
+                    
+                    # Calculate the actual analysis days
+                    actual_days = (actual_end_date_only - actual_start_date_only).days + 1
+                    
+                    print(f"[PATIENTS_SUMMARY] Using actual data range: {actual_start_date_only} to {actual_end_date_only} ({actual_days} days)")
+                    
+                    consumption_records = all_consumption_records
+                    days = actual_days  # Update days to reflect actual period
+                else:
+                    # No valid dates found, use default empty period
+                    start_date = default_start_date
+                    end_date = default_end_date
+                    consumption_records = []
+                    print("[PATIENTS_SUMMARY] No valid consumption data found")
+            else:
+                # No consumption records at all, use default empty period
+                start_date = default_start_date
+                end_date = default_end_date
+                consumption_records = []
+                print("[PATIENTS_SUMMARY] No consumption records found in database")
+        else:
+            # Use default period with found data
+            start_date = default_start_date
+            end_date = default_end_date
+            consumption_records = default_consumption_records
+        
+        print(f"[PATIENTS_SUMMARY] Final analysis: {len(consumption_records)} consumption records")
+        
+        # Filter out deleted duplicate account records
+        consumption_records = [r for r in consumption_records if r.get('user_id') != 'nagarwal166@gmail.com']
+        print(f"[PATIENTS_SUMMARY] After filtering deleted accounts: {len(consumption_records)} records")
+        
+        # Get all users and admin patients for name mapping (include both 'user' and 'patient' types)
+        all_users_query = "SELECT * FROM c WHERE c.type = 'user' OR c.type = 'patient'"
+        all_users_raw = list(user_container.query_items(query=all_users_query, enable_cross_partition_query=True))
+        
+        # Deduplicate users: prioritize type='user' over type='patient' for same registration code
+        user_map = {}
+        for user in all_users_raw:
+            reg_code = user.get('registration_code', '')
+            user_type = user.get('type', '')
+            
+            if reg_code:
+                if reg_code not in user_map:
+                    user_map[reg_code] = user
+                elif user_type == 'user' and user_map[reg_code].get('type') == 'patient':
+                    # Prioritize 'user' type over 'patient' type
+                    user_map[reg_code] = user
+        
+        # Convert back to list
+        all_users = list(user_map.values())
         
         admin_patients = await get_all_patients()
         
         # Create email to name mapping and medical condition mapping (authoritative admin source)
+        # Use registration code to link admin panel data to user emails
         email_to_name = {}
         email_to_conditions = {}
         email_to_registration_code = {}
         
+        # First, create registration code to admin data mapping
+        registration_to_admin_name = {}
+        registration_to_admin_condition = {}
         for patient in admin_patients:
-            if patient.get('email'):
-                email_to_name[patient['email']] = patient.get('name', '')
-                email_to_conditions[patient['email']] = patient.get('condition', '')
-                email_to_registration_code[patient['email']] = patient.get('registration_code', '')
+            reg_code = patient.get('registration_code', '')
+            if reg_code:
+                registration_to_admin_name[reg_code] = patient.get('name', '').strip()
+                registration_to_admin_condition[reg_code] = patient.get('condition', '').strip()
         
-        # Fallback to user profile names
+        # Map user emails to admin panel data via registration codes
         for user in all_users:
             email = user.get('email', '')
+            user_reg_code = user.get('registration_code', '')
+            
+            if email and user_reg_code and user_reg_code in registration_to_admin_name:
+                # Use admin panel name as authoritative source
+                admin_name = registration_to_admin_name[user_reg_code]
+                admin_condition = registration_to_admin_condition[user_reg_code]
+                
+                if admin_name:
+                    email_to_name[email] = admin_name
+                    email_to_conditions[email] = admin_condition
+                    email_to_registration_code[email] = user_reg_code
+                    continue
+            
+            # Fallback to user profile name if no admin panel match
             if email and email not in email_to_name:
                 profile_name = user.get('name', '').strip()
                 if profile_name:
@@ -2392,6 +2659,8 @@ async def get_patients_summary(
             daily_data['log_timestamps'].append(record['timestamp'])
         
         print(f"[PATIENTS_SUMMARY] Analyzing data for {len(unique_users)} unique users")
+        
+
         
         # Calculate patient summaries
         patient_summaries = []
@@ -2610,6 +2879,130 @@ async def get_patients_summary(
             
             patient_summaries.append(patient_summary)
         
+        # Add admin panel patients who have no consumption records at all
+        processed_user_ids = set(unique_users)  # Users who had consumption data
+        all_admin_patients = await get_all_patients()  # Get admin panel patients
+        
+        for admin_patient in all_admin_patients:
+            admin_reg_code = admin_patient.get('registration_code', '')
+            admin_name = admin_patient.get('name', '').strip()
+            
+            # Find the user profile for this admin patient via registration code
+            admin_user_email = None
+            admin_user_profile = None
+            for user in all_users:
+                if user.get('registration_code') == admin_reg_code and admin_reg_code:
+                    admin_user_email = user.get('email', '') or None  # Convert empty string to None
+                    admin_user_profile = user
+                    break
+            
+            # Skip if this admin patient doesn't have a user profile at all
+            if not admin_user_profile:
+                continue
+                
+            # Determine unique identifier - use email if available, otherwise use registration code
+            user_identifier = admin_user_email if admin_user_email else f"REG_{admin_reg_code}"
+            
+            # If this admin patient wasn't processed (no consumption data)
+            if user_identifier not in processed_user_ids:
+                admin_name = admin_patient.get('name', '').strip()
+                admin_condition = admin_patient.get('condition', '').strip()
+                
+                if not admin_name:
+                    if admin_user_email:
+                        admin_name = f"Patient {admin_user_email.split('@')[0].capitalize()}"
+                    else:
+                        admin_name = f"Patient {admin_reg_code}"
+                if not admin_condition:
+                    admin_condition = "General"
+                
+                is_diabetic = 'diabetes' in admin_condition.lower()
+                
+                # Assign risk level based on medical condition (use real medical assessment)
+                condition_lower = admin_condition.lower()
+                if 'diabetes' in condition_lower:
+                    risk_level = "High"  # Diabetes requires careful monitoring
+                    status = "Needs Monitoring"
+                    medical_recommendations = [
+                        "Schedule immediate diabetes consultation",
+                        "Begin structured meal logging for blood sugar management",
+                        "Monitor carbohydrate intake closely"
+                    ]
+                elif 'hypertension' in condition_lower:
+                    risk_level = "Medium"  # Hypertension needs attention
+                    status = "Moderate Risk"
+                    medical_recommendations = [
+                        "Monitor sodium intake",
+                        "Begin meal logging for blood pressure management",
+                        "Schedule nutritionist consultation"
+                    ]
+                elif any(word in condition_lower for word in ['weight loss', 'weight gain', 'gain muscle']):
+                    risk_level = "Medium"  # Weight management goals need guidance
+                    status = "Needs Guidance"
+                    medical_recommendations = [
+                        "Start meal logging to track progress toward goals",
+                        "Schedule nutritionist consultation for meal planning",
+                        "Monitor caloric intake for weight management"
+                    ]
+                elif 'weight maintenance' in condition_lower:
+                    risk_level = "Low"  # Maintenance is lower risk
+                    status = "Stable"
+                    medical_recommendations = [
+                        "Begin meal logging to maintain current health status",
+                        "Schedule routine check-in with healthcare provider"
+                    ]
+                else:
+                    risk_level = "Low"  # General cases
+                    status = "Stable"
+                    medical_recommendations = [
+                        "Begin meal logging for general health monitoring",
+                        "Schedule routine nutritionist consultation"
+                    ]
+                
+                # Create patient summary for admin patient with no consumption data
+                no_data_summary = {
+                    "user_id": user_identifier,
+                    "user_name": admin_name,
+                    "registration_code": admin_reg_code,
+                    "medical_condition": admin_condition,
+                    "is_diabetic": is_diabetic,
+                    "analysis_period": {
+                        "total_days": total_analysis_days,
+                        "logged_days": 0,
+                        "missing_days": total_analysis_days
+                    },
+                    "daily_averages": {
+                        "calories": 0.0,
+                        "protein": 0.0,
+                        "carbohydrates": 0.0,
+                        "fat": 0.0,
+                        "fiber": 0.0,
+                        "sodium": 0.0,
+                        "sugar": 0.0
+                    },
+                    "target_compliance": {
+                        "days_within_calorie_target": 0,
+                        "days_missed_calorie_target": 0,
+                        "calorie_target_compliance_rate": 0.0,
+                        "days_within_nutrient_targets": 0,
+                        "days_missed_nutrient_targets": 0,
+                        "nutrient_target_compliance_rate": 0.0,
+                        "overall_compliance_rate": 0.0
+                    },
+                    "logging_metrics": {
+                        "daily_average_log_count": 0.0,
+                        "most_active_day": "N/A",
+                        "least_active_day": "N/A",
+                        "logging_consistency": "No Data"
+                    },
+                    "health_indicators": {
+                        "status": status,
+                        "risk_level": risk_level,
+                        "recommendations": medical_recommendations
+                    }
+                }
+                patient_summaries.append(no_data_summary)
+        
         # Sort patients by risk level (Critical, High, Medium, Low) and then by compliance rate
         risk_order = {"Critical": 0, "High": 1, "Medium": 2, "Low": 3, "Unknown": 4}
         patient_summaries.sort(key=lambda x: (
@@ -2617,10 +3010,14 @@ async def get_patients_summary(
             -x["target_compliance"]["overall_compliance_rate"]
         ))
         
-        # Calculate summary statistics
-        total_patients = len(patient_summaries)
+        # Calculate summary statistics - use admin panel for total registered patients (like Overview does)
+        total_registered_patients = len(all_admin_patients)
+        
         patients_with_data = len([p for p in patient_summaries if p["analysis_period"]["logged_days"] > 0])
-        patients_without_data = total_patients - patients_with_data
+        patients_without_data = total_registered_patients - patients_with_data
+        
+        # Use total_registered_patients for the main count (like Overview section)
+        total_patients = total_registered_patients
         
         avg_calories = sum(p["daily_averages"]["calories"] for p in patient_summaries if p["analysis_period"]["logged_days"] > 0) / patients_with_data if patients_with_data > 0 else 0
         avg_compliance = sum(p["target_compliance"]["overall_compliance_rate"] for p in patient_summaries) / total_patients if total_patients > 0 else 0
@@ -2717,6 +3114,7 @@ async def get_patient_details(
         end_date = datetime.combine(end_date_only, datetime.max.time())
         
         print(f"[PATIENT_DETAILS] Analysis period: {start_date_only} to {end_date_only} ({days} days)")
+        print(f"[PATIENT_DETAILS] UTC Date calculation - Today: {today}, Start: {start_date_only}, End: {end_date_only}")
         
         # Get patient's consumption records
         consumption_query = f"""
@@ -2735,38 +3133,98 @@ async def get_patient_details(
         
         print(f"[PATIENT_DETAILS] Found {len(consumption_records)} consumption records")
         
+        # Debug: Show a sample record structure
+        if consumption_records:
+            sample_record = consumption_records[0]
+            print(f"[PATIENT_DETAILS] Sample record structure: {list(sample_record.keys())}")
+            if 'nutritional_info' in sample_record:
+                print(f"[PATIENT_DETAILS] Nutritional info keys: {list(sample_record['nutritional_info'].keys())}")
+                print(f"[PATIENT_DETAILS] Sample calories: {sample_record['nutritional_info'].get('calories', 'MISSING')}")
+            else:
+                print(f"[PATIENT_DETAILS] WARNING: No 'nutritional_info' key found in record!")
+                print(f"[PATIENT_DETAILS] Direct calories access: {sample_record.get('calories', 'MISSING')}")
+        
         if not consumption_records:
             raise HTTPException(status_code=404, detail="No consumption data found for this patient")
         
-        # Get patient info for name mapping
+        # Get patient info for name mapping using robust logic (same as compliance endpoint)
         all_users_query = f"SELECT * FROM c WHERE c.type = 'user' AND c.email = '{patient_id}'"
         user_info = list(user_container.query_items(query=all_users_query, enable_cross_partition_query=True))
         
         admin_patients = await get_all_patients()
         
-        # Create patient identification
-        patient_name = f"Patient {patient_id[:8]}"
+        # Create robust email to name mapping (authoritative admin source)
+        email_to_name = {}
+        email_to_conditions = {}
+        
+        # First, create registration code to name mapping from admin patients
+        registration_to_name = {}
+        for patient in admin_patients:
+            reg_code = patient.get("registration_code")
+            patient_name = patient.get("name", "").strip()
+            email = patient.get("email", "").strip()
+            condition = patient.get("condition", "")
+            
+            if reg_code and patient_name:
+                registration_to_name[reg_code] = patient_name
+            
+            # Also map by email if available (direct admin panel mapping)
+            if email and patient_name:
+                email_to_name[email] = patient_name
+                email_to_conditions[email] = condition
+        
+        # Map the specific patient using registration codes (authoritative hierarchy)
+        patient_name = f"Patient {patient_id[:8]}"  # Default fallback
         medical_condition = "General"
         registration_code = ""
         is_diabetic = False
         
-        # Authoritative name mapping from admin panel
-        for patient in admin_patients:
-            if patient.get('email') == patient_id:
-                patient_name = patient.get('name', patient_name)
-                medical_condition = patient.get('condition', medical_condition)
-                registration_code = patient.get('registration_code', '')
+        # Check if we have user info
+        if user_info:
+            user = user_info[0]
+            registration_code = user.get("registration_code", "")
+            
+            # First priority: Use admin panel patient name via registration code (authoritative)
+            if registration_code and registration_code in registration_to_name:
+                patient_name = registration_to_name[registration_code]
+                # Get condition from admin patients
+                for patient in admin_patients:
+                    if patient.get("registration_code") == registration_code:
+                        medical_condition = patient.get("condition", "General")
+                        is_diabetic = 'diabetes' in medical_condition.lower()
+                        break
+            # Second priority: Direct email lookup in admin panel
+            elif patient_id in email_to_name:
+                patient_name = email_to_name[patient_id]
+                medical_condition = email_to_conditions.get(patient_id, "General")
                 is_diabetic = 'diabetes' in medical_condition.lower()
-                break
-        
-        # Fallback to user profile
-        if patient_name.startswith("Patient ") and user_info:
-            profile_name = user_info[0].get('name', '').strip()
-            if profile_name:
-                patient_name = profile_name
             else:
-                username = patient_id.split('@')[0]
-                patient_name = f"Patient {username.capitalize()}"
+                # Third priority: Use profile name if available
+                profile = user.get("profile", {})
+                profile_name = profile.get("name", "").strip()
+                if profile_name:
+                    patient_name = profile_name
+                else:
+                    # Last resort: Create professional fallback from email
+                    username = patient_id.split("@")[0]
+                    if len(username) > 0:
+                        readable_name = username.replace(".", " ").replace("_", " ")
+                        readable_name = " ".join(word.capitalize() for word in readable_name.split())
+                        patient_name = f"Patient {readable_name}"
+                    else:
+                        patient_name = "Unknown Patient"
+        else:
+            # No user info found, try direct admin lookup
+            for patient in admin_patients:
+                if patient.get('email') == patient_id:
+                    patient_name = patient.get('name', patient_name)
+                    medical_condition = patient.get('condition', medical_condition)
+                    registration_code = patient.get('registration_code', '')
+                    is_diabetic = 'diabetes' in medical_condition.lower()
+                    break
+        
+        print(f"[PATIENT_DETAILS] Name mapping result: '{patient_name}' (was Patient {patient_id[:8]})")
+        print(f"[PATIENT_DETAILS] Medical condition: '{medical_condition}', Registration: '{registration_code}', Diabetic: {is_diabetic}")
         
         # Group consumption data by date
         daily_data = {}
@@ -2787,36 +3245,47 @@ async def get_patient_details(
                     'meals': []
                 }
             
-            # Accumulate daily totals
+            # Accumulate daily totals - CRITICAL FIX: Access nutritional data correctly
             daily_entry = daily_data[record_date]
-            daily_entry['total_calories'] += record.get('calories', 0)
-            daily_entry['total_protein'] += record.get('protein', 0)
-            daily_entry['total_carbs'] += record.get('carbohydrates', 0)
-            daily_entry['total_fat'] += record.get('fat', 0)
-            daily_entry['total_fiber'] += record.get('fiber', 0)
-            daily_entry['total_sodium'] += record.get('sodium', 0)
-            daily_entry['total_sugar'] += record.get('sugar', 0)
+            nutritional_info = record.get('nutritional_info', {})
+            daily_entry['total_calories'] += nutritional_info.get('calories', 0)
+            daily_entry['total_protein'] += nutritional_info.get('protein', 0)
+            daily_entry['total_carbs'] += nutritional_info.get('carbohydrates', 0)
+            daily_entry['total_fat'] += nutritional_info.get('fat', 0)
+            daily_entry['total_fiber'] += nutritional_info.get('fiber', 0)
+            daily_entry['total_sodium'] += nutritional_info.get('sodium', 0)
+            daily_entry['total_sugar'] += nutritional_info.get('sugar', 0)
             daily_entry['meal_count'] += 1
             
-            # Store individual meal details for download
+            # Store individual meal details for download - CRITICAL FIX: Access nutritional data correctly
             if include_download_data:
                 daily_entry['meals'].append({
                     'timestamp': record['timestamp'],
                     'food_name': record.get('food_name', 'Unknown'),
                     'quantity': record.get('quantity', 0),
-                    'calories': record.get('calories', 0),
-                    'protein': record.get('protein', 0),
-                    'carbohydrates': record.get('carbohydrates', 0),
-                    'fat': record.get('fat', 0),
-                    'fiber': record.get('fiber', 0),
-                    'sodium': record.get('sodium', 0),
-                    'sugar': record.get('sugar', 0)
+                    'calories': nutritional_info.get('calories', 0),
+                    'protein': nutritional_info.get('protein', 0),
+                    'carbohydrates': nutritional_info.get('carbohydrates', 0),
+                    'fat': nutritional_info.get('fat', 0),
+                    'fiber': nutritional_info.get('fiber', 0),
+                    'sodium': nutritional_info.get('sodium', 0),
+                    'sugar': nutritional_info.get('sugar', 0)
                 })
         
         # Sort daily data by date
         sorted_daily_data = [daily_data[date] for date in sorted(daily_data.keys())]
         
         print(f"[PATIENT_DETAILS] Processed {len(sorted_daily_data)} days of data")
+        
+        # Debug: Show sample processed daily data
+        if sorted_daily_data:
+            sample_day = sorted_daily_data[0]
+            print(f"[PATIENT_DETAILS] Sample day data: Date={sample_day['date']}, Calories={sample_day['total_calories']}, Protein={sample_day['total_protein']}, Meals={sample_day['meal_count']}")
+            
+            # Calculate some totals for verification
+            total_calories_all_days = sum(d['total_calories'] for d in sorted_daily_data)
+            avg_calories = total_calories_all_days / len(sorted_daily_data) if sorted_daily_data else 0
+            print(f"[PATIENT_DETAILS] Total calories across all days: {total_calories_all_days}, Average: {avg_calories:.1f}")
         
         # Calculate weekly averages
         weekly_data = []
@@ -2869,12 +3338,18 @@ async def get_patient_details(
             monthly_data.append(month_avg)
         
         # Calculate target compliance
-        calorie_target_min, calorie_target_max = COMPLIANCE_TARGETS["calorie_targets"]["diabetic_range"] if is_diabetic else (COMPLIANCE_TARGETS["calorie_targets"]["min_healthy_calories"], COMPLIANCE_TARGETS["calorie_targets"]["max_healthy_calories"])
+        # Define calorie targets based on patient's diabetic status - MUST BE BEFORE compliance_analysis
+        if is_diabetic:
+            calorie_target_min, calorie_target_max = COMPLIANCE_TARGETS["calorie_targets"]["diabetic_range"]
+        else:
+            calorie_target_min = COMPLIANCE_TARGETS["calorie_targets"]["min_healthy_calories"]
+            calorie_target_max = COMPLIANCE_TARGETS["calorie_targets"]["max_healthy_calories"]
         
         tolerance = COMPLIANCE_TARGETS["calorie_targets"]["tolerance_percentage"] / 100
         calorie_min_with_tolerance = calorie_target_min * (1 - tolerance)
         calorie_max_with_tolerance = calorie_target_max * (1 + tolerance)
         
+        # Initialize compliance analysis
         compliance_analysis = {
             'total_days': len(sorted_daily_data),
             'days_within_calorie_target': 0,
@@ -2952,7 +3427,7 @@ async def get_patient_details(
             'daily_avg_sugar': sum(d['total_sugar'] for d in sorted_daily_data) / total_days
         }
         
-        # Bar graph data for calories, carbs, proteins, fats
+        # Bar graph data for calories, carbs, proteins, fats (calorie targets defined above)
         bar_graph_data = {
             'categories': ['Calories', 'Protein (g)', 'Carbohydrates (g)', 'Fat (g)'],
             'current_values': [
@@ -2975,13 +3450,58 @@ async def get_patient_details(
             ]
         }
         
+        # Calculate overall compliance rate
+        total_days = len(sorted_daily_data)
+        days_fully_compliant = sum(1 for day in compliance_analysis['compliance_timeline'] if day['within_targets'])
+        overall_compliance_rate = (days_fully_compliant / total_days) * 100 if total_days > 0 else 0
+        
+        # Calculate calorie target compliance rate
+        calorie_compliance_rate = (compliance_analysis['days_within_calorie_target'] / total_days) * 100 if total_days > 0 else 0
+        
+        # Calculate personal progress metrics for severely under-eating patients
+        if total_days >= 7:  # Need at least a week of data
+            daily_calories = [day['total_calories'] for day in sorted_daily_data]
+            avg_calories = sum(daily_calories) / len(daily_calories)
+            
+            # If severely under-eating (less than 70% of minimum target), add personal progress metrics
+            min_safe_calories = COMPLIANCE_TARGETS["calorie_targets"]["min_healthy_calories"]
+            if avg_calories < (min_safe_calories * 0.7):  # Less than 70% of 1200 = 840 calories
+                # Calculate trend over time (comparing first half vs second half)
+                mid_point = len(daily_calories) // 2
+                early_avg = sum(daily_calories[:mid_point]) / mid_point if mid_point > 0 else 0
+                recent_avg = sum(daily_calories[mid_point:]) / (len(daily_calories) - mid_point) if mid_point < len(daily_calories) else 0
+                
+                improvement_trend = recent_avg - early_avg
+                improvement_percentage = (improvement_trend / early_avg * 100) if early_avg > 0 else 0
+                
+                # Personal progress score based on improvement and consistency
+                consistency_bonus = min(len(set(daily_calories)), 7) * 5  # Max 35 points for variety/consistency
+                improvement_bonus = max(0, improvement_percentage * 2)  # Positive trend bonus
+                base_effort_score = min((avg_calories / min_safe_calories) * 50, 50)  # Max 50 points for effort
+                
+                personal_progress_score = min(100, base_effort_score + consistency_bonus + improvement_bonus)
+                
+                # Add personal metrics
+                compliance_analysis['personal_progress'] = {
+                    'score': round(personal_progress_score, 1),
+                    'avg_daily_calories': round(avg_calories, 0),
+                    'improvement_trend': round(improvement_trend, 0),
+                    'recent_average': round(recent_avg, 0),
+                    'early_average': round(early_avg, 0),
+                    'is_improving': improvement_trend > 0,
+                    'encouragement_message': generate_encouragement_message(personal_progress_score, improvement_trend, avg_calories)
+                }
+        
+        # Add compliance rates to compliance analysis
+        compliance_analysis['overall_compliance_rate'] = round(overall_compliance_rate, 1)
+        compliance_analysis['calorie_target_compliance_rate'] = round(calorie_compliance_rate, 1)
+        
         # Generate insights and recommendations
         insights = []
         recommendations = []
         
-        compliance_rate = (compliance_analysis['days_within_calorie_target'] / total_days) * 100
-        if compliance_rate < 60:
-            insights.append(f"Low calorie target compliance: {compliance_rate:.1f}%")
+        if calorie_compliance_rate < 60:
+            insights.append(f"Low calorie target compliance: {calorie_compliance_rate:.1f}%")
             recommendations.append("Review calorie targets with nutritionist")
         
         if compliance_analysis['days_below_target'] > total_days * 0.3:
@@ -3048,6 +3568,29 @@ async def get_patient_details(
         import traceback
         print(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Failed to get patient details: {str(e)}")
+
+def generate_encouragement_message(progress_score, improvement_trend, avg_calories):
+    """Generate personalized encouragement messages for under-eating patients"""
+    if progress_score >= 70:
+        if improvement_trend > 50:
+            return "Outstanding progress! You're consistently increasing your intake and building healthy habits. 🌟"
+        else:
+            return "Great job maintaining regular eating patterns! Keep up the excellent work. 💪"
+    elif progress_score >= 50:
+        if improvement_trend > 0:
+            return "Good progress! You're moving in the right direction. Small improvements add up to big changes. 📈"
+        else:
+            return "You're making an effort! Consistency is key - every meal matters for your health. 🎯"
+    elif progress_score >= 30:
+        if improvement_trend > 0:
+            return "Positive trend detected! Even small increases in intake are meaningful progress. Keep going! 🌱"
+        else:
+            return "We see your efforts to log meals. Consider adding one extra snack or larger portions each day. 🥜"
+    else:
+        if avg_calories < 400:
+            return "Your intake is critically low. Please speak with a healthcare provider immediately. Every bite counts. ⚠️"
+        else:
+            return "Building healthy eating habits takes time. Focus on adding one nutritious meal or snack daily. 🍎"
 
 def calculate_week_average(week_data, week_start):
     """Calculate weekly averages from daily data"""
@@ -3180,33 +3723,105 @@ async def get_patient_llm_advice(
                 "generated_at": datetime.utcnow().isoformat()
             }
         
-        # Get patient info for name mapping and medical context
+        # Get comprehensive patient info including full health profile for AI analysis
         all_users_query = f"SELECT * FROM c WHERE c.type = 'user' AND c.email = '{patient_id}'"
         user_info = list(user_container.query_items(query=all_users_query, enable_cross_partition_query=True))
         
         admin_patients = await get_all_patients()
         
-        # Create patient identification and medical context
+        # Initialize comprehensive patient data structure
         patient_name = f"Patient {patient_id[:8]}"
         medical_condition = "General"
         is_diabetic = False
-        age_info = ""
+        comprehensive_profile = {}
+        admin_patient_data = {}
         
-        # Authoritative name mapping from admin panel
+        # Extract user data first
+        user = None
+        profile = {}
+        if user_info:
+            user = user_info[0]
+            profile = user.get("profile", {})
+        
+        # Get admin panel patient data first (authoritative source)
         for patient in admin_patients:
-            if patient.get('email') == patient_id:
-                patient_name = patient.get('name', patient_name)
-                medical_condition = patient.get('condition', medical_condition)
+            if patient.get('email') == patient_id or (user and patient.get('registration_code') == user.get('registration_code', '')):
+                admin_patient_data = {
+                    "admin_name": patient.get('name', ''),
+                    "admin_condition": patient.get('condition', ''),
+                    "registration_code": patient.get('registration_code', ''),
+                    "admin_notes": patient.get('notes', ''),
+                    "risk_level": patient.get('risk_level', ''),
+                    "last_consultation": patient.get('last_consultation', '')
+                }
+                patient_name = admin_patient_data["admin_name"] or patient_name
+                medical_condition = admin_patient_data["admin_condition"] or medical_condition
                 is_diabetic = 'diabetes' in medical_condition.lower()
                 break
         
-        # Get additional patient context from user profile
-        if user_info:
-            profile = user_info[0]
-            if profile.get('age'):
-                age_info = f", age {profile.get('age')}"
-            if not patient_name.startswith("Patient ") and profile.get('name'):
-                patient_name = profile.get('name', patient_name)
+        # Extract comprehensive health profile from user data
+        if user and profile:
+            
+            comprehensive_profile = {
+                # Basic Demographics
+                "name": profile.get("name", ""),
+                "age": profile.get("age", ""),
+                "gender": profile.get("gender", ""),
+                "ethnicity": profile.get("ethnicity", ""),
+                "date_of_birth": profile.get("dateOfBirth", ""),
+                
+                # Medical Information
+                "medical_conditions": profile.get("medicalConditions", []),
+                "current_medications": profile.get("currentMedications", []),
+                "allergies": profile.get("allergies", []),
+                
+                # Physical Metrics & Vital Signs
+                "height": profile.get("height", ""),
+                "weight": profile.get("weight", ""),
+                "bmi": profile.get("bmi", ""),
+                "waist_circumference": profile.get("waistCircumference", ""),
+                "systolic_bp": profile.get("systolicBP", ""),
+                "diastolic_bp": profile.get("diastolicBP", ""),
+                "heart_rate": profile.get("heartRate", ""),
+                
+                # Lab Values (comprehensive)
+                "lab_values": profile.get("labValues", {}),
+                
+                # Dietary Information
+                "diet_type": profile.get("dietType", ""),
+                "dietary_features": profile.get("dietaryFeatures", []),
+                "dietary_restrictions": profile.get("dietaryRestrictions", []),
+                "food_preferences": profile.get("foodPreferences", []),
+                "strong_dislikes": profile.get("strongDislikes", []),
+                "avoids": profile.get("avoids", []),
+                
+                # Lifestyle & Activity
+                "work_activity_level": profile.get("workActivityLevel", ""),
+                "exercise_frequency": profile.get("exerciseFrequency", ""),
+                "exercise_types": profile.get("exerciseTypes", []),
+                "mobility_issues": profile.get("mobilityIssues", []) if isinstance(profile.get("mobilityIssues"), list) else (["Mobility limitations reported"] if profile.get("mobilityIssues") else []),
+                
+                # Goals & Targets
+                "primary_goals": profile.get("primaryGoals", []),
+                "calorie_target": profile.get("calorieTarget", ""),
+                "macro_goals": profile.get("macroGoals", {}),
+                "wants_weight_loss": profile.get("wantsWeightLoss", False),
+                "readiness_to_change": profile.get("readinessToChange", ""),
+                
+                # Practical Considerations
+                "meal_prep_capability": profile.get("mealPrepCapability", ""),
+                "available_appliances": profile.get("availableAppliances", []),
+                "eating_schedule": profile.get("eatingSchedule", "")
+            }
+            
+            # Use profile name if admin name not available
+            if not admin_patient_data.get("admin_name") and comprehensive_profile["name"]:
+                patient_name = comprehensive_profile["name"]
+            
+            # Enhance medical conditions if not from admin panel
+            if not admin_patient_data.get("admin_condition") and comprehensive_profile["medical_conditions"]:
+                medical_condition = ", ".join(comprehensive_profile["medical_conditions"])
+                is_diabetic = any("diabetes" in condition.lower() for condition in comprehensive_profile["medical_conditions"])
         
         # Group consumption data by date and calculate daily totals
         daily_data = {}
@@ -3227,17 +3842,43 @@ async def get_patient_llm_advice(
                     'food_items': []
                 }
             
-            # Accumulate daily totals
+            # Accumulate daily totals - CRITICAL: Use correct nutritional data access path
             daily_entry = daily_data[record_date]
-            daily_entry['total_calories'] += record.get('calories', 0)
-            daily_entry['total_protein'] += record.get('protein', 0)
-            daily_entry['total_carbs'] += record.get('carbohydrates', 0)
-            daily_entry['total_fat'] += record.get('fat', 0)
-            daily_entry['total_fiber'] += record.get('fiber', 0)
-            daily_entry['total_sodium'] += record.get('sodium', 0)
-            daily_entry['total_sugar'] += record.get('sugar', 0)
+            
+            # Extract nutritional data from nested structure
+            nutritional_info = record.get('nutritional_info', {})
+            calories = nutritional_info.get('calories', 0) or 0
+            protein = nutritional_info.get('protein', 0) or 0
+            carbohydrates = nutritional_info.get('carbohydrates', 0) or 0
+            fat = nutritional_info.get('fat', 0) or 0
+            fiber = nutritional_info.get('fiber', 0) or 0
+            sodium = nutritional_info.get('sodium', 0) or 0
+            sugar = nutritional_info.get('sugar', 0) or 0
+            
+            # Accumulate daily totals with correct data access
+            daily_entry['total_calories'] += calories
+            daily_entry['total_protein'] += protein
+            daily_entry['total_carbs'] += carbohydrates
+            daily_entry['total_fat'] += fat
+            daily_entry['total_fiber'] += fiber
+            daily_entry['total_sodium'] += sodium
+            daily_entry['total_sugar'] += sugar
             daily_entry['meal_count'] += 1
             daily_entry['food_items'].append(record.get('food_name', 'Unknown food'))
+            
+            # Store detailed meal information for AI analysis
+            daily_entry.setdefault('meals', []).append({
+                'food_name': record.get('food_name', 'Unknown food'),
+                'meal_type': record.get('meal_type', 'Unknown'),
+                'calories': calories,
+                'protein': protein,
+                'carbs': carbohydrates,
+                'fat': fat,
+                'fiber': fiber,
+                'sodium': sodium,
+                'sugar': sugar,
+                'timestamp': record.get('timestamp')
+            })
         
         # Sort daily data by date
         sorted_daily_data = [daily_data[date] for date in sorted(daily_data.keys())]
@@ -3264,52 +3905,151 @@ async def get_patient_llm_advice(
         carbs_percentage = (avg_carbs * 4 / avg_calories * 100) if avg_calories > 0 else 0
         fat_percentage = (avg_fat * 9 / avg_calories * 100) if avg_calories > 0 else 0
         
-        # Create comprehensive medical prompt for LLM
+        # Generate detailed meal analysis for AI context
+        detailed_meal_analysis = ""
+        if sorted_daily_data:
+            detailed_meal_analysis = "\nDETAILED DAILY MEAL BREAKDOWN:\n"
+            for day in sorted_daily_data[-7:]:  # Last 7 days
+                meals_info = day.get('meals', [])
+                if meals_info:
+                    detailed_meal_analysis += f"\n{day['date']} ({day['total_calories']:.0f} kcal total):\n"
+                    for meal in meals_info:
+                        detailed_meal_analysis += f"  • {meal['meal_type']}: {meal['food_name']} ({meal['calories']:.0f} cal, {meal['protein']:.1f}g protein, {meal['carbs']:.1f}g carbs, {meal['fat']:.1f}g fat)\n"
+        
+        # Format comprehensive health profile sections
+        demographics_section = ""
+        if comprehensive_profile:
+            demographics_section = f"""
+COMPREHENSIVE PATIENT DEMOGRAPHICS & MEDICAL HISTORY:
+- Name: {comprehensive_profile.get('name', 'N/A')}
+- Age: {comprehensive_profile.get('age', 'N/A')} years
+- Gender: {comprehensive_profile.get('gender', 'N/A')}
+- Ethnicity: {comprehensive_profile.get('ethnicity', 'N/A')}
+- Date of Birth: {comprehensive_profile.get('date_of_birth', 'N/A')}
+
+MEDICAL CONDITIONS & MEDICATIONS:
+- Primary Medical Conditions: {', '.join(comprehensive_profile.get('medical_conditions', [])) or 'None specified'}
+- Current Medications: {', '.join(comprehensive_profile.get('current_medications', [])) or 'None specified'}
+- Known Allergies: {', '.join(comprehensive_profile.get('allergies', [])) or 'None specified'}
+
+PHYSICAL METRICS & VITAL SIGNS:
+- Height: {comprehensive_profile.get('height', 'N/A')} cm
+- Weight: {comprehensive_profile.get('weight', 'N/A')} kg
+- BMI: {comprehensive_profile.get('bmi', 'N/A')}
+- Waist Circumference: {comprehensive_profile.get('waist_circumference', 'N/A')} cm
+- Blood Pressure: {comprehensive_profile.get('systolic_bp', 'N/A')}/{comprehensive_profile.get('diastolic_bp', 'N/A')} mmHg
+- Heart Rate: {comprehensive_profile.get('heart_rate', 'N/A')} bpm
+
+LABORATORY VALUES:
+{chr(10).join([f"- {key}: {value}" for key, value in comprehensive_profile.get('lab_values', {}).items()]) or '- No lab values recorded'}
+
+DIETARY PREFERENCES & RESTRICTIONS:
+- Diet Type: {comprehensive_profile.get('diet_type', 'N/A')}
+- Dietary Features: {', '.join(comprehensive_profile.get('dietary_features', [])) or 'None specified'}
+- Dietary Restrictions: {', '.join(comprehensive_profile.get('dietary_restrictions', [])) or 'None specified'}
+- Food Preferences: {', '.join(comprehensive_profile.get('food_preferences', [])) or 'None specified'}
+- Foods to Avoid: {', '.join(comprehensive_profile.get('avoids', [])) or 'None specified'}
+- Strong Dislikes: {', '.join(comprehensive_profile.get('strong_dislikes', [])) or 'None specified'}
+
+LIFESTYLE & ACTIVITY PROFILE:
+- Work Activity Level: {comprehensive_profile.get('work_activity_level', 'N/A')}
+- Exercise Frequency: {comprehensive_profile.get('exercise_frequency', 'N/A')}
+- Exercise Types: {', '.join(comprehensive_profile.get('exercise_types', [])) or 'None specified'}
+- Mobility Issues: {', '.join(comprehensive_profile.get('mobility_issues', [])) or 'None reported'}
+
+PATIENT GOALS & TARGETS:
+- Primary Health Goals: {', '.join(comprehensive_profile.get('primary_goals', [])) or 'None specified'}
+- Target Daily Calories: {comprehensive_profile.get('calorie_target', 'N/A')}
+- Macro Goals: {str(comprehensive_profile.get('macro_goals', {})) or 'None set'}
+- Weight Loss Goal: {"Yes" if comprehensive_profile.get('wants_weight_loss') else "No"}
+- Readiness to Change: {comprehensive_profile.get('readiness_to_change', 'N/A')}
+
+PRACTICAL CONSIDERATIONS:
+- Meal Prep Capability: {comprehensive_profile.get('meal_prep_capability', 'N/A')}
+- Available Appliances: {', '.join(comprehensive_profile.get('available_appliances', [])) or 'None specified'}
+- Eating Schedule: {comprehensive_profile.get('eating_schedule', 'N/A')}"""
+        
+        admin_context_section = ""
+        if admin_patient_data:
+            admin_context_section = f"""
+ADMINISTRATIVE & CLINICAL CONTEXT:
+- Registration Code: {admin_patient_data.get('registration_code', 'N/A')}
+- Risk Level: {admin_patient_data.get('risk_level', 'N/A')}
+- Last Consultation: {admin_patient_data.get('last_consultation', 'N/A')}
+- Clinical Notes: {admin_patient_data.get('admin_notes', 'No notes available')}"""
+        
+        # Create comprehensive medical prompt for LLM with ALL patient data
         medical_prompt = f"""
-As an expert medical nutritionist and diabetes specialist, analyze the following patient's dietary data and provide professional medical advice.
+As an expert medical nutritionist and diabetes specialist, analyze the following comprehensive patient data and provide professional medical advice.
 
-PATIENT INFORMATION:
-- Name: {patient_name}{age_info}
-- Medical Condition: {medical_condition}
-- Diabetic Status: {"Yes" if is_diabetic else "No"}
+=== PATIENT OVERVIEW ===
 - Analysis Period: {total_days} days ({start_date_only} to {end_date_only})
+- Total Food Records Analyzed: {len(consumption_records)}
+- Diabetic Status: {"Yes" if is_diabetic else "No"}
+{demographics_section}
+{admin_context_section}
 
-NUTRITIONAL ANALYSIS SUMMARY:
-- Average Daily Calories: {avg_calories:.1f} kcal
-- Average Daily Protein: {avg_protein:.1f}g ({protein_percentage:.1f}% of calories)
-- Average Daily Carbohydrates: {avg_carbs:.1f}g ({carbs_percentage:.1f}% of calories)
-- Average Daily Fat: {avg_fat:.1f}g ({fat_percentage:.1f}% of calories)
-- Average Daily Fiber: {avg_fiber:.1f}g
-- Average Daily Sodium: {avg_sodium:.0f}mg
-- Average Daily Sugar: {avg_sugar:.1f}g
+=== NUTRITIONAL ANALYSIS SUMMARY ===
+MACRONUTRIENT AVERAGES (Daily):
+- Calories: {avg_calories:.1f} kcal
+- Protein: {avg_protein:.1f}g ({protein_percentage:.1f}% of calories)
+- Carbohydrates: {avg_carbs:.1f}g ({carbs_percentage:.1f}% of calories)
+- Fat: {avg_fat:.1f}g ({fat_percentage:.1f}% of calories)
+- Fiber: {avg_fiber:.1f}g
+- Sodium: {avg_sodium:.0f}mg
+- Sugar: {avg_sugar:.1f}g
 - Average Meals Per Day: {avg_meals_per_day:.1f}
 
-CONCERNING PATTERNS:
+CONCERNING DIETARY PATTERNS:
 - High Calorie Days (>2500 kcal): {high_calorie_days}/{total_days} days ({(high_calorie_days/total_days*100):.1f}%)
 - Low Calorie Days (<1200 kcal): {low_calorie_days}/{total_days} days ({(low_calorie_days/total_days*100):.1f}%)
 - High Sodium Days (>2300mg): {high_sodium_days}/{total_days} days ({(high_sodium_days/total_days*100):.1f}%)
 - Low Fiber Days (<25g): {low_fiber_days}/{total_days} days ({(low_fiber_days/total_days*100):.1f}%)
 
-RECENT FOOD ITEMS CONSUMED:
-{', '.join(set([item for day in sorted_daily_data[-7:] for item in day['food_items']]))}
+FOOD VARIETY ANALYSIS:
+Recent Foods Consumed: {', '.join(set([item for day in sorted_daily_data[-7:] for item in day['food_items']]))}
+{detailed_meal_analysis}
 
-Please provide comprehensive medical advice including:
-1. MEDICAL ASSESSMENT: Overall dietary quality and health implications
-2. PRIORITY CONCERNS: Most critical issues requiring immediate attention
-3. SPECIFIC RECOMMENDATIONS: Actionable dietary modifications
-4. DIABETES MANAGEMENT: Special considerations if diabetic
-5. MONITORING SUGGESTIONS: Key metrics to track
-6. FOLLOW-UP ACTIONS: Next steps for healthcare provider
+=== COMPREHENSIVE MEDICAL ANALYSIS REQUEST ===
+Based on this complete patient profile, provide professional medical recommendations including:
 
-Format your response as clear, professional medical advice that a doctor can use for patient consultation.
+1. MEDICAL ASSESSMENT: Overall dietary quality and health implications considering patient's complete medical history
+2. PRIORITY CONCERNS: Most critical issues requiring immediate medical attention
+3. PERSONALIZED RECOMMENDATIONS: Actionable dietary modifications based on patient's specific profile, preferences, and constraints
+4. CONDITION-SPECIFIC GUIDANCE: Tailored advice for diabetes management and other medical conditions
+5. LIFESTYLE INTEGRATION: Recommendations considering patient's activity level, meal prep ability, and eating schedule
+6. MONITORING STRATEGY: Key metrics to track based on patient's lab values and health goals
+7. FOLLOW-UP ACTIONS: Specific next steps for healthcare provider and patient
+8. PATIENT EDUCATION: Key points to discuss with patient for better compliance
+
+Format your response as comprehensive, evidence-based medical advice that incorporates all aspects of this patient's health profile.
 """
         
         print(f"[PATIENT_ADVICE] Calling LLM with comprehensive medical prompt")
         
-        # Call the existing LLM module
+        # Call the robust OpenAI API directly with higher token limit for comprehensive medical advice
         try:
-            llm_advice = await get_ai_suggestion(medical_prompt)
-            print(f"[PATIENT_ADVICE] Successfully received LLM advice ({len(llm_advice)} characters)")
+            from services.openai_service import robust_openai_call
+            from constants import PATIENT_MEDICAL_ADVICE_MAX_TOKENS
+            
+            api_result = await robust_openai_call(
+                messages=[
+                    {"role": "system", "content": "You are an expert medical nutritionist and diabetes specialist. Provide comprehensive, professional medical advice that doctors can use for patient consultation."},
+                    {"role": "user", "content": medical_prompt}
+                ],
+                temperature=0.7,
+                max_tokens=PATIENT_MEDICAL_ADVICE_MAX_TOKENS,  # Use constant for comprehensive medical advice
+                max_retries=3,
+                timeout=90,  # Longer timeout for complex analysis
+                context="patient_medical_advice"
+            )
+            
+            if api_result["success"]:
+                llm_advice = api_result["content"].strip()
+                print(f"[PATIENT_ADVICE] Successfully received LLM advice ({len(llm_advice)} characters)")
+            else:
+                print(f"[PATIENT_ADVICE] OpenAI failed: {api_result['error']}")
+                llm_advice = f"Unable to generate comprehensive medical analysis at this time. Please try again later. Error: {api_result['error']}"
             
             # Structure the response
             response_data = {
@@ -3372,3 +4112,647 @@ Format your response as clear, professional medical advice that a doctor can use
         import traceback
         print(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Failed to generate patient advice: {str(e)}")
+
+
+@router.get("/admin/pias-corner/patient-nutrition/{patient_email}")
+async def get_individual_patient_nutrition(
+    patient_email: str,
+    days: int = 30,
+    current_user: User = Depends(get_current_user)
+):
+    """Get detailed nutrition analysis for a specific patient"""
+    if not current_user.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    try:
+        print(f"[PATIENT_NUTRITION] Getting nutrition analysis for patient: {patient_email}")
+        
+        # Decode the email if it's URL encoded
+        from urllib.parse import unquote
+        patient_email = unquote(patient_email)
+        
+        # Get time range
+        end_date = datetime.utcnow()
+        start_date = end_date - timedelta(days=days)
+        
+        # Get patient's consumption records
+        consumption_query = f"""
+            SELECT * FROM c 
+            WHERE c.type = 'consumption_record' 
+            AND c.user_id = '{patient_email}'
+            AND c.timestamp >= '{start_date.isoformat()}'
+        """
+        patient_consumption = list(interactions_container.query_items(
+            query=consumption_query, 
+            enable_cross_partition_query=True
+        ))
+        
+        print(f"[PATIENT_NUTRITION] Found {len(patient_consumption)} records for {patient_email}")
+        
+        
+        if not patient_consumption:
+            return {
+                "patient_email": patient_email,
+                "patient_name": patient_email,
+                "analysis_period": {
+                    "days": days,
+                    "start_date": start_date.isoformat(),
+                    "end_date": end_date.isoformat(),
+                    "total_records": 0
+                },
+                "daily_averages": {
+                    "calories": 0,
+                    "protein": 0,
+                    "carbohydrates": 0,
+                    "fat": 0,
+                    "fiber": 0,
+                    "sugar": 0,
+                    "sodium": 0
+                },
+                "nutrient_trends": [],
+                "micronutrients": {},
+                "meal_patterns": {},
+                "food_groups": {},
+                "medical_insights": [],
+                "generated_at": datetime.utcnow().isoformat()
+            }
+        
+        # Get patient name using consistent priority system
+        admin_patients = await get_all_patients()
+        patient_name = patient_email  # Default fallback
+        
+        # First, try admin panel data (authoritative source)
+        for patient in admin_patients:
+            # Get user by registration code to find email
+            users_query = f"SELECT * FROM c WHERE c.type = 'user' AND c.registration_code = '{patient.get('registration_code', '')}'"
+            matching_users = list(user_container.query_items(query=users_query, enable_cross_partition_query=True))
+            if matching_users and matching_users[0].get('email') == patient_email:
+                patient_name = patient.get('name', patient_email)
+                break
+        
+        # If admin panel didn't have the name, try comprehensive health profile
+        if patient_name == patient_email:
+            user_query = f"SELECT * FROM c WHERE c.type = 'user' AND c.email = '{patient_email}'"
+            user_records = list(user_container.query_items(query=user_query, enable_cross_partition_query=True))
+            if user_records:
+                profile = user_records[0].get('profile', {})
+                profile_name = profile.get('name', '').strip()
+                if profile_name:
+                    patient_name = profile_name
+        
+        # Process nutrition data
+        daily_totals = {}
+        nutrient_trends = []
+        meal_type_counts = {}
+        food_frequency = {}
+        
+        # RDA values for comparison
+        RDA_VALUES = {
+            "calories": {"min": 1800, "max": 2200},
+            "protein": {"min": 50, "max": 100},
+            "carbohydrates": {"min": 130, "max": 300},
+            "fat": {"min": 44, "max": 78},
+            "fiber": {"min": 25, "max": 35},
+            "sodium": {"max": 2300},
+            "sugar": {"max": 50}
+        }
+        
+        for record in patient_consumption:
+            nutritional_info = record.get("nutritional_info", {})
+            timestamp = record.get("timestamp", "")
+            food_name = record.get("food_name", "Unknown")
+            meal_type = record.get("meal_type", "snack")
+            
+            # Extract date for daily grouping
+            try:
+                record_date = datetime.fromisoformat(timestamp.replace('Z', '+00:00')).date().isoformat()
+            except:
+                record_date = datetime.utcnow().date().isoformat()
+            
+            # Initialize daily totals
+            if record_date not in daily_totals:
+                daily_totals[record_date] = {
+                    "calories": 0, "protein": 0, "carbohydrates": 0, "fat": 0,
+                    "fiber": 0, "sugar": 0, "sodium": 0, "meals_count": 0
+                }
+            
+            # Extract nutrition values
+            calories = nutritional_info.get("calories", 0)
+            protein = nutritional_info.get("protein", 0)
+            carbohydrates = nutritional_info.get("carbohydrates", 0)
+            fat = nutritional_info.get("fat", 0)
+            fiber = nutritional_info.get("fiber", 0)
+            sugar = nutritional_info.get("sugar", 0)
+            sodium = nutritional_info.get("sodium", 0)
+            
+            # Update daily totals
+            daily_totals[record_date]["calories"] += calories
+            daily_totals[record_date]["protein"] += protein
+            daily_totals[record_date]["carbohydrates"] += carbohydrates
+            daily_totals[record_date]["fat"] += fat
+            daily_totals[record_date]["fiber"] += fiber
+            daily_totals[record_date]["sugar"] += sugar
+            daily_totals[record_date]["sodium"] += sodium
+            daily_totals[record_date]["meals_count"] += 1
+            
+            # Count meal types
+            meal_type_counts[meal_type] = meal_type_counts.get(meal_type, 0) + 1
+            
+            # Track food frequency
+            if food_name not in food_frequency:
+                food_frequency[food_name] = {"count": 0, "total_calories": 0}
+            food_frequency[food_name]["count"] += 1
+            food_frequency[food_name]["total_calories"] += calories
+        
+        # Calculate averages
+        total_days = len(daily_totals)
+        if total_days > 0:
+            total_calories = sum(day["calories"] for day in daily_totals.values())
+            total_protein = sum(day["protein"] for day in daily_totals.values())
+            total_carbs = sum(day["carbohydrates"] for day in daily_totals.values())
+            total_fat = sum(day["fat"] for day in daily_totals.values())
+            total_fiber = sum(day["fiber"] for day in daily_totals.values())
+            total_sugar = sum(day["sugar"] for day in daily_totals.values())
+            total_sodium = sum(day["sodium"] for day in daily_totals.values())
+            
+            daily_averages = {
+                "calories": total_calories / total_days,
+                "protein": total_protein / total_days,
+                "carbohydrates": total_carbs / total_days,
+                "fat": total_fat / total_days,
+                "fiber": total_fiber / total_days,
+                "sugar": total_sugar / total_days,
+                "sodium": total_sodium / total_days
+            }
+        else:
+            daily_averages = {
+                "calories": 0, "protein": 0, "carbohydrates": 0, "fat": 0,
+                "fiber": 0, "sugar": 0, "sodium": 0
+            }
+        
+        # Create nutrient trends data (daily values over time)
+        sorted_dates = sorted(daily_totals.keys())
+        for date in sorted_dates:
+            nutrient_trends.append({
+                "date": date,
+                "calories": daily_totals[date]["calories"],
+                "protein": daily_totals[date]["protein"],
+                "carbohydrates": daily_totals[date]["carbohydrates"],
+                "fat": daily_totals[date]["fat"],
+                "fiber": daily_totals[date]["fiber"],
+                "sugar": daily_totals[date]["sugar"],
+                "sodium": daily_totals[date]["sodium"]
+            })
+        
+        # Generate medical insights based on patient data
+        medical_insights = []
+        
+        # Check against RDA values
+        if daily_averages["fiber"] < RDA_VALUES["fiber"]["min"]:
+            deficit = RDA_VALUES["fiber"]["min"] - daily_averages["fiber"]
+            medical_insights.append(f"Fiber intake is {deficit:.1f}g below recommended daily allowance. Consider increasing vegetable and whole grain consumption.")
+        
+        if daily_averages["sodium"] > RDA_VALUES["sodium"]["max"]:
+            excess = daily_averages["sodium"] - RDA_VALUES["sodium"]["max"]
+            medical_insights.append(f"Sodium intake is {excess:.0f}mg above recommended limit. Monitor for hypertension risk.")
+        
+        if daily_averages["sugar"] > RDA_VALUES["sugar"]["max"]:
+            excess = daily_averages["sugar"] - RDA_VALUES["sugar"]["max"]
+            medical_insights.append(f"Sugar intake is {excess:.1f}g above recommended limit. Important for diabetes management.")
+        
+        if daily_averages["protein"] < RDA_VALUES["protein"]["min"]:
+            deficit = RDA_VALUES["protein"]["min"] - daily_averages["protein"]
+            medical_insights.append(f"Protein intake is {deficit:.1f}g below recommended daily allowance. Consider lean protein sources.")
+        
+        # Top consumed foods
+        top_foods = sorted(food_frequency.items(), key=lambda x: x[1]["count"], reverse=True)[:10]
+        
+        return {
+            "patient_email": patient_email,
+            "patient_name": patient_name,
+            "analysis_period": {
+                "days": days,
+                "start_date": start_date.isoformat(),
+                "end_date": end_date.isoformat(),
+                "total_records": len(patient_consumption),
+                "active_days": total_days
+            },
+            "daily_averages": daily_averages,
+            "nutrient_trends": nutrient_trends,
+            "meal_patterns": meal_type_counts,
+            "food_frequency": dict(top_foods),
+            "rda_compliance": {
+                "fiber": min(100, (daily_averages["fiber"] / RDA_VALUES["fiber"]["min"]) * 100) if RDA_VALUES["fiber"]["min"] > 0 else 0,
+                "sodium": min(100, (RDA_VALUES["sodium"]["max"] / daily_averages["sodium"]) * 100) if daily_averages["sodium"] > 0 else 100,
+                "sugar": min(100, (RDA_VALUES["sugar"]["max"] / daily_averages["sugar"]) * 100) if daily_averages["sugar"] > 0 else 100,
+                "protein": min(100, (daily_averages["protein"] / RDA_VALUES["protein"]["min"]) * 100) if RDA_VALUES["protein"]["min"] > 0 else 0
+            },
+            "medical_insights": medical_insights,
+            "generated_at": datetime.utcnow().isoformat()
+        }
+        
+    except Exception as e:
+        print(f"[PATIENT_NUTRITION] Error: {str(e)}")
+        import traceback
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Failed to get patient nutrition: {str(e)}")
+
+
+@router.get("/admin/pias-corner/enhanced-analytics")
+async def get_enhanced_nutrition_analytics(
+    days: int = 30,
+    current_user: User = Depends(get_current_user)
+):
+    """Get enhanced nutrition analytics with trends, micronutrients, and meal patterns"""
+    if not current_user.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    try:
+        print(f"[ENHANCED_ANALYTICS] Starting enhanced nutrition analytics for {days} days")
+        
+        # Get time range
+        end_date = datetime.utcnow()
+        start_date = end_date - timedelta(days=days)
+        
+        # Get all consumption records in the time period
+        consumption_query = f"""
+            SELECT * FROM c 
+            WHERE c.type = 'consumption_record' 
+            AND c.timestamp >= '{start_date.isoformat()}'
+        """
+        all_consumption = list(interactions_container.query_items(
+            query=consumption_query, 
+            enable_cross_partition_query=True
+        ))
+        
+        print(f"[ENHANCED_ANALYTICS] Found {len(all_consumption)} consumption records")
+        
+        # Filter out deleted duplicate account records
+        all_consumption = [r for r in all_consumption if r.get('user_id') != 'nagarwal166@gmail.com']
+        print(f"[ENHANCED_ANALYTICS] After filtering deleted accounts: {len(all_consumption)} records")
+        
+        if not all_consumption:
+            return {
+                "analysis_period": {
+                    "days": days,
+                    "start_date": start_date.isoformat(),
+                    "end_date": end_date.isoformat(),
+                    "total_records": 0
+                },
+                "nutrient_trends": [],
+                "meal_timing_patterns": {},
+                "micronutrient_analysis": {},
+                "food_group_distribution": {},
+                "risk_level_nutrition": {},
+                "generated_at": datetime.utcnow().isoformat()
+            }
+        
+        # Process data by date for trends
+        daily_nutrition = {}
+        meal_timing = {"breakfast": 0, "lunch": 0, "dinner": 0, "snack": 0}
+        micronutrients = {
+            "calcium": [], "iron": [], "potassium": [], "vitamin_c": [],
+            "vitamin_d": [], "vitamin_b12": [], "folate": [], "magnesium": [], "zinc": []
+        }
+        food_groups = {}
+        
+        # Categorize foods into groups (simplified classification)
+        food_group_keywords = {
+            "Proteins": ["chicken", "beef", "fish", "salmon", "tuna", "egg", "tofu", "beans", "lentils", "meat"],
+            "Grains": ["rice", "bread", "pasta", "oats", "quinoa", "wheat", "cereal", "flour"],
+            "Vegetables": ["broccoli", "spinach", "carrot", "tomato", "lettuce", "onion", "pepper", "vegetable"],
+            "Fruits": ["apple", "banana", "orange", "berries", "strawberry", "grape", "fruit"],
+            "Dairy": ["milk", "cheese", "yogurt", "butter", "cream"],
+            "Fats": ["oil", "avocado", "nuts", "seeds", "olive"],
+            "Sweets": ["cake", "cookie", "candy", "chocolate", "ice cream", "sugar"]
+        }
+        
+        for record in all_consumption:
+            nutritional_info = record.get("nutritional_info", {})
+            timestamp = record.get("timestamp", "")
+            food_name = record.get("food_name", "").lower()
+            meal_type = record.get("meal_type", "snack")
+            
+            # Extract date for trends
+            try:
+                record_date = datetime.fromisoformat(timestamp.replace('Z', '+00:00')).date().isoformat()
+            except:
+                record_date = datetime.utcnow().date().isoformat()
+            
+            # Initialize daily nutrition tracking
+            if record_date not in daily_nutrition:
+                daily_nutrition[record_date] = {
+                    "calories": 0, "protein": 0, "carbohydrates": 0, "fat": 0,
+                    "fiber": 0, "sugar": 0, "sodium": 0
+                }
+            
+            # Update daily totals
+            daily_nutrition[record_date]["calories"] += nutritional_info.get("calories", 0)
+            daily_nutrition[record_date]["protein"] += nutritional_info.get("protein", 0)
+            daily_nutrition[record_date]["carbohydrates"] += nutritional_info.get("carbohydrates", 0)
+            daily_nutrition[record_date]["fat"] += nutritional_info.get("fat", 0)
+            daily_nutrition[record_date]["fiber"] += nutritional_info.get("fiber", 0)
+            daily_nutrition[record_date]["sugar"] += nutritional_info.get("sugar", 0)
+            daily_nutrition[record_date]["sodium"] += nutritional_info.get("sodium", 0)
+            
+            # Count meal timing
+            meal_timing[meal_type] += 1
+            
+            # Track micronutrients (if available)
+            for nutrient in micronutrients.keys():
+                value = nutritional_info.get(nutrient, 0)
+                if value > 0:
+                    micronutrients[nutrient].append(value)
+            
+            # Classify food groups
+            classified = False
+            for group, keywords in food_group_keywords.items():
+                if any(keyword in food_name for keyword in keywords):
+                    food_groups[group] = food_groups.get(group, 0) + 1
+                    classified = True
+                    break
+            if not classified:
+                food_groups["Other"] = food_groups.get("Other", 0) + 1
+        
+        # Create nutrient trends (daily averages over time)
+        nutrient_trends = []
+        sorted_dates = sorted(daily_nutrition.keys())
+        for date in sorted_dates:
+            nutrient_trends.append({
+                "date": date,
+                "calories": daily_nutrition[date]["calories"],
+                "protein": daily_nutrition[date]["protein"],
+                "carbohydrates": daily_nutrition[date]["carbohydrates"],
+                "fat": daily_nutrition[date]["fat"],
+                "fiber": daily_nutrition[date]["fiber"],
+                "sugar": daily_nutrition[date]["sugar"],
+                "sodium": daily_nutrition[date]["sodium"]
+            })
+        
+        # Calculate micronutrient averages
+        micronutrient_analysis = {}
+        for nutrient, values in micronutrients.items():
+            if values:
+                micronutrient_analysis[nutrient] = {
+                    "average": sum(values) / len(values),
+                    "count": len(values),
+                    "total": sum(values)
+                }
+            else:
+                micronutrient_analysis[nutrient] = {
+                    "average": 0,
+                    "count": 0,
+                    "total": 0
+                }
+        
+        return {
+            "analysis_period": {
+                "days": days,
+                "start_date": start_date.isoformat(),
+                "end_date": end_date.isoformat(),
+                "total_records": len(all_consumption),
+                "active_days": len(daily_nutrition)
+            },
+            "nutrient_trends": nutrient_trends,
+            "meal_timing_patterns": meal_timing,
+            "micronutrient_analysis": micronutrient_analysis,
+            "food_group_distribution": food_groups,
+            "generated_at": datetime.utcnow().isoformat()
+        }
+        
+    except Exception as e:
+        print(f"[ENHANCED_ANALYTICS] Error: {str(e)}")
+        import traceback
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Failed to get enhanced analytics: {str(e)}")
+
+
+@router.get("/admin/pias-corner/patient-engagement/{patient_email}")
+async def get_individual_patient_engagement(
+    patient_email: str,
+    days: int = 30,
+    current_user: User = Depends(get_current_user)
+):
+    """Get detailed engagement analysis for a specific patient"""
+    if not current_user.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    try:
+        print(f"[PATIENT_ENGAGEMENT] Getting engagement analysis for patient: {patient_email}")
+        
+        # Decode the email if it's URL encoded
+        from urllib.parse import unquote
+        patient_email = unquote(patient_email)
+        
+        # Get time range
+        end_date = datetime.utcnow()
+        start_date = end_date - timedelta(days=days)
+        
+        # Get patient's consumption records with detailed timestamps
+        consumption_query = f"""
+            SELECT * FROM c 
+            WHERE c.type = 'consumption_record' 
+            AND c.user_id = '{patient_email}'
+            AND c.timestamp >= '{start_date.isoformat()}'
+            ORDER BY c.timestamp DESC
+        """
+        patient_consumption = list(interactions_container.query_items(
+            query=consumption_query, 
+            enable_cross_partition_query=True
+        ))
+        
+        print(f"[PATIENT_ENGAGEMENT] Found {len(patient_consumption)} consumption records for {patient_email}")
+        
+        # Get patient name using consistent priority system
+        admin_patients = await get_all_patients()
+        patient_name = patient_email  # Default fallback
+        
+        # First, try admin panel data (authoritative source)
+        for patient in admin_patients:
+            users_query = f"SELECT * FROM c WHERE c.type = 'user' AND c.registration_code = '{patient.get('registration_code', '')}'"
+            matching_users = list(user_container.query_items(query=users_query, enable_cross_partition_query=True))
+            if matching_users and matching_users[0].get('email') == patient_email:
+                patient_name = patient.get('name', patient_email)
+                break
+        
+        # If admin panel didn't have the name, try comprehensive health profile
+        if patient_name == patient_email:
+            user_query = f"SELECT * FROM c WHERE c.type = 'user' AND c.email = '{patient_email}'"
+            user_records = list(user_container.query_items(query=user_query, enable_cross_partition_query=True))
+            if user_records:
+                profile = user_records[0].get('profile', {})
+                profile_name = profile.get('name', '').strip()
+                if profile_name:
+                    patient_name = profile_name
+        
+        if not patient_consumption:
+            return {
+                "patient_email": patient_email,
+                "patient_name": patient_name,
+                "analysis_period": {
+                    "days": days,
+                    "start_date": start_date.isoformat(),
+                    "end_date": end_date.isoformat(),
+                    "total_records": 0
+                },
+                "daily_logging_timeline": [],
+                "meal_timing_patterns": {},
+                "engagement_metrics": {
+                    "total_logs": 0,
+                    "active_days": 0,
+                    "logging_streak": 0,
+                    "consistency_score": 0
+                },
+                "eating_behavior_insights": [],
+                "medical_risk_flags": [],
+                "generated_at": datetime.utcnow().isoformat()
+            }
+        
+        # Process consumption data for engagement analysis
+        daily_logs = {}
+        meal_timing_data = {"breakfast": [], "lunch": [], "dinner": [], "snack": []}
+        total_logs = len(patient_consumption)
+        
+        for record in patient_consumption:
+            timestamp_str = record.get("timestamp", "")
+            food_name = record.get("food_name", "Unknown")
+            meal_type = record.get("meal_type", "snack")
+            
+            try:
+                # Parse timestamp
+                record_timestamp = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+                record_date = record_timestamp.date().isoformat()
+                hour = record_timestamp.hour
+                minute = record_timestamp.minute
+                
+                # Group by date for daily timeline
+                if record_date not in daily_logs:
+                    daily_logs[record_date] = []
+                
+                daily_logs[record_date].append({
+                    "time": f"{hour:02d}:{minute:02d}",
+                    "hour": hour,
+                    "food_name": food_name,
+                    "meal_type": meal_type,
+                    "timestamp": timestamp_str
+                })
+                
+                # Collect meal timing data
+                if meal_type in meal_timing_data:
+                    meal_timing_data[meal_type].append(hour)
+                    
+            except Exception as e:
+                print(f"[PATIENT_ENGAGEMENT] Error parsing timestamp {timestamp_str}: {e}")
+                continue
+        
+        # Calculate engagement metrics
+        active_days = len(daily_logs)
+        
+        # Calculate logging streak (consecutive days with logs)
+        logging_streak = 0
+        sorted_dates = sorted(daily_logs.keys(), reverse=True)
+        
+        if sorted_dates:
+            current_date = datetime.strptime(sorted_dates[0], "%Y-%m-%d").date()
+            streak_count = 0
+            
+            for date_str in sorted_dates:
+                date_obj = datetime.strptime(date_str, "%Y-%m-%d").date()
+                if date_obj == current_date:
+                    streak_count += 1
+                    current_date -= timedelta(days=1)
+                else:
+                    break
+            logging_streak = streak_count
+        
+        # Calculate consistency score (0-100)
+        consistency_score = min(100, (active_days / days) * 100) if days > 0 else 0
+        
+        # Create daily timeline for visualization
+        daily_logging_timeline = []
+        for date_str in sorted(daily_logs.keys()):
+            daily_logs_for_date = sorted(daily_logs[date_str], key=lambda x: x['hour'])
+            
+            daily_logging_timeline.append({
+                "date": date_str,
+                "total_logs": len(daily_logs_for_date),
+                "logs": daily_logs_for_date,
+                "first_log_time": daily_logs_for_date[0]["time"] if daily_logs_for_date else None,
+                "last_log_time": daily_logs_for_date[-1]["time"] if daily_logs_for_date else None
+            })
+        
+        # Analyze meal timing patterns
+        meal_timing_patterns = {}
+        for meal_type, hours in meal_timing_data.items():
+            if hours:
+                avg_hour = sum(hours) / len(hours)
+                meal_timing_patterns[meal_type] = {
+                    "average_time": f"{int(avg_hour):02d}:{int((avg_hour % 1) * 60):02d}",
+                    "frequency": len(hours),
+                    "consistency": 100 - (max(hours) - min(hours)) * 2 if len(hours) > 1 else 100  # Lower variance = higher consistency
+                }
+        
+        # Generate behavior insights
+        eating_behavior_insights = []
+        
+        # Check meal frequency
+        avg_logs_per_day = total_logs / max(active_days, 1)
+        if avg_logs_per_day < 2:
+            eating_behavior_insights.append("Patient logs fewer than 2 meals per day on average - may be missing meals")
+        elif avg_logs_per_day > 6:
+            eating_behavior_insights.append("Patient logs frequently throughout the day - good engagement")
+        
+        # Check consistency
+        if consistency_score < 50:
+            eating_behavior_insights.append("Inconsistent logging pattern - patient may need engagement support")
+        elif consistency_score > 80:
+            eating_behavior_insights.append("Excellent logging consistency - highly engaged patient")
+        
+        # Check meal timing consistency
+        if "breakfast" in meal_timing_patterns and meal_timing_patterns["breakfast"]["frequency"] < active_days * 0.6:
+            eating_behavior_insights.append("Patient frequently skips breakfast - nutritional counseling recommended")
+        
+        # Generate medical risk flags
+        medical_risk_flags = []
+        
+        if logging_streak == 0:
+            medical_risk_flags.append("⚠️ No recent food logging activity - patient may be disengaged")
+        
+        if active_days < days * 0.3:
+            medical_risk_flags.append("🔴 Low engagement (active <30% of days) - immediate follow-up needed")
+        
+        if "dinner" in meal_timing_patterns:
+            avg_dinner_hour = sum(meal_timing_data["dinner"]) / len(meal_timing_data["dinner"])
+            if avg_dinner_hour > 21:  # 9 PM
+                medical_risk_flags.append("⚠️ Late dinner pattern detected - may affect glucose control")
+        
+        return {
+            "patient_email": patient_email,
+            "patient_name": patient_name,
+            "analysis_period": {
+                "days": days,
+                "start_date": start_date.isoformat(),
+                "end_date": end_date.isoformat(),
+                "total_records": total_logs
+            },
+            "daily_logging_timeline": daily_logging_timeline,
+            "meal_timing_patterns": meal_timing_patterns,
+            "engagement_metrics": {
+                "total_logs": total_logs,
+                "active_days": active_days,
+                "logging_streak": logging_streak,
+                "consistency_score": round(consistency_score, 1),
+                "avg_logs_per_day": round(avg_logs_per_day, 1)
+            },
+            "eating_behavior_insights": eating_behavior_insights,
+            "medical_risk_flags": medical_risk_flags,
+            "generated_at": datetime.utcnow().isoformat()
+        }
+        
+    except Exception as e:
+        print(f"[PATIENT_ENGAGEMENT] Error: {str(e)}")
+        import traceback
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Failed to get patient engagement: {str(e)}")
+
+

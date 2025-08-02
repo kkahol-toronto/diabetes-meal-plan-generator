@@ -15,7 +15,11 @@ import {
   Divider,
   IconButton,
   Menu,
-  MenuItem
+  MenuItem,
+  FormControl,
+  InputLabel,
+  Select,
+  SelectChangeEvent
 } from '@mui/material';
 import {
   ArrowBack,
@@ -38,7 +42,8 @@ import {
   PointElement,
   LineElement
 } from 'chart.js';
-import { Bar, Doughnut } from 'react-chartjs-2';
+import { Bar, Doughnut, Line } from 'react-chartjs-2';
+import ReactMarkdown from 'react-markdown';
 import config from '../config/environment';
 
 ChartJS.register(
@@ -94,10 +99,13 @@ interface ComplianceAnalysis {
   days_below_target: number;
   days_within_nutrient_targets: number;
   days_with_nutrient_issues: number;
+  calorie_target_compliance_rate?: number;
+  overall_compliance_rate?: number;
   compliance_timeline: Array<{
     date: string;
     calorie_status: string;
     nutrient_issues: string[];
+    calories: number;
     within_targets: boolean;
   }>;
   target_ranges: {
@@ -108,11 +116,51 @@ interface ComplianceAnalysis {
     sodium_max: number;
     sugar_max_percentage: number;
   };
+  personal_progress?: {
+    score: number;
+    avg_daily_calories: number;
+    improvement_trend: number;
+    recent_average: number;
+    early_average: number;
+    is_improving: boolean;
+    encouragement_message: string;
+  };
+}
+
+interface DailyData {
+  date: string;
+  total_calories: number;
+  total_protein: number;
+  total_carbs: number;
+  total_fat: number;
+  total_fiber: number;
+  total_sodium: number;
+  total_sugar: number;
+  meal_count: number;
+  meals?: Array<{
+    timestamp: string;
+    food_name: string;
+    quantity: number;
+    calories: number;
+    protein: number;
+    carbohydrates: number;
+    fat: number;
+    fiber: number;
+    sodium: number;
+    sugar: number;
+  }>;
+}
+
+interface HistoricalData {
+  daily_data: DailyData[];
+  weekly_data: any[];
+  monthly_data: any[];
 }
 
 interface PatientDetailsData {
   patient_info: PatientInfo;
   analysis_period: AnalysisPeriod;
+  historical_data: HistoricalData;
   nutritional_averages: NutritionalAverages;
   bar_graph_data: BarGraphData;
   compliance_analysis: ComplianceAnalysis;
@@ -166,10 +214,110 @@ const PatientDetails: React.FC = () => {
   const analysisPeriod = 90; // Fixed analysis period
   const [downloadMenuAnchor, setDownloadMenuAnchor] = useState<null | HTMLElement>(null);
   
+  // Time period selector for charts
+  const [chartTimePeriod, setChartTimePeriod] = useState<string>('weekly');
+  const timePeriodOptions = [
+    { value: 'today', label: 'Today', days: 1 },
+    { value: 'yesterday', label: 'Yesterday', days: 1 },
+    { value: 'weekly', label: 'Weekly', days: 7 },
+    { value: 'biweekly', label: 'Bi-Weekly', days: 14 },
+    { value: 'monthly', label: 'Monthly', days: 30 },
+    { value: 'sixmonths', label: 'Six Months', days: 180 },
+    { value: 'yearly', label: 'Yearly', days: 365 }
+  ];
+  
   // LLM Advice state
   const [llmAdviceData, setLlmAdviceData] = useState<LLMAdviceData | null>(null);
   const [llmAdviceLoading, setLlmAdviceLoading] = useState(false);
   const [llmAdviceError, setLlmAdviceError] = useState<string | null>(null);
+
+  // Format AI recommendations with proper markdown rendering
+  const formatAIRecommendations = (content: string) => {
+    return (
+      <ReactMarkdown
+        components={{
+          p: ({ children }) => <Typography variant="body2" sx={{ mb: 1.5, lineHeight: 1.7 }}>{children}</Typography>,
+          strong: ({ children }) => <Typography component="span" sx={{ fontWeight: 'bold', color: 'primary.main' }}>{children}</Typography>,
+          em: ({ children }) => <Typography component="span" sx={{ fontStyle: 'italic', color: 'text.secondary' }}>{children}</Typography>,
+          ul: ({ children }) => <Box component="ul" sx={{ pl: 2, mb: 1.5, '& li': { mb: 0.5 } }}>{children}</Box>,
+          ol: ({ children }) => <Box component="ol" sx={{ pl: 2, mb: 1.5, '& li': { mb: 0.5 } }}>{children}</Box>,
+          li: ({ children }) => <Typography component="li" variant="body2" sx={{ lineHeight: 1.6 }}>{children}</Typography>,
+          h1: ({ children }) => <Typography variant="h5" sx={{ mt: 2, mb: 1, fontWeight: 'bold', color: 'primary.main' }}>{children}</Typography>,
+          h2: ({ children }) => <Typography variant="h6" sx={{ mt: 2, mb: 1, fontWeight: 'bold', color: 'primary.main' }}>{children}</Typography>,
+          h3: ({ children }) => <Typography variant="subtitle1" sx={{ mt: 1.5, mb: 1, fontWeight: 'bold', color: 'primary.main' }}>{children}</Typography>,
+          h4: ({ children }) => <Typography variant="subtitle2" sx={{ mt: 1.5, mb: 0.5, fontWeight: 'bold', color: 'text.primary' }}>{children}</Typography>,
+          blockquote: ({ children }) => (
+            <Box 
+              sx={{ 
+                borderLeft: 3, 
+                borderColor: 'primary.main', 
+                pl: 2, 
+                ml: 1, 
+                my: 1.5,
+                bgcolor: 'grey.50',
+                py: 1,
+                borderRadius: '0 4px 4px 0'
+              }}
+            >
+              {children}
+            </Box>
+          ),
+          code: ({ children }) => (
+            <Typography 
+              component="code" 
+              sx={{ 
+                bgcolor: 'grey.100', 
+                px: 0.5, 
+                py: 0.25, 
+                borderRadius: 0.5, 
+                fontFamily: 'monospace',
+                fontSize: '0.875rem',
+                color: 'primary.dark'
+              }}
+            >
+              {children}
+            </Typography>
+          ),
+        }}
+      >
+        {content}
+      </ReactMarkdown>
+    );
+  };
+
+  // Handle time period change
+  const handleTimePeriodChange = (event: SelectChangeEvent<string>) => {
+    setChartTimePeriod(event.target.value);
+  };
+
+  // Helper function to get filtered data based on time period
+  const getFilteredData = (): DailyData[] => {
+    if (!patientData?.historical_data?.daily_data) return [];
+    
+    const today = new Date();
+    const selectedOption = timePeriodOptions.find(option => option.value === chartTimePeriod);
+    const daysToShow = selectedOption?.days || 7;
+    
+    let startDate: Date;
+    
+    if (chartTimePeriod === 'today') {
+      startDate = new Date(today);
+      startDate.setHours(0, 0, 0, 0);
+    } else if (chartTimePeriod === 'yesterday') {
+      startDate = new Date(today);
+      startDate.setDate(today.getDate() - 1);
+      startDate.setHours(0, 0, 0, 0);
+    } else {
+      startDate = new Date(today);
+      startDate.setDate(today.getDate() - daysToShow + 1);
+      startDate.setHours(0, 0, 0, 0);
+    }
+    
+    return patientData.historical_data.daily_data.filter((day: DailyData) => {
+      const dayDate = new Date(day.date);
+      return dayDate >= startDate && dayDate <= today;
+    });
+  };
 
   const fetchPatientDetails = useCallback(async () => {
     if (!patientId) return;
@@ -249,13 +397,22 @@ const PatientDetails: React.FC = () => {
   const generateNutritionalBarChart = () => {
     if (!patientData?.bar_graph_data) return { datasets: [] };
 
-    const { categories, current_values, target_values } = patientData.bar_graph_data;
+    const filteredData = getFilteredData();
+    const { categories, target_values } = patientData.bar_graph_data;
+
+    // Calculate averages for the selected time period
+    const current_values = filteredData.length > 0 ? [
+      filteredData.reduce((sum: number, day: DailyData) => sum + day.total_calories, 0) / filteredData.length,
+      filteredData.reduce((sum: number, day: DailyData) => sum + day.total_protein, 0) / filteredData.length,
+      filteredData.reduce((sum: number, day: DailyData) => sum + day.total_carbs, 0) / filteredData.length,
+      filteredData.reduce((sum: number, day: DailyData) => sum + day.total_fat, 0) / filteredData.length
+    ] : [0, 0, 0, 0];
 
     return {
       labels: categories,
       datasets: [
         {
-          label: 'Current Average',
+          label: `Current Average (${timePeriodOptions.find(opt => opt.value === chartTimePeriod)?.label})`,
           data: current_values,
           backgroundColor: 'rgba(54, 162, 235, 0.8)',
           borderColor: 'rgba(54, 162, 235, 1)',
@@ -273,35 +430,91 @@ const PatientDetails: React.FC = () => {
   };
 
   const generateComplianceChart = () => {
-    if (!patientData?.compliance_analysis) return { datasets: [] };
+    if (!patientData?.compliance_analysis?.compliance_timeline) return { datasets: [] };
 
-    const { days_within_calorie_target, days_above_target, days_below_target } = patientData.compliance_analysis;
+    const filteredData = getFilteredData();
+    
+    // Filter compliance data for the selected time period
+    const filteredCompliance = patientData.compliance_analysis.compliance_timeline.filter((day: any) => {
+      return filteredData.some((filteredDay: DailyData) => filteredDay.date === day.date);
+    });
 
+    // Sort by date for proper line chart display
+    const sortedCompliance = filteredCompliance.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    
+    // Prepare data for line chart
+    const labels = sortedCompliance.map(day => {
+      const date = new Date(day.date);
+      return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    });
+    
+    const calorieData = sortedCompliance.map(day => day.calories);
+    
+    // Get target ranges
+    const targetRanges = patientData.compliance_analysis.target_ranges;
+    const upperTarget = Array(sortedCompliance.length).fill(targetRanges.calorie_max);
+    const lowerTarget = Array(sortedCompliance.length).fill(targetRanges.calorie_min);
+    
     return {
-      labels: ['Within Target', 'Above Target', 'Below Target'],
+      labels,
       datasets: [
         {
-          data: [days_within_calorie_target, days_above_target, days_below_target],
-          backgroundColor: [
-            'rgba(75, 192, 192, 0.8)',
-            'rgba(255, 99, 132, 0.8)',
-            'rgba(255, 206, 86, 0.8)'
-          ],
-          borderColor: [
-            'rgba(75, 192, 192, 1)',
-            'rgba(255, 99, 132, 1)',
-            'rgba(255, 206, 86, 1)'
-          ],
+          label: 'Daily Calorie Intake',
+          data: calorieData,
+          borderColor: 'rgba(54, 162, 235, 1)',
+          backgroundColor: 'rgba(54, 162, 235, 0.2)',
+          borderWidth: 3,
+          fill: false,
+          tension: 0.2,
+          pointBackgroundColor: sortedCompliance.map(day => {
+            switch(day.calorie_status) {
+              case 'within_target': return 'rgba(75, 192, 192, 1)';
+              case 'above_target': return 'rgba(255, 99, 132, 1)';
+              case 'below_target': return 'rgba(255, 206, 86, 1)';
+              default: return 'rgba(54, 162, 235, 1)';
+            }
+          }),
+          pointBorderColor: 'rgba(255, 255, 255, 1)',
+          pointBorderWidth: 2,
+          pointRadius: 6,
+        },
+        {
+          label: 'Upper Target',
+          data: upperTarget,
+          borderColor: 'rgba(255, 99, 132, 0.8)',
+          backgroundColor: 'transparent',
           borderWidth: 2,
+          borderDash: [5, 5],
+          fill: false,
+          pointRadius: 0,
+        },
+        {
+          label: 'Lower Target',
+          data: lowerTarget,
+          borderColor: 'rgba(255, 206, 86, 0.8)',
+          backgroundColor: 'transparent',
+          borderWidth: 2,
+          borderDash: [5, 5],
+          fill: false,
+          pointRadius: 0,
         }
       ]
     };
   };
 
   const handleDownloadCSV = async () => {
-    if (!patientData?.download_ready) return;
+    console.log('🔥 Download CSV clicked!');
+    console.log('Patient data available:', !!patientData);
+    console.log('Download ready:', patientData?.download_ready);
+    
+    // Remove the download_ready check - we'll fetch fresh data anyway
+    if (!patientData) {
+      console.error('No patient data available');
+      return;
+    }
 
     try {
+      console.log('📡 Fetching fresh data for download...');
       const response = await fetch(
         `${config.API_URL}/admin/pias-corner/patient/${encodeURIComponent(patientId!)}/details?days=${analysisPeriod}&include_download_data=true`,
         {
@@ -312,16 +525,23 @@ const PatientDetails: React.FC = () => {
         }
       );
 
+      console.log('📡 Response status:', response.status);
+      
       if (response.ok) {
         const data = await response.json();
+        console.log('📦 Downloaded data keys:', Object.keys(data));
+        console.log('📦 Historical data available:', !!data.historical_data);
+        console.log('📦 Daily data available:', !!data.historical_data?.daily_data);
+        console.log('📦 Daily data count:', data.historical_data?.daily_data?.length || 0);
         
         // Convert to CSV format
         const csvData = [];
         csvData.push(['Date', 'Food Name', 'Quantity', 'Calories', 'Protein (g)', 'Carbohydrates (g)', 'Fat (g)', 'Fiber (g)', 'Sodium (mg)', 'Sugar (g)']);
 
+        let totalMeals = 0;
         if (data.historical_data?.daily_data) {
           data.historical_data.daily_data.forEach((day: any) => {
-            if (day.meals) {
+            if (day.meals && day.meals.length > 0) {
               day.meals.forEach((meal: any) => {
                 csvData.push([
                   day.date,
@@ -335,24 +555,40 @@ const PatientDetails: React.FC = () => {
                   meal.sodium || 0,
                   meal.sugar || 0
                 ]);
+                totalMeals++;
               });
             }
           });
         }
+        
+        console.log('📊 Total meals processed:', totalMeals);
+        console.log('📊 CSV rows:', csvData.length);
 
-        const csvContent = csvData.map(row => row.join(',')).join('\\n');
+        if (csvData.length <= 1) {
+          alert('No meal data available to download. Please ensure you have logged meals in the selected time period.');
+          setDownloadMenuAnchor(null);
+          return;
+        }
+
+        const csvContent = csvData.map(row => row.join(',')).join('\n');
         const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
         const link = document.createElement('a');
         const url = URL.createObjectURL(blob);
         link.setAttribute('href', url);
-        link.setAttribute('download', `${patientData.patient_info.user_name.replace(/\\s+/g, '_')}_nutrition_history.csv`);
+        link.setAttribute('download', `${patientData.patient_info.user_name.replace(/\s+/g, '_')}_nutrition_history.csv`);
         link.style.visibility = 'hidden';
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
+        
+        console.log('✅ CSV download completed!');
+      } else {
+        console.error('❌ API response not OK:', response.status, response.statusText);
+        alert('Failed to fetch data for download. Please try again.');
       }
     } catch (error) {
-      console.error('Error downloading CSV:', error);
+      console.error('❌ Error downloading CSV:', error);
+      alert('Error occurred while downloading. Please try again.');
     }
     setDownloadMenuAnchor(null);
   };
@@ -457,7 +693,7 @@ const PatientDetails: React.FC = () => {
       <Paper elevation={2} sx={{ p: 3, mb: 3 }}>
         <Box display="flex" alignItems="center" justifyContent="space-between" mb={2}>
           <Box display="flex" alignItems="center">
-            <IconButton onClick={() => navigate('/admin/pias-corner')} sx={{ mr: 2 }}>
+            <IconButton onClick={() => navigate('/admin/pias-corner?tab=5')} sx={{ mr: 2 }}>
               <ArrowBack />
             </IconButton>
             <Person sx={{ mr: 1, color: 'primary.main', fontSize: 32 }} />
@@ -528,7 +764,7 @@ const PatientDetails: React.FC = () => {
               <Box>
                 <Typography variant="body2" color="text.secondary">Compliance Rate</Typography>
                 <Typography variant="h6">
-                  {((compliance_analysis.days_within_calorie_target / compliance_analysis.total_days) * 100).toFixed(1)}%
+                  {compliance_analysis.calorie_target_compliance_rate?.toFixed(1) ?? '0.0'}%
                 </Typography>
                 <Typography variant="caption" color="text.secondary">
                   Calorie target adherence
@@ -537,44 +773,163 @@ const PatientDetails: React.FC = () => {
             </Box>
           </Grid>
         </Grid>
+        
+        {/* Personal Progress Section - for severely under-eating patients */}
+        {compliance_analysis.personal_progress && (
+          <>
+            <Divider sx={{ my: 2 }} />
+            <Alert 
+              severity={compliance_analysis.personal_progress.score >= 50 ? "success" : "warning"}
+              sx={{ mb: 2 }}
+            >
+              <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
+                🌟 Personal Progress Tracking
+              </Typography>
+              <Grid container spacing={2}>
+                <Grid item xs={12} sm={6} md={3}>
+                  <Typography variant="body2" color="text.secondary">Progress Score</Typography>
+                  <Typography variant="h6" color={compliance_analysis.personal_progress.score >= 50 ? "success.main" : "warning.main"}>
+                    {compliance_analysis.personal_progress.score}%
+                  </Typography>
+                </Grid>
+                <Grid item xs={12} sm={6} md={3}>
+                  <Typography variant="body2" color="text.secondary">Average Intake</Typography>
+                  <Typography variant="h6">
+                    {compliance_analysis.personal_progress.avg_daily_calories} cal/day
+                  </Typography>
+                </Grid>
+                <Grid item xs={12} sm={6} md={3}>
+                  <Typography variant="body2" color="text.secondary">Recent Trend</Typography>
+                  <Typography 
+                    variant="h6" 
+                    color={compliance_analysis.personal_progress.is_improving ? "success.main" : "text.primary"}
+                  >
+                    {compliance_analysis.personal_progress.is_improving ? "📈" : "📊"} 
+                    {compliance_analysis.personal_progress.improvement_trend > 0 ? "+" : ""}
+                    {compliance_analysis.personal_progress.improvement_trend} cal
+                  </Typography>
+                </Grid>
+                <Grid item xs={12} md={3}>
+                  <Typography variant="body2" color="text.secondary">Recent vs Early</Typography>
+                  <Typography variant="body2">
+                    {compliance_analysis.personal_progress.recent_average} vs {compliance_analysis.personal_progress.early_average} cal
+                  </Typography>
+                </Grid>
+              </Grid>
+              <Typography variant="body1" sx={{ mt: 2, fontStyle: 'italic' }}>
+                {compliance_analysis.personal_progress.encouragement_message}
+              </Typography>
+            </Alert>
+          </>
+        )}
       </Paper>
 
       {/* Charts Section */}
-      <Grid container spacing={3} sx={{ mb: 3 }}>
-        {/* Combined Bar Graph */}
-        <Grid item xs={12} lg={8}>
-          <Card elevation={2}>
-            <CardContent>
-              <Box height={400}>
-                <Bar data={generateNutritionalBarChart()} options={barChartOptions} />
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
+      <Paper elevation={1} sx={{ p: 2, mb: 3 }}>
+        <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
+          <Typography variant="h6" fontWeight="bold">
+            📊 Nutritional Analysis & Compliance
+          </Typography>
+          <FormControl size="small" sx={{ minWidth: 180 }}>
+            <InputLabel>Time Period</InputLabel>
+            <Select
+              value={chartTimePeriod}
+              label="Time Period"
+              onChange={handleTimePeriodChange}
+            >
+              {timePeriodOptions.map((option) => (
+                <MenuItem key={option.value} value={option.value}>
+                  {option.label}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        </Box>
+        
+        <Grid container spacing={3}>
+          {/* Combined Bar Graph */}
+          <Grid item xs={12} lg={8}>
+            <Card elevation={2}>
+              <CardContent>
+                <Typography variant="subtitle1" gutterBottom fontWeight="bold">
+                  Nutritional Breakdown - Current vs Target
+                </Typography>
+                <Box height={400}>
+                  <Bar data={generateNutritionalBarChart()} options={barChartOptions} />
+                </Box>
+              </CardContent>
+            </Card>
+          </Grid>
 
-        {/* Compliance Chart */}
-        <Grid item xs={12} lg={4}>
-          <Card elevation={2}>
-            <CardContent>
-              <Box height={400}>
-                <Doughnut data={generateComplianceChart()} options={doughnutChartOptions} />
-              </Box>
-            </CardContent>
-          </Card>
+          {/* Compliance Chart */}
+          <Grid item xs={12} lg={4}>
+            <Card elevation={2}>
+              <CardContent>
+                <Typography variant="subtitle1" gutterBottom fontWeight="bold">
+                  Calorie Intake Trend
+                </Typography>
+                <Box height={400}>
+                  <Line 
+                    data={generateComplianceChart()} 
+                    options={{
+                      responsive: true,
+                      maintainAspectRatio: false,
+                      scales: {
+                        y: {
+                          beginAtZero: true,
+                          title: {
+                            display: true,
+                            text: 'Calories'
+                          }
+                        },
+                        x: {
+                          title: {
+                            display: true,
+                            text: 'Date'
+                          }
+                        }
+                      },
+                      plugins: {
+                        legend: {
+                          display: true,
+                          position: 'top' as const
+                        },
+                        tooltip: {
+                          mode: 'index' as const,
+                          intersect: false
+                        }
+                      },
+                      interaction: {
+                        mode: 'nearest' as const,
+                        axis: 'x' as const,
+                        intersect: false
+                      }
+                    }} 
+                  />
+                </Box>
+              </CardContent>
+            </Card>
+          </Grid>
         </Grid>
-      </Grid>
+      </Paper>
 
       {/* Nutritional Averages */}
       <Card elevation={2} sx={{ mb: 3 }}>
         <CardContent>
           <Typography variant="h6" gutterBottom fontWeight="bold">
-            📊 Daily Nutritional Averages
+            📊 Daily Nutritional Averages ({timePeriodOptions.find(opt => opt.value === chartTimePeriod)?.label})
           </Typography>
           <Grid container spacing={3}>
             <Grid item xs={6} md={3}>
               <Box textAlign="center" p={2} bgcolor="primary.light" borderRadius={1}>
                 <Typography variant="h5" fontWeight="bold" color="primary.dark">
-                  {nutritional_averages.daily_avg_calories.toFixed(0)}
+                  {(() => {
+                    const filteredData = getFilteredData();
+                    const avgCalories = filteredData.length > 0 
+                      ? filteredData.reduce((sum: number, day: DailyData) => sum + day.total_calories, 0) / filteredData.length 
+                      : 0;
+                    return Math.round(avgCalories);
+                  })()}
                 </Typography>
                 <Typography variant="caption" color="primary.dark">Calories</Typography>
               </Box>
@@ -582,7 +937,13 @@ const PatientDetails: React.FC = () => {
             <Grid item xs={6} md={3}>
               <Box textAlign="center" p={2} bgcolor="secondary.light" borderRadius={1}>
                 <Typography variant="h5" fontWeight="bold" color="secondary.dark">
-                  {nutritional_averages.daily_avg_protein.toFixed(1)}g
+                  {(() => {
+                    const filteredData = getFilteredData();
+                    const avgProtein = filteredData.length > 0 
+                      ? filteredData.reduce((sum: number, day: DailyData) => sum + day.total_protein, 0) / filteredData.length 
+                      : 0;
+                    return avgProtein.toFixed(1);
+                  })()}g
                 </Typography>
                 <Typography variant="caption" color="secondary.dark">Protein</Typography>
               </Box>
@@ -590,7 +951,13 @@ const PatientDetails: React.FC = () => {
             <Grid item xs={6} md={3}>
               <Box textAlign="center" p={2} bgcolor="warning.light" borderRadius={1}>
                 <Typography variant="h5" fontWeight="bold" color="warning.dark">
-                  {nutritional_averages.daily_avg_carbs.toFixed(1)}g
+                  {(() => {
+                    const filteredData = getFilteredData();
+                    const avgCarbs = filteredData.length > 0 
+                      ? filteredData.reduce((sum: number, day: DailyData) => sum + day.total_carbs, 0) / filteredData.length 
+                      : 0;
+                    return avgCarbs.toFixed(1);
+                  })()}g
                 </Typography>
                 <Typography variant="caption" color="warning.dark">Carbohydrates</Typography>
               </Box>
@@ -598,7 +965,13 @@ const PatientDetails: React.FC = () => {
             <Grid item xs={6} md={3}>
               <Box textAlign="center" p={2} bgcolor="success.light" borderRadius={1}>
                 <Typography variant="h5" fontWeight="bold" color="success.dark">
-                  {nutritional_averages.daily_avg_fat.toFixed(1)}g
+                  {(() => {
+                    const filteredData = getFilteredData();
+                    const avgFat = filteredData.length > 0 
+                      ? filteredData.reduce((sum: number, day: DailyData) => sum + day.total_fat, 0) / filteredData.length 
+                      : 0;
+                    return avgFat.toFixed(1);
+                  })()}g
                 </Typography>
                 <Typography variant="caption" color="success.dark">Fat</Typography>
               </Box>
@@ -737,16 +1110,7 @@ const PatientDetails: React.FC = () => {
                     borderRadius: 2
                   }}
                 >
-                  <Typography 
-                    variant="body2" 
-                    sx={{ 
-                      whiteSpace: 'pre-wrap',
-                      lineHeight: 1.7,
-                      fontSize: '0.95rem'
-                    }}
-                  >
-                    {llmAdviceData.llm_advice}
-                  </Typography>
+                  {formatAIRecommendations(llmAdviceData.llm_advice)}
                 </Paper>
                 
                 <Box mt={2} display="flex" justifyContent="space-between" alignItems="center">

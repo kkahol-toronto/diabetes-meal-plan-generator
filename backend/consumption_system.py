@@ -256,6 +256,9 @@ class ConsumptionTracker:
                 enable_cross_partition_query=True
             ))
             
+            # TEMPORARY: Disable filtering to restore meal history functionality
+            # TODO: Implement smarter fake data detection later
+            
             # Apply limit
             limited_records = records[:limit] if limit else records
             
