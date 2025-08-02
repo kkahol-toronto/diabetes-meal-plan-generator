@@ -11,6 +11,7 @@ import AdminLogin from './components/AdminLogin';
 import AdminPanel from './components/AdminPanel';
 import AdminPatientProfile from './components/AdminPatientProfile';
 import PiasCorner from './components/PiasCorner';
+import PatientDetails from './components/PatientDetails';
 
 import Navigation from './components/Navigation';
 import ThankYou from './components/ThankYou';
@@ -311,6 +312,14 @@ function App() {
             element={
               <AdminRoute>
                 <PiasCorner />
+              </AdminRoute>
+            }
+          />
+          <Route
+            path="/admin/pias-corner/patient/:patientId"
+            element={
+              <AdminRoute>
+                <PatientDetails />
               </AdminRoute>
             }
           />
