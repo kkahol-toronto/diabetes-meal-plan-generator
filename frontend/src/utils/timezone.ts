@@ -34,26 +34,28 @@ export function getUserTimezone(): TimezoneInfo {
  * Get the user's current local date (YYYY-MM-DD format)
  */
 export function getUserLocalDate(): string {
-  const userTimezone = getUserTimezone();
   const now = new Date();
   
-  // Create a new date in the user's timezone
-  const localDate = new Date(now.toLocaleString('en-US', { timeZone: userTimezone.timezone }));
+  // Use simpler, more reliable approach
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
   
-  return localDate.toISOString().split('T')[0];
+  return `${year}-${month}-${day}`;
 }
 
 /**
  * Convert a UTC timestamp to user's local date
  */
 export function convertUTCToLocalDate(utcTimestamp: string): string {
-  const userTimezone = getUserTimezone();
   const utcDate = new Date(utcTimestamp);
   
-  // Convert to user's timezone
-  const localDate = new Date(utcDate.toLocaleString('en-US', { timeZone: userTimezone.timezone }));
+  // Use browser's automatic timezone conversion (simpler and more reliable)
+  const year = utcDate.getFullYear();
+  const month = String(utcDate.getMonth() + 1).padStart(2, '0');
+  const day = String(utcDate.getDate()).padStart(2, '0');
   
-  return localDate.toISOString().split('T')[0];
+  return `${year}-${month}-${day}`;
 }
 
 /**

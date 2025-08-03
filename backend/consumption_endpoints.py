@@ -16,7 +16,7 @@ async def quick_log_food_endpoint(food_data: dict, current_user: Dict = Depends(
     Quick log food endpoint - completely rebuilt
     """
     try:
-        print(f"[QuickLogEndpoint] Processing request for user {current_user['id']}")
+        print(f"[QuickLogEndpoint] Processing request for user {current_user['email']}")
         print(f"[QuickLogEndpoint] Food data: {food_data}")
         
         # Validate input
@@ -26,9 +26,9 @@ async def quick_log_food_endpoint(food_data: dict, current_user: Dict = Depends(
         if not food_name:
             raise HTTPException(status_code=400, detail="Food name is required")
         
-        # Use the consumption tracker
+        # Use the consumption tracker with EMAIL (consistent with how data is saved)
         result = await consumption_tracker.quick_log_food(
-            user_id=current_user["id"],
+            user_id=current_user["email"],
             food_name=food_name,
             portion=portion
         )
@@ -49,11 +49,11 @@ async def get_consumption_history_endpoint(limit: int = 50, current_user: Dict =
     Get consumption history endpoint - completely rebuilt
     """
     try:
-        print(f"[ConsumptionHistoryEndpoint] Getting history for user {current_user['id']}")
+        print(f"[ConsumptionHistoryEndpoint] Getting history for user {current_user['email']}")
         
-        # Get consumption history
+        # Get consumption history using EMAIL (consistent with how data is saved)
         history = await consumption_tracker.get_consumption_history(
-            user_id=current_user["id"],
+            user_id=current_user["email"],
             limit=limit
         )
         
@@ -71,11 +71,11 @@ async def get_consumption_analytics_endpoint(days: int = 30, current_user: Dict 
     Get consumption analytics endpoint - completely rebuilt
     """
     try:
-        print(f"[ConsumptionAnalyticsEndpoint] Getting analytics for user {current_user['id']} for {days} days")
+        print(f"[ConsumptionAnalyticsEndpoint] Getting analytics for user {current_user['email']} for {days} days")
         
-        # Get consumption analytics
+        # Get consumption analytics using EMAIL (consistent with how data is saved)
         analytics = await consumption_tracker.get_consumption_analytics(
-            user_id=current_user["id"],
+            user_id=current_user["email"],
             days=days
         )
         
@@ -93,7 +93,7 @@ async def get_daily_insights_endpoint(current_user: Dict = Depends(get_current_u
     Get daily insights endpoint - NOW USING SMART AI RECOMMENDATIONS
     """
     try:
-        print(f"[DailyInsightsEndpoint] Getting SMART AI insights for user {current_user['id']}")
+        print(f"[DailyInsightsEndpoint] Getting SMART AI insights for user {current_user['email']}")
         
         # Import the smart coaching system
         from services.coaching_system import get_daily_coaching_insights_data
@@ -118,9 +118,9 @@ async def get_daily_insights_endpoint(current_user: Dict = Depends(get_current_u
         
         # Fallback to basic system if smart system fails
         try:
-            # Get today's consumption data for fallback
+            # Get today's consumption data for fallback using EMAIL (consistent with how data is saved)
             today_analytics = await consumption_tracker.get_consumption_analytics(
-                user_id=current_user["id"],
+                user_id=current_user["email"],
                 days=1
             )
             
