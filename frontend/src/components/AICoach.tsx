@@ -197,7 +197,7 @@ const AICoach: React.FC = () => {
   const [progressData, setProgressData] = useState<any>(null);
   const [notifications, setNotifications] = useState<any[]>([]);
   const [tabValue, setTabValue] = useState(0);
-  const [adaptivePlanLoading, setAdaptivePlanLoading] = useState(false);
+
   const [showAIDialog, setShowAIDialog] = useState(false);
   const [aiQuery, setAIQuery] = useState('');
   const [aiResponse, setAIResponse] = useState('');
@@ -327,33 +327,7 @@ const AICoach: React.FC = () => {
     return () => clearInterval(interval);
   }, [fetchAllCoachData]);
 
-  const handleCreateAdaptivePlan = async () => {
-    try {
-      setAdaptivePlanLoading(true);
-      setLoading(true, 'Creating your personalized meal plan...');
-      
-      const response = await fetch(`${config.API_URL}/coach/adaptive-meal-plan`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-      });
 
-      if (response.ok) {
-        const result = await response.json();
-        showNotification('🎉 Your adaptive meal plan has been created!', 'success');
-        navigate('/meal_plans');
-      } else {
-        throw new Error('Failed to create adaptive meal plan');
-      }
-    } catch (err) {
-      showNotification('Failed to create meal plan. Please try again.', 'error');
-    } finally {
-      setAdaptivePlanLoading(false);
-      setLoading(false);
-    }
-  };
 
   const handleAIQuery = async () => {
     const inputElement = document.querySelector<HTMLInputElement>('input[placeholder="Ask your AI coach"]');
@@ -704,7 +678,6 @@ const AICoach: React.FC = () => {
         <Tabs value={tabValue} onChange={(e, newValue) => setTabValue(newValue)} aria-label="coach tabs">
           <Tab icon={<CoachIcon />} label="AI Insights" />
           <Tab icon={<AnalyticsIcon />} label="Progress Analysis" />
-          <Tab icon={<PlanIcon />} label="Adaptive Planning" />
           <Tab icon={<NotificationIcon />} label={`Recommendations ${notifications.length > 0 ? `(${notifications.length})` : ''}`} />
         </Tabs>
       </Box>
@@ -794,124 +767,212 @@ const AICoach: React.FC = () => {
             </Card>
           </Grid>
 
-          {/* AI Recommendations */}
-          <Grid item xs={12} md={8}>
-            <Card sx={{ height: 400 }}>
-              <CardContent>
-                <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
-                  <AIIcon sx={{ mr: 1 }} />
-                  Personalized AI Recommendations
+          {/* AI Chat Interface - Made Much Bigger */}
+          <Grid item xs={12}>
+            <Card sx={{ minHeight: 800 }}>
+              <CardContent sx={{ p: 4 }}>
+                <Typography variant="h5" gutterBottom sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
+                  <ChatIcon sx={{ mr: 2, fontSize: 32 }} />
+                  💬 AI Health Coach Chat
                 </Typography>
-                <List sx={{ maxHeight: 300, overflow: 'auto' }}>
-                  {coachData?.recommendations?.map((rec: any, index: number) => (
-                    <ListItem key={index} sx={{ px: 0 }}>
-                      <ListItemIcon>
-                        {getPriorityIcon(rec.priority)}
-                      </ListItemIcon>
-                      <ListItemText
-                        primary={rec.message}
-                        secondary={
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 1 }}>
-                            <Chip 
-                              label={rec.priority} 
-                              color={getPriorityColor(rec.priority)}
-                              size="small"
-                            />
-                            {rec.action && (
-                              <Chip 
-                                label={rec.action} 
-                                variant="outlined"
-                                size="small"
-                                clickable
-                              />
-                            )}
-                          </Box>
-                        }
-                      />
-                    </ListItem>
-                  )) || (
-                    <ListItem>
-                      <ListItemText primary="Great job! No specific recommendations at the moment. Keep up the excellent work!" />
-                    </ListItem>
-                  )}
-                </List>
-                <CardActions>
+                <Typography variant="body1" color="text.secondary" sx={{ mb: 4, fontSize: '1.1rem' }}>
+                  Get instant personalized advice, meal suggestions, and health insights from your AI coach. Ask anything about your diabetes management, nutrition, or meal planning!
+                </Typography>
+                
+                {/* Enhanced Chat Interface - Much Bigger */}
+                <Box sx={{ 
+                  bgcolor: 'grey.50', 
+                  p: 4, 
+                  borderRadius: 3, 
+                  border: '2px solid', 
+                  borderColor: 'primary.light',
+                  minHeight: 600,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
+                }}>
+                  <Box sx={{ 
+                    flexGrow: 1, 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    justifyContent: 'center',
+                    flexDirection: 'column',
+                    textAlign: 'center',
+                    py: 4
+                  }}>
+                    <CoachIcon sx={{ fontSize: 80, color: 'primary.main', mb: 3 }} />
+                    <Typography variant="h4" gutterBottom sx={{ fontWeight: 'bold', color: 'primary.main' }}>
+                      Ready to help you achieve your health goals!
+                    </Typography>
+                    <Typography variant="h6" color="text.secondary" sx={{ mb: 4, maxWidth: 600, lineHeight: 1.6 }}>
+                      Ask me about meal planning, nutrition advice, diabetes management, exercise recommendations, or any health-related questions. I'm here to provide personalized guidance based on your profile!
+                    </Typography>
+                    
+                    {/* Quick suggestion buttons - Made Bigger */}
+                    <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', justifyContent: 'center', mb: 4, maxWidth: 800 }}>
+                      {[
+                        "What should I eat for dinner?",
+                        "Suggest a healthy snack",
+                        "Check my progress",
+                        "Meal prep ideas",
+                        "Help with portion control",
+                        "Blood sugar management tips"
+                      ].map((suggestion, index) => (
+                        <Chip
+                          key={index}
+                          label={suggestion}
+                          onClick={() => {
+                            setAIQuery(suggestion);
+                            setShowAIDialog(true);
+                          }}
+                          clickable
+                          color="primary"
+                          variant="outlined"
+                          size="medium"
+                          sx={{ 
+                            py: 1.5, 
+                            px: 2, 
+                            fontSize: '0.95rem',
+                            '&:hover': { 
+                              bgcolor: 'primary.main', 
+                              color: 'white',
+                              transform: 'translateY(-2px)',
+                              boxShadow: 2
+                            },
+                            transition: 'all 0.2s ease'
+                          }}
+                        />
+                      ))}
+                    </Box>
+                  </Box>
+                  
                   <Button 
                     variant="contained" 
-                    startIcon={<CoachIcon />}
+                    size="large"
+                    startIcon={<CoachIcon sx={{ fontSize: 28 }} />}
                     onClick={() => setShowAIDialog(true)}
-                    fullWidth
+                    sx={{ 
+                      py: 3,
+                      px: 6,
+                      fontSize: '1.3rem',
+                      fontWeight: 'bold',
+                      borderRadius: 3,
+                      maxWidth: 400,
+                      boxShadow: 3,
+                      '&:hover': {
+                        boxShadow: 6,
+                        transform: 'translateY(-2px)'
+                      },
+                      transition: 'all 0.2s ease'
+                    }}
                   >
-                    Ask AI Coach Anything
+                    Start Chatting with AI Coach
                   </Button>
-                </CardActions>
+                </Box>
               </CardContent>
             </Card>
           </Grid>
 
-          {/* Health Radar Chart */}
-          <Grid item xs={12} md={4}>
-            <Card sx={{ height: 400 }}>
-              <CardContent>
-                <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
-                  <SpeedIcon sx={{ mr: 1 }} />
-                  Health Metrics Radar
-                </Typography>
-                {createHealthRadarChart() && (
-                  <Box sx={{ height: 300 }}>
-                    <Radar 
-                      key={`health-radar-${Date.now()}`}
-                      data={createHealthRadarChart()!} 
-                      options={{
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        scales: {
-                          r: {
-                            beginAtZero: true,
-                            max: 100,
-                          },
-                        },
-                      }}
-                    />
-                  </Box>
-                )}
-              </CardContent>
-            </Card>
+          {/* Condensed AI Recommendations and Health Metrics */}
+          <Grid item xs={12}>
+            <Grid container spacing={3}>
+              <Grid item xs={12} md={8}>
+                <Card sx={{ height: 300 }}>
+                  <CardContent>
+                    <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
+                      <AIIcon sx={{ mr: 1 }} />
+                      Quick AI Recommendations
+                    </Typography>
+                    <List sx={{ maxHeight: 200, overflow: 'auto' }}>
+                      {coachData?.recommendations?.slice(0, 3).map((rec: any, index: number) => (
+                        <ListItem key={index} sx={{ px: 0, py: 0.5 }}>
+                          <ListItemIcon sx={{ minWidth: 35 }}>
+                            {getPriorityIcon(rec.priority)}
+                          </ListItemIcon>
+                          <ListItemText
+                            primary={<Typography variant="body2">{rec.message}</Typography>}
+                            secondary={
+                              <Chip 
+                                label={rec.priority} 
+                                color={getPriorityColor(rec.priority)}
+                                size="small"
+                                sx={{ mt: 0.5 }}
+                              />
+                            }
+                          />
+                        </ListItem>
+                      )) || (
+                        <ListItem sx={{ px: 0 }}>
+                          <ListItemText 
+                            primary={<Typography variant="body2">Great job! No specific recommendations at the moment. Keep up the excellent work!</Typography>} 
+                          />
+                        </ListItem>
+                      )}
+                    </List>
+                  </CardContent>
+                </Card>
+              </Grid>
+              
+              <Grid item xs={12} md={4}>
+                <Card sx={{ height: 300 }}>
+                  <CardContent>
+                    <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
+                      <SpeedIcon sx={{ mr: 1 }} />
+                      Health Overview
+                    </Typography>
+                    {createHealthRadarChart() && (
+                      <Box sx={{ height: 200 }}>
+                        <Radar 
+                          key={`health-radar-${Date.now()}`}
+                          data={createHealthRadarChart()!} 
+                          options={{
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            scales: {
+                              r: {
+                                beginAtZero: true,
+                                max: 100,
+                              },
+                            },
+                            plugins: {
+                              legend: {
+                                display: false
+                              }
+                            }
+                          }}
+                        />
+                      </Box>
+                    )}
+                  </CardContent>
+                </Card>
+              </Grid>
+            </Grid>
           </Grid>
 
-          {/* Today's Insights */}
+          {/* Today's Insights - Condensed */}
           <Grid item xs={12}>
             <Card>
-              <CardContent>
+              <CardContent sx={{ py: 2 }}>
                 <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
                   <LightbulbIcon sx={{ mr: 1 }} />
-                  Today's AI Insights
+                  Today's Quick Insights
                 </Typography>
-                <Grid container spacing={2}>
-                  {insights.map((insight: any, index: number) => (
-                    <Grid item xs={12} md={6} key={index}>
-                      <Paper sx={{ p: 2, bgcolor: 'primary.50' }}>
-                        <Typography variant="subtitle2" color="primary" gutterBottom>
-                          {insight.category}
-                        </Typography>
-                        <Typography variant="body2">
-                          {insight.message}
-                        </Typography>
-                        {insight.action && (
-                          <Button size="small" sx={{ mt: 1 }}>
-                            {insight.action}
-                          </Button>
-                        )}
-                      </Paper>
-                    </Grid>
-                  )) || (
-                    <Grid item xs={12}>
-                      <Typography variant="body2" color="text.secondary">
-                        Keep logging your meals to get personalized AI insights!
+                <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+                  {insights.slice(0, 4).map((insight: any, index: number) => (
+                    <Paper key={index} sx={{ p: 1.5, bgcolor: 'primary.50', flex: '1 1 250px', minWidth: 200 }}>
+                      <Typography variant="subtitle2" color="primary" gutterBottom sx={{ fontSize: '0.875rem' }}>
+                        {insight.category}
                       </Typography>
-                    </Grid>
+                      <Typography variant="body2" sx={{ fontSize: '0.825rem' }}>
+                        {insight.message}
+                      </Typography>
+                    </Paper>
+                  )) || (
+                    <Typography variant="body2" color="text.secondary">
+                      Keep logging your meals to get personalized AI insights!
+                    </Typography>
                   )}
-                </Grid>
+                </Box>
               </CardContent>
             </Card>
           </Grid>
@@ -1086,149 +1147,8 @@ const AICoach: React.FC = () => {
         </Grid>
       </CustomTabPanel>
 
-      {/* Adaptive Planning Tab */}
-      <CustomTabPanel value={tabValue} index={2}>
-        <Grid container spacing={3}>
-          <Grid item xs={12} md={6}>
-            <Card>
-              <CardContent>
-                <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
-                  <PlanIcon sx={{ mr: 1 }} />
-                  Adaptive Meal Planning
-                </Typography>
-                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                  Create a personalized meal plan based on your eating history, preferences, and health goals.
-                </Typography>
-                <Button
-                  variant="contained"
-                  onClick={handleCreateAdaptivePlan}
-                  disabled={adaptivePlanLoading}
-                  startIcon={adaptivePlanLoading ? <CircularProgress size={20} /> : <PlanIcon />}
-                  fullWidth
-                  sx={{ mb: 2 }}
-                >
-                  {adaptivePlanLoading ? 'Creating Adaptive Plan...' : 'Create Adaptive Meal Plan'}
-                </Button>
-                <Divider sx={{ my: 2 }} />
-                <Typography variant="subtitle2" gutterBottom>
-                  Quick Actions:
-                </Typography>
-                <ButtonGroup variant="outlined" fullWidth>
-                  <Button onClick={() => navigate('/meal_plans')}>View Plans</Button>
-                  <Button onClick={() => navigate('/my-recipes')}>Recipes</Button>
-                  <Button onClick={() => navigate('/my-shopping-lists')}>Shopping</Button>
-                </ButtonGroup>
-              </CardContent>
-            </Card>
-          </Grid>
-
-          <Grid item xs={12} md={6}>
-            <Card>
-              <CardContent>
-                <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
-                  <ChatIcon sx={{ mr: 1 }} />
-                  AI Chat Assistant
-                </Typography>
-                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                  Chat with your AI health coach for personalized advice and meal suggestions.
-                </Typography>
-                <Button
-                  variant="contained"
-                  onClick={() => navigate('/chat')}
-                  startIcon={<ChatIcon />}
-                  fullWidth
-                  sx={{ mb: 2 }}
-                >
-                  Open AI Chat
-                </Button>
-                <Divider sx={{ my: 2 }} />
-                <Typography variant="subtitle2" gutterBottom>
-                  Recent Chat Topics:
-                </Typography>
-                <List dense>
-                  <ListItem>
-                    <ListItemText primary="Meal suggestions for dinner" secondary="2 hours ago" />
-                  </ListItem>
-                  <ListItem>
-                    <ListItemText primary="Diabetes-friendly snacks" secondary="Yesterday" />
-                  </ListItem>
-                  <ListItem>
-                    <ListItemText primary="Exercise recommendations" secondary="2 days ago" />
-                  </ListItem>
-                </List>
-              </CardContent>
-            </Card>
-          </Grid>
-
-          {/* Planning Features */}
-          <Grid item xs={12}>
-            <Card>
-              <CardContent>
-                <Typography variant="h6" gutterBottom>
-                  Intelligent Planning Features
-                </Typography>
-                <Grid container spacing={2}>
-                  {[
-                    {
-                      title: 'Smart Meal Suggestions',
-                      description: 'AI-powered meal recommendations based on your preferences and health goals',
-                      icon: <RestaurantIcon />,
-                      action: () => setShowAIDialog(true)
-                    },
-                    {
-                      title: 'Adaptive Recipes',
-                      description: 'Personalized recipes that adapt to your dietary needs and restrictions',
-                      icon: <RecipeIcon />,
-                      action: () => navigate('/my-recipes')
-                    },
-                    {
-                      title: 'Smart Shopping Lists',
-                      description: 'Automatically generated shopping lists based on your meal plans',
-                      icon: <ShoppingIcon />,
-                      action: () => navigate('/my-shopping-lists')
-                    },
-                    {
-                      title: 'Progress Tracking',
-                      description: 'Comprehensive tracking of your health metrics and goals',
-                      icon: <AnalyticsIcon />,
-                      action: () => navigate('/consumption-history')
-                    }
-                  ].map((feature, index) => (
-                    <Grid item xs={12} sm={6} md={3} key={index}>
-                      <Paper 
-                        sx={{ 
-                          p: 2, 
-                          textAlign: 'center', 
-                          cursor: 'pointer',
-                          '&:hover': { 
-                            transform: 'translateY(-2px)',
-                            boxShadow: 4
-                          },
-                          transition: 'all 0.2s ease-in-out'
-                        }}
-                        onClick={feature.action}
-                      >
-                        <Box sx={{ color: 'primary.main', mb: 1 }}>
-                          {feature.icon}
-                        </Box>
-                        <Typography variant="subtitle2" gutterBottom>
-                          {feature.title}
-                        </Typography>
-                        <Typography variant="body2" color="text.secondary">
-                          {feature.description}
-                        </Typography>
-                      </Paper>
-                    </Grid>
-                  ))}
-                </Grid>
-              </CardContent>
-            </Card>
-          </Grid>
-        </Grid>
-      </CustomTabPanel>
-
       {/* Recommendations Tab */}
-      <CustomTabPanel value={tabValue} index={3}>
+      <CustomTabPanel value={tabValue} index={2}>
         <Grid container spacing={3}>
           <Grid item xs={12}>
             <Card>

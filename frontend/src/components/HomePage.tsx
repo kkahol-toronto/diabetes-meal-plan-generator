@@ -694,7 +694,7 @@ const HomePage: React.FC = () => {
   const [tabValue, setTabValue] = useState(0);
   const [macroTimeRange, setMacroTimeRange] = useState<'daily' | 'weekly' | 'bi-weekly' | 'monthly'>('daily');
   const [macroConsumptionAnalytics, setMacroConsumptionAnalytics] = useState<any>(null);
-  const [adaptivePlanLoading, setAdaptivePlanLoading] = useState(false);
+
   const [showAICoachDialog, setShowAICoachDialog] = useState(false);
   const [aiCoachQuery, setAICoachQuery] = useState('');
   const [aiCoachResponse, setAICoachResponse] = useState('');
@@ -710,9 +710,8 @@ const HomePage: React.FC = () => {
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [pendingAnalysis, setPendingAnalysis] = useState<any>(null);
   
-  // Adaptive Plan Dialog state
-  const [showAdaptivePlanDialog, setShowAdaptivePlanDialog] = useState(false);
-  const [adaptivePlanDays, setAdaptivePlanDays] = useState(3);
+
+
   
   // Analytics chart state
   const [analyticsChartType, setAnalyticsChartType] = useState<'auto' | 'line' | 'bar' | 'pie' | 'doughnut' | 'area' | 'scatter' | 'comparison'>('auto');
@@ -1050,45 +1049,9 @@ const HomePage: React.FC = () => {
     setPendingAnalysis(null);
   };
 
-  const handleCreateAdaptivePlan = async () => {
-    try {
-      setAdaptivePlanLoading(true);
-      setLoading(true, 'Creating your personalized meal plan based on your medical profile...');
-      
-      const response = await fetch(`${config.API_URL}/create-adaptive-meal-plan`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ 
-          days: adaptivePlanDays
-        }),
-      });
 
-      if (response.ok) {
-        const result = await response.json();
-        showNotification('🎉 Your adaptive meal plan has been created based on your medical profile!', 'success');
-        navigate('/meal_plans');
-        setShowAdaptivePlanDialog(false);
-      } else {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || 'Failed to create adaptive meal plan');
-      }
-    } catch (err) {
-      console.error('Adaptive meal plan creation error:', err);
-      showNotification('Failed to create meal plan. Please try again.', 'error');
-    } finally {
-      setAdaptivePlanLoading(false);
-      setLoading(false);
-    }
-  };
 
-  const handleOpenAdaptivePlanDialog = () => {
-    setShowAdaptivePlanDialog(true);
-    // Reset to default days
-    setAdaptivePlanDays(3);
-  };
+
 
   const handleGenerateRecipes = async () => {
     try {
@@ -3769,36 +3732,78 @@ const HomePage: React.FC = () => {
       {/* AI Insights Tab */}
       <CustomTabPanel value={tabValue} index={2}>
         <Grid container spacing={3}>
-          <Grid item xs={12} md={6}>
+          {/* AI Health Coach - Made Much Bigger */}
+          <Grid item xs={12}>
             <Card sx={{ 
               background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-              color: 'white'
+              color: 'white',
+              minHeight: 600
             }}>
-              <CardContent>
-                <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', color: 'white' }}>
-                  <CoachIcon sx={{ mr: 1 }} />
-                  AI Health Coach
+              <CardContent sx={{ p: 4 }}>
+                <Typography variant="h4" gutterBottom sx={{ display: 'flex', alignItems: 'center', color: 'white', mb: 3 }}>
+                  <CoachIcon sx={{ mr: 2, fontSize: 36 }} />
+                  💬 AI Health Coach
                 </Typography>
-                <Typography variant="body2" sx={{ mb: 2, color: 'rgba(255,255,255,0.9)' }}>
-                  Ask your AI coach anything about your diabetes management, nutrition, or meal planning.
+                <Typography variant="h6" sx={{ mb: 4, color: 'rgba(255,255,255,0.95)', lineHeight: 1.6 }}>
+                  Get instant personalized advice, meal suggestions, and health insights from your AI coach. Ask anything about your diabetes management, nutrition, meal planning, or health goals!
                 </Typography>
+                
+                {/* Quick suggestion buttons */}
+                <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', justifyContent: 'center', mb: 4 }}>
+                  {[
+                    "What should I eat for dinner?",
+                    "Suggest a healthy snack",
+                    "Check my progress",
+                    "Meal prep ideas",
+                    "Help with portion control",
+                    "Blood sugar management tips"
+                  ].map((suggestion, index) => (
+                    <Chip
+                      key={index}
+                      label={suggestion}
+                      onClick={() => {
+                        setAICoachQuery(suggestion);
+                        if (!aiCoachLoading) {
+                          handleAICoachQuery();
+                        }
+                      }}
+                      clickable
+                      sx={{ 
+                        bgcolor: 'rgba(255,255,255,0.2)',
+                        color: 'white',
+                        border: '1px solid rgba(255,255,255,0.3)',
+                        py: 1.5, 
+                        px: 2, 
+                        fontSize: '0.95rem',
+                        '&:hover': { 
+                          bgcolor: 'rgba(255,255,255,0.3)',
+                          transform: 'translateY(-2px)',
+                          boxShadow: '0 4px 12px rgba(0,0,0,0.2)'
+                        },
+                        transition: 'all 0.2s ease'
+                      }}
+                    />
+                  ))}
+                </Box>
+                
                 <TextField
                   fullWidth
                   multiline
-                  rows={3}
-                  placeholder="Ask me about your nutrition, meal suggestions, or health goals..."
+                  rows={5}
+                  placeholder="Ask me about your nutrition, meal suggestions, health goals, or any diabetes-related questions..."
                   value={aiCoachQuery}
                   onChange={(e) => setAICoachQuery(e.target.value)}
                   sx={{ 
-                    mb: 2,
+                    mb: 3,
                     '& .MuiOutlinedInput-root': {
-                      bgcolor: 'rgba(255,255,255,0.1)',
+                      bgcolor: 'rgba(255,255,255,0.15)',
                       color: 'white',
-                      '& fieldset': { borderColor: 'rgba(255,255,255,0.3)' },
-                      '&:hover fieldset': { borderColor: 'rgba(255,255,255,0.5)' },
-                      '&.Mui-focused fieldset': { borderColor: 'white' }
+                      fontSize: '1.1rem',
+                      '& fieldset': { borderColor: 'rgba(255,255,255,0.4)', borderWidth: 2 },
+                      '&:hover fieldset': { borderColor: 'rgba(255,255,255,0.6)' },
+                      '&.Mui-focused fieldset': { borderColor: 'white', borderWidth: 2 }
                     },
-                    '& .MuiInputBase-input::placeholder': { color: 'rgba(255,255,255,0.7)' }
+                    '& .MuiInputBase-input::placeholder': { color: 'rgba(255,255,255,0.8)', fontSize: '1.05rem' }
                   }}
                   onKeyPress={(e) => {
                     if (e.key === 'Enter' && !e.shiftKey) {
@@ -3813,30 +3818,67 @@ const HomePage: React.FC = () => {
                   variant="contained"
                   onClick={handleAICoachQuery}
                   disabled={aiCoachLoading || !aiCoachQuery.trim()}
-                  startIcon={aiCoachLoading ? <CircularProgress size={20} /> : <CoachIcon />}
-                  fullWidth
+                  startIcon={aiCoachLoading ? <CircularProgress size={24} /> : <CoachIcon sx={{ fontSize: 24 }} />}
+                  size="large"
                   sx={{ 
-                    bgcolor: 'rgba(255,255,255,0.2)', 
+                    bgcolor: 'rgba(255,255,255,0.25)', 
                     color: 'white',
-                    '&:hover': { bgcolor: 'rgba(255,255,255,0.3)' },
-                    '&:disabled': { bgcolor: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.5)' }
+                    py: 2,
+                    px: 4,
+                    fontSize: '1.2rem',
+                    fontWeight: 'bold',
+                    borderRadius: 3,
+                    boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
+                    display: 'block',
+                    margin: '0 auto',
+                    maxWidth: 300,
+                    '&:hover': { 
+                      bgcolor: 'rgba(255,255,255,0.35)',
+                      transform: 'translateY(-2px)',
+                      boxShadow: '0 6px 16px rgba(0,0,0,0.3)'
+                    },
+                    '&:disabled': { bgcolor: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.6)' },
+                    transition: 'all 0.2s ease'
                   }}
                 >
-                  {aiCoachLoading ? 'Thinking...' : 'Ask AI Coach'}
+                  {aiCoachLoading ? 'AI is thinking...' : 'Ask AI Coach'}
                 </Button>
                 {aiCoachResponse && (
-                  <Paper sx={{ p: 2, mt: 2, bgcolor: 'rgba(255,255,255,0.1)', backdropFilter: 'blur(10px)' }}>
-                    <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap', color: 'white' }}>
+                  <Paper sx={{ 
+                    p: 3, 
+                    mt: 3, 
+                    bgcolor: 'rgba(255,255,255,0.15)', 
+                    backdropFilter: 'blur(10px)',
+                    borderRadius: 3,
+                    border: '1px solid rgba(255,255,255,0.2)'
+                  }}>
+                    <Typography variant="h6" sx={{ color: 'white', mb: 2, display: 'flex', alignItems: 'center' }}>
+                      <CoachIcon sx={{ mr: 1 }} />
+                      AI Coach Response:
+                    </Typography>
+                    <Typography variant="body1" sx={{ 
+                      whiteSpace: 'pre-wrap', 
+                      color: 'white', 
+                      fontSize: '1.05rem',
+                      lineHeight: 1.6,
+                      mb: 2
+                    }}>
                       {aiCoachResponse}
                     </Typography>
                     <Button 
-                      size="small" 
+                      size="medium" 
                       onClick={() => setAICoachResponse('')}
                       sx={{ 
                         mt: 1, 
                         color: 'white', 
-                        borderColor: 'rgba(255,255,255,0.3)',
-                        '&:hover': { borderColor: 'white', bgcolor: 'rgba(255,255,255,0.1)' }
+                        borderColor: 'rgba(255,255,255,0.4)',
+                        px: 3,
+                        '&:hover': { 
+                          borderColor: 'white', 
+                          bgcolor: 'rgba(255,255,255,0.15)',
+                          transform: 'translateY(-1px)'
+                        },
+                        transition: 'all 0.2s ease'
                       }}
                       variant="outlined"
                     >
@@ -3848,38 +3890,7 @@ const HomePage: React.FC = () => {
             </Card>
           </Grid>
 
-          <Grid item xs={12} md={6}>
-            <Card>
-              <CardContent>
-                <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
-                  <PlanIcon sx={{ mr: 1 }} />
-                  Adaptive Meal Planning
-                </Typography>
-                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                  Create a personalized meal plan based on your eating history and preferences.
-                </Typography>
-                <Button
-                  variant="contained"
-                  onClick={handleOpenAdaptivePlanDialog}
-                  disabled={adaptivePlanLoading}
-                  startIcon={adaptivePlanLoading ? <CircularProgress size={20} /> : <PlanIcon />}
-                  fullWidth
-                  sx={{ mb: 2 }}
-                >
-                  {adaptivePlanLoading ? 'Creating Plan...' : 'Create Adaptive Plan'}
-                </Button>
-                <Divider sx={{ my: 2 }} />
-                <Typography variant="subtitle2" gutterBottom>
-                  Quick Actions:
-                </Typography>
-                <ButtonGroup variant="outlined" fullWidth>
-                  <Button onClick={() => navigate('/meal_plans')}>View Plans</Button>
-                  <Button onClick={handleGenerateRecipes}>Generate Recipes</Button>
-                  <Button onClick={handleGenerateShoppingList}>Shopping List</Button>
-                </ButtonGroup>
-              </CardContent>
-            </Card>
-          </Grid>
+
 
           {/* Today's Insights */}
           <Grid item xs={12}>
@@ -4083,53 +4094,7 @@ const HomePage: React.FC = () => {
         </DialogActions>
       </Dialog>
 
-      {/* Adaptive Plan Dialog */}
-      <Dialog open={showAdaptivePlanDialog} onClose={() => setShowAdaptivePlanDialog(false)} maxWidth="sm" fullWidth>
-        <DialogTitle sx={{ display: 'flex', alignItems: 'center' }}>
-          <PlanIcon sx={{ mr: 1 }} />
-          Create Adaptive Meal Plan
-        </DialogTitle>
-        <DialogContent>
-          <TextField
-            autoFocus
-            margin="dense"
-            label="Number of Days"
-            type="number"
-            fullWidth
-            value={adaptivePlanDays}
-            onChange={(e) => setAdaptivePlanDays(Math.max(1, parseInt(e.target.value || '1', 10)))}
-            InputProps={{ inputProps: { min: 1, max: 7 } }}
-            sx={{ mb: 2 }}
-          />
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            We'll create a personalized {adaptivePlanDays}-day meal plan using your complete profile data including:
-          </Typography>
-          <Box sx={{ mb: 2 }}>
-            <Typography variant="body2" color="text.secondary" component="div">
-              • Dietary restrictions and food allergies
-              • Foods to avoid and strong dislikes
-              • Diet type and cuisine preferences
-              • Health conditions and diabetes type
-              • Activity level and personal goals
-              • Cooking time and budget preferences
-            </Typography>
-          </Box>
-          <Typography variant="body2" color="primary" sx={{ fontWeight: 'bold' }}>
-            Your meal plan will automatically adapt to all your preferences and restrictions!
-          </Typography>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setShowAdaptivePlanDialog(false)}>Cancel</Button>
-          <Button 
-            onClick={handleCreateAdaptivePlan} 
-            variant="contained"
-            disabled={adaptivePlanLoading}
-            startIcon={adaptivePlanLoading ? <CircularProgress size={20} /> : <PlanIcon />}
-          >
-            {adaptivePlanLoading ? 'Creating...' : 'Create Plan'}
-          </Button>
-        </DialogActions>
-      </Dialog>
+
 
       {/* Pending Consumption Dialog */}
       <PendingConsumptionDialog

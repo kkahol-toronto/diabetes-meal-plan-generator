@@ -687,7 +687,8 @@ Ensure ALL dishes are completely vegetarian and egg-free. Do not include any mea
         # ------------------
         try:
             # Get today's consumption with detailed analysis
-            today_consumption_full = await get_today_consumption_records_async(current_user["email"], user_timezone="UTC")
+            user_timezone = current_user.get("profile", {}).get("timezone", "UTC")
+            today_consumption_full = await get_today_consumption_records_async(current_user["email"], user_timezone=user_timezone)
             
             print(f"[CALIBRATION] Starting advanced calibration with {len(today_consumption_full)} consumption records")
             
@@ -763,7 +764,8 @@ Ensure ALL dishes are completely vegetarian and egg-free. Do not include any mea
             print(f"[get_todays_meal_plan] User has dietary restrictions - generating fresh diverse vegetarian meal plan")
             
             # Use the new comprehensive recalibration system
-            today_consumption = await get_today_consumption_records_async(current_user["email"], user_timezone="UTC")
+            user_timezone = current_user.get("profile", {}).get("timezone", "UTC")
+            today_consumption = await get_today_consumption_records_async(current_user["email"], user_timezone=user_timezone)
             calories_consumed = sum(r.get("nutritional_info", {}).get("calories", 0) for r in today_consumption)
             calorie_target_str = profile.get('calorieTarget', '2000')
             try:
@@ -816,7 +818,8 @@ Ensure ALL dishes are completely vegetarian and egg-free. Do not include any mea
         # Even for non-vegetarian users, ensure we use the recalibration system if consumption has occurred
         elif todays_plan:
             # Check if we have consumption today and need to recalibrate
-            today_consumption = await get_today_consumption_records_async(current_user["email"], user_timezone="UTC")
+            user_timezone = current_user.get("profile", {}).get("timezone", "UTC")
+            today_consumption = await get_today_consumption_records_async(current_user["email"], user_timezone=user_timezone)
             if today_consumption:
                 print(f"[get_todays_meal_plan] User has consumption today - triggering recalibration")
                 try:
@@ -884,26 +887,37 @@ Ensure ALL dishes are completely vegetarian and egg-free. Do not include any mea
         raise HTTPException(status_code=500, detail=f"Failed to retrieve or generate meal plan: {str(e)}")
 
 @app.post("/create-adaptive-meal-plan")
-async def create_adaptive_meal_plan_new(
+async def create_adaptive_meal_plan_comprehensive(
     payload: dict = Body(...),
     current_user: User = Depends(get_current_user)
 ):
-    """⚡ Ultra-fast adaptive meal plan creation with performance tracking"""
-    from services.ultra_fast_meal_service import create_adaptive_meal_plan_ultra_fast
-    from services.performance_monitor import track_performance
-    
-    @track_performance("create_adaptive_meal_plan")
-    async def _create_meal_plan():
-        return await create_adaptive_meal_plan_ultra_fast(
-            current_user["email"], 
-            current_user.get("profile", {}),
-            payload
-        )
+    """🎯 Comprehensive adaptive meal plan creation using full health profile"""
+    from services.meal_plan_service import create_adaptive_meal_plan_optimized
     
     try:
-        return await _create_meal_plan()
+        # Parse request parameters
+        req_days = int(payload.get("days", 3)) if payload else 3
+        req_cuisine = payload.get("cuisine_type", "") if payload else ""
+        
+        print(f"[comprehensive_adaptive] Creating {req_days}-day plan for {current_user['email']}")
+        print(f"[comprehensive_adaptive] Requested cuisine: {req_cuisine}")
+        
+        # Use the comprehensive optimized meal plan service
+        result = await create_adaptive_meal_plan_optimized(
+            current_user["email"], 
+            current_user.get("profile", {}),
+            req_days,
+            req_cuisine
+        )
+        
+        print(f"[comprehensive_adaptive] Successfully created meal plan: {result.get('plan_name', 'Unknown')}")
+        return result
+        
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Adaptive meal plan failed: {str(e)}")
+        print(f"[comprehensive_adaptive] Error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Failed to create comprehensive adaptive meal plan: {str(e)}")
 
 # Original heavy function moved to services/meal_plan_service.py  
 @app.post("/coach/adaptive-meal-plan-legacy")

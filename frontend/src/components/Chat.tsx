@@ -202,7 +202,7 @@ const Chat = () => {
     {
       label: 'Create Plan',
       icon: <AssignmentIcon />,
-      action: () => setInput("Create an adaptive meal plan for me"),
+      action: () => setInput("What should I eat for dinner?"),
       color: 'success'
     },
     {

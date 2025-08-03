@@ -24,7 +24,6 @@ class FastRouterLoader:
             'consumption_analysis': ('routers.consumption_analysis', 'router', ['consumption_analysis']),
             'ai_coach': ('routers.ai_coach_system', 'router', ['ai_coach']),
             'ai_coach_comprehensive': ('routers.ai_coach_comprehensive', 'router', ['ai_coach_comprehensive']),
-            'meal_plan_crud': ('routers.meal_plan_crud', 'router', ['meal_plans']),
             'meal_plans': ('routers.meal_plans', 'router', ['meal_plans']),
             'pending_consumption': ('routers.pending_consumption_system', 'router', ['pending_consumption']),
             'pdf_generation': ('routers.pdf_generation_system', 'router', ['pdf_generation']),

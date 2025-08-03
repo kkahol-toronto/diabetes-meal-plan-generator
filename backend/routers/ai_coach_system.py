@@ -285,36 +285,114 @@ Focus on their specific health conditions, not just general advice."""
 
         elif query_type == "adaptive_plan":
             days = specific_data.get('days', 7) if specific_data else 7
-            prompt = f"""You are a comprehensive health coach AI creating adaptive meal plans for multiple health conditions.
+            
+            # Get comprehensive health information
+            medical_conditions = profile.get('medical_conditions', []) or []
+            current_medications = profile.get('current_medications', []) or []
+            dietary_restrictions = profile.get('dietary_restrictions', []) or []
+            allergies = profile.get('allergies', []) or []
+            diet_type = profile.get('diet_type', []) or ['Mixed international']
+            
+            # Helper function to format profile data
+            def format_list(items, default="None specified"):
+                if isinstance(items, list) and items:
+                    return ', '.join(str(item) for item in items)
+                return default
+            
+            prompt = f"""You are an expert registered dietitian and diabetes specialist creating a comprehensive {days}-day personalized meal plan.
+
+COMPLETE PATIENT HEALTH PROFILE:
+
+DEMOGRAPHICS & VITALS:
+- Age: {profile.get('age', 'Not specified')}
+- Gender: {profile.get('gender', 'Not specified')}
+- Weight: {profile.get('weight', 'Not specified')} kg
+- Height: {profile.get('height', 'Not specified')} cm
+- BMI: {profile.get('bmi', 'Not calculated')}
+- Blood Pressure: {profile.get('systolic_bp', 'Not specified')}/{profile.get('diastolic_bp', 'Not specified')} mmHg
+
+CRITICAL MEDICAL CONDITIONS:
+- Medical Conditions: {format_list(medical_conditions)}
+- Current Medications: {format_list(current_medications)}
+- Lab Values: {json.dumps(profile.get('lab_values', {}), indent=2) if profile.get('lab_values') else 'Not provided'}
+
+COMPREHENSIVE DIETARY PROFILE:
+- Preferred Cuisine: {format_list(diet_type)} ⭐ MUST FOLLOW THIS CUISINE STYLE ⭐
+- Dietary Restrictions: {format_list(dietary_restrictions)}
+- Food Allergies: {format_list(allergies)}
+- Food Preferences: {format_list(profile.get('food_preferences', []))}
+- Strong Dislikes: {format_list(profile.get('strong_dislikes', []))}
+
+PHYSICAL ACTIVITY & GOALS:
+- Activity Level: {profile.get('work_activity_level', 'Not specified')}
+- Exercise Frequency: {profile.get('exercise_frequency', 'Not specified')}
+- Primary Goals: {format_list(profile.get('primary_goals', []))}
+- Weight Loss Goal: {profile.get('wants_weight_loss', 'Not specified')}
+
+TARGET NUTRITION:
+- Daily Calories: {profile.get('calorie_target', 2000)} kcal/day
 
 {condition_context}
 {dietary_context}
-{metrics_context}
 {consumption_context}
-{plan_context}
 
-Create a personalized {days}-day meal plan that:
-1. Addresses ALL the user's health conditions specifically
-2. Incorporates their favorite foods when condition-appropriate
-3. Respects all dietary restrictions and allergies
-4. Targets their calorie and macro goals
-5. Adapts based on their eating patterns and adherence rate
-6. Provides condition-specific meal timing and combinations
-7. Includes medication timing considerations if relevant
+CRITICAL MEDICAL SAFETY REQUIREMENTS:
+1. **MEDICAL CONDITIONS**: Carefully consider ALL medical conditions and medications. Ensure meals support diabetes management and other health conditions.
+2. **DIETARY COMPLIANCE**: Absolutely MUST follow ALL dietary restrictions, allergies, and preferences.
+3. **CUISINE ADHERENCE**: Follow the specified cuisine type exactly while respecting medical requirements.
+4. **MEDICATION INTERACTIONS**: Consider how foods interact with medications.
 
-Provide a JSON response with the exact structure:
+MEAL DIVERSITY REQUIREMENTS:
+- Create COMPLETELY DIFFERENT meals for each day
+- Ensure NO repetition of dishes across the {days} days
+- Each breakfast, lunch, dinner, and snack must be unique
+- Vary cooking methods, ingredients, and flavors significantly
+- Consider cultural authenticity for the cuisine type
+
+{"VEGETARIAN REQUIREMENT: All meals must be vegetarian (no meat, poultry, fish, seafood)" if any('vegetarian' in str(item).lower() for item in dietary_restrictions) else ""}
+{"EGG-FREE REQUIREMENT: All meals must be egg-free (no eggs, omelets, quiche)" if any('egg' in str(item).lower() for item in dietary_restrictions + allergies) else ""}
+
+Provide JSON with this EXACT structure:
 {{
-    "plan_name": "Personalized Health Plan - {datetime.now().strftime('%Y-%m-%d')}",
+    "plan_name": "Comprehensive Health Plan - {datetime.now().strftime('%Y-%m-%d')}",
     "duration_days": {days},
-    "dailyCalories": {profile['calorie_target']},
-    "health_focus": [list of their health conditions],
-    "breakfast": [{', '.join([f'"Day {i+1}: [specific meal]"' for i in range(days)])}],
-    "lunch": [{', '.join([f'"Day {i+1}: [specific meal]"' for i in range(days)])}],
-    "dinner": [{', '.join([f'"Day {i+1}: [specific meal]"' for i in range(days)])}],
-    "snacks": [{', '.join([f'"Day {i+1}: [specific snack]"' for i in range(days)])}],
-    "adaptations": ["Condition-specific adaptations based on their profile"],
-    "coaching_notes": "Personalized notes for their health conditions and patterns"
-}}"""
+    "dailyCalories": {profile.get('calorie_target', 2000)},
+    "health_focus": {json.dumps(medical_conditions)},
+    "breakfast": [
+        "Day 1: [Specific unique breakfast dish with portion]",
+        "Day 2: [Completely different breakfast dish with portion]",
+        "Day 3: [Another unique breakfast dish with portion]"
+        // Continue for all {days} days - each MUST be unique
+    ],
+    "lunch": [
+        "Day 1: [Specific unique lunch dish with portion]",
+        "Day 2: [Completely different lunch dish with portion]",
+        "Day 3: [Another unique lunch dish with portion]"
+        // Continue for all {days} days - each MUST be unique
+    ],
+    "dinner": [
+        "Day 1: [Specific unique dinner dish with portion]",
+        "Day 2: [Completely different dinner dish with portion]",
+        "Day 3: [Another unique dinner dish with portion]"
+        // Continue for all {days} days - each MUST be unique
+    ],
+    "snacks": [
+        "Day 1: [Specific unique snack with portion]",
+        "Day 2: [Completely different snack with portion]",
+        "Day 3: [Another unique snack with portion]"
+        // Continue for all {days} days - each MUST be unique
+    ],
+    "adaptations": ["Medical adaptations based on conditions and medications", "Dietary adaptations for restrictions"],
+    "coaching_notes": "Personalized coaching advice based on comprehensive health profile and medical conditions"
+}}
+
+ABSOLUTE REQUIREMENTS:
+- Each meal array must have exactly {days} items
+- NO meal repetition across any day
+- All meals diabetes-friendly (low glycemic index)
+- Must respect ALL medical conditions and medications
+- Follow specified cuisine: {format_list(diet_type)}
+- Consider age, weight, activity level, and health goals"""
 
         else:  # general_coaching
             prompt = f"""You are a comprehensive health coach AI providing general health coaching.
@@ -455,7 +533,7 @@ async def create_ai_coach_adaptive_plan(
         if not ai_response:
             raise HTTPException(status_code=500, detail="Could not get AI health coach response")
         
-        # Try to parse JSON response if it's an adaptive plan
+        # Try to parse JSON response and save meal plan to database
         try:
             # Extract JSON from response
             start_idx = ai_response.find('{')
@@ -464,11 +542,37 @@ async def create_ai_coach_adaptive_plan(
                 json_str = ai_response[start_idx:end_idx]
                 meal_plan_data = json.loads(json_str)
                 
+                # Save the meal plan to database for persistent storage
+                try:
+                    from services.database_service import save_meal_plan_with_cache_invalidation
+                    from datetime import datetime
+                    
+                    # Add metadata for database storage
+                    meal_plan_data.update({
+                        "user_id": current_user["email"],
+                        "created_at": datetime.utcnow().isoformat(),
+                        "plan_type": "adaptive_ai_coach",
+                        "user_profile_snapshot": {
+                            "medical_conditions": user_context.get("medical_conditions", []),
+                            "dietary_restrictions": user_context.get("dietary_restrictions", []),
+                            "allergies": user_context.get("allergies", [])
+                        }
+                    })
+                    
+                    # Save to database
+                    saved_plan = await save_meal_plan_with_cache_invalidation(current_user["email"], meal_plan_data)
+                    print(f"[ai_coach_adaptive_plan] Successfully saved meal plan: {saved_plan.get('id', 'Unknown')}")
+                    
+                except Exception as save_error:
+                    print(f"[ai_coach_adaptive_plan] Warning: Could not save meal plan to database: {save_error}")
+                    # Continue anyway since we have the meal plan data
+                
                 return {
                     "success": True,
                     "meal_plan": meal_plan_data,
                     "personalized": True,
-                    "ai_generated": True
+                    "ai_generated": True,
+                    "saved_to_database": 'saved_plan' in locals()
                 }
             else:
                 # If no JSON found, return as text response
