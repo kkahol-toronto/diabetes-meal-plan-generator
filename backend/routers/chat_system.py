@@ -593,7 +593,7 @@ async def chat_message_with_image(
     # 🧠 GET COMPREHENSIVE USER CONTEXT - This is the key integration!
     try:
         # Import here to avoid circular import issues
-        from main import get_comprehensive_user_context
+        from .ai_coach_system import get_comprehensive_user_context
         user_context = await get_comprehensive_user_context(current_user["email"])
         print(f"✅ Retrieved comprehensive context for user: {len(user_context.get('health_conditions', []))} conditions, {len(user_context.get('consumption_history', []))} recent meals")
     except Exception as e:
@@ -924,7 +924,7 @@ Would you like me to log this to your consumption history? Just say "log this as
 
         # Trigger meal plan recalibration after logging food
         try:
-            from main import trigger_meal_plan_recalibration
+            from ..services.consumption_analysis import trigger_meal_plan_recalibration
             profile = current_user.get("profile", {})
             await trigger_meal_plan_recalibration(current_user["email"], profile)
             print(f"[chat_message_with_image] Meal plan recalibrated after legacy food logging")
@@ -979,7 +979,7 @@ Your meal plan will be updated to reflect this logged meal."""
                 }
 
             # 🧠 GET AI RESPONSE USING COMPREHENSIVE SYSTEM
-            from main import get_ai_health_coach_response
+            from .ai_coach_system import get_ai_health_coach_response
             assistant_message = await get_ai_health_coach_response(
                 user_context=user_context,
                 query_type=query_type,

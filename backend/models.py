@@ -117,6 +117,11 @@ class UserProfile(BaseModel):
     weight_loss_goal: Optional[bool] = False  # For backward compatibility
     calorieTarget: Optional[str] = None
     calories_target: Optional[int] = None  # For backward compatibility
+    proteinTarget: Optional[str] = None  # Daily protein goal in grams
+    protein_target: Optional[int] = None  # For backward compatibility
+    
+    # Comprehensive Macro Goals
+    macroGoals: Optional[Dict[str, Optional[int]]] = {}  # {"protein": 100, "carbs": 250, "fat": 66}
     
     # Timezone for proper date filtering
     timezone: Optional[str] = "UTC"

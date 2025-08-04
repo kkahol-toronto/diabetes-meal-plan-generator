@@ -66,6 +66,14 @@ export interface UserProfile {
   // Meal Plan Targeting
   wantsWeightLoss: boolean;
   calorieTarget?: string;
+  proteinTarget?: string;  // Daily protein goal in grams
+  
+  // Comprehensive Macro Goals
+  macroGoals?: {
+    protein?: number;
+    carbs?: number;
+    fat?: number;
+  };
   
   // Legacy fields for backward compatibility
   dietFeatures?: string[];

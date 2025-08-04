@@ -374,17 +374,36 @@ const SmartDailyMealPlan: React.FC = () => {
     }
   };
 
-  // Helper function to determine if a meal is consumed
+  // Helper function to determine if a meal is consumed (handles both old and new API formats)
   const isMealConsumed = (mealType: string): boolean => {
-    return smartMealPlan?.consumption_summary[mealType]?.length > 0;
+    // Try new enhanced API format first
+    const newFormatConsumption = smartMealPlan?.current_consumption?.[mealType];
+    if (newFormatConsumption && Array.isArray(newFormatConsumption)) {
+      return newFormatConsumption.length > 0;
+    }
+    
+    // Fallback to old API format
+    const oldFormatConsumption = smartMealPlan?.consumption_summary?.[mealType];
+    if (oldFormatConsumption && Array.isArray(oldFormatConsumption)) {
+      return oldFormatConsumption.length > 0;
+    }
+    
+    return false;
   };
 
-  // Helper function to get consumed meal details
+  // Helper function to get consumed meal details (handles both old and new API formats)
   const getConsumedMealDetails = (mealType: string) => {
-    const consumed = smartMealPlan?.consumption_summary[mealType] || [];
-    if (consumed.length === 0) return null;
+    // Try new enhanced API format first
+    let consumed = smartMealPlan?.current_consumption?.[mealType];
     
-    const totalCalories = consumed.reduce((sum: number, item: any) => sum + item.calories, 0);
+    // Fallback to old API format
+    if (!consumed || !Array.isArray(consumed)) {
+      consumed = smartMealPlan?.consumption_summary?.[mealType] || [];
+    }
+    
+    if (!Array.isArray(consumed) || consumed.length === 0) return null;
+    
+    const totalCalories = consumed.reduce((sum: number, item: any) => sum + (item.calories || 0), 0);
     const foodNames = consumed.map((item: any) => item.food_name).join(', ');
     
     return { foodNames, totalCalories, items: consumed };
@@ -464,42 +483,74 @@ const SmartDailyMealPlan: React.FC = () => {
           />
         </Typography>
 
-        {/* Calorie Summary */}
-        <Box sx={{ mb: 3, p: 2, bgcolor: 'rgba(255,255,255,0.15)', borderRadius: 2, border: '1px solid rgba(255,255,255,0.3)' }}>
-          <Grid container spacing={2} alignItems="center">
-            <Grid item xs={12} sm={6}>
-              <Typography variant="body1" sx={{ color: 'white', fontWeight: 600 }}>
-                Daily Progress: {smartMealPlan?.calories_consumed || 0} / {smartMealPlan?.target_calories || 2000} calories
+        {/* Enhanced Nutrition Progress */}
+        <Box sx={{ mb: 3, p: 2.5, bgcolor: 'rgba(255,255,255,0.15)', borderRadius: 2, border: '1px solid rgba(255,255,255,0.3)' }}>
+          <Grid container spacing={3}>
+            {/* Calories Progress */}
+            <Grid item xs={12} md={6}>
+              <Typography variant="body1" sx={{ color: 'white', fontWeight: 600, mb: 1 }}>
+                📊 Calories: {smartMealPlan?.daily_progress?.calories?.consumed || smartMealPlan?.calories_consumed || 0} / {smartMealPlan?.daily_progress?.calories?.target || smartMealPlan?.target_calories || 2000}
               </Typography>
               <LinearProgress 
                 variant="determinate" 
-                value={Math.min(((smartMealPlan?.calories_consumed || 0) / (smartMealPlan?.target_calories || 2000)) * 100, 100)}
+                value={Math.min(smartMealPlan?.daily_progress?.calories?.percentage || ((smartMealPlan?.calories_consumed || 0) / (smartMealPlan?.target_calories || 2000)) * 100, 100)}
                 sx={{ 
-                  mt: 1, 
                   bgcolor: 'rgba(255,255,255,0.2)', 
                   '& .MuiLinearProgress-bar': { bgcolor: '#4CAF50' },
                   height: 8,
                   borderRadius: 4
                 }}
               />
+              <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.8)', mt: 0.5, display: 'block' }}>
+                {Math.round(smartMealPlan?.daily_progress?.calories?.percentage || ((smartMealPlan?.calories_consumed || 0) / (smartMealPlan?.target_calories || 2000)) * 100)}% of daily goal
+              </Typography>
             </Grid>
-            <Grid item xs={12} sm={6}>
-              <Typography variant="body1" sx={{ color: 'white', fontWeight: 600 }}>
-                Remaining: {smartMealPlan?.remaining_calories || 0} calories
+
+            {/* Protein Progress */}
+            <Grid item xs={12} md={6}>
+              <Typography variant="body1" sx={{ color: 'white', fontWeight: 600, mb: 1 }}>
+                💪 Protein: {smartMealPlan?.daily_progress?.protein?.consumed || 0}g / {smartMealPlan?.daily_progress?.protein?.target || 100}g
               </Typography>
-              <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.9)', fontWeight: 400 }}>
-                Next meals: {smartMealPlan?.remaining_meals?.join(', ') || 'All meals planned'}
+              <LinearProgress 
+                variant="determinate" 
+                value={Math.min(smartMealPlan?.daily_progress?.protein?.percentage || 0, 100)}
+                sx={{ 
+                  bgcolor: 'rgba(255,255,255,0.2)', 
+                  '& .MuiLinearProgress-bar': { bgcolor: '#FF9800' },
+                  height: 8,
+                  borderRadius: 4
+                }}
+              />
+              <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.8)', mt: 0.5, display: 'block' }}>
+                {Math.round(smartMealPlan?.daily_progress?.protein?.percentage || 0)}% of daily goal
               </Typography>
+            </Grid>
+
+            {/* Remaining & Next Meals */}
+            <Grid item xs={12}>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 2, mt: 1 }}>
+                <Box>
+                  <Typography variant="body2" sx={{ color: '#FFD54F', fontWeight: 600 }}>
+                    🎯 Remaining: {smartMealPlan?.remaining_targets?.calories || smartMealPlan?.remaining_calories || 0} cal, {smartMealPlan?.remaining_targets?.protein || 0}g protein
+                  </Typography>
+                </Box>
+                <Box>
+                  <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.9)', fontWeight: 500 }}>
+                    📅 Next: {smartMealPlan?.remaining_meals?.join(', ') || 'All meals planned'}
+                  </Typography>
+                </Box>
+              </Box>
             </Grid>
           </Grid>
         </Box>
 
-        {/* Meal Cards */}
+        {/* Enhanced Meal Cards */}
         <Grid container spacing={2}>
           {['breakfast', 'lunch', 'dinner', 'snack'].map((mealType) => {
             const isConsumed = isMealConsumed(mealType);
             const consumedDetails = getConsumedMealDetails(mealType);
-            const suggestion = smartMealPlan?.smart_suggestions?.[mealType];
+            const enhancedMeal = smartMealPlan?.smart_meal_plan?.[mealType] || smartMealPlan?.meal_recommendations?.[mealType];
+            const suggestion = enhancedMeal?.meal_name || smartMealPlan?.smart_suggestions?.[mealType];
             const isUpcoming = smartMealPlan?.remaining_meals?.includes(mealType);
 
             return (
@@ -510,7 +561,7 @@ const SmartDailyMealPlan: React.FC = () => {
                   border: isConsumed ? '2px solid rgba(76, 175, 80, 0.8)' : 
                           isUpcoming ? '2px solid rgba(255, 193, 7, 0.8)' : '1px solid rgba(255, 255, 255, 0.3)',
                   height: '100%',
-                  minHeight: '140px'
+                  minHeight: '180px'
                 }}>
                   <CardContent sx={{ p: 2 }}>
                     <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
@@ -562,21 +613,115 @@ const SmartDailyMealPlan: React.FC = () => {
                         >
                           ✅ You ate: {consumedDetails.foodNames}
                         </Typography>
-                        <Typography variant="caption" sx={{ 
-                          color: '#81C784',
-                          fontSize: '0.85rem',
-                          display: 'block',
-                          fontWeight: 600,
-                          backgroundColor: 'rgba(255,255,255,0.1)',
-                          padding: '2px 6px',
-                          borderRadius: '4px',
-                          border: '1px solid rgba(129, 199, 132, 0.3)'
+                        <Box sx={{ 
+                          display: 'flex', 
+                          gap: 1, 
+                          flexWrap: 'wrap',
+                          mb: 1
                         }}>
-                          {consumedDetails.totalCalories} calories consumed
+                          <Chip 
+                            label={`${consumedDetails.totalCalories} cal`}
+                            size="small"
+                            sx={{ 
+                              bgcolor: 'rgba(129, 199, 132, 0.3)',
+                              color: '#81C784',
+                              fontSize: '0.75rem',
+                              height: '20px'
+                            }}
+                          />
+                          {consumedDetails.items[0]?.protein && (
+                            <Chip 
+                              label={`${Math.round(consumedDetails.items.reduce((sum: number, item: any) => sum + (item.protein || 0), 0))}g protein`}
+                              size="small"
+                              sx={{ 
+                                bgcolor: 'rgba(255, 152, 0, 0.3)',
+                                color: '#FFB74D',
+                                fontSize: '0.75rem',
+                                height: '20px'
+                              }}
+                            />
+                          )}
+                        </Box>
+                      </>
+                    ) : enhancedMeal ? (
+                      /* Enhanced Meal Display */
+                      <>
+                        <Typography 
+                          variant="body2" 
+                          sx={{ 
+                            color: 'white',
+                            fontSize: '0.9rem',
+                            lineHeight: 1.4,
+                            mb: 1,
+                            fontWeight: 600
+                          }}
+                        >
+                          💡 {enhancedMeal.meal_name}
                         </Typography>
+                        {enhancedMeal.description && (
+                          <Typography 
+                            variant="caption" 
+                            sx={{ 
+                              color: 'rgba(255,255,255,0.9)',
+                              fontSize: '0.8rem',
+                              display: 'block',
+                              mb: 1,
+                              lineHeight: 1.3
+                            }}
+                          >
+                            {enhancedMeal.description}
+                          </Typography>
+                        )}
+                        <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mb: 1 }}>
+                          {enhancedMeal.estimated_calories && (
+                            <Chip 
+                              label={`${enhancedMeal.estimated_calories} cal`}
+                              size="small"
+                              sx={{ 
+                                bgcolor: 'rgba(255, 193, 7, 0.3)',
+                                color: '#FFD54F',
+                                fontSize: '0.7rem',
+                                height: '18px'
+                              }}
+                            />
+                          )}
+                          {enhancedMeal.estimated_protein && (
+                            <Chip 
+                              label={`${enhancedMeal.estimated_protein}g protein`}
+                              size="small"
+                              sx={{ 
+                                bgcolor: 'rgba(255, 152, 0, 0.3)',
+                                color: '#FFB74D',
+                                fontSize: '0.7rem',
+                                height: '18px'
+                              }}
+                            />
+                          )}
+                          {enhancedMeal.prep_time && (
+                            <Chip 
+                              label={enhancedMeal.prep_time}
+                              size="small"
+                              sx={{ 
+                                bgcolor: 'rgba(158, 158, 158, 0.3)',
+                                color: '#BDBDBD',
+                                fontSize: '0.7rem',
+                                height: '18px'
+                              }}
+                            />
+                          )}
+                        </Box>
+                        {enhancedMeal.health_benefits && (
+                          <Typography variant="caption" sx={{ 
+                            color: '#81C784',
+                            fontSize: '0.75rem',
+                            fontWeight: 500
+                          }}>
+                            ❤️ {enhancedMeal.health_benefits.slice(0, 2).join(', ')}
+                          </Typography>
+                        )}
                       </>
                     ) : suggestion ? (
-                      /* Suggested Meal Display */
+                      /* Basic Suggestion Display */
                       <>
                         <Typography 
                           variant="body2" 
@@ -622,29 +767,120 @@ const SmartDailyMealPlan: React.FC = () => {
           })}
         </Grid>
 
-        {/* Adaptive Notes */}
-        {smartMealPlan?.adaptive_notes?.length > 0 && (
-          <Box sx={{ mt: 3, p: 2, bgcolor: 'rgba(255,255,255,0.15)', borderRadius: 2, border: '1px solid rgba(255,255,255,0.3)' }}>
-            <Typography variant="subtitle2" sx={{ mb: 1, color: 'white', fontWeight: 600 }}>
-              🧠 Smart Insights:
-            </Typography>
-            {smartMealPlan.adaptive_notes.map((note: string, index: number) => (
-              <Typography 
-                key={index} 
-                variant="body2" 
-                sx={{ 
-                  color: 'white', 
-                  fontSize: '0.9rem',
-                  mb: 0.5,
-                  display: 'flex',
-                  alignItems: 'flex-start',
-                  fontWeight: 400
-                }}
-              >
-                <span style={{ marginRight: '8px', fontSize: '0.8rem', color: '#FFD54F' }}>•</span>
-                {note}
-              </Typography>
-            ))}
+        {/* Enhanced AI Insights - Only show if there's actual content */}
+        {(
+          (smartMealPlan?.health_insights?.key_nutritional_focuses?.length > 0) ||
+          (smartMealPlan?.nutrition_insights?.nutritional_alerts?.length > 0) ||
+          (smartMealPlan?.nutrition_insights?.optimization_tips?.length > 0) ||
+          (smartMealPlan?.adaptive_notes?.length > 0)
+        ) && (
+          <Box sx={{ mt: 3 }}>
+            {/* Health Insights - DISABLED: Only show if there are actual focuses */}
+            {smartMealPlan?.health_insights?.key_nutritional_focuses?.length > 0 && (
+              <Box sx={{ mb: 2, p: 2, bgcolor: 'rgba(255,255,255,0.15)', borderRadius: 2, border: '1px solid rgba(255,255,255,0.3)' }}>
+                <Typography variant="subtitle2" sx={{ mb: 1, color: 'white', fontWeight: 600 }}>
+                  🩺 Health Focus:
+                </Typography>
+                {smartMealPlan.health_insights.key_nutritional_focuses.slice(0, 3).map((focus: string, index: number) => (
+                  <Typography 
+                    key={index} 
+                    variant="body2" 
+                    sx={{ 
+                      color: 'white', 
+                      fontSize: '0.85rem',
+                      mb: 0.5,
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      fontWeight: 400
+                    }}
+                  >
+                    <span style={{ marginRight: '8px', fontSize: '0.8rem', color: '#4CAF50' }}>❤️</span>
+                    {focus.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                  </Typography>
+                ))}
+              </Box>
+            )}
+
+            {/* Nutrition Progress Insights */}
+            {smartMealPlan?.nutrition_insights && (
+              <>
+                {smartMealPlan.nutrition_insights.nutritional_alerts?.length > 0 && (
+                  <Box sx={{ mb: 2, p: 2, bgcolor: 'rgba(255, 193, 7, 0.15)', borderRadius: 2, border: '1px solid rgba(255, 193, 7, 0.4)' }}>
+                    <Typography variant="subtitle2" sx={{ mb: 1, color: '#FFD54F', fontWeight: 600 }}>
+                      ⚠️ Nutrition Alerts:
+                    </Typography>
+                    {smartMealPlan.nutrition_insights.nutritional_alerts.slice(0, 2).map((alert: string, index: number) => (
+                      <Typography 
+                        key={index} 
+                        variant="body2" 
+                        sx={{ 
+                          color: 'white', 
+                          fontSize: '0.85rem',
+                          mb: 0.5,
+                          display: 'flex',
+                          alignItems: 'flex-start',
+                          fontWeight: 400
+                        }}
+                      >
+                        <span style={{ marginRight: '8px', fontSize: '0.8rem', color: '#FFD54F' }}>⚠️</span>
+                        {alert.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                      </Typography>
+                    ))}
+                  </Box>
+                )}
+
+                {smartMealPlan.nutrition_insights.optimization_tips?.length > 0 && (
+                  <Box sx={{ mb: 2, p: 2, bgcolor: 'rgba(255,255,255,0.15)', borderRadius: 2, border: '1px solid rgba(255,255,255,0.3)' }}>
+                    <Typography variant="subtitle2" sx={{ mb: 1, color: 'white', fontWeight: 600 }}>
+                      💡 Smart Tips:
+                    </Typography>
+                    {smartMealPlan.nutrition_insights.optimization_tips.slice(0, 3).map((tip: string, index: number) => (
+                      <Typography 
+                        key={index} 
+                        variant="body2" 
+                        sx={{ 
+                          color: 'white', 
+                          fontSize: '0.85rem',
+                          mb: 0.5,
+                          display: 'flex',
+                          alignItems: 'flex-start',
+                          fontWeight: 400
+                        }}
+                      >
+                        <span style={{ marginRight: '8px', fontSize: '0.8rem', color: '#FFD54F' }}>💡</span>
+                        {tip.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                      </Typography>
+                    ))}
+                  </Box>
+                )}
+              </>
+            )}
+
+            {/* Legacy Adaptive Notes */}
+            {smartMealPlan?.adaptive_notes?.length > 0 && (
+              <Box sx={{ p: 2, bgcolor: 'rgba(255,255,255,0.15)', borderRadius: 2, border: '1px solid rgba(255,255,255,0.3)' }}>
+                <Typography variant="subtitle2" sx={{ mb: 1, color: 'white', fontWeight: 600 }}>
+                  🧠 Smart Insights:
+                </Typography>
+                {smartMealPlan.adaptive_notes.slice(0, 3).map((note: string, index: number) => (
+                  <Typography 
+                    key={index} 
+                    variant="body2" 
+                    sx={{ 
+                      color: 'white', 
+                      fontSize: '0.85rem',
+                      mb: 0.5,
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      fontWeight: 400
+                    }}
+                  >
+                    <span style={{ marginRight: '8px', fontSize: '0.8rem', color: '#FFD54F' }}>•</span>
+                    {note}
+                  </Typography>
+                ))}
+              </Box>
+            )}
           </Box>
         )}
 

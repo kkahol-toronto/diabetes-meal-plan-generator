@@ -10,7 +10,7 @@ from datetime import datetime
 from typing import Dict, Any, Optional
 
 from services.openai_service import robust_openai_call
-from services.consumption_analysis import trigger_meal_plan_recalibration
+# Dynamic calibration service will be imported when needed to avoid circular imports
 from services.database_service import save_consumption_record_with_cache_invalidation
 from utils import filter_today_records
 
@@ -61,15 +61,33 @@ async def quick_log_food_optimized(
         consumption_record = await save_consumption_record_with_cache_invalidation(user_email, consumption_data, meal_type=meal_type)
         print(f"[quick_log_optimized] Saved record: {consumption_record['id']}")
         
-        # Trigger optimized meal plan recalibration in background
+        # Trigger enhanced dynamic meal plan calibration
         try:
-            updated_plan = await trigger_meal_plan_recalibration(user_email, user_profile)
-            meal_plan_updated = updated_plan is not None
-            remaining_calories = updated_plan.get("remaining_calories", 0) if updated_plan else 0
+            from services.dynamic_meal_calibration_service import dynamic_calibration_service
+            
+            # Prepare newly logged food data for calibration analysis
+            newly_logged_food = {
+                "food_name": analysis_data.get("food_name", food_name),
+                "nutritional_info": analysis_data.get("nutritional_info", {}),
+                "meal_type": meal_type,
+                "logged_at": datetime.utcnow().isoformat()
+            }
+            
+            calibration_result = await dynamic_calibration_service.trigger_dynamic_calibration(
+                user_email, user_profile, newly_logged_food
+            )
+            
+            meal_plan_updated = calibration_result.get("calibration_performed", False)
+            remaining_calories = calibration_result.get("remaining_targets", {}).get("calories", 0)
+            calibration_insights = calibration_result.get("calibration_insights", {})
+            
+            print(f"[quick_log_optimized] Dynamic calibration result: {calibration_result.get('calibration_reason', 'no_calibration')}")
+            
         except Exception as e:
-            print(f"[quick_log_optimized] Meal plan update failed: {e}")
+            print(f"[quick_log_optimized] Dynamic calibration failed: {e}")
             meal_plan_updated = False
             remaining_calories = 0
+            calibration_insights = {}
         
         return {
             "success": True,
@@ -84,7 +102,13 @@ async def quick_log_food_optimized(
             },
             "diabetes_rating": analysis_data.get("medical_rating", {}).get("diabetes_suitability", "medium"),
             "meal_plan_updated": meal_plan_updated,
-            "remaining_calories": remaining_calories
+            "remaining_calories": remaining_calories,
+            "dynamic_calibration": {
+                "calibration_performed": meal_plan_updated,
+                "calibration_insights": calibration_insights.get("calibration_summary", "") if 'calibration_insights' in locals() else "",
+                "next_meal_guidance": calibration_insights.get("next_meal_guidance", "") if 'calibration_insights' in locals() else "",
+                "health_recommendations": calibration_insights.get("health_recommendations", []) if 'calibration_insights' in locals() else []
+            }
         }
         
     except Exception as e:

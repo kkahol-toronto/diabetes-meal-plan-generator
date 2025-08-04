@@ -664,12 +664,17 @@ async def generate_fresh_adaptive_meal_plan(user_email: str, today_consumption: 
         # Calculate total calories already consumed
         calories_consumed = sum(r.get("nutritional_info", {}).get("calories", 0) for r in today_consumption)
         
-        # Build intelligent snack recommendation based on remaining calories
+        # INTELLIGENT SNACK RECOMMENDATION: Handle all macro scenarios
         snack_recommendation = ""
-        if remaining_calories <= 100:
-            snack_recommendation = "No additional snacks needed - you've reached your calorie goal for today"
+        if remaining_calories < 0:
+            # User is over calorie goal - be very restrictive
+            snack_recommendation = "No additional snacks needed - you've exceeded your calorie goal for today. Focus on hydration."
+        elif remaining_calories <= 50:
+            snack_recommendation = "No additional snacks needed - you've nearly reached your calorie goal for today"
+        elif remaining_calories <= 100:
+            snack_recommendation = "Optional very light snack only if genuinely hungry (e.g., cucumber slices, herbal tea)"
         elif remaining_calories <= 200:
-            snack_recommendation = "Optional light snack only if genuinely hungry (e.g., cucumber slices, herbal tea)"
+            snack_recommendation = "Optional light snack only if genuinely hungry (e.g., small apple, herbal tea)"
         elif remaining_calories <= 300:
             snack_recommendation = "Light snack if needed (e.g., 1 small apple, handful of berries)"
         else:
@@ -703,7 +708,9 @@ CRITICAL REQUIREMENTS:
 8. Avoid foods listed in strong dislikes
 9. Incorporate food preferences where appropriate
 10. **INTELLIGENT SNACK RECOMMENDATIONS** - Be smart about snack needs:
-    - If remaining calories ≤ 100: "No additional snacks needed - you've reached your calorie goal"
+    - If remaining calories < 0: "No additional snacks needed - you've exceeded your calorie goal"
+    - If remaining calories ≤ 50: "No additional snacks needed - you've nearly reached your calorie goal"
+    - If remaining calories ≤ 100: "Optional very light snack only if genuinely hungry"
     - If remaining calories ≤ 200: "Optional light snack only if genuinely hungry"
     - If remaining calories ≤ 300: "Light snack if needed (small portion)"
     - Only recommend full snacks if remaining calories > 300
