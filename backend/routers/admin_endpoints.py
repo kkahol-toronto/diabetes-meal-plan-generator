@@ -87,8 +87,7 @@ async def get_patient_profile(
                 
                 # Also try to get the separate profile record for completeness info
                 try:
-                    user_email = user_doc.get("email") or user_doc.get("id")
-                    profile_query = f"SELECT * FROM c WHERE c.id = 'profile_{user_email}' AND c.type = 'user_profile'"
+                    profile_query = f"SELECT * FROM c WHERE c.id = 'profile_{registration_code}' AND c.type = 'user_profile'"
                     profile_records = list(user_container.query_items(query=profile_query, enable_cross_partition_query=True))
                     if profile_records:
                         profile_record = profile_records[0]
@@ -193,7 +192,7 @@ async def save_patient_profile(
             updated_user_doc["updated_at"] = datetime.utcnow().isoformat()
             
             profile_record = {
-                "id": f"profile_{user_email}",
+                "id": f"profile_{reg_code}",
                 "type": "user_profile", 
                 "user_id": user_email,
                 "registration_code": reg_code,

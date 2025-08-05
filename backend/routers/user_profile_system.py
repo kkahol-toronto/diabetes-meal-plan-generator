@@ -241,7 +241,9 @@ async def get_user_profile(current_user: User = Depends(get_current_user)):
                 print(f"[get_user_profile] Failed to load from profile record: {str(e)}")
         
         # Method 3: Last resort - try to find by registration code if available
-        if not profile and user_doc and user_doc.get("registration_code"):
+        # SECURITY FIX: Only use registration code fallback for non-admin users
+        # Admin users should never get patient profiles through fallback
+        if not profile and user_doc and user_doc.get("registration_code") and not user_doc.get("is_admin", False):
             try:
                 reg_code = user_doc["registration_code"]
                 fallback_query = f"SELECT * FROM c WHERE c.type = 'user_profile' AND c.registration_code = '{reg_code}'"
