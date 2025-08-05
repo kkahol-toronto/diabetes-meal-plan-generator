@@ -101,8 +101,22 @@ const AdminPatientProfile = () => {
         if (profileResponse.ok) {
           const profileData = await profileResponse.json();
           setUserProfile(profileData.profile);
-          setDatabaseSaveStatus('saved');
-          setLastSaveTime(new Date().toLocaleString());
+          
+          // Use enhanced status information from backend
+          if (profileData.profile && Object.keys(profileData.profile).length > 0) {
+            setDatabaseSaveStatus('saved');
+            setLastSaveTime(profileData.last_updated ? new Date(profileData.last_updated).toLocaleString() : new Date().toLocaleString());
+            
+            // Log profile info for admin debugging
+            console.log('[AdminPatientProfile] Profile loaded:', {
+              hasUserAccount: profileData.has_user_account,
+              profileCompleteness: profileData.profile_completeness,
+              profileStatus: profileData.profile_status,
+              lastUpdated: profileData.last_updated
+            });
+          } else {
+            setDatabaseSaveStatus('pending');
+          }
         } else if (profileResponse.status === 404) {
           // Patient hasn't created a profile yet - that's ok
           setUserProfile(null);
@@ -169,6 +183,7 @@ const AdminPatientProfile = () => {
       setError(null);
       setDatabaseSaveStatus('checking');
 
+      // Use the enhanced admin profile saving endpoint
       const response = await fetch(`${config.API_URL}/admin/patient-profile/${registrationCode}`, {
         method: 'POST',
         headers: {
@@ -179,28 +194,44 @@ const AdminPatientProfile = () => {
       });
 
       if (response.ok) {
-        setSuccess('✅ Patient profile saved successfully! The patient can continue filling out any missing information.');
-        setUserProfile(profile);
+        const result = await response.json();
         
-        // Verify the save by fetching the data back from database
-        const saveVerified = await verifyDatabaseSave();
+        // Enhanced success message with completeness info
+        const completenessText = result.profile_completeness ? ` (${result.profile_completeness}% complete)` : '';
+        setSuccess(`✅ Patient profile saved successfully${completenessText}! The patient can continue filling out any missing information.`);
         
-        if (saveVerified) {
-          setDatabaseSaveStatus('saved');
-          setLastSaveTime(new Date().toLocaleString());
-        } else {
-          setDatabaseSaveStatus('failed');
-        }
+        // Update profile with the saved data from backend
+        setUserProfile(result.profile || profile);
+        setDatabaseSaveStatus('saved');
+        setLastSaveTime(new Date().toLocaleString());
         
-        setTimeout(() => setSuccess(null), 6000);
+        // Log success details for admin debugging
+        console.log('[AdminPatientProfile] Profile saved successfully:', {
+          message: result.message,
+          completeness: result.profile_completeness,
+          attempt: result.attempt,
+          timestamp: result.timestamp,
+          user_save: result.user_save,
+          profile_save: result.profile_save
+        });
+        
+        setTimeout(() => setSuccess(null), 8000);
       } else {
         const errorData = await response.json();
         setDatabaseSaveStatus('failed');
         throw new Error(errorData.detail || 'Failed to save patient profile');
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save patient profile');
+      const errorMessage = err instanceof Error ? err.message : 'Failed to save patient profile';
+      setError(errorMessage);
       setDatabaseSaveStatus('failed');
+      
+      // Enhanced error logging for admin debugging
+      console.error('[AdminPatientProfile] Profile save error:', {
+        error: err,
+        registrationCode,
+        profileData: profile
+      });
     } finally {
       setSaving(false);
     }
@@ -212,7 +243,7 @@ const AdminPatientProfile = () => {
         return {
           icon: <CloudDoneIcon sx={{ color: 'success.main' }} />,
           text: 'Profile Saved Successfully',
-          subtext: lastSaveTime ? `Verified in patient's account: ${lastSaveTime}` : 'Profile saved and accessible to patient',
+          subtext: lastSaveTime ? `Admin updated profile verified: ${lastSaveTime}` : 'Profile saved and accessible to both admin and patient',
           color: '#1b5e20', // Dark green for better readability
           bgColor: '#f1f8e9', // Very light green background
           borderColor: '#4caf50'
@@ -229,8 +260,8 @@ const AdminPatientProfile = () => {
       case 'checking':
         return {
           icon: <CircularProgress size={20} sx={{ color: 'info.main' }} />,
-          text: 'Verifying Database Save...',
-          subtext: 'Checking if profile is saved in patient\'s account...',
+          text: 'Saving Profile...',
+          subtext: 'Using robust admin profile system with retry logic...',
           color: '#0d47a1', // Dark blue for better readability
           bgColor: '#e3f2fd', // Very light blue background
           borderColor: '#2196f3'

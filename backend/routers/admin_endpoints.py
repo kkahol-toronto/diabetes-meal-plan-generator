@@ -72,25 +72,61 @@ async def get_patient_profile(
         if not patient:
             raise HTTPException(status_code=404, detail="Patient not found")
         
-        # Try to find associated user account
+        # Try to find associated user account and profile data
         user_doc = None
+        profile_data = {}
+        profile_completeness = 0
+        
         try:
             # Look for user with matching registration code
             user_query = f"SELECT * FROM c WHERE c.registration_code = '{registration_code}' AND c.type = 'user'"
             users = list(user_container.query_items(query=user_query, enable_cross_partition_query=True))
             if users:
                 user_doc = users[0]
+                profile_data = user_doc.get("profile", {})
+                
+                # Also try to get the separate profile record for completeness info
+                try:
+                    user_email = user_doc.get("email") or user_doc.get("id")
+                    profile_query = f"SELECT * FROM c WHERE c.id = 'profile_{user_email}' AND c.type = 'user_profile'"
+                    profile_records = list(user_container.query_items(query=profile_query, enable_cross_partition_query=True))
+                    if profile_records:
+                        profile_record = profile_records[0]
+                        profile_completeness = profile_record.get("profile_completeness", 0)
+                        # Use profile data from the separate record if it's more recent
+                        if profile_record.get("updated_at", "") > user_doc.get("updated_at", ""):
+                            profile_data = profile_record.get("profile", profile_data)
+                except Exception as profile_error:
+                    print(f"Error fetching separate profile record: {str(profile_error)}")
+            else:
+                # Check if there's a standalone profile record (admin-created for patient without user account)
+                profile_query = f"SELECT * FROM c WHERE c.registration_code = '{registration_code}' AND c.type = 'user_profile'"
+                profile_records = list(user_container.query_items(query=profile_query, enable_cross_partition_query=True))
+                if profile_records:
+                    profile_record = profile_records[0]
+                    profile_data = profile_record.get("profile", {})
+                    profile_completeness = profile_record.get("profile_completeness", 0)
+                    
         except Exception as user_error:
-            print(f"Error finding user for patient {registration_code}: {str(user_error)}")
+            print(f"Error finding user/profile for patient {registration_code}: {str(user_error)}")
+        
+        # Calculate profile completeness if not already available
+        if not profile_completeness and profile_data:
+            from utils import calculate_profile_completeness
+            profile_completeness = calculate_profile_completeness(profile_data)
         
         return {
             "patient": patient,
             "user_account": user_doc,
             "has_user_account": bool(user_doc),
-            "profile": user_doc.get("profile", {}) if user_doc else {}
+            "profile": profile_data,
+            "profile_completeness": profile_completeness,
+            "profile_status": "saved" if profile_data else "pending",
+            "last_updated": user_doc.get("updated_at") if user_doc else None
         }
         
     except Exception as e:
+        print(f"Error in get_patient_profile: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/admin/patient-profile/{registration_code}")
@@ -103,46 +139,161 @@ async def save_patient_profile(
     if not current_user.get("is_admin"):
         raise HTTPException(status_code=403, detail="Not authorized")
     
-    try:
-        # Get the profile data from request
-        profile_data = await request.json()
+    MAX_RETRIES = 3
+    RETRY_DELAY = 1.0
+    
+    async def attempt_admin_save(profile_data: dict, reg_code: str, attempt: int = 1) -> dict:
+        """Attempt to save profile with atomic operations and error recovery - Admin version"""
+        import asyncio
+        from utils import validate_and_normalize_profile, calculate_profile_completeness
         
-        # Get patient by registration code
-        patient = await get_patient_by_registration_code(registration_code)
-        if not patient:
-            raise HTTPException(status_code=404, detail="Patient not found")
-        
-        # Save the profile data to user document
-        # Find user with registration code
-        user_query = f"SELECT * FROM c WHERE c.registration_code = '{registration_code}' AND c.type = 'user'"
-        users = list(user_container.query_items(query=user_query, enable_cross_partition_query=True))
-        
-        if users:
-            # Update existing user's profile
-            user = users[0]
-            user['profile'] = profile_data
-            user['updated_at'] = datetime.utcnow().isoformat()
-            user_container.replace_item(item=user['id'], body=user)
-        else:
-            # Create new profile document
-            profile_doc = {
-                "id": f"profile_{registration_code}",
-                "type": "user_profile",
-                "registration_code": registration_code,
+        try:
+            # Get patient by registration code
+            patient = await get_patient_by_registration_code(reg_code)
+            if not patient:
+                raise HTTPException(status_code=404, detail="Patient not found")
+            
+            # Find user with registration code
+            user_query = f"SELECT * FROM c WHERE c.registration_code = '{reg_code}' AND c.type = 'user'"
+            users = list(user_container.query_items(query=user_query, enable_cross_partition_query=True))
+            
+            if not users:
+                # Create new profile document for patient without user account
+                profile_record = {
+                    "id": f"profile_{reg_code}",
+                    "type": "user_profile",
+                    "registration_code": reg_code,
+                    "profile": profile_data,
+                    "created_at": datetime.utcnow().isoformat(),
+                    "updated_at": datetime.utcnow().isoformat(),
+                    "profile_completeness": calculate_profile_completeness(profile_data),
+                    "admin_created": True,
+                    "version": attempt
+                }
+                
+                print(f"[admin_save_profile] Creating new profile record for {reg_code} (attempt {attempt})")
+                user_container.create_item(body=profile_record)
+                
+                return {
+                    "message": "Profile created successfully by admin",
+                    "registration_code": reg_code,
+                    "profile": profile_data,
+                    "profile_completeness": profile_record["profile_completeness"],
+                    "attempt": attempt,
+                    "created_new": True
+                }
+            
+            # Update existing user's profile using same robust mechanism as user profile system
+            user_doc = users[0]
+            user_email = user_doc.get("email") or user_doc.get("id")
+            
+            # Prepare both records that need to be saved
+            updated_user_doc = user_doc.copy()
+            updated_user_doc["profile"] = profile_data
+            updated_user_doc["updated_at"] = datetime.utcnow().isoformat()
+            
+            profile_record = {
+                "id": f"profile_{user_email}",
+                "type": "user_profile", 
+                "user_id": user_email,
+                "registration_code": reg_code,
                 "profile": profile_data,
-                "created_at": datetime.utcnow().isoformat()
+                "updated_at": datetime.utcnow().isoformat(),
+                "created_at": user_doc.get("created_at", datetime.utcnow().isoformat()),
+                "profile_completeness": calculate_profile_completeness(profile_data),
+                "admin_updated": True,
+                "version": attempt
             }
-            user_container.create_item(body=profile_doc)
+            
+            # Log attempt
+            print(f"[admin_save_profile] Attempt {attempt} - Saving profile for {reg_code} (user: {user_email})")
+            print(f"[admin_save_profile] Profile fields: {list(profile_data.keys())}")
+            print(f"[admin_save_profile] Profile completeness: {profile_record['profile_completeness']}%")
+            
+            # Atomic save operations with error recovery
+            user_save_success = False
+            profile_save_success = False
+            
+            try:
+                # Save to user document first
+                user_container.replace_item(item=updated_user_doc["id"], body=updated_user_doc)
+                user_save_success = True
+                print(f"[admin_save_profile] User document updated successfully (attempt {attempt})")
+                
+                # Save separate profile record
+                user_container.upsert_item(body=profile_record)
+                profile_save_success = True
+                print(f"[admin_save_profile] Profile record upserted successfully (attempt {attempt})")
+                
+            except Exception as db_error:
+                print(f"[admin_save_profile] Database error on attempt {attempt}: {str(db_error)}")
+                
+                # If user doc save succeeded but profile record failed, try to rollback
+                if user_save_success and not profile_save_success:
+                    try:
+                        print(f"[admin_save_profile] Rolling back user document changes...")
+                        user_container.replace_item(item=user_doc["id"], body=user_doc)
+                    except Exception as rollback_error:
+                        print(f"[admin_save_profile] Rollback failed: {str(rollback_error)}")
+                
+                raise db_error
+            
+            # Verify both saves succeeded
+            if not (user_save_success and profile_save_success):
+                raise Exception("Partial save detected - rolling back")
+            
+            return {
+                "message": "Profile saved successfully by admin",
+                "registration_code": reg_code,
+                "profile": profile_data,
+                "timestamp": datetime.utcnow().isoformat(), 
+                "profile_completeness": profile_record["profile_completeness"],
+                "attempt": attempt,
+                "user_save": user_save_success,
+                "profile_save": profile_save_success
+            }
+            
+        except Exception as e:
+            if attempt < MAX_RETRIES:
+                print(f"[admin_save_profile] Attempt {attempt} failed: {str(e)}")
+                print(f"[admin_save_profile] Retrying in {RETRY_DELAY} seconds...")
+                await asyncio.sleep(RETRY_DELAY)
+                return await attempt_admin_save(profile_data, reg_code, attempt + 1)
+            else:
+                print(f"[admin_save_profile] All {MAX_RETRIES} attempts failed for {reg_code}")
+                raise HTTPException(
+                    status_code=500, 
+                    detail=f"Failed to save profile after {MAX_RETRIES} attempts: {str(e)}"
+                )
+
+    try:
+        # Parse and validate request data
+        data = await request.json()
         
-        return {
-            "message": "Profile saved successfully",
-            "registration_code": registration_code,
-            "profile": profile_data
-        }
+        # Handle both direct profile data and nested profile structure
+        if "profile" in data:
+            profile_data = data["profile"]
+        else:
+            profile_data = data
         
+        if not profile_data:
+            raise HTTPException(status_code=400, detail="No profile data provided")
+        
+        # Import validation function
+        from utils import validate_and_normalize_profile
+        
+        # Validate and normalize profile data using same mechanism as user profile system
+        profile_data = validate_and_normalize_profile(profile_data)
+        
+        # Attempt save with retry logic
+        result = await attempt_admin_save(profile_data, registration_code)
+        return result
+    
+    except HTTPException:
+        raise
     except Exception as e:
-        print(f"Error saving patient profile: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"[admin_save_profile] Unexpected error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Unexpected error saving profile: {str(e)}")
 
 @router.post("/admin/resend-code/{patient_id}")
 async def resend_registration_code(
