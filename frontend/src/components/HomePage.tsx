@@ -77,9 +77,11 @@ import {
   TrendingUp as AreaChartIcon,
   BubbleChart as ScatterPlotIcon,
   Assessment as CompareIcon,
+  Restaurant as RestaurantIcon,
 } from '@mui/icons-material';
 import PendingConsumptionDialog from './PendingConsumptionDialog';
 import { useApp } from '../contexts/AppContext';
+import { formatConsumptionText, getTotalNutrition, isConsumptionMatchingPlan, getMealEmoji } from '../utils/consumptionUtils';
 import { Line, Doughnut, Radar, Bar, Pie, Scatter } from 'react-chartjs-2';
 // Timezone utilities - temporarily commented out due to import issues
 // import { 
@@ -311,7 +313,8 @@ const getProfileCompletionStatus = (userProfile: any) => {
   return { percentage, status, color };
 };
 
-// Smart Daily Meal Plan Component
+
+// Smart Daily Meal Plan Component - Rebuilt v2.0
 interface SmartDailyMealPlanProps {
   dashboardData?: any;
 }
@@ -347,12 +350,12 @@ const SmartDailyMealPlan: React.FC<SmartDailyMealPlanProps> = ({ dashboardData }
       }
 
       const data = await response.json();
-      console.log('=== COMPREHENSIVE SMART MEAL PLAN ===');
+      console.log('=== SMART DAILY MEAL PLAN V2.0 ===');
       console.log('Full API response:', data);
       console.log('Smart meal plan:', data?.smart_meal_plan);
       console.log('Consumption by meal:', data?.consumption_by_meal);
-      console.log('Macro progress:', data?.macro_progress);
-      console.log('========================================');
+      console.log('Snack handling support:', data?.personalization_factors?.snack_history_support);
+      console.log('=====================================');
       setSmartMealPlan(data);
       
     } catch (err) {
@@ -367,103 +370,20 @@ const SmartDailyMealPlan: React.FC<SmartDailyMealPlanProps> = ({ dashboardData }
     fetchSmartMealPlan();
   }, [fetchSmartMealPlan]);
 
-  // Helper function to format consumption with proper separators
-  const formatConsumptionText = (consumptionRecords: any[]): string => {
-    if (!consumptionRecords || consumptionRecords.length === 0) {
-      return "";
-    }
-
-    // Sort records by timestamp
-    const sortedRecords = [...consumptionRecords].sort((a, b) => 
-      new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
-    );
-
-    // Group records by logging session (within 5 minutes of each other)
-    const loggingSessions: any[][] = [];
-    let currentSession: any[] = [];
-
-    for (let i = 0; i < sortedRecords.length; i++) {
-      const record = sortedRecords[i];
-      
-      if (currentSession.length === 0) {
-        currentSession.push(record);
-      } else {
-        const lastRecord = currentSession[currentSession.length - 1];
-        const timeDiff = new Date(record.timestamp).getTime() - new Date(lastRecord.timestamp).getTime();
-        
-        // If within 5 minutes (300,000 ms), consider same logging session
-        if (timeDiff <= 300000) {
-          currentSession.push(record);
-        } else {
-          // Start new session
-          loggingSessions.push([...currentSession]);
-          currentSession = [record];
-        }
-      }
-    }
-    
-    // Add the last session
-    if (currentSession.length > 0) {
-      loggingSessions.push(currentSession);
-    }
-
-    // Format each session
-    const sessionStrings = loggingSessions.map(session => {
-      // Within a session, separate foods by commas
-      return session.map(record => record.food_name).join(", ");
-    });
-
-    // Separate sessions with &
-    return sessionStrings.join(" & ");
-  };
-
-  // Helper function to get total nutrition for consumed foods
-  const getTotalNutrition = (consumptionRecords: any[]) => {
-    if (!consumptionRecords || consumptionRecords.length === 0) {
-      return { calories: 0, protein: 0, carbohydrates: 0, fat: 0 };
-    }
-
-    return consumptionRecords.reduce((totals, record) => {
-      const nutrition = record.nutritional_info || {};
-      return {
-        calories: totals.calories + (nutrition.calories || 0),
-        protein: totals.protein + (nutrition.protein || 0),
-        carbohydrates: totals.carbohydrates + (nutrition.carbohydrates || 0),
-        fat: totals.fat + (nutrition.fat || 0)
-      };
-    }, { calories: 0, protein: 0, carbohydrates: 0, fat: 0 });
-  };
-
-  // Helper function to get meal icon
-  const getMealIcon = (mealType: string) => {
-    switch (mealType) {
-      case 'breakfast': return '🌅';
-      case 'lunch': return '☀️';
-      case 'dinner': return '🌙';
-      case 'snack': return '🍎';
-      default: return '🍽️';
-    }
-  };
-
-  // Helper function to format meal type display
-  const formatMealType = (mealType: string): string => {
-    return mealType.charAt(0).toUpperCase() + mealType.slice(1);
-  };
-
   if (loading) {
     return (
       <Card sx={{ 
-        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-        color: 'white'
+        background: 'linear-gradient(135deg, #1e3c72 0%, #2a5298 100%)',
+        border: '1px solid rgba(255, 255, 255, 0.2)',
+        boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)',
+        borderRadius: '16px',
+        backdropFilter: 'blur(10px)'
       }}>
-        <CardContent>
-          <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
-            <PlanIcon sx={{ mr: 1 }} />
-            Smart Daily Meal Plan
+        <CardContent sx={{ p: 3, textAlign: 'center' }}>
+          <CircularProgress sx={{ color: 'white' }} />
+          <Typography variant="h6" sx={{ color: 'white', mt: 2 }}>
+            Loading Your Smart Daily Meal Plan...
           </Typography>
-          <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}>
-            <CircularProgress sx={{ color: 'white' }} />
-          </Box>
         </CardContent>
       </Card>
     );
@@ -472,31 +392,31 @@ const SmartDailyMealPlan: React.FC<SmartDailyMealPlanProps> = ({ dashboardData }
   if (error) {
     return (
       <Card sx={{ 
-        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-        color: 'white'
+        background: 'linear-gradient(135deg, #d32f2f 0%, #f44336 100%)',
+        border: '1px solid rgba(255, 255, 255, 0.2)',
+        boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)',
+        borderRadius: '16px'
       }}>
-        <CardContent>
-          <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
-            <PlanIcon sx={{ mr: 1 }} />
+        <CardContent sx={{ p: 3, textAlign: 'center' }}>
+          <Typography variant="h6" sx={{ color: 'white', mb: 2 }}>
             Smart Daily Meal Plan
           </Typography>
-          <Box sx={{ textAlign: 'center', py: 3 }}>
-            <Typography variant="body2" color="rgba(255,255,255,0.8)">
-              {error}
-            </Typography>
-            <Button 
-              variant="outlined" 
-              onClick={fetchSmartMealPlan}
-              sx={{ 
-                mt: 2, 
-                color: 'white', 
-                borderColor: 'rgba(255,255,255,0.5)',
-                '&:hover': { borderColor: 'white' }
-              }}
-            >
-              Try Again
-            </Button>
-          </Box>
+          <Typography sx={{ color: 'rgba(255, 255, 255, 0.8)' }}>
+            {error}
+          </Typography>
+          <Button
+            onClick={fetchSmartMealPlan}
+            sx={{
+              mt: 2,
+              backgroundColor: 'rgba(255, 255, 255, 0.2)',
+              color: 'white',
+              '&:hover': {
+                backgroundColor: 'rgba(255, 255, 255, 0.3)'
+              }
+            }}
+          >
+            Retry
+          </Button>
         </CardContent>
       </Card>
     );
@@ -504,80 +424,76 @@ const SmartDailyMealPlan: React.FC<SmartDailyMealPlanProps> = ({ dashboardData }
 
   return (
     <Card sx={{ 
-      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-      color: 'white',
-      boxShadow: '0 4px 20px rgba(0,0,0,0.1)'
+      background: 'linear-gradient(135deg, #1e3c72 0%, #2a5298 100%)',
+      border: '1px solid rgba(255, 255, 255, 0.2)',
+      boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)',
+      borderRadius: '16px',
+      backdropFilter: 'blur(10px)'
     }}>
-      <CardContent>
-        <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', fontWeight: 600, color: 'white' }}>
-          <PlanIcon sx={{ mr: 1, color: 'white' }} />
-          Smart Daily Meal Plan
-        </Typography>
+      <CardContent sx={{ p: 3 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <Box
+              sx={{
+                p: 1.5,
+                backgroundColor: 'rgba(255, 255, 255, 0.15)',
+                borderRadius: '12px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center'
+              }}
+            >
+              <RestaurantIcon sx={{ color: 'white', fontSize: '1.8rem' }} />
+            </Box>
+            <Box>
+              <Typography 
+                variant="h5" 
+                sx={{ 
+                  color: 'white', 
+                  fontWeight: 'bold',
+                  mb: 0.5
+                }}
+              >
+                🍽️ Smart Daily Meal Plan
+              </Typography>
+              <Typography 
+                variant="body2" 
+                sx={{ 
+                  color: 'rgba(255, 255, 255, 0.7)',
+                  fontSize: '0.85rem'
+                }}
+              >
+                Personalized • History-Adaptive • Real-time Recalibration
+              </Typography>
+            </Box>
+          </Box>
+        </Box>
 
-                {/* Macro Progress Display - Using Homepage Dashboard Data */}
-        <Box sx={{ mb: 3, p: 2.5, bgcolor: 'rgba(255,255,255,0.15)', borderRadius: 2, border: '1px solid rgba(255,255,255,0.3)' }}>
-          <Grid container spacing={3}>
-            {/* Calories Progress */}
-            <Grid item xs={12} md={6}>
-              <Typography variant="body1" sx={{ color: 'white', fontWeight: 600, mb: 1 }}>
+        {/* Macro Progress Display - Synchronized with Homepage Dashboard */}
+        <Box sx={{ mb: 3, p: 2, backgroundColor: 'rgba(255, 255, 255, 0.1)', borderRadius: '12px' }}>
+          <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.9)', mb: 2, fontWeight: 'bold' }}>
+            📊 Today's Progress (Synced with Dashboard)
+          </Typography>
+          <Grid container spacing={2}>
+            <Grid item xs={12} sm={4}>
+              <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.8)' }}>
                 📊 Calories: {dashboardData?.today_totals?.calories || 0} / {dashboardData?.goals?.calories || 2000}
               </Typography>
-              <LinearProgress 
-                variant="determinate" 
-                value={Math.min(((dashboardData?.today_totals?.calories || 0) / (dashboardData?.goals?.calories || 2000)) * 100, 100)}
-                sx={{ 
-                  bgcolor: 'rgba(255,255,255,0.2)', 
-                  '& .MuiLinearProgress-bar': { bgcolor: '#4CAF50' },
-                  height: 8,
-                  borderRadius: 4
-                }}
-              />
-              <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.8)', mt: 0.5, display: 'block' }}>
-                {Math.round(((dashboardData?.today_totals?.calories || 0) / (dashboardData?.goals?.calories || 2000)) * 100)}% of daily goal
-              </Typography>
             </Grid>
-
-            {/* Protein Progress */}
-            <Grid item xs={12} md={6}>
-              <Typography variant="body1" sx={{ color: 'white', fontWeight: 600, mb: 1 }}>
+            <Grid item xs={12} sm={4}>
+              <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.8)' }}>
                 💪 Protein: {dashboardData?.today_totals?.protein || 0}g / {dashboardData?.goals?.protein || 150}g
               </Typography>
-              <LinearProgress 
-                variant="determinate" 
-                value={Math.min(((dashboardData?.today_totals?.protein || 0) / (dashboardData?.goals?.protein || 150)) * 100, 100)}
-                sx={{ 
-                  bgcolor: 'rgba(255,255,255,0.2)', 
-                  '& .MuiLinearProgress-bar': { bgcolor: '#FF9800' },
-                  height: 8,
-                  borderRadius: 4
-                }}
-              />
-              <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.8)', mt: 0.5, display: 'block' }}>
-                {Math.round(((dashboardData?.today_totals?.protein || 0) / (dashboardData?.goals?.protein || 150)) * 100)}% of daily goal
-              </Typography>
             </Grid>
-
-            {/* Remaining Macros */}
-            <Grid item xs={12}>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 2, mt: 1 }}>
-                <Box>
-                  <Typography variant="body2" sx={{ color: '#FFD54F', fontWeight: 600 }}>
-                    🎯 Remaining: {Math.max(0, (dashboardData?.goals?.calories || 2000) - (dashboardData?.today_totals?.calories || 0))} cal, {Math.max(0, (dashboardData?.goals?.protein || 150) - (dashboardData?.today_totals?.protein || 0))}g protein
-                  </Typography>
-                </Box>
-                {smartMealPlan?.recalibration_history?.length > 0 && (
-                <Box>
-                    <Typography variant="body2" sx={{ color: '#81C784', fontWeight: 500 }}>
-                      🔄 Recalibrated {smartMealPlan.recalibration_history.length} time(s)
-                  </Typography>
-                </Box>
-                )}
-              </Box>
+            <Grid item xs={12} sm={4}>
+              <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.8)' }}>
+                🎯 Remaining: {Math.max(0, (dashboardData?.goals?.calories || 2000) - (dashboardData?.today_totals?.calories || 0))} cal, {Math.max(0, (dashboardData?.goals?.protein || 150) - (dashboardData?.today_totals?.protein || 0))}g protein
+              </Typography>
             </Grid>
           </Grid>
         </Box>
 
-        {/* Meal Cards with Consumption Integration */}
+        {/* Meal Cards with Full Consumption Integration */}
         <Grid container spacing={2}>
           {(smartMealPlan?.meal_configuration?.active_meals || ['breakfast', 'lunch', 'dinner', 'snack']).map((mealType: string) => {
             const plannedMeal = smartMealPlan?.smart_meal_plan?.[mealType];
@@ -586,14 +502,10 @@ const SmartDailyMealPlan: React.FC<SmartDailyMealPlanProps> = ({ dashboardData }
             const consumptionText = formatConsumptionText(consumptionRecords);
             const totalNutrition = getTotalNutrition(consumptionRecords);
 
-            // Simple matching logic - check if consumption somewhat matches the planned meal
-            let isMatchingPlan = false;
-            if (plannedMeal && isConsumed) {
-              const plannedName = plannedMeal.meal_name?.toLowerCase() || "";
-              const consumedText = consumptionText.toLowerCase();
-              const plannedKeywords = plannedName.split(/\s+/).filter((word: string) => word.length > 3);
-              isMatchingPlan = plannedKeywords.some((keyword: string) => consumedText.includes(keyword));
-            }
+            // Check if consumption matches the planned meal
+            const isMatchingPlan = plannedMeal && isConsumed 
+              ? isConsumptionMatchingPlan(plannedMeal.meal_name || '', consumptionText)
+              : false;
 
             return (
               <Grid item xs={12} sm={6} key={mealType}>
@@ -619,152 +531,82 @@ const SmartDailyMealPlan: React.FC<SmartDailyMealPlanProps> = ({ dashboardData }
                           fontSize: '1rem'
                         }}
                       >
-                        {getMealIcon(mealType)} {formatMealType(mealType)}
+                        {getMealEmoji(mealType)} {mealType}
                       </Typography>
                       {isConsumed && (
-                        <CheckCircleIcon sx={{ 
-                          color: isMatchingPlan ? '#81C784' : '#FFB74D', 
-                          fontSize: '1.2rem' 
-                        }} />
+                        <Chip
+                          size="small"
+                          label={isMatchingPlan ? "✅ On Plan" : "⚠️ Off Plan"}
+                          sx={{
+                            backgroundColor: isMatchingPlan ? 'rgba(76, 175, 80, 0.8)' : 'rgba(255, 193, 7, 0.8)',
+                            color: 'white',
+                            fontSize: '0.7rem',
+                            fontWeight: 'bold'
+                          }}
+                        />
                       )}
                     </Box>
-                    
-                    {/* Consumption Display - This is what the user ate */}
-                    {isConsumed ? (
-                      <Box sx={{ mb: 2, p: 1.5, bgcolor: 'rgba(255,255,255,0.1)', borderRadius: 1 }}>
-                        <Typography 
-                          variant="body2" 
-                          sx={{ 
-                            color: 'white',
-                            fontSize: '0.9rem',
-                            lineHeight: 1.4,
-                            mb: 1,
-                            fontWeight: 600
-                          }}
-                        >
-                          ✅ You ate: {consumptionText}
-                        </Typography>
-                        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                          <Chip 
-                            label={`${Math.round(totalNutrition.calories)} cal`}
-                            size="small"
-                            sx={{ 
-                              bgcolor: 'rgba(129, 199, 132, 0.3)',
-                              color: '#81C784',
-                              fontSize: '0.75rem',
-                              height: '20px'
-                            }}
-                          />
-                          {totalNutrition.protein > 0 && (
-                            <Chip 
-                              label={`${Math.round(totalNutrition.protein)}g protein`}
-                              size="small"
-                              sx={{ 
-                                bgcolor: 'rgba(255, 152, 0, 0.3)',
-                                color: '#FFB74D',
-                                fontSize: '0.75rem',
-                                height: '20px'
-                              }}
-                            />
-                          )}
-                          {!isMatchingPlan && plannedMeal && (
-                            <Chip 
-                              label="Off-plan"
-                              size="small"
-                              sx={{ 
-                                bgcolor: 'rgba(255, 193, 7, 0.3)',
-                                color: '#FFD54F',
-                                fontSize: '0.75rem',
-                                height: '20px'
-                              }}
-                            />
-                          )}
-                        </Box>
-                      </Box>
-                    ) : null}
 
-                    {/* Planned Meal Display */}
+                    {/* Planned Meal Section */}
                     {plannedMeal ? (
-                      <Box>
-                        <Typography 
-                          variant="body2" 
-                          sx={{ 
-                            color: isConsumed ? 'rgba(255,255,255,0.8)' : 'white',
-                            fontSize: '0.9rem',
-                            lineHeight: 1.4,
-                            mb: 1,
-                            fontWeight: isConsumed ? 500 : 600
-                          }}
-                        >
-                          💡 {isConsumed ? 'Planned:' : 'Today\'s meal:'} {plannedMeal.meal_name}
+                      <Box sx={{ mb: 2 }}>
+                        <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.7)', fontSize: '0.75rem', mb: 0.5 }}>
+                          🎯 PLANNED:
+                        </Typography>
+                        <Typography variant="body2" sx={{ color: 'white', fontWeight: 'bold', fontSize: '0.85rem' }}>
+                          {plannedMeal.meal_name || `Planned ${mealType}`}
                         </Typography>
                         {plannedMeal.description && (
-                          <Typography 
-                            variant="caption" 
-                            sx={{ 
-                              color: 'rgba(255,255,255,0.7)',
-                              fontSize: '0.8rem',
-                              display: 'block',
-                              mb: 1,
-                              lineHeight: 1.3
-                            }}
-                          >
+                          <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.8)', fontSize: '0.75rem', mt: 0.5 }}>
                             {plannedMeal.description}
                           </Typography>
                         )}
-                        <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
-                          {plannedMeal.nutritional_info?.calories && (
-                            <Chip 
-                              label={`${plannedMeal.nutritional_info.calories} cal`}
-                              size="small"
-                              sx={{ 
-                                bgcolor: 'rgba(255, 193, 7, 0.3)',
-                                color: '#FFD54F',
-                                fontSize: '0.7rem',
-                                height: '18px'
-                              }}
-                            />
-                          )}
-                          {plannedMeal.nutritional_info?.protein && (
-                            <Chip 
-                              label={`${plannedMeal.nutritional_info.protein}g protein`}
-                              size="small"
-                              sx={{ 
-                                bgcolor: 'rgba(255, 152, 0, 0.3)',
-                                color: '#FFB74D',
-                                fontSize: '0.7rem',
-                                height: '18px'
-                              }}
-                            />
-                          )}
-                          {plannedMeal.preparation_time && (
-                            <Chip 
-                              label={plannedMeal.preparation_time}
-                              size="small"
-                              sx={{ 
-                                bgcolor: 'rgba(158, 158, 158, 0.3)',
-                                color: '#BDBDBD',
-                                fontSize: '0.7rem',
-                                height: '18px'
-                              }}
-                            />
-                          )}
-                        </Box>
+                        {plannedMeal.nutritional_info && (
+                          <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.6)', fontSize: '0.7rem', mt: 0.5 }}>
+                            📊 {plannedMeal.nutritional_info.calories || 0} cal, {plannedMeal.nutritional_info.protein || 0}g protein
+                          </Typography>
+                        )}
+                        {plannedMeal.source && (
+                          <Chip
+                            size="small"
+                            label={plannedMeal.source === 'adapted_from_history' ? 'From History' : 'Generated'}
+                            sx={{
+                              backgroundColor: plannedMeal.source === 'adapted_from_history' ? 'rgba(76, 175, 80, 0.6)' : 'rgba(33, 150, 243, 0.6)',
+                              color: 'white',
+                              fontSize: '0.6rem',
+                              mt: 0.5,
+                              height: '18px'
+                            }}
+                          />
+                        )}
                       </Box>
                     ) : (
-                      /* No planned meal */
-                      <Typography 
-                        variant="body2" 
-                        sx={{ 
-                          color: 'rgba(255,255,255,0.7)',
-                          fontSize: '0.9rem',
-                          lineHeight: 1.4,
-                          fontStyle: 'italic',
-                          fontWeight: 400
-                        }}
-                      >
-                        No planned meal for {mealType}
-                      </Typography>
+                      <Box sx={{ mb: 2 }}>
+                        <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.6)', fontSize: '0.8rem', fontStyle: 'italic' }}>
+                          🔄 No planned meal for {mealType}
+                        </Typography>
+                      </Box>
+                    )}
+
+                    {/* Consumption Section */}
+                    {isConsumed ? (
+                      <Box>
+                        <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.7)', fontSize: '0.75rem', mb: 0.5 }}>
+                          ✅ CONSUMED:
+                        </Typography>
+                        <Typography variant="body2" sx={{ color: 'white', fontWeight: 'bold', fontSize: '0.85rem' }}>
+                          {consumptionText}
+                        </Typography>
+                        <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.6)', fontSize: '0.7rem', mt: 0.5 }}>
+                          📊 {totalNutrition.calories} cal, {totalNutrition.protein}g protein
+                        </Typography>
+                      </Box>
+                    ) : (
+                      <Box>
+                        <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.5)', fontSize: '0.8rem', fontStyle: 'italic' }}>
+                          ⏳ Nothing logged yet for {mealType}
+                        </Typography>
+                      </Box>
                     )}
                   </CardContent>
                 </Card>
@@ -773,30 +615,36 @@ const SmartDailyMealPlan: React.FC<SmartDailyMealPlanProps> = ({ dashboardData }
           })}
         </Grid>
 
-        {/* Simple System Status */}
-        {smartMealPlan?.personalization_factors?.recalibration_active && (
-          <Box sx={{ mt: 2, p: 2, bgcolor: 'rgba(33, 150, 243, 0.15)', borderRadius: 2, border: '1px solid rgba(33, 150, 243, 0.4)' }}>
-            <Typography variant="body2" sx={{ color: '#64B5F6', fontSize: '0.85rem', textAlign: 'center' }}>
-              🔄 Meal plan adjusted based on your consumption history
-            </Typography>
+        {/* Plan Info & Refresh */}
+        <Box sx={{ mt: 3, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <Box>
+            {smartMealPlan?.personalization_factors?.snack_history_support && (
+              <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.8)', fontSize: '0.8rem' }}>
+                ✨ Enhanced snack history support enabled
+              </Typography>
+            )}
+            {smartMealPlan?.recalibration_history?.length > 0 ? (
+              <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.8)', fontSize: '0.8rem' }}>
+                🔄 Plan recalibrated {smartMealPlan.recalibration_history.length} time(s) today
+              </Typography>
+            ) : (
+              <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.6)', fontSize: '0.8rem' }}>
+                ✅ No recalibrations needed
+              </Typography>
+            )}
           </Box>
-        )}
-
-        {/* Simple Refresh Button */}
-        <Box sx={{ mt: 2, textAlign: 'center' }}>
           <Button
-            variant="outlined"
-            size="small"
             onClick={fetchSmartMealPlan}
-            disabled={loading}
-            sx={{ 
+            size="small"
+            sx={{
+              backgroundColor: 'rgba(255, 255, 255, 0.2)',
               color: 'white',
-              borderColor: 'rgba(255,255,255,0.3)',
-              fontSize: '0.8rem',
+              fontSize: '0.75rem',
               px: 2,
               py: 0.5,
-              '&:hover': { borderColor: 'rgba(255,255,255,0.6)', bgcolor: 'rgba(255,255,255,0.1)' },
-              '&:disabled': { borderColor: 'rgba(255,255,255,0.2)', color: 'rgba(255,255,255,0.5)' }
+              '&:hover': {
+                backgroundColor: 'rgba(255, 255, 255, 0.3)'
+              }
             }}
           >
             {loading ? <CircularProgress size={14} /> : 'REFRESH'}
@@ -806,6 +654,7 @@ const SmartDailyMealPlan: React.FC<SmartDailyMealPlanProps> = ({ dashboardData }
     </Card>
   );
 };
+
 
 const HomePage: React.FC = () => {
   const navigate = useNavigate();
@@ -3169,7 +3018,7 @@ const HomePage: React.FC = () => {
             </Card>
           </Grid>
 
-          {/* Smart Daily Meal Plan */}
+          {/* Smart Daily Meal Plan v2.0 */}
           <Grid item xs={12}>
             <SmartDailyMealPlan dashboardData={dashboardData} />
           </Grid>

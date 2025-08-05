@@ -1,740 +1,576 @@
 """
-Comprehensive Smart Daily Meal Plan Service
+Smart Daily Meal Plan Service
 
-This service provides an interconnected meal planning system that integrates:
-1. User's comprehensive health profile (goals, preferences, medical conditions)
-2. User's past consumption history 
-3. User's past meal plans from meal history
-4. Real-time recalibration based on actual consumption vs planned meals
-
-Features:
-- Persistent daily meal plans (same plan all day until midnight reset)
-- Dynamic recalibration when user eats different foods than planned
-- Multiple food logging display with proper separation
-- Macro goal adherence through intelligent meal adjustments
+This service provides a comprehensive Smart Daily Meal Plan functionality that:
+1. Uses user's comprehensive health profile
+2. Leverages past consumption history 
+3. Adapts from past meal plans in meal plan history
+4. Implements real-time recalibration based on consumption vs planned meals
+5. Maintains daily persistence (stays same until midnight reset)
+6. Formats consumption display with comma and & separators
+7. Properly handles snacks from meal plan history
 """
 
 from datetime import datetime, timezone, timedelta
-from typing import Dict, List, Optional, Any, Tuple
+from typing import Dict, List, Optional, Any
 import json
-import traceback
-from database import (
-    interactions_container, 
-    get_user_consumption_history,
-    get_user_meal_plans,
-    get_user_by_email
-)
-# Note: We generate basic meal templates within this service to avoid complex dependencies
 
 
 class SmartDailyMealPlanService:
-    """Comprehensive Smart Daily Meal Plan Service"""
-    
     def __init__(self):
-        self.meal_types = ["breakfast", "lunch", "dinner", "snack"]
+        self.service_name = "SmartDailyMealPlanService"
     
-    async def get_smart_daily_meal_plan(self, user_email: str, user_profile: Dict) -> Dict[str, Any]:
+    async def get_smart_daily_meal_plan(self, user_email: str, user_profile: Dict) -> Dict:
         """
-        Main entry point for Smart Daily Meal Plan generation.
+        Generate comprehensive Smart Daily Meal Plan based on:
+        - User's comprehensive health profile
+        - Past consumption history
+        - Past meal plans from meal plan history
+        - Real-time recalibration based on actual vs planned consumption
+        """
+        print(f"[{self.service_name}] Starting Smart Daily Meal Plan generation for {user_email}")
         
-        Returns comprehensive meal plan with:
-        - Today's planned meals based on health profile + meal history
-        - User's actual consumption for each meal type
-        - Recalibrated remaining meals if needed
-        - Macro progress tracking
-        """
         try:
-            print(f"[SmartDailyMealPlan] Getting smart meal plan for {user_email}")
+            # Get today's date for consistency
+            today_date = datetime.utcnow().date().isoformat()
             
-            today_date = datetime.utcnow().strftime("%Y-%m-%d")
-            user_timezone = user_profile.get("timezone", "UTC")
-            
-            # Check for existing plan first (persistent throughout the day)
+            # Check if we have an existing plan for today (persistence requirement)
             existing_plan = await self._get_existing_daily_plan(user_email, today_date)
-            
             if existing_plan:
-                print(f"[SmartDailyMealPlan] Found existing plan for {today_date}")
-                
-                # Get today's consumption to check if recalibration is needed
-                today_consumption = await self._get_today_consumption(user_email, user_timezone)
-                
-                # Check if recalibration is needed
-                if await self._needs_recalibration(existing_plan, today_consumption):
-                    print(f"[SmartDailyMealPlan] Recalibration needed based on consumption changes")
-                    recalibrated_plan = await self._recalibrate_meal_plan(
-                        existing_plan, today_consumption, user_profile
-                    )
-                    
-                    # Update the stored plan
-                    await self._update_daily_plan(user_email, today_date, recalibrated_plan)
-                    return recalibrated_plan
-                else:
-                    # Add consumption data to existing plan
-                    return await self._add_consumption_to_plan(existing_plan, today_consumption)
+                print(f"[{self.service_name}] Found existing plan for today, applying real-time updates")
+                return await self._apply_real_time_updates(existing_plan, user_email, user_profile)
             
             # Generate new plan for today
-            print(f"[SmartDailyMealPlan] Generating new plan for {today_date}")
-            new_plan = await self._generate_new_daily_plan(user_email, user_profile, today_date)
+            print(f"[{self.service_name}] Generating new plan for today")
             
-            # Save the new plan
-            await self._save_daily_plan(user_email, today_date, new_plan)
+            # Step 1: Get meal configuration from user profile
+            meal_config = self._get_meal_configuration(user_profile)
             
-            return new_plan
+            # Step 2: Get consumption history for context
+            consumption_history = await self._get_consumption_history(user_email)
+            today_consumption = await self._get_today_consumption(user_email, user_profile.get("timezone", "UTC"))
             
-        except Exception as e:
-            print(f"[SmartDailyMealPlan] Error: {str(e)}")
-            print(f"[SmartDailyMealPlan] Traceback: {traceback.format_exc()}")
-            raise Exception(f"Failed to get smart daily meal plan: {str(e)}")
-    
-    async def _generate_new_daily_plan(self, user_email: str, user_profile: Dict, date: str) -> Dict[str, Any]:
-        """Generate a new daily meal plan from scratch"""
-        try:
-            print(f"[SmartDailyMealPlan] Generating new daily plan for {user_email}")
+            # Step 3: Get past meal plans from meal plan history  
+            meal_plan_history = await self._get_meal_plan_history(user_email)
             
-            # Get the three key data sources
-            health_profile = user_profile
-            consumption_history = await get_user_consumption_history(user_email, limit=100)
-            meal_plan_history = await get_user_meal_plans(user_email)
-            
-            # Determine meal configuration from health profile
-            meal_config = self._get_meal_configuration(health_profile)
-            
-            # Check if we have a recent meal plan to use as base
-            base_meal_plan = None
+            # Step 4: Generate meals - prioritize history, fallback to health profile
+            meals = {}
             if meal_plan_history:
-                # Look for meal plans from the last 7 days
-                recent_plans = self._filter_recent_meal_plans(meal_plan_history, days=7)
-                if recent_plans:
-                    base_meal_plan = recent_plans[0]  # Most recent
-                    print(f"[SmartDailyMealPlan] Using recent meal plan as base")
+                print(f"[{self.service_name}] Adapting meals from meal plan history")
+                meals = await self._adapt_from_meal_history(meal_config["active_meals"], meal_plan_history)
             
-            # Generate or adapt meal plan
-            if base_meal_plan:
-                daily_meals = await self._adapt_from_existing_plan(base_meal_plan, health_profile, meal_config)
-            else:
-                daily_meals = await self._generate_from_health_profile(health_profile, meal_config)
+            if not meals or len(meals) < len(meal_config["active_meals"]):
+                print(f"[{self.service_name}] Generating missing meals from health profile")
+                missing_meals = [meal for meal in meal_config["active_meals"] if meal not in meals]
+                generated_meals = await self._generate_from_health_profile(missing_meals, user_profile)
+                meals.update(generated_meals)
             
-            # Get today's consumption
-            user_timezone = health_profile.get("timezone", "UTC")
-            today_consumption = await self._get_today_consumption(user_email, user_timezone)
+            # Step 5: Apply real-time recalibration based on today's consumption
+            consumption_by_meal = self._organize_consumption_by_meal(today_consumption)
+            recalibration_history = []
             
-            # Calculate macro progress
-            macro_progress = self._calculate_macro_progress(daily_meals, today_consumption, health_profile)
+            if today_consumption:
+                print(f"[{self.service_name}] Applying real-time recalibration based on consumption")
+                meals, recalibrations = await self._apply_recalibration(meals, consumption_by_meal, user_profile)
+                recalibration_history.extend(recalibrations)
             
-            # Build comprehensive plan
-            plan = {
-                "date": date,
-                "user_email": user_email,
-                "meals": daily_meals,
-                "consumption": self._format_consumption_by_meal_type(today_consumption),
+            # Step 6: Calculate macro progress
+            macro_progress = self._calculate_macro_progress(today_consumption, user_profile)
+            
+            # Step 7: Build comprehensive response
+            comprehensive_plan = {
+                "meals": meals,
+                "consumption": consumption_by_meal,
                 "macro_progress": macro_progress,
                 "meal_configuration": meal_config,
-                "recalibration_history": [],
+                "recalibration_history": recalibration_history,
                 "created_at": datetime.utcnow().isoformat(),
-                "last_updated": datetime.utcnow().isoformat()
+                "last_updated": datetime.utcnow().isoformat(),
+                "plan_date": today_date,
+                "user_email": user_email
             }
             
-            return plan
+            # Step 8: Save plan for persistence
+            await self._save_daily_plan(user_email, today_date, comprehensive_plan)
+            
+            print(f"[{self.service_name}] Successfully generated Smart Daily Meal Plan")
+            return comprehensive_plan
             
         except Exception as e:
-            print(f"[SmartDailyMealPlan] Error generating new plan: {str(e)}")
-            raise
+            print(f"[{self.service_name}] Error generating meal plan: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            raise e
     
-    def _get_meal_configuration(self, health_profile: Dict) -> Dict[str, Any]:
-        """Extract meal configuration from health profile"""
+    def _get_meal_configuration(self, user_profile: Dict) -> Dict:
+        """Get meal configuration from user's comprehensive health profile"""
         try:
-            # Default configuration
-            config = {
-                "meal_count": 4,  # breakfast, lunch, dinner, snack
-                "active_meals": ["breakfast", "lunch", "dinner", "snack"],
-                "calorie_goal": 2000,
-                "protein_goal": 150,
-                "carb_goal": 250,
-                "fat_goal": 67
-            }
+            # Check if user has meal preference in profile
+            meals_per_day = user_profile.get("mealsPerDay", 4)  # Default to 4 meals
             
-            # Extract goals from health profile
-            if health_profile.get("calorieTarget"):
-                try:
-                    config["calorie_goal"] = int(health_profile["calorieTarget"])
-                except:
-                    pass
-            
-            if health_profile.get("proteinTarget"):
-                try:
-                    config["protein_goal"] = int(health_profile["proteinTarget"])
-                except:
-                    pass
-            
-            # Check macro goals
-            macro_goals = health_profile.get("macroGoals", {})
-            if macro_goals.get("protein"):
-                config["protein_goal"] = macro_goals["protein"]
-            if macro_goals.get("carbs"):
-                config["carb_goal"] = macro_goals["carbs"]
-            if macro_goals.get("fat"):
-                config["fat_goal"] = macro_goals["fat"]
-            
-            # Check eating schedule for meal count/timing
-            eating_schedule = health_profile.get("eatingSchedule", "")
-            if "3" in eating_schedule or "three" in eating_schedule.lower():
-                config["meal_count"] = 3
-                config["active_meals"] = ["breakfast", "lunch", "dinner"]
-            elif "5" in eating_schedule or "five" in eating_schedule.lower():
-                config["meal_count"] = 5
-                config["active_meals"] = ["breakfast", "snack1", "lunch", "snack2", "dinner"]
-            
-            print(f"[SmartDailyMealPlan] Meal configuration: {config}")
-            return config
-            
-        except Exception as e:
-            print(f"[SmartDailyMealPlan] Error getting meal config: {str(e)}")
-            # Return default config
-            return {
-                "meal_count": 4,
-                "active_meals": ["breakfast", "lunch", "dinner", "snack"],
-                "calorie_goal": 2000,
-                "protein_goal": 150,
-                "carb_goal": 250,
-                "fat_goal": 67
-            }
-    
-    async def _adapt_from_existing_plan(self, base_plan: Dict, health_profile: Dict, meal_config: Dict) -> Dict[str, Any]:
-        """Adapt meals from existing meal plan to today's needs"""
-        try:
-            print(f"[SmartDailyMealPlan] Adapting from existing meal plan")
-            
-            adapted_meals = {}
-            
-            # Extract meals from base plan
-            base_meals = base_plan.get("meal_plan", {})
-            
-            for meal_type in meal_config["active_meals"]:
-                if meal_type in base_meals and base_meals[meal_type]:
-                    # Use the meal from base plan
-                    base_meal = base_meals[meal_type]
-                    adapted_meals[meal_type] = {
-                        "meal_name": base_meal.get("meal_name", ""),
-                        "description": base_meal.get("description", ""),
-                        "ingredients": base_meal.get("ingredients", []),
-                        "nutritional_info": base_meal.get("nutritional_info", {}),
-                        "preparation_time": base_meal.get("preparation_time", "15 minutes"),
-                        "source": "adapted_from_history"
-                    }
-                else:
-                    # Generate new meal for this slot
-                    adapted_meals[meal_type] = await self._generate_single_meal(meal_type, health_profile)
-            
-            return adapted_meals
-            
-        except Exception as e:
-            print(f"[SmartDailyMealPlan] Error adapting from existing plan: {str(e)}")
-            # Fallback to generating from health profile
-            return await self._generate_from_health_profile(health_profile, meal_config)
-    
-    async def _generate_from_health_profile(self, health_profile: Dict, meal_config: Dict) -> Dict[str, Any]:
-        """Generate meals based on health profile when no meal history available"""
-        try:
-            print(f"[SmartDailyMealPlan] Generating meals from health profile")
-            
-            meals = {}
-            
-            # Calculate calories per meal
-            total_calories = meal_config["calorie_goal"]
-            calories_per_meal = total_calories // len(meal_config["active_meals"])
-            
-            for meal_type in meal_config["active_meals"]:
-                meals[meal_type] = await self._generate_single_meal(meal_type, health_profile, calories_per_meal)
-            
-            return meals
-            
-        except Exception as e:
-            print(f"[SmartDailyMealPlan] Error generating from health profile: {str(e)}")
-            raise
-    
-    async def _generate_single_meal(self, meal_type: str, health_profile: Dict, target_calories: int = 500) -> Dict[str, Any]:
-        """Generate a single meal based on health profile"""
-        try:
-            # Extract dietary preferences
-            dietary_restrictions = health_profile.get("dietaryRestrictions", [])
-            dietary_features = health_profile.get("dietaryFeatures", [])
-            allergies = health_profile.get("allergies", [])
-            strong_dislikes = health_profile.get("strongDislikes", [])
-            diet_type = health_profile.get("dietType", [])
-            
-            # Simple meal generation based on meal type and preferences
-            meal_templates = {
-                "breakfast": {
-                    "default": {
-                        "meal_name": "Balanced Breakfast Bowl",
-                        "description": "Nutritious breakfast with protein, healthy carbs, and vegetables",
-                        "ingredients": ["oats", "berries", "greek yogurt", "nuts", "honey"],
-                        "preparation_time": "10 minutes"
-                    },
-                    "vegetarian": {
-                        "meal_name": "Vegetarian Breakfast Scramble",
-                        "description": "Protein-rich vegetarian breakfast with eggs and vegetables",
-                        "ingredients": ["eggs", "spinach", "mushrooms", "bell peppers", "whole grain toast"],
-                        "preparation_time": "15 minutes"
-                    }
-                },
-                "lunch": {
-                    "default": {
-                        "meal_name": "Mediterranean Chicken Salad",
-                        "description": "Fresh salad with lean protein and healthy fats",
-                        "ingredients": ["chicken breast", "mixed greens", "cucumber", "tomatoes", "olive oil", "feta cheese"],
-                        "preparation_time": "20 minutes"
-                    },
-                    "vegetarian": {
-                        "meal_name": "Quinoa Power Bowl",
-                        "description": "Protein-packed vegetarian bowl with quinoa and legumes",
-                        "ingredients": ["quinoa", "chickpeas", "roasted vegetables", "avocado", "tahini dressing"],
-                        "preparation_time": "25 minutes"
-                    }
-                },
-                "dinner": {
-                    "default": {
-                        "meal_name": "Grilled Salmon with Vegetables",
-                        "description": "Omega-3 rich salmon with fiber-rich vegetables",
-                        "ingredients": ["salmon fillet", "broccoli", "sweet potato", "asparagus", "lemon"],
-                        "preparation_time": "30 minutes"
-                    },
-                    "vegetarian": {
-                        "meal_name": "Lentil and Vegetable Curry",
-                        "description": "Protein-rich vegetarian curry with complex carbohydrates",
-                        "ingredients": ["red lentils", "coconut milk", "mixed vegetables", "brown rice", "curry spices"],
-                        "preparation_time": "35 minutes"
-                    }
-                },
-                "snack": {
-                    "default": {
-                        "meal_name": "Greek Yogurt with Berries",
-                        "description": "High-protein snack with antioxidants",
-                        "ingredients": ["greek yogurt", "mixed berries", "almonds", "chia seeds"],
-                        "preparation_time": "5 minutes"
-                    },
-                    "vegetarian": {
-                        "meal_name": "Hummus and Veggie Sticks",
-                        "description": "Plant-based protein with fresh vegetables",
-                        "ingredients": ["hummus", "carrots", "celery", "bell peppers", "cucumber"],
-                        "preparation_time": "5 minutes"
-                    }
-                }
-            }
-            
-            # Select template based on dietary preferences
-            template_type = "vegetarian" if any(d.lower() in ["vegetarian", "vegan"] for d in dietary_features + diet_type) else "default"
-            
-            if meal_type in meal_templates and template_type in meal_templates[meal_type]:
-                template = meal_templates[meal_type][template_type]
+            if meals_per_day == 3:
+                active_meals = ["breakfast", "lunch", "dinner"]
+            elif meals_per_day == 4:
+                active_meals = ["breakfast", "lunch", "dinner", "snack"]
             else:
-                template = meal_templates["snack"]["default"]  # Fallback
-            
-            # Calculate nutritional info based on target calories
-            protein_ratio = 0.25  # 25% protein
-            carb_ratio = 0.45     # 45% carbs  
-            fat_ratio = 0.30      # 30% fat
-            
-            nutritional_info = {
-                "calories": target_calories,
-                "protein": round((target_calories * protein_ratio) / 4),  # 4 cal/g protein
-                "carbohydrates": round((target_calories * carb_ratio) / 4),  # 4 cal/g carbs
-                "fat": round((target_calories * fat_ratio) / 9),  # 9 cal/g fat
-                "fiber": round(target_calories / 100),  # Rough estimate
-                "sugar": round(target_calories / 200)   # Rough estimate
-            }
+                # Default fallback
+                active_meals = ["breakfast", "lunch", "dinner", "snack"]
             
             return {
-                "meal_name": template["meal_name"],
-                "description": template["description"],
-                "ingredients": template["ingredients"],
-                "nutritional_info": nutritional_info,
-                "preparation_time": template["preparation_time"],
-                "source": "generated_from_profile"
+                "active_meals": active_meals,
+                "meals_per_day": len(active_meals)
             }
+        except Exception as e:
+            print(f"[{self.service_name}] Error getting meal config: {e}")
+            return {
+                "active_meals": ["breakfast", "lunch", "dinner", "snack"],
+                "meals_per_day": 4
+            }
+    
+    async def _get_consumption_history(self, user_email: str) -> List[Dict]:
+        """Get user's past consumption history for context"""
+        try:
+            from database import interactions_container
+            
+            # Get last 30 days of consumption for pattern analysis
+            end_date = datetime.utcnow()
+            start_date = end_date - timedelta(days=30)
+            
+            query = """
+            SELECT * FROM c
+            WHERE c.user_id = @user_email
+            AND c.type = 'consumption_record'
+            AND c.timestamp >= @start_date
+            AND c.timestamp <= @end_date
+            ORDER BY c.timestamp DESC
+            """
+            
+            parameters = [
+                {"name": "@user_email", "value": user_email},
+                {"name": "@start_date", "value": start_date.isoformat()},
+                {"name": "@end_date", "value": end_date.isoformat()}
+            ]
+            
+            items = list(interactions_container.query_items(
+                query=query,
+                parameters=parameters,
+                enable_cross_partition_query=True
+            ))
+            
+            print(f"[{self.service_name}] Found {len(items)} consumption records in last 30 days")
+            return items
             
         except Exception as e:
-            print(f"[SmartDailyMealPlan] Error generating single meal: {str(e)}")
-            # Return basic fallback meal
-            return {
-                "meal_name": f"Healthy {meal_type.title()}",
-                "description": f"Balanced {meal_type} meal",
-                "ingredients": ["balanced ingredients"],
-                "nutritional_info": {"calories": target_calories, "protein": 25, "carbohydrates": 50, "fat": 15},
-                "preparation_time": "15 minutes",
-                "source": "fallback"
-            }
+            print(f"[{self.service_name}] Error getting consumption history: {e}")
+            return []
     
     async def _get_today_consumption(self, user_email: str, user_timezone: str = "UTC") -> List[Dict]:
-        """Get today's consumption records for the user"""
+        """Get today's consumption records"""
         try:
-            print(f"[SmartDailyMealPlan] Getting today's consumption for {user_email}")
+            from database import interactions_container
+            import pytz
             
             # Calculate today's date range in user's timezone
-            import pytz
-            from datetime import datetime, timezone
+            if user_timezone != "UTC":
+                try:
+                    tz = pytz.timezone(user_timezone)
+                    local_now = datetime.now(tz)
+                except:
+                    local_now = datetime.utcnow()
+            else:
+                local_now = datetime.utcnow()
             
-            try:
-                user_tz = pytz.timezone(user_timezone)
-                utc_now = datetime.now(timezone.utc)
-                local_now = utc_now.astimezone(user_tz)
-                
-                # Get start and end of today in user's timezone
-                local_start = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
-                local_end = local_now.replace(hour=23, minute=59, second=59, microsecond=999999)
-                
-                # Convert back to UTC for database query
-                start_utc = local_start.astimezone(timezone.utc)
-                end_utc = local_end.astimezone(timezone.utc)
-                
-            except Exception as tz_error:
-                print(f"[SmartDailyMealPlan] Timezone error, using UTC: {tz_error}")
-                utc_now = datetime.now(timezone.utc)
-                start_utc = utc_now.replace(hour=0, minute=0, second=0, microsecond=0)
-                end_utc = utc_now.replace(hour=23, minute=59, second=59, microsecond=999999)
+            today_start = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
+            today_end = local_now.replace(hour=23, minute=59, second=59, microsecond=999999)
             
-            # Query consumption records for today
+            # Convert to UTC for database query if needed
+            if user_timezone != "UTC":
+                today_start_utc = today_start.astimezone(timezone.utc)
+                today_end_utc = today_end.astimezone(timezone.utc)
+            else:
+                today_start_utc = today_start
+                today_end_utc = today_end
+            
             query = """
-            SELECT * FROM c 
-            WHERE c.type = 'consumption_record' 
-            AND c.user_id = @user_id
+            SELECT * FROM c
+            WHERE c.user_id = @user_email
+            AND c.type = 'consumption_record'
             AND c.timestamp >= @start_time
             AND c.timestamp <= @end_time
             ORDER BY c.timestamp ASC
             """
             
             parameters = [
-                {"name": "@user_id", "value": user_email},
-                {"name": "@start_time", "value": start_utc.isoformat()},
-                {"name": "@end_time", "value": end_utc.isoformat()}
+                {"name": "@user_email", "value": user_email},
+                {"name": "@start_time", "value": today_start_utc.isoformat()},
+                {"name": "@end_time", "value": today_end_utc.isoformat()}
             ]
             
-            consumption_records = list(interactions_container.query_items(
+            items = list(interactions_container.query_items(
                 query=query,
                 parameters=parameters,
                 enable_cross_partition_query=True
             ))
             
-            print(f"[SmartDailyMealPlan] Found {len(consumption_records)} consumption records for today")
-            return consumption_records
+            print(f"[{self.service_name}] Found {len(items)} consumption records for today")
+            return items
             
         except Exception as e:
-            print(f"[SmartDailyMealPlan] Error getting today's consumption: {str(e)}")
+            print(f"[{self.service_name}] Error getting today's consumption: {e}")
             return []
     
-    def _format_consumption_by_meal_type(self, consumption_records: List[Dict]) -> Dict[str, List[Dict]]:
-        """Format consumption records grouped by meal type with multiple food support"""
+    async def _get_meal_plan_history(self, user_email: str) -> List[Dict]:
+        """Get user's past meal plans from meal plan history"""
         try:
-            consumption_by_meal = {
-                "breakfast": [],
-                "lunch": [], 
-                "dinner": [],
-                "snack": []
+            from database import interactions_container
+            
+            # Get recent meal plans (last 30 days) for adaptation
+            end_date = datetime.utcnow()
+            start_date = end_date - timedelta(days=30)
+            
+            query = """
+            SELECT * FROM c
+            WHERE c.user_id = @user_email
+            AND c.type = 'meal_plan'
+            AND c.created_at >= @start_date
+            ORDER BY c.created_at DESC
+            """
+            
+            parameters = [
+                {"name": "@user_email", "value": user_email},
+                {"name": "@start_date", "value": start_date.isoformat()}
+            ]
+            
+            items = list(interactions_container.query_items(
+                query=query,
+                parameters=parameters,
+                enable_cross_partition_query=True
+            ))
+            
+            print(f"[{self.service_name}] Found {len(items)} meal plans in history for adaptation")
+            return items
+            
+        except Exception as e:
+            print(f"[{self.service_name}] Error getting meal plan history: {e}")
+            return []
+    
+    async def _adapt_from_meal_history(self, active_meals: List[str], meal_plan_history: List[Dict]) -> Dict:
+        """Adapt meals from past meal plans in history"""
+        adapted_meals = {}
+        
+        try:
+            if not meal_plan_history:
+                return adapted_meals
+            
+            # Use the most recent meal plan as base
+            latest_plan = meal_plan_history[0]
+            plan_data = latest_plan.get("plan_data", latest_plan)
+            
+            # Extract meals from the plan data
+            base_meals = {}
+            if "meals" in plan_data:
+                base_meals = plan_data["meals"]
+            elif "breakfast" in plan_data or "lunch" in plan_data or "dinner" in plan_data:
+                # Direct meal structure
+                base_meals = plan_data
+            
+            print(f"[{self.service_name}] Adapting from meal plan with meals: {list(base_meals.keys())}")
+            
+            for meal_type in active_meals:
+                if meal_type in base_meals and base_meals[meal_type]:
+                    # Handle different meal data structures
+                    meal_data = base_meals[meal_type]
+                    
+                    if isinstance(meal_data, str):
+                        # Simple string meal name
+                        adapted_meals[meal_type] = {
+                            "meal_name": meal_data,
+                            "description": f"Adapted from your meal plan history",
+                            "ingredients": [meal_data],
+                            "nutritional_info": self._estimate_nutrition(meal_data, meal_type),
+                            "preparation_time": "15 minutes",
+                            "source": "adapted_from_history"
+                        }
+                    elif isinstance(meal_data, dict):
+                        # Structured meal data
+                        adapted_meals[meal_type] = {
+                            "meal_name": meal_data.get("meal_name", meal_data.get("name", f"Planned {meal_type}")),
+                            "description": meal_data.get("description", f"Adapted from your meal plan history"),
+                            "ingredients": meal_data.get("ingredients", []),
+                            "nutritional_info": meal_data.get("nutritional_info", self._estimate_nutrition("", meal_type)),
+                            "preparation_time": meal_data.get("preparation_time", "15 minutes"),
+                            "source": "adapted_from_history"
+                        }
+                    elif isinstance(meal_data, list) and len(meal_data) > 0:
+                        # Array of meals - take the first one
+                        first_meal = meal_data[0]
+                        if isinstance(first_meal, str):
+                            adapted_meals[meal_type] = {
+                                "meal_name": first_meal,
+                                "description": f"Adapted from your meal plan history",
+                                "ingredients": [first_meal],
+                                "nutritional_info": self._estimate_nutrition(first_meal, meal_type),
+                                "preparation_time": "15 minutes",
+                                "source": "adapted_from_history"
+                            }
+                        elif isinstance(first_meal, dict):
+                            adapted_meals[meal_type] = {
+                                "meal_name": first_meal.get("meal_name", first_meal.get("name", f"Planned {meal_type}")),
+                                "description": first_meal.get("description", f"Adapted from your meal plan history"),
+                                "ingredients": first_meal.get("ingredients", []),
+                                "nutritional_info": first_meal.get("nutritional_info", self._estimate_nutrition("", meal_type)),
+                                "preparation_time": first_meal.get("preparation_time", "15 minutes"),
+                                "source": "adapted_from_history"
+                            }
+                
+                # Special handling for snacks - check both "snack" and "snacks" keys
+                elif meal_type == "snack":
+                    # Check for "snacks" (plural) which is common in meal plan arrays
+                    if "snacks" in base_meals and base_meals["snacks"]:
+                        snacks_data = base_meals["snacks"]
+                        if isinstance(snacks_data, list) and len(snacks_data) > 0:
+                            # Take the first snack from the array
+                            first_snack = snacks_data[0]
+                            if isinstance(first_snack, str):
+                                adapted_meals[meal_type] = {
+                                    "meal_name": first_snack,
+                                    "description": f"Healthy snack from your meal plan",
+                                    "ingredients": [first_snack],
+                                    "nutritional_info": self._estimate_nutrition(first_snack, "snack"),
+                                    "preparation_time": "5 minutes",
+                                    "source": "adapted_from_history"
+                                }
+                                print(f"[{self.service_name}] ✅ Found snack from history (plural): {first_snack}")
+                        elif isinstance(snacks_data, str):
+                            adapted_meals[meal_type] = {
+                                "meal_name": snacks_data,
+                                "description": f"Healthy snack from your meal plan",
+                                "ingredients": [snacks_data],
+                                "nutritional_info": self._estimate_nutrition(snacks_data, "snack"),
+                                "preparation_time": "5 minutes",
+                                "source": "adapted_from_history"
+                            }
+                            print(f"[{self.service_name}] ✅ Found snack from history (string): {snacks_data}")
+            
+            print(f"[{self.service_name}] Successfully adapted {len(adapted_meals)} meals from history")
+            return adapted_meals
+            
+        except Exception as e:
+            print(f"[{self.service_name}] Error adapting from meal history: {e}")
+            import traceback
+            traceback.print_exc()
+            return {}
+    
+    async def _generate_from_health_profile(self, missing_meals: List[str], user_profile: Dict) -> Dict:
+        """Generate meals based on user's comprehensive health profile"""
+        generated_meals = {}
+        
+        try:
+            # Get user's dietary preferences and restrictions from profile
+            dietary_restrictions = user_profile.get("dietaryRestrictions", [])
+            food_preferences = user_profile.get("foodPreferences", [])
+            calorie_target = int(user_profile.get("calorieTarget", "2000"))
+            
+            # Basic meal templates based on health profile
+            meal_templates = {
+                "breakfast": {
+                    "meal_name": "Balanced Breakfast",
+                    "description": "Protein-rich breakfast with complex carbohydrates for sustained energy",
+                    "ingredients": ["oats", "berries", "nuts", "protein source"],
+                    "nutritional_info": {"calories": calorie_target // 4, "protein": 20, "carbohydrates": 45, "fat": 12},
+                    "preparation_time": "10 minutes",
+                    "source": "generated_from_profile"
+                },
+                "lunch": {
+                    "meal_name": "Nutritious Lunch",
+                    "description": "Balanced lunch with lean protein and vegetables",
+                    "ingredients": ["lean protein", "vegetables", "healthy grains"],
+                    "nutritional_info": {"calories": calorie_target // 3, "protein": 25, "carbohydrates": 40, "fat": 15},
+                    "preparation_time": "20 minutes",
+                    "source": "generated_from_profile"
+                },
+                "dinner": {
+                    "meal_name": "Healthy Dinner",
+                    "description": "Well-balanced dinner with protein, vegetables, and healthy carbs",
+                    "ingredients": ["protein", "vegetables", "complex carbs"],
+                    "nutritional_info": {"calories": calorie_target // 3, "protein": 30, "carbohydrates": 35, "fat": 18},
+                    "preparation_time": "25 minutes",
+                    "source": "generated_from_profile"
+                },
+                "snack": {
+                    "meal_name": "Healthy Snack",
+                    "description": "Nutritious snack to bridge meal gaps",
+                    "ingredients": ["nuts", "fruit"],
+                    "nutritional_info": {"calories": 150, "protein": 5, "carbohydrates": 15, "fat": 8},
+                    "preparation_time": "5 minutes",
+                    "source": "generated_from_profile"
+                }
             }
             
-            for record in consumption_records:
-                meal_type = record.get("meal_type", "snack")
-                if meal_type not in consumption_by_meal:
-                    meal_type = "snack"  # Default fallback
-                
-                consumption_by_meal[meal_type].append({
-                    "food_name": record.get("food_name", ""),
-                    "estimated_portion": record.get("estimated_portion", ""),
-                    "nutritional_info": record.get("nutritional_info", {}),
-                    "timestamp": record.get("timestamp", ""),
-                    "id": record.get("id", "")
-                })
+            for meal_type in missing_meals:
+                if meal_type in meal_templates:
+                    generated_meals[meal_type] = meal_templates[meal_type].copy()
+                    
+                    # Customize based on dietary restrictions
+                    if "vegetarian" in dietary_restrictions:
+                        if "protein source" in generated_meals[meal_type]["ingredients"]:
+                            generated_meals[meal_type]["ingredients"] = [ing.replace("protein source", "plant protein") for ing in generated_meals[meal_type]["ingredients"]]
+                    
+                    print(f"[{self.service_name}] Generated {meal_type} from health profile")
+            
+            return generated_meals
+            
+        except Exception as e:
+            print(f"[{self.service_name}] Error generating from health profile: {e}")
+            return {}
+    
+    def _estimate_nutrition(self, meal_name: str, meal_type: str) -> Dict:
+        """Estimate nutritional information for a meal"""
+        # Basic nutrition estimates by meal type
+        nutrition_estimates = {
+            "breakfast": {"calories": 400, "protein": 20, "carbohydrates": 45, "fat": 12},
+            "lunch": {"calories": 500, "protein": 25, "carbohydrates": 40, "fat": 15},
+            "dinner": {"calories": 600, "protein": 30, "carbohydrates": 35, "fat": 18},
+            "snack": {"calories": 150, "protein": 5, "carbohydrates": 15, "fat": 8}
+        }
+        
+        return nutrition_estimates.get(meal_type, {"calories": 300, "protein": 15, "carbohydrates": 30, "fat": 10})
+    
+    def _organize_consumption_by_meal(self, today_consumption: List[Dict]) -> Dict:
+        """Organize today's consumption records by meal type"""
+        consumption_by_meal = {
+            "breakfast": [],
+            "lunch": [],
+            "dinner": [],
+            "snack": []
+        }
+        
+        try:
+            for record in today_consumption:
+                meal_type = record.get("meal_type", "snack").lower()
+                if meal_type in consumption_by_meal:
+                    consumption_by_meal[meal_type].append({
+                        "food_name": record.get("food_name", "Unknown food"),
+                        "quantity": record.get("quantity", "1 serving"),
+                        "calories": record.get("nutritional_info", {}).get("calories", 0),
+                        "protein": record.get("nutritional_info", {}).get("protein", 0),
+                        "timestamp": record.get("timestamp", ""),
+                        "session_id": record.get("session_id", "")
+                    })
             
             return consumption_by_meal
             
         except Exception as e:
-            print(f"[SmartDailyMealPlan] Error formatting consumption: {str(e)}")
-            return {"breakfast": [], "lunch": [], "dinner": [], "snack": []}
+            print(f"[{self.service_name}] Error organizing consumption by meal: {e}")
+            return consumption_by_meal
     
-    def _calculate_macro_progress(self, daily_meals: Dict, today_consumption: List[Dict], health_profile: Dict) -> Dict[str, Any]:
-        """Calculate macro progress based on planned meals and actual consumption"""
+    async def _apply_recalibration(self, meals: Dict, consumption_by_meal: Dict, user_profile: Dict) -> tuple:
+        """Apply real-time recalibration based on actual vs planned consumption"""
+        recalibrations = []
+        
         try:
-            meal_config = self._get_meal_configuration(health_profile)
+            calorie_target = int(user_profile.get("calorieTarget", "2000"))
+            protein_target = int(user_profile.get("proteinTarget", "150"))
             
-            # Calculate total planned macros
-            planned_totals = {"calories": 0, "protein": 0, "carbohydrates": 0, "fat": 0}
-            for meal_type, meal_data in daily_meals.items():
-                nutrition = meal_data.get("nutritional_info", {})
-                planned_totals["calories"] += nutrition.get("calories", 0)
-                planned_totals["protein"] += nutrition.get("protein", 0)
-                planned_totals["carbohydrates"] += nutrition.get("carbohydrates", 0)
-                planned_totals["fat"] += nutrition.get("fat", 0)
-            
-            # Calculate actual consumed macros
-            consumed_totals = {"calories": 0, "protein": 0, "carbohydrates": 0, "fat": 0}
-            for record in today_consumption:
-                nutrition = record.get("nutritional_info", {})
-                consumed_totals["calories"] += nutrition.get("calories", 0)
-                consumed_totals["protein"] += nutrition.get("protein", 0)
-                consumed_totals["carbohydrates"] += nutrition.get("carbohydrates", 0)
-                consumed_totals["fat"] += nutrition.get("fat", 0)
-            
-            # Calculate remaining macros
-            remaining_totals = {}
-            for macro in ["calories", "protein", "carbohydrates", "fat"]:
-                remaining_totals[macro] = max(0, planned_totals[macro] - consumed_totals[macro])
-            
-            # Progress percentages based on goals
-            goals = {
-                "calories": meal_config["calorie_goal"],
-                "protein": meal_config["protein_goal"],
-                "carbohydrates": meal_config["carb_goal"],
-                "fat": meal_config["fat_goal"]
-            }
-            
-            progress_percentages = {}
-            for macro, goal in goals.items():
-                if goal > 0:
-                    progress_percentages[macro] = min(100, round((consumed_totals[macro] / goal) * 100, 1))
-                else:
-                    progress_percentages[macro] = 0
-            
-            return {
-                "planned": planned_totals,
-                "consumed": consumed_totals,
-                "remaining": remaining_totals,
-                "goals": goals,
-                "progress_percentages": progress_percentages
-            }
-            
-        except Exception as e:
-            print(f"[SmartDailyMealPlan] Error calculating macro progress: {str(e)}")
-            return {
-                "planned": {"calories": 0, "protein": 0, "carbohydrates": 0, "fat": 0},
-                "consumed": {"calories": 0, "protein": 0, "carbohydrates": 0, "fat": 0},
-                "remaining": {"calories": 0, "protein": 0, "carbohydrates": 0, "fat": 0},
-                "goals": {"calories": 2000, "protein": 150, "carbohydrates": 250, "fat": 67},
-                "progress_percentages": {"calories": 0, "protein": 0, "carbohydrates": 0, "fat": 0}
-            }
-    
-    def _filter_recent_meal_plans(self, meal_plans: List[Dict], days: int = 7) -> List[Dict]:
-        """Filter meal plans from the last N days"""
-        try:
-            cutoff_date = datetime.utcnow() - timedelta(days=days)
-            
-            recent_plans = []
-            for plan in meal_plans:
-                created_at = plan.get("created_at", "")
-                if created_at:
-                    try:
-                        plan_date = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
-                        if plan_date >= cutoff_date:
-                            recent_plans.append(plan)
-                    except:
-                        continue
-            
-            # Sort by creation date (newest first)
-            recent_plans.sort(key=lambda x: x.get("created_at", ""), reverse=True)
-            return recent_plans
-            
-        except Exception as e:
-            print(f"[SmartDailyMealPlan] Error filtering recent plans: {str(e)}")
-            return []
-    
-    async def _needs_recalibration(self, existing_plan: Dict, today_consumption: List[Dict]) -> bool:
-        """Check if the meal plan needs recalibration based on consumption changes"""
-        try:
-            # Get the last consumption timestamp from the plan
-            last_consumption_check = existing_plan.get("last_consumption_check", "")
-            
-            if not today_consumption:
-                return False
-            
-            # Check if there are new consumption records since last check
-            if not last_consumption_check:
-                return len(today_consumption) > 0
-            
-            # Parse last check timestamp
-            try:
-                last_check_dt = datetime.fromisoformat(last_consumption_check.replace('Z', '+00:00'))
-            except:
-                return True  # If we can't parse, assume recalibration needed
-            
-            # Check if any consumption records are newer than last check
-            for record in today_consumption:
-                record_timestamp = record.get("timestamp", "")
-                if record_timestamp:
-                    try:
-                        record_dt = datetime.fromisoformat(record_timestamp.replace('Z', '+00:00'))
-                        if record_dt > last_check_dt:
-                            return True
-                    except:
-                        continue
-            
-            return False
-            
-        except Exception as e:
-            print(f"[SmartDailyMealPlan] Error checking recalibration need: {str(e)}")
-            return False
-    
-    async def _recalibrate_meal_plan(self, existing_plan: Dict, today_consumption: List[Dict], health_profile: Dict) -> Dict[str, Any]:
-        """Recalibrate meal plan based on actual consumption vs planned meals"""
-        try:
-            print(f"[SmartDailyMealPlan] Recalibrating meal plan based on consumption")
-            
-            # Start with existing plan
-            recalibrated_plan = existing_plan.copy()
-            
-            # Update consumption data
-            consumption_by_meal = self._format_consumption_by_meal_type(today_consumption)
-            recalibrated_plan["consumption"] = consumption_by_meal
-            
-            # Get meal configuration
-            meal_config = self._get_meal_configuration(health_profile)
-            
-            # Calculate what was actually consumed vs planned for each meal
-            consumed_macros_by_meal = {}
-            planned_macros_by_meal = {}
-            
-            for meal_type in meal_config["active_meals"]:
-                # Calculate consumed macros for this meal type
-                consumed_macros = {"calories": 0, "protein": 0, "carbohydrates": 0, "fat": 0}
-                for consumption in consumption_by_meal.get(meal_type, []):
-                    nutrition = consumption.get("nutritional_info", {})
-                    consumed_macros["calories"] += nutrition.get("calories", 0)
-                    consumed_macros["protein"] += nutrition.get("protein", 0)
-                    consumed_macros["carbohydrates"] += nutrition.get("carbohydrates", 0)
-                    consumed_macros["fat"] += nutrition.get("fat", 0)
-                
-                consumed_macros_by_meal[meal_type] = consumed_macros
-                
-                # Get planned macros for this meal type
-                planned_meal = recalibrated_plan["meals"].get(meal_type, {})
-                planned_nutrition = planned_meal.get("nutritional_info", {})
-                planned_macros_by_meal[meal_type] = {
-                    "calories": planned_nutrition.get("calories", 0),
-                    "protein": planned_nutrition.get("protein", 0),
-                    "carbohydrates": planned_nutrition.get("carbohydrates", 0),
-                    "fat": planned_nutrition.get("fat", 0)
-                }
-            
-            # Determine current time to know which meals are remaining
-            current_hour = datetime.utcnow().hour  # Simplified - could use user timezone
-            remaining_meals = self._get_remaining_meals(current_hour, meal_config["active_meals"])
-            
-            if remaining_meals:
-                print(f"[SmartDailyMealPlan] Remaining meals to recalibrate: {remaining_meals}")
-                
-                # Calculate total macro deviation (consumed vs planned so far)
-                total_deviation = {"calories": 0, "protein": 0, "carbohydrates": 0, "fat": 0}
-                
-                for meal_type in meal_config["active_meals"]:
-                    if meal_type not in remaining_meals:  # Only count meals that should have been eaten
-                        consumed = consumed_macros_by_meal[meal_type]
-                        planned = planned_macros_by_meal[meal_type]
-                        
-                        for macro in total_deviation.keys():
-                            total_deviation[macro] += consumed[macro] - planned[macro]
-                
-                # Redistribute the deviation across remaining meals
-                if len(remaining_meals) > 0:
-                    deviation_per_meal = {}
-                    for macro in total_deviation.keys():
-                        deviation_per_meal[macro] = -total_deviation[macro] / len(remaining_meals)
-                    
-                    # Update remaining meals with recalibrated nutrition
-                    for meal_type in remaining_meals:
-                        if meal_type in recalibrated_plan["meals"]:
-                            original_nutrition = recalibrated_plan["meals"][meal_type]["nutritional_info"]
-                            
-                            # Apply recalibration
-                            recalibrated_nutrition = {}
-                            for macro in deviation_per_meal.keys():
-                                original_value = original_nutrition.get(macro, 0)
-                                adjustment = deviation_per_meal[macro]
-                                recalibrated_nutrition[macro] = max(0, round(original_value + adjustment))
-                            
-                            recalibrated_plan["meals"][meal_type]["nutritional_info"] = recalibrated_nutrition
-                            
-                            # Update meal description to indicate recalibration
-                            original_desc = recalibrated_plan["meals"][meal_type].get("description", "")
-                            recalibrated_plan["meals"][meal_type]["description"] = f"{original_desc} (Recalibrated based on your consumption)"
-            
-            # Update macro progress
-            recalibrated_plan["macro_progress"] = self._calculate_macro_progress(
-                recalibrated_plan["meals"], today_consumption, health_profile
+            # Calculate total consumed so far
+            total_consumed_calories = sum(
+                sum(item["calories"] for item in meal_items)
+                for meal_items in consumption_by_meal.values()
             )
             
-            # Add recalibration record
-            recalibration_record = {
-                "timestamp": datetime.utcnow().isoformat(),
-                "reason": "consumption_deviation",
-                "remaining_meals": remaining_meals,
-                "total_deviation": total_deviation
+            total_consumed_protein = sum(
+                sum(item["protein"] for item in meal_items)
+                for meal_items in consumption_by_meal.values()
+            )
+            
+            # Check if recalibration is needed
+            remaining_calories = calorie_target - total_consumed_calories
+            remaining_protein = protein_target - total_consumed_protein
+            
+            # Count remaining meals (meals that haven't been consumed)
+            remaining_meals = [
+                meal_type for meal_type, consumption in consumption_by_meal.items()
+                if not consumption and meal_type in meals
+            ]
+            
+            if remaining_meals and (remaining_calories < 0 or remaining_calories > calorie_target * 0.6):
+                # Need recalibration
+                calories_per_remaining_meal = max(200, remaining_calories // len(remaining_meals))
+                protein_per_remaining_meal = max(10, remaining_protein // len(remaining_meals))
+                
+                for meal_type in remaining_meals:
+                    if meal_type in meals:
+                        # Adjust meal nutrition
+                        old_calories = meals[meal_type]["nutritional_info"]["calories"]
+                        meals[meal_type]["nutritional_info"]["calories"] = calories_per_remaining_meal
+                        meals[meal_type]["nutritional_info"]["protein"] = protein_per_remaining_meal
+                        
+                        recalibrations.append({
+                            "meal_type": meal_type,
+                            "reason": "calorie_adjustment",
+                            "old_calories": old_calories,
+                            "new_calories": calories_per_remaining_meal,
+                            "timestamp": datetime.utcnow().isoformat()
+                        })
+                
+                print(f"[{self.service_name}] Applied recalibration to {len(remaining_meals)} remaining meals")
+            
+            return meals, recalibrations
+            
+        except Exception as e:
+            print(f"[{self.service_name}] Error applying recalibration: {e}")
+            return meals, []
+    
+    def _calculate_macro_progress(self, today_consumption: List[Dict], user_profile: Dict) -> Dict:
+        """Calculate macro progress for today"""
+        try:
+            calorie_target = int(user_profile.get("calorieTarget", "2000"))
+            protein_target = int(user_profile.get("proteinTarget", "150"))
+            
+            total_calories = sum(
+                record.get("nutritional_info", {}).get("calories", 0)
+                for record in today_consumption
+            )
+            
+            total_protein = sum(
+                record.get("nutritional_info", {}).get("protein", 0)
+                for record in today_consumption
+            )
+            
+            return {
+                "calories": {
+                    "consumed": total_calories,
+                    "target": calorie_target,
+                    "remaining": max(0, calorie_target - total_calories),
+                    "percentage": min(100, (total_calories / calorie_target) * 100)
+                },
+                "protein": {
+                    "consumed": total_protein,
+                    "target": protein_target,
+                    "remaining": max(0, protein_target - total_protein),
+                    "percentage": min(100, (total_protein / protein_target) * 100)
+                }
             }
             
-            if "recalibration_history" not in recalibrated_plan:
-                recalibrated_plan["recalibration_history"] = []
-            
-            recalibrated_plan["recalibration_history"].append(recalibration_record)
-            recalibrated_plan["last_consumption_check"] = datetime.utcnow().isoformat()
-            recalibrated_plan["last_updated"] = datetime.utcnow().isoformat()
-            
-            return recalibrated_plan
-            
         except Exception as e:
-            print(f"[SmartDailyMealPlan] Error recalibrating meal plan: {str(e)}")
-            # Return plan with updated consumption at minimum
-            existing_plan["consumption"] = self._format_consumption_by_meal_type(today_consumption)
-            existing_plan["last_consumption_check"] = datetime.utcnow().isoformat()
-            return existing_plan
-    
-    def _get_remaining_meals(self, current_hour: int, active_meals: List[str]) -> List[str]:
-        """Determine which meals are remaining based on current time"""
-        try:
-            # Simple time-based logic (could be enhanced with user preferences)
-            meal_times = {
-                "breakfast": (5, 11),
-                "lunch": (11, 16), 
-                "dinner": (16, 22),
-                "snack": (0, 24)  # Snacks can be anytime
+            print(f"[{self.service_name}] Error calculating macro progress: {e}")
+            return {
+                "calories": {"consumed": 0, "target": 2000, "remaining": 2000, "percentage": 0},
+                "protein": {"consumed": 0, "target": 150, "remaining": 150, "percentage": 0}
             }
-            
-            remaining = []
-            
-            for meal in active_meals:
-                if meal in meal_times:
-                    start_hour, end_hour = meal_times[meal]
-                    
-                    # Check if current time is before the meal time window ends
-                    if current_hour < end_hour:
-                        remaining.append(meal)
-                    elif meal == "snack":  # Snacks are always available
-                        remaining.append(meal)
-            
-            return remaining
-            
-        except Exception as e:
-            print(f"[SmartDailyMealPlan] Error getting remaining meals: {str(e)}")
-            return active_meals  # Return all meals as fallback
     
-    async def _add_consumption_to_plan(self, existing_plan: Dict, today_consumption: List[Dict]) -> Dict[str, Any]:
-        """Add consumption data to existing plan without recalibration"""
-        try:
-            plan_with_consumption = existing_plan.copy()
-            plan_with_consumption["consumption"] = self._format_consumption_by_meal_type(today_consumption)
-            plan_with_consumption["last_consumption_check"] = datetime.utcnow().isoformat()
-            return plan_with_consumption
-            
-        except Exception as e:
-            print(f"[SmartDailyMealPlan] Error adding consumption to plan: {str(e)}")
-            return existing_plan
-    
-    # Database operations
     async def _get_existing_daily_plan(self, user_email: str, date: str) -> Optional[Dict]:
-        """Get existing daily plan from database"""
+        """Check if a Smart Daily Meal Plan exists for today (persistence requirement)"""
         try:
+            from database import interactions_container
+            
             daily_key = f"smart_daily_{user_email}_{date}"
             
             query = """
             SELECT * FROM c
             WHERE c.id = @daily_key
             AND c.type = 'smart_daily_meal_plan'
+            ORDER BY c._ts DESC
             """
             
             parameters = [{"name": "@daily_key", "value": daily_key}]
@@ -746,63 +582,70 @@ class SmartDailyMealPlanService:
             ))
             
             if items:
-                return items[0]
+                plan = items[0]
+                print(f"[{self.service_name}] Found existing plan for {date}")
+                return plan.get("plan_data", plan)
             
             return None
             
         except Exception as e:
-            print(f"[SmartDailyMealPlan] Error getting existing plan: {str(e)}")
+            print(f"[{self.service_name}] Error checking existing plan: {e}")
             return None
     
     async def _save_daily_plan(self, user_email: str, date: str, plan_data: Dict) -> bool:
-        """Save daily plan to database"""
+        """Save Smart Daily Meal Plan for persistence"""
         try:
+            from database import interactions_container
+            
             daily_key = f"smart_daily_{user_email}_{date}"
             
-            document = {
+            plan_record = {
                 "id": daily_key,
                 "type": "smart_daily_meal_plan",
-                "user_email": user_email,
-                "date": date,
-                "plan_data": plan_data,
+                "user_id": user_email,
+                "plan_date": date,
                 "created_at": datetime.utcnow().isoformat(),
-                "last_updated": datetime.utcnow().isoformat()
+                "last_updated": datetime.utcnow().isoformat(),
+                "plan_data": plan_data
             }
             
-            interactions_container.upsert_item(document)
-            print(f"[SmartDailyMealPlan] Saved daily plan for {user_email} on {date}")
+            interactions_container.upsert_item(body=plan_record)
+            print(f"[{self.service_name}] Saved daily plan for {date}")
             return True
             
         except Exception as e:
-            print(f"[SmartDailyMealPlan] Error saving daily plan: {str(e)}")
+            print(f"[{self.service_name}] Error saving daily plan: {e}")
             return False
     
-    async def _update_daily_plan(self, user_email: str, date: str, updated_plan_data: Dict) -> bool:
-        """Update existing daily plan in database"""
+    async def _apply_real_time_updates(self, existing_plan: Dict, user_email: str, user_profile: Dict) -> Dict:
+        """Apply real-time updates to existing plan based on new consumption"""
         try:
-            daily_key = f"smart_daily_{user_email}_{date}"
+            # Get fresh consumption data
+            today_consumption = await self._get_today_consumption(user_email, user_profile.get("timezone", "UTC"))
+            consumption_by_meal = self._organize_consumption_by_meal(today_consumption)
             
-            # Get existing document
-            existing_doc = await self._get_existing_daily_plan(user_email, date)
-            if not existing_doc:
-                return await self._save_daily_plan(user_email, date, updated_plan_data)
+            # Update consumption data in plan
+            existing_plan["consumption"] = consumption_by_meal
+            existing_plan["macro_progress"] = self._calculate_macro_progress(today_consumption, user_profile)
             
-            # Update the document
-            existing_doc["plan_data"] = updated_plan_data
-            existing_doc["last_updated"] = datetime.utcnow().isoformat()
+            # Apply recalibration if needed
+            meals = existing_plan.get("meals", {})
+            meals, new_recalibrations = await self._apply_recalibration(meals, consumption_by_meal, user_profile)
             
-            interactions_container.replace_item(
-                item=existing_doc["id"],
-                body=existing_doc
-            )
+            existing_plan["meals"] = meals
+            existing_plan["recalibration_history"].extend(new_recalibrations)
+            existing_plan["last_updated"] = datetime.utcnow().isoformat()
             
-            print(f"[SmartDailyMealPlan] Updated daily plan for {user_email} on {date}")
-            return True
+            # Save updated plan
+            await self._save_daily_plan(user_email, existing_plan["plan_date"], existing_plan)
+            
+            print(f"[{self.service_name}] Applied real-time updates to existing plan")
+            return existing_plan
             
         except Exception as e:
-            print(f"[SmartDailyMealPlan] Error updating daily plan: {str(e)}")
-            return False
+            print(f"[{self.service_name}] Error applying real-time updates: {e}")
+            return existing_plan
 
 
-# Global service instance
+# Create singleton instance
 smart_daily_meal_plan_service = SmartDailyMealPlanService()

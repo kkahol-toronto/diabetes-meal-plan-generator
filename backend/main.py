@@ -2137,25 +2137,27 @@ def analyze_meal_patterns(meal_history: list) -> dict:
 @app.get("/coach/smart-daily-meal-plan")
 async def get_smart_daily_meal_plan(current_user: User = Depends(get_current_user)):
     """
-    Comprehensive Smart Daily Meal Plan with full interconnected system.
-
-    Features:
-    - Integrates comprehensive health profile, consumption history, and meal plan history
-    - Dynamic real-time recalibration based on actual consumption vs planned meals
-    - Multiple food logging display with proper formatting
-    - Persistent daily plans (same plan all day until midnight reset)
-    - Macro goal adherence through intelligent meal adjustments
+    Smart Daily Meal Plan - Completely rebuilt system that:
+    
+    1. Uses user's comprehensive health profile for meal configuration and preferences
+    2. Leverages past consumption history for pattern analysis
+    3. Adapts meals from past meal plan history (prioritizes history over generation)
+    4. Implements real-time recalibration based on actual vs planned consumption
+    5. Maintains daily persistence (same plan all day until midnight reset)
+    6. Properly handles snacks from meal plan history (checks both "snack" and "snacks" keys)
+    7. Formats multiple consumption display with comma and & separators
+    8. Synchronizes macro data with homepage dashboard
     """
     try:
         user_email = current_user["email"]
         profile = current_user.get("profile", {})
         
-        print(f"[SmartDailyMealPlan] Getting comprehensive meal plan for {user_email}")
+        print(f"[SmartDailyMealPlan] Getting Smart Daily Meal Plan for {user_email}")
         
         # Import and use the new service
         from services.smart_daily_meal_plan_service import smart_daily_meal_plan_service
         
-        # Get comprehensive meal plan
+        # Get comprehensive meal plan using the new service
         comprehensive_plan = await smart_daily_meal_plan_service.get_smart_daily_meal_plan(
             user_email, profile
         )
@@ -2167,11 +2169,12 @@ async def get_smart_daily_meal_plan(current_user: User = Depends(get_current_use
             "macro_progress": comprehensive_plan.get("macro_progress", {}),
             "meal_configuration": comprehensive_plan.get("meal_configuration", {}),
             "personalization_factors": {
-                "plan_type": "comprehensive",
+                "plan_type": "comprehensive_v2",
                 "health_profile_integration": True,
                 "consumption_integration": True,
                 "meal_history_integration": True,
-                "recalibration_active": len(comprehensive_plan.get("recalibration_history", [])) > 0
+                "recalibration_active": len(comprehensive_plan.get("recalibration_history", [])) > 0,
+                "snack_history_support": True  # New feature flag
             },
             "data_completeness": {
                 "health_profile": bool(profile),
@@ -2180,425 +2183,18 @@ async def get_smart_daily_meal_plan(current_user: User = Depends(get_current_use
             },
             "recalibration_history": comprehensive_plan.get("recalibration_history", []),
             "last_updated": comprehensive_plan.get("last_updated", ""),
-            "created_at": comprehensive_plan.get("created_at", "")
+            "created_at": comprehensive_plan.get("created_at", ""),
+            "plan_date": comprehensive_plan.get("plan_date", "")
         }
         
-        print(f"[SmartDailyMealPlan] Successfully generated comprehensive meal plan")
+        print(f"[SmartDailyMealPlan] ✅ Successfully generated Smart Daily Meal Plan v2.0")
         return response
-
+        
     except Exception as e:
-        print(f"[SmartDailyMealPlan] Error: {str(e)}")
+        print(f"[SmartDailyMealPlan] ❌ Error: {str(e)}")
         import traceback
         print(f"[SmartDailyMealPlan] Traceback: {traceback.format_exc()}")
-
-        # Fallback to basic meal planning if comprehensive version fails
-        try:
-            print(f"[SmartDailyMealPlan] Attempting fallback to basic meal planning...")
-            return await _fallback_smart_daily_meal_plan(current_user)
-        except Exception as fallback_error:
-            print(f"[SmartDailyMealPlan] Fallback also failed: {str(fallback_error)}")
-            raise HTTPException(status_code=500, detail=f"Failed to generate smart meal plan: {str(e)}")
-
-
-async def _get_existing_smart_daily_meal_plan(user_email: str, date: str) -> Optional[Dict]:
-    """🔒 ROBUST: Check if a Smart Daily Meal Plan exists for the given user and date - NO CACHING."""
-    try:
-        from database import interactions_container
-        
-        # Use unique daily key for guaranteed database persistence
-        daily_key = f"smart_daily_{user_email}_{date}"
-        
-        # Direct database query - bypasses all caching layers
-        query = """
-        SELECT * FROM c
-        WHERE c.id = @daily_key
-        AND c.type = 'smart_daily_meal_plan'
-        ORDER BY c._ts DESC
-        """
-
-        parameters = [
-            {"name": "@daily_key", "value": daily_key}
-        ]
-
-        print(f"[ROBUST_DB] Direct database query for daily key: {daily_key}")
-        items = list(interactions_container.query_items(
-            query=query,
-            parameters=parameters,
-            enable_cross_partition_query=True
-        ))
-
-        if items:
-            latest_plan = items[0]  # Most recent by timestamp
-            print(f"[ROBUST_DB] ✅ Found existing plan for {user_email} on {date} (created: {latest_plan.get('created_at')})")
-            return latest_plan.get("plan_data", latest_plan)
-
-        print(f"[ROBUST_DB] ❌ No existing plan found for {user_email} on {date}")
-        return None
-
-    except Exception as e:
-        print(f"[ROBUST_DB] ⚠️ Database error checking for existing plan: {e}")
-        import traceback
-        traceback.print_exc()
-        return None
-
-async def _save_smart_daily_meal_plan(user_email: str, date: str, plan_data: Dict) -> bool:
-    """🔒 ROBUST: Save Smart Daily Meal Plan with guaranteed database persistence - NO CACHING."""
-    try:
-        from database import interactions_container
-        
-        # Use consistent daily key for database persistence
-        daily_key = f"smart_daily_{user_email}_{date}"
-        
-        plan_record = {
-            "id": daily_key,  # Consistent key ensures single plan per day
-            "type": "smart_daily_meal_plan",
-            "user_id": user_email,
-            "plan_date": date,
-            "created_at": datetime.utcnow().isoformat(),
-            "last_updated": datetime.utcnow().isoformat(),
-            "plan_data": plan_data,
-            "persistence_method": "database_first",  # Track that this uses robust persistence
-            "server_restart_safe": True  # Flag indicating restart resilience
-        }
-
-        # Use upsert to handle both create and update cases
-        try:
-            interactions_container.upsert_item(body=plan_record)
-            print(f"[ROBUST_DB] ✅ Successfully saved/updated plan for {user_email} on {date} (key: {daily_key})")
-            return True
-        except Exception as upsert_error:
-            # Fallback to create if upsert fails
-            print(f"[ROBUST_DB] Upsert failed, trying create: {upsert_error}")
-            interactions_container.create_item(body=plan_record)
-            print(f"[ROBUST_DB] ✅ Successfully created plan for {user_email} on {date} (key: {daily_key})")
-            return True
-
-    except Exception as e:
-        print(f"[ROBUST_DB] ⚠️ Database error saving plan: {e}")
-        import traceback
-        traceback.print_exc()
-        return False
-
-
-async def _get_today_consumption_direct(user_email: str, user_timezone: str = "UTC") -> List[Dict]:
-    """🔒 ROBUST: Get today's consumption records with direct database query - NO CACHING."""
-    try:
-        from database import interactions_container
-        from datetime import datetime, timezone, timedelta
-        import pytz
-        
-        # Calculate today's date range in user's timezone
-        if user_timezone != "UTC":
-            try:
-                tz = pytz.timezone(user_timezone)
-                local_now = datetime.now(tz)
-            except:
-                local_now = datetime.utcnow()
-        else:
-            local_now = datetime.utcnow()
-        
-        today_start = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
-        today_end = local_now.replace(hour=23, minute=59, second=59, microsecond=999999)
-        
-        # Convert to ISO strings for database query
-        start_iso = today_start.isoformat()
-        end_iso = today_end.isoformat()
-        
-        # Direct database query - bypasses ALL caching layers
-        query = """
-        SELECT * FROM c
-        WHERE c.type = 'consumption_record'
-        AND c.user_id = @user_id
-        AND c.timestamp >= @start_time
-        AND c.timestamp <= @end_time
-        ORDER BY c.timestamp ASC
-        """
-        
-        parameters = [
-            {"name": "@user_id", "value": user_email},
-            {"name": "@start_time", "value": start_iso},
-            {"name": "@end_time", "value": end_iso}
-        ]
-        
-        print(f"[ROBUST_DB] Direct consumption query for {user_email} ({start_iso} to {end_iso})")
-        items = list(interactions_container.query_items(
-            query=query,
-            parameters=parameters,
-            enable_cross_partition_query=True
-        ))
-        
-        print(f"[ROBUST_DB] Found {len(items)} consumption records for today")
-        return items
-        
-    except Exception as e:
-        print(f"[ROBUST_DB] ⚠️ Error getting today's consumption: {e}")
-        import traceback
-        traceback.print_exc()
-        return []
-
-async def _update_smart_daily_meal_plan(user_email: str, date: str, updated_plan_data: Dict) -> bool:
-    """Update existing Smart Daily Meal Plan with calibrated data."""
-    try:
-        from database import interactions_container
-
-        # Get existing plan
-        existing_plan = await _get_existing_smart_daily_meal_plan(user_email, date)
-        if not existing_plan:
-            print(f"[update_smart_daily_meal_plan] No existing plan to update")
-            return False
-
-        # Update the plan data
-        existing_plan["plan_data"] = updated_plan_data
-        existing_plan["last_updated"] = datetime.utcnow().isoformat()
-
-        # Replace the document
-        interactions_container.replace_item(
-            item=existing_plan["id"],
-            body=existing_plan
-        )
-
-        print(f"[update_smart_daily_meal_plan] Successfully updated plan for {user_email} on {date}")
-        return True
-
-    except Exception as e:
-        print(f"[update_smart_daily_meal_plan] Error updating plan: {e}")
-        return False
-
-async def _fallback_smart_daily_meal_plan(current_user: User):
-    """Fallback to basic smart meal planning if enhanced version fails."""
-    user_email = current_user["email"]
-    profile = current_user.get("profile", {})
-    user_timezone = profile.get("timezone", "UTC")
-
-    # Get today's consumption records
-    today_consumption = await get_today_consumption_records_async(user_email, user_timezone)
-
-    # Get user's target calories and dietary preferences
-    calorie_target_str = profile.get('calorieTarget', '2000')
-    try:
-        target_calories = int(calorie_target_str) if calorie_target_str and calorie_target_str.strip() else 2000
-    except (ValueError, TypeError):
-        target_calories = 2000
-
-    # Calculate calories consumed so far
-    calories_consumed = sum(
-        record.get('nutritional_info', {}).get('calories', 0)
-        for record in today_consumption
-    )
-
-    # Determine remaining meals
-    from datetime import datetime
-    import pytz
-
-    try:
-        user_tz = pytz.timezone(user_timezone)
-        current_time = datetime.now(user_tz)
-        current_hour = current_time.hour
-    except:
-        current_hour = datetime.utcnow().hour
-
-    remaining_meals = []
-    if current_hour < 10:
-        remaining_meals = ['breakfast', 'lunch', 'dinner', 'snack']
-    elif current_hour < 14:
-        remaining_meals = ['lunch', 'dinner', 'snack']
-    elif current_hour < 18:
-        remaining_meals = ['dinner', 'snack']
-    elif current_hour < 22:
-        remaining_meals = ['snack']
-
-    # Simple fallback meal suggestions
-    fallback_meals = {}
-    remaining_calories = max(0, target_calories - calories_consumed)
-    calories_per_meal = remaining_calories // max(len(remaining_meals), 1) if remaining_calories > 0 else 300
-
-    meal_templates = {
-        'breakfast': 'Balanced breakfast with protein and complex carbs',
-        'lunch': 'Nutritious lunch with lean protein and vegetables',
-        'dinner': 'Well-balanced dinner with protein, vegetables, and healthy carbs',
-        'snack': 'Healthy snack to bridge meal gaps'
-    }
-
-    for meal in remaining_meals:
-        fallback_meals[meal] = {
-            "meal_name": meal_templates.get(meal, f"Healthy {meal}"),
-            "description": meal_templates.get(meal, f"Nutritious {meal} option"),
-            "estimated_calories": calories_per_meal,
-            "health_benefits": ["balanced_nutrition"],
-            "preparation_tips": "Follow healthy eating principles"
-        }
-
-    return {
-        "user_email": user_email,
-        "target_date": datetime.utcnow().date().isoformat(),
-        "generated_at": datetime.utcnow().isoformat(),
-        "status": "fallback_mode",
-        "nutritional_goals": {
-            "calories": target_calories,
-            "protein": 100,
-            "carbs": 250,
-            "fat": 66
-        },
-        "daily_progress": {
-            "calories": {"consumed": calories_consumed, "target": target_calories}
-        },
-        "remaining_meals": remaining_meals,
-        "smart_meal_plan": fallback_meals,
-        "recommendation_confidence": 0.3,
-        "message": "Using basic meal recommendations due to system issue"
-    }
-
-
-async def _generate_smart_adaptive_meals(
-    user_email: str,
-    remaining_meals: list,
-    remaining_calories: int,
-    consumption_by_meal: dict,
-    dietary_restrictions: list,
-    food_preferences: list,
-    strong_dislikes: list,
-    current_hour: int
-) -> dict:
-    """Generate smart meal suggestions that adapt based on what was already consumed."""
-
-    if not remaining_meals:
-        return {}
-
-    # Calculate how heavy/light the consumed meals were
-    breakfast_calories = sum(item['calories'] for item in consumption_by_meal.get('breakfast', []))
-    lunch_calories = sum(item['calories'] for item in consumption_by_meal.get('lunch', []))
-
-    # Adaptive logic based on consumption patterns
-    adaptation_context = ""
-    if breakfast_calories > 600:  # Heavy breakfast
-        adaptation_context += "User had a heavy breakfast, suggesting lighter lunch/dinner. "
-    elif breakfast_calories > 0 and breakfast_calories < 250:  # Light breakfast
-        adaptation_context += "User had a light breakfast, can accommodate heartier lunch/dinner. "
-
-    if lunch_calories > 700:  # Heavy lunch
-        adaptation_context += "User had a heavy lunch, suggesting lighter dinner. "
-    elif lunch_calories > 0 and lunch_calories < 300:  # Light lunch
-        adaptation_context += "User had a light lunch, dinner can be more substantial. "
-
-    # Distribute remaining calories across remaining meals
-    calories_per_meal = remaining_calories // max(len(remaining_meals), 1) if remaining_calories > 0 else 300
-
-    # Build the AI prompt for smart suggestions
-    dietary_info = ", ".join(dietary_restrictions) if dietary_restrictions else "no specific restrictions"
-    preferences_info = ", ".join(food_preferences) if food_preferences else "no specific preferences"
-    dislikes_info = ", ".join(strong_dislikes) if strong_dislikes else "no specific dislikes"
-
-    prompt = f"""Generate smart, adaptive meal suggestions for a diabetes-friendly diet.
-
-CONTEXT:
-- Remaining meals to plan: {', '.join(remaining_meals)}
-- Remaining calories to distribute: {remaining_calories}
-- Target calories per meal: ~{calories_per_meal}
-- Current time context: {current_hour}:00 (hour of day)
-- Dietary restrictions: {dietary_info}
-- Food preferences: {preferences_info}
-- Dislikes to avoid: {dislikes_info}
-
-ADAPTATION CONTEXT:
-{adaptation_context}
-
-CONSUMED TODAY:
-{_format_consumption_for_ai(consumption_by_meal)}
-
-Generate meal suggestions that:
-1. Are diabetes-friendly (low GI, balanced macros)
-2. Adapt to what was already consumed today
-3. Respect dietary restrictions and preferences
-4. Are realistic and easy to prepare
-5. Account for the time of day
-
-Return ONLY a JSON object with this structure:
-{{
-  "breakfast": "meal suggestion" (if breakfast in remaining_meals),
-  "lunch": "meal suggestion" (if lunch in remaining_meals),
-  "dinner": "meal suggestion" (if dinner in remaining_meals),
-  "snack": "meal suggestion" (if snack in remaining_meals)
-}}"""
-
-    try:
-        from services.openai_service import robust_openai_call
-
-        ai_response = await robust_openai_call(
-            [{"role": "user", "content": prompt}],
-            temperature=0.7,
-            max_tokens=800
-        )
-
-        if ai_response and ai_response.strip():
-            # Parse the AI response
-            import json
-            try:
-                suggestions = json.loads(ai_response.strip())
-                # Filter to only include remaining meals
-                filtered_suggestions = {
-                    meal: suggestion for meal, suggestion in suggestions.items()
-                    if meal in remaining_meals
-                }
-                return filtered_suggestions
-            except json.JSONDecodeError:
-                print(f"[smart_adaptive] Failed to parse AI response: {ai_response}")
-
-    except Exception as e:
-        print(f"[smart_adaptive] AI generation failed: {e}")
-
-    # Fallback suggestions
-    fallback_suggestions = {
-        'breakfast': 'Steel-cut oats with fresh berries and almonds',
-        'lunch': 'Quinoa salad with grilled vegetables and chickpeas',
-        'dinner': 'Baked salmon with roasted sweet potato and steamed broccoli',
-        'snack': 'Greek yogurt with cucumber slices and a handful of nuts'
-    }
-
-    return {meal: fallback_suggestions[meal] for meal in remaining_meals if meal in fallback_suggestions}
-
-
-def _format_consumption_for_ai(consumption_by_meal: dict) -> str:
-    """Format consumption data for AI context."""
-    if not consumption_by_meal:
-        return "No meals consumed yet today."
-
-    formatted = []
-    for meal_type, items in consumption_by_meal.items():
-        if items:
-            total_calories = sum(item['calories'] for item in items)
-            food_names = [item['food_name'] for item in items]
-            formatted.append(f"{meal_type.title()}: {', '.join(food_names)} ({total_calories} calories)")
-
-    return '\n'.join(formatted) if formatted else "No meals consumed yet today."
-
-
-def _generate_adaptive_notes(calories_consumed: int, target_calories: int, consumption_by_meal: dict, remaining_meals: list) -> list:
-    """Generate adaptive notes based on consumption patterns."""
-    notes = []
-
-    # Calorie tracking note
-    if calories_consumed > target_calories * 0.8:  # Consumed more than 80% of daily calories
-        notes.append("You're close to your daily calorie goal. Consider lighter portions for remaining meals.")
-    elif calories_consumed < target_calories * 0.3:  # Consumed less than 30% of daily calories
-        notes.append("You have plenty of calories left for the day. You can enjoy more substantial meals.")
-
-    # Meal timing notes
-    breakfast_consumed = len(consumption_by_meal.get('breakfast', []))
-    lunch_consumed = len(consumption_by_meal.get('lunch', []))
-
-    if breakfast_consumed == 0 and 'breakfast' not in remaining_meals:
-        notes.append("You skipped breakfast today. Consider a protein-rich snack to maintain energy levels.")
-
-    if lunch_consumed == 0 and 'lunch' not in remaining_meals:
-        notes.append("You skipped lunch. Your dinner suggestions are adjusted to be more substantial.")
-
-    # Adaptation notes
-    if consumption_by_meal.get('breakfast'):
-        breakfast_calories = sum(item['calories'] for item in consumption_by_meal['breakfast'])
-        if breakfast_calories > 600:
-            notes.append("Your breakfast was quite hearty. The remaining meal suggestions are adjusted to be lighter.")
-
-    return notes
+        raise HTTPException(status_code=500, detail=f"Failed to generate Smart Daily Meal Plan: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn
