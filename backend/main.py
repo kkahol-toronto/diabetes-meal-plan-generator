@@ -6,7 +6,8 @@ from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel, EmailStr, Field
 from typing import List, Optional, Dict, Any
 from models import (
-    Token, TokenData, User, UserInDB, Patient, UserProfile, 
+
+    Token, TokenData, User, UserInDB, Patient, UserProfile,
     MealPlanRequest, ChatMessage, RegistrationData, ImageAnalysisRequest
 )
 from utils import (
@@ -162,28 +163,28 @@ async def ultra_fast_startup():
     import asyncio
     from services.preload_service import preload_service
     from services.performance_monitor import perf_monitor
-    
+
     print("🚀 [ULTRA_FAST_STARTUP] Starting lightning-fast initialization...")
-    
+
     # Start all background tasks simultaneously
     async def load_routers_task():
         def load_routers():
             loaded = router_loader.load_remaining_routers(app)
             print(f"✅ [FAST_STARTUP] Loaded {loaded} routers")
-        
+
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(None, load_routers)
-    
+
     # Run preload and router loading in parallel
     tasks = [
         load_routers_task(),
         preload_service.initialize()
     ]
-    
+
     # Don't wait for completion - start immediately, finish in background
     for task in tasks:
         asyncio.create_task(task)
-    
+
     print("⚡ [ULTRA_FAST_STARTUP] API ready! Background loading in progress...")
 
 # Performance monitoring endpoint
@@ -193,7 +194,7 @@ async def get_performance_status():
     from services.performance_monitor import perf_monitor
     from services.preload_service import preload_service
     from services.fast_database_service import fast_db
-    
+
     return {
         "performance_summary": perf_monitor.get_performance_summary(),
         "optimization_report": perf_monitor.get_optimization_report(),
@@ -338,14 +339,14 @@ async def quick_log_food(
     """⚡ Ultra-fast food logging with performance tracking"""
     from services.quick_log_service import quick_log_food_optimized
     from services.performance_monitor import track_performance
-    
+
     @track_performance("quick_log_food")
     async def _log_food():
         result = await quick_log_food_optimized(food_data, current_user["email"], current_user.get("profile", {}))
         if not result["success"]:
             raise HTTPException(status_code=400, detail=result["error"])
         return result
-    
+
     try:
         return await _log_food()
     except HTTPException:
@@ -373,18 +374,18 @@ async def get_todays_meal_plan(current_user: User = Depends(get_current_user)):
     """⚡ Ultra-fast today's meal plan with performance tracking"""
     from services.ultra_fast_meal_service import get_todays_meal_plan_ultra_fast
     from services.performance_monitor import track_performance
-    
+
     @track_performance("todays_meal_plan")
     async def _get_meal_plan():
         return await get_todays_meal_plan_ultra_fast(current_user["email"], current_user.get("profile", {}))
-    
+
     try:
         return await _get_meal_plan()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Meal plan fetch failed: {str(e)}")
 
 # Original heavy function moved to services/meal_plan_service.py
-@app.get("/coach/todays-meal-plan-legacy")  
+@app.get("/coach/todays-meal-plan-legacy")
 async def get_todays_meal_plan_legacy(current_user: User = Depends(get_current_user)):
     """
     Get today's adaptive meal plan based on recent consumption and health conditions.
@@ -392,15 +393,15 @@ async def get_todays_meal_plan_legacy(current_user: User = Depends(get_current_u
     """
     try:
         print(f"[get_todays_meal_plan] Getting today's meal plan for user {current_user['email']}")
-        
+
         # Get user profile for timezone
         profile = current_user.get("profile", {})
-        
+
         # DEBUG: Print timezone information
         user_timezone = profile.get("timezone", "UTC")
         print(f"[TIMEZONE_DEBUG] User: {current_user['email']}")
         print(f"[TIMEZONE_DEBUG] Profile timezone: {user_timezone}")
-        
+
         # Calculate and print day boundaries
         try:
             import pytz
@@ -411,20 +412,20 @@ async def get_todays_meal_plan_legacy(current_user: User = Depends(get_current_u
             start_of_tomorrow_user = start_of_today_user + timedelta(days=1)
             start_of_today_utc = start_of_today_user.astimezone(pytz.utc).replace(tzinfo=None)
             start_of_tomorrow_utc = start_of_tomorrow_user.astimezone(pytz.utc).replace(tzinfo=None)
-            
+
             print(f"[TIMEZONE_DEBUG] User local time: {user_now}")
             print(f"[TIMEZONE_DEBUG] Start of today (user timezone): {start_of_today_user}")
             print(f"[TIMEZONE_DEBUG] Start of today (UTC): {start_of_today_utc}")
             print(f"[TIMEZONE_DEBUG] Start of tomorrow (UTC): {start_of_tomorrow_utc}")
         except Exception as tz_error:
             print(f"[TIMEZONE_DEBUG] Error calculating timezone boundaries: {tz_error}")
-        
+
         # Fetch user's meal plan history
         meal_plans = await get_user_meal_plans(current_user["email"])
-        
+
         # Today's date helper
         today = datetime.utcnow().date()
-        
+
         # Start with no plan selected
         todays_plan = None
 
@@ -438,7 +439,7 @@ async def get_todays_meal_plan_legacy(current_user: User = Depends(get_current_u
                         break
                 except Exception:
                     continue
-        
+
         # If still none, derive today's meals from the most recent saved plan
         if not todays_plan and meal_plans:
             # Choose the most recent plan that actually contains array-style meals
@@ -449,7 +450,7 @@ async def get_todays_meal_plan_legacy(current_user: User = Depends(get_current_u
                     break
             if latest_plan is None:
                 latest_plan = meal_plans[0]
-            
+
             # Helper to safely pull meal array/string for index
             def _pick(meal_key: str):
                 """Convert legacy meal-plan keys (breakfast, lunch, dinner, snacks arrays) into
@@ -499,9 +500,9 @@ async def get_todays_meal_plan_legacy(current_user: User = Depends(get_current_u
         # --------------
         # NORMALIZE MEAL-PLAN SHAPE FOR FRONTEND
         # --------------
-        
+
         # Ensure function defined before use remains unchanged
-        
+
         def _ensure_meals_dict(plan: dict, today_idx: int):
             """Convert legacy meal-plan keys (breakfast, lunch, dinner, snacks arrays) into
             the new shape { 'meals': { breakfast: str, lunch: str, dinner: str, snack: str } } expected by the dashboard."""
@@ -552,12 +553,12 @@ async def get_todays_meal_plan_legacy(current_user: User = Depends(get_current_u
                 _looks_placeholder(meal)
                 for meal in todays_plan["meals"].values()
             )
-            
+
             if needs_generation:
                 print(f"[get_todays_meal_plan] Placeholder meals detected in today's plan – generating concrete recipes via OpenAI…")
 
                 profile = current_user.get("profile", {})
-                
+
                 # Use existing meals as a base for generation, fill in missing with generic prompts
                 current_meals = todays_plan["meals"]
                 breakfast_prompt = current_meals.get("breakfast", "a healthy breakfast option")
@@ -569,7 +570,7 @@ async def get_todays_meal_plan_legacy(current_user: User = Depends(get_current_u
                 dietary_restrictions = profile.get('dietaryRestrictions', [])
                 allergies = profile.get('allergies', [])
                 diet_type = profile.get('dietType', [])
-                
+
                 # Build explicit restriction warnings
                 restriction_warnings = []
                 if 'vegetarian' in [r.lower() for r in dietary_restrictions] or 'vegetarian' in [d.lower() for d in diet_type]:
@@ -578,9 +579,9 @@ async def get_todays_meal_plan_legacy(current_user: User = Depends(get_current_u
                     restriction_warnings.append("NO EGGS - Avoid all egg-based dishes and ingredients")
                 if any('nut' in a.lower() for a in allergies):
                     restriction_warnings.append("NUT ALLERGY - Avoid all nuts and nut-based products")
-                
+
                 restriction_text = "\n".join([f"⚠️ {warning}" for warning in restriction_warnings])
-                
+
                 prompt = f"""You are a registered dietitian AI. Generate specific, concrete dish names for each meal (breakfast, lunch, dinner, snack) for TODAY, given the user's profile and dietary needs.
 
 USER PROFILE:
@@ -640,26 +641,26 @@ Ensure ALL dishes are completely vegetarian and egg-free. Do not include any mea
                     else:
                         print(f"[todays_meal_plan] OpenAI failed: {api_result['error']}. Skipping refinement.")
                         return todays_plan
-                    
+
                     # Update only the meals that were placeholders or needed refinement
                     updated_meals = ai_json.get("meals", {})
-                    
+
                     # Post-process to ensure dietary compliance (safety filter)
                     def sanitize_meal(meal_text: str) -> str:
                         """Ensure meal is vegetarian and egg-free"""
                         meal_lower = meal_text.lower()
-                        
+
                         # Check for non-vegetarian ingredients
                         non_veg_keywords = ['chicken', 'beef', 'pork', 'fish', 'salmon', 'tuna', 'turkey', 'lamb', 'meat', 'seafood', 'shrimp']
                         egg_keywords = ['egg', 'eggs', 'omelet', 'omelette', 'scrambled', 'poached', 'fried egg']
-                        
+
                         if any(keyword in meal_lower for keyword in non_veg_keywords):
                             return "Vegetarian lentil and vegetable curry with quinoa"
                         if any(keyword in meal_lower for keyword in egg_keywords):
                             return "Overnight oats with almond milk, chia seeds, and fresh berries"
-                        
+
                         return meal_text
-                    
+
                     for meal_type, dish_name in updated_meals.items():
                         if _looks_placeholder(current_meals.get(meal_type, "")) or dish_name != current_meals.get(meal_type, ""):
                             # Apply safety filter before saving
@@ -689,42 +690,42 @@ Ensure ALL dishes are completely vegetarian and egg-free. Do not include any mea
             # Get today's consumption with detailed analysis
             user_timezone = current_user.get("profile", {}).get("timezone", "UTC")
             today_consumption_full = await get_today_consumption_records_async(current_user["email"], user_timezone=user_timezone)
-            
+
             print(f"[CALIBRATION] Starting advanced calibration with {len(today_consumption_full)} consumption records")
-            
+
             # Analyze what was actually consumed vs. planned
             consumption_analysis = await analyze_consumption_vs_plan(today_consumption_full, todays_plan)
-            
+
             # Get current time to determine what meals are remaining
             now = datetime.utcnow()
             current_hour = now.hour
-            
+
             # Determine remaining meal types based on time of day
             remaining_meals = get_remaining_meals_by_time(current_hour)
-            
+
             print(f"[CALIBRATION] Current hour: {current_hour}, Remaining meals: {remaining_meals}")
             print(f"[CALIBRATION] Consumption analysis: {consumption_analysis}")
-            
+
             # Apply consumption-aware meal plan generation
             todays_plan = await generate_consumption_aware_meal_plan(
-                todays_plan, 
-                consumption_analysis, 
+                todays_plan,
+                consumption_analysis,
                 remaining_meals,
                 current_user.get("profile", {})
             )
-            
+
             # Mark plan as calibrated if any consumption has occurred
             if len(today_consumption_full) > 0:
                 todays_plan["type"] = "real_time_calibrated"
                 todays_plan["last_calibrated"] = datetime.utcnow().isoformat()
                 todays_plan["calibration_trigger"] = "consumption_logged"
-                
+
                 # Save calibrated plan
                 try:
                     if "id" not in todays_plan or todays_plan["id"].startswith("derived_") or todays_plan["id"].startswith("fallback_"):
                         todays_plan["id"] = f"calibrated_{current_user['email']}_{today.isoformat()}_{int(datetime.utcnow().timestamp())}"
                         todays_plan["created_at"] = datetime.utcnow().isoformat()
-                    
+
                     await save_meal_plan(current_user["email"], todays_plan)
                     print("[CALIBRATION] Saved real-time calibrated meal plan")
                 except Exception as save_err:
@@ -741,7 +742,7 @@ Ensure ALL dishes are completely vegetarian and egg-free. Do not include any mea
         dietary_features = profile.get('dietaryFeatures', []) or profile.get('diet_features', [])
         allergies = profile.get('allergies', [])
         diet_type = profile.get('dietType', [])
-        
+
         # FIXED: Check if user is vegetarian or has egg restrictions from ALL sources including dietaryFeatures
         all_dietary_info = []
         for field in [dietary_restrictions, dietary_features, diet_type]:
@@ -749,20 +750,20 @@ Ensure ALL dishes are completely vegetarian and egg-free. Do not include any mea
                 all_dietary_info.extend([str(item).lower() for item in field])
             elif isinstance(field, str) and field:
                 all_dietary_info.append(field.lower())
-        
+
         is_vegetarian = any('vegetarian' in info for info in all_dietary_info)
-        
+
         # CRITICAL FIX: Check for egg restrictions in ALL fields including dietaryFeatures - handle both singular and plural
         no_eggs = (
-            any('egg' in r.lower() for r in dietary_restrictions) or 
+            any('egg' in r.lower() for r in dietary_restrictions) or
             any('egg' in a.lower() for a in allergies) or
             any('no egg' in feature.lower() or 'no eggs' in feature.lower() or 'vegetarian (no egg' in feature.lower() or 'vegetarian (no eggs' in feature.lower() for feature in dietary_features)
         )
-        
+
         # Always generate fresh diverse meals for users with dietary restrictions
         if is_vegetarian or no_eggs:
             print(f"[get_todays_meal_plan] User has dietary restrictions - generating fresh diverse vegetarian meal plan")
-            
+
             # Use the new comprehensive recalibration system
             user_timezone = current_user.get("profile", {}).get("timezone", "UTC")
             today_consumption = await get_today_consumption_records_async(current_user["email"], user_timezone=user_timezone)
@@ -773,7 +774,7 @@ Ensure ALL dishes are completely vegetarian and egg-free. Do not include any mea
             except (ValueError, TypeError):
                 target_calories = 2000
             remaining_calories = max(0, target_calories - calories_consumed)
-            
+
             # Generate fresh adaptive meal plan
             fresh_plan = await generate_fresh_adaptive_meal_plan(
                 current_user["email"],
@@ -787,7 +788,7 @@ Ensure ALL dishes are completely vegetarian and egg-free. Do not include any mea
                 profile.get('foodPreferences', []),
                 profile.get('strongDislikes', [])
             )
-            
+
             # Try to generate fresh adaptive vegetarian meal plan
             fresh_plan = await generate_fresh_adaptive_meal_plan(
                 current_user["email"],
@@ -801,7 +802,7 @@ Ensure ALL dishes are completely vegetarian and egg-free. Do not include any mea
                 profile.get('foodPreferences', []),
                 profile.get('strongDislikes', [])
             )
-            
+
             if fresh_plan:
                 todays_plan = fresh_plan
                 print(f"[get_todays_meal_plan] Generated fresh adaptive vegetarian meal plan")
@@ -814,7 +815,7 @@ Ensure ALL dishes are completely vegetarian and egg-free. Do not include any mea
                     no_eggs
                 )
                 print(f"[get_todays_meal_plan] Used safe vegetarian fallback")
-                
+
         # Even for non-vegetarian users, ensure we use the recalibration system if consumption has occurred
         elif todays_plan:
             # Check if we have consumption today and need to recalibrate
@@ -830,7 +831,7 @@ Ensure ALL dishes are completely vegetarian and egg-free. Do not include any mea
                 except Exception as recal_err:
                     print(f"[get_todays_meal_plan] Error in recalibration: {recal_err}")
                     # Continue with existing plan
-        
+
         # If no plan generated yet, use fallback
         if not todays_plan:
             todays_plan = {
@@ -860,22 +861,22 @@ Ensure ALL dishes are completely vegetarian and egg-free. Do not include any mea
                 # Remove multiple "Recommended: " prefixes with safety limits
                 max_iterations = 10  # Prevent infinite loops
                 iterations = 0
-                
+
                 # Remove multiple "Recommended: " prefixes
                 while "Recommended: Recommended: " in _meal_text and iterations < max_iterations:
                     _meal_text = _meal_text.replace("Recommended: Recommended: ", "Recommended: ")
                     iterations += 1
-                
+
                 # Reset for next loop
                 iterations = 0
-                
+
                 # Also handle case variations
                 while "recommended: recommended: " in _meal_text.lower() and iterations < max_iterations:
                     _meal_text = _meal_text.replace("recommended: recommended: ", "Recommended: ", 1)
                     # Fix the case of the remaining "recommended:"
                     _meal_text = _meal_text.replace("recommended:", "Recommended:", 1)
                     iterations += 1
-                
+
                 todays_plan["meals"][_meal_key] = _meal_text
 
         return todays_plan
@@ -893,33 +894,33 @@ async def create_adaptive_meal_plan_comprehensive(
 ):
     """🎯 Comprehensive adaptive meal plan creation using full health profile"""
     from services.meal_plan_service import create_adaptive_meal_plan_optimized
-    
+
     try:
         # Parse request parameters
         req_days = int(payload.get("days", 3)) if payload else 3
         req_cuisine = payload.get("cuisine_type", "") if payload else ""
-        
+
         print(f"[comprehensive_adaptive] Creating {req_days}-day plan for {current_user['email']}")
         print(f"[comprehensive_adaptive] Requested cuisine: {req_cuisine}")
-        
+
         # Use the comprehensive optimized meal plan service
         result = await create_adaptive_meal_plan_optimized(
-            current_user["email"], 
+            current_user["email"],
             current_user.get("profile", {}),
             req_days,
             req_cuisine
         )
-        
+
         print(f"[comprehensive_adaptive] Successfully created meal plan: {result.get('plan_name', 'Unknown')}")
         return result
-        
+
     except Exception as e:
         print(f"[comprehensive_adaptive] Error: {str(e)}")
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Failed to create comprehensive adaptive meal plan: {str(e)}")
 
-# Original heavy function moved to services/meal_plan_service.py  
+# Original heavy function moved to services/meal_plan_service.py
 @app.post("/coach/adaptive-meal-plan-legacy")
 async def create_adaptive_meal_plan_legacy(
     payload: dict = Body(None),
@@ -936,13 +937,13 @@ async def create_adaptive_meal_plan_legacy(
 
         # Get user's consumption history using existing function - INCREASED LIMIT to ensure we get ALL today's meals
         consumption_history = await get_user_consumption_history(current_user["email"], limit=300)
-        
+
         # Get user's meal plan history using existing function
         meal_plan_history = await get_user_meal_plans(current_user["email"])
-        
+
         # Get user profile for preferences
         user_profile = current_user.get("profile", {})
-        
+
         # Analyze consumption patterns
         favorite_foods = {}
         total_meals = len(consumption_history)
@@ -950,11 +951,11 @@ async def create_adaptive_meal_plan_legacy(
         total_calories = 0
         total_carbs = 0
         total_protein = 0
-        
+
         # Filter to last 30 days - USE PROPER TIMEZONE-AWARE FILTERING
         thirty_days_ago = datetime.utcnow() - timedelta(days=30)
         recent_consumption = []
-        
+
         for entry in consumption_history:
             try:
                 entry_timestamp = datetime.fromisoformat(entry.get("timestamp", "").replace("Z", "+00:00"))
@@ -962,35 +963,35 @@ async def create_adaptive_meal_plan_legacy(
                     recent_consumption.append(entry)
             except:
                 continue
-        
+
         for entry in recent_consumption:
             food_name = entry.get("food_name", "").lower()
             favorite_foods[food_name] = favorite_foods.get(food_name, 0) + 1
-            
+
             # Get nutritional info
             nutrition = entry.get("nutritional_info", {})
             total_calories += nutrition.get("calories", 0)
             total_carbs += nutrition.get("carbohydrates", 0)
             total_protein += nutrition.get("protein", 0)
-            
+
             # Check diabetes suitability
             medical_rating = entry.get("medical_rating", {})
             diabetes_suitability = medical_rating.get("diabetes_suitability", "").lower()
             if diabetes_suitability in ["high", "good", "suitable"]:
                 diabetes_friendly_count += 1
-        
+
         # Calculate metrics
         total_recent_meals = len(recent_consumption)
         adherence_rate = (diabetes_friendly_count / total_recent_meals * 100) if total_recent_meals > 0 else 0
         avg_daily_calories = (total_calories / 30) if total_calories > 0 else 2000
-        
+
         # Get top favorite foods
         top_favorites = sorted(favorite_foods.items(), key=lambda x: x[1], reverse=True)[:10]
         favorite_foods_list = [food for food, count in top_favorites]
-        
+
         # COMPREHENSIVE USER PROFILE ANALYSIS for truly personalized meal planning
         print(f"[create_adaptive_meal_plan] COMPREHENSIVE PROFILE ANALYSIS for user: {current_user['email']}")
-        
+
         # Helper function to get profile value with fallbacks
         def get_profile_value(profile, new_key, old_key=None, default='Not provided'):
             value = profile.get(new_key)
@@ -1006,23 +1007,23 @@ async def create_adaptive_meal_plan_legacy(
         medical_conditions = user_profile.get("medicalConditions", []) or user_profile.get("medical_conditions", [])
         current_medications = user_profile.get("currentMedications", [])
         primary_goals = user_profile.get("primaryGoals", [])
-        
+
         # Physical characteristics
         age = user_profile.get("age")
         weight = user_profile.get("weight")
         height = user_profile.get("height")
         bmi = user_profile.get("bmi")
-        
+
         # Vital signs for medical considerations
         systolic_bp = user_profile.get("systolicBP") or user_profile.get("systolic_bp")
         diastolic_bp = user_profile.get("diastolicBP") or user_profile.get("diastolic_bp")
-        
+
         # Activity and lifestyle
         work_activity_level = user_profile.get("workActivityLevel")
-        exercise_frequency = user_profile.get("exerciseFrequency") 
+        exercise_frequency = user_profile.get("exerciseFrequency")
         exercise_types = user_profile.get("exerciseTypes", [])
         wants_weight_loss = user_profile.get("wantsWeightLoss") or user_profile.get("weight_loss_goal")
-        
+
         # Dietary preferences
         dietary_restrictions = user_profile.get("dietaryRestrictions", [])
         food_preferences = user_profile.get("foodPreferences", [])
@@ -1032,34 +1033,34 @@ async def create_adaptive_meal_plan_legacy(
         dietary_features = user_profile.get("dietaryFeatures", []) or user_profile.get("diet_features", [])
         strong_dislikes = user_profile.get("strongDislikes", [])
         ethnicity = user_profile.get("ethnicity", [])
-        
+
         # Lab values for medical considerations
         lab_values = user_profile.get("labValues", {})
-        
+
         try:
             target_calories = int(calorie_target) if calorie_target and calorie_target.strip() else 2000
         except (ValueError, TypeError):
             target_calories = int(avg_daily_calories) if avg_daily_calories > 1200 else 2000
-        
+
         # CRITICAL: Enhanced dietary restriction detection for patterns like "Vegetarian (no eggs)"
         # Check multiple possible field names and formats
         all_dietary_info = []
-        for field_name in ["dietaryRestrictions", "dietary_restrictions", "dietaryFeatures", "dietary_features", 
+        for field_name in ["dietaryRestrictions", "dietary_restrictions", "dietaryFeatures", "dietary_features",
                           "dietType", "diet_type", "restrictions", "diet_preferences"]:
             field_value = user_profile.get(field_name, [])
             if isinstance(field_value, list):
                 all_dietary_info.extend([str(item).lower() for item in field_value])
             elif isinstance(field_value, str) and field_value:
                 all_dietary_info.append(field_value.lower())
-        
+
         print(f"[create_adaptive_meal_plan] All dietary info collected: {all_dietary_info}")
-        
+
         # Enhanced vegetarian detection
         is_vegetarian = any(
-            'vegetarian' in info or 'veg' in info or 'plant-based' in info 
+            'vegetarian' in info or 'veg' in info or 'plant-based' in info
             for info in all_dietary_info
         )
-        
+
         # Enhanced egg restriction detection - specifically handle "vegetarian (no eggs)" pattern - check both singular and plural
         no_eggs = any(
             'no egg' in info or 'egg-free' in info or 'no eggs' in info or 'avoid egg' in info or 'avoid eggs' in info or
@@ -1069,14 +1070,14 @@ async def create_adaptive_meal_plan_legacy(
         ) or any(
             'egg' in str(allergy).lower() for allergy in allergies
         )
-        
+
         print(f"[create_adaptive_meal_plan] DIETARY RESTRICTION ANALYSIS:")
         print(f"[create_adaptive_meal_plan] Is vegetarian: {is_vegetarian}")
         print(f"[create_adaptive_meal_plan] No eggs: {no_eggs}")
-        
+
         print(f"[create_adaptive_meal_plan] COMPREHENSIVE PROFILE ANALYSIS:")
         print(f"[create_adaptive_meal_plan] Medical conditions: {medical_conditions}")
-        print(f"[create_adaptive_meal_plan] Current medications: {current_medications}")  
+        print(f"[create_adaptive_meal_plan] Current medications: {current_medications}")
         print(f"[create_adaptive_meal_plan] Primary health goals: {primary_goals}")
         print(f"[create_adaptive_meal_plan] Age: {age}, Weight: {weight}kg, Height: {height}cm, BMI: {bmi}")
         print(f"[create_adaptive_meal_plan] BP: {systolic_bp}/{diastolic_bp}, Wants weight loss: {wants_weight_loss}")
@@ -1085,18 +1086,18 @@ async def create_adaptive_meal_plan_legacy(
         print(f"[create_adaptive_meal_plan] All dietary info found: {all_dietary_info}")
         print(f"[create_adaptive_meal_plan] Is vegetarian: {is_vegetarian}, No eggs: {no_eggs}")
         print(f"[create_adaptive_meal_plan] Lab values: {lab_values}")
-        
+
         # Use requested cuisine type or fall back to profile preferences
         cuisine_preference = req_cuisine if req_cuisine else ', '.join(diet_type) if diet_type else 'Mixed international'
-        
+
         # Create dynamic meal plan structure for the prompt - WITHOUT Day X: prefixes
         # since the weekly breakdown view already shows days separately
         day_examples = []
         for day_num in range(1, req_days + 1):
             day_examples.append(f'"[specific meal with portions for day {day_num}]"')
-        
+
         day_examples_str = ", ".join(day_examples)
-        
+
         # Create comprehensive medical profile summary for AI
         comprehensive_profile_summary = f"""
 COMPREHENSIVE HEALTH PROFILE ANALYSIS:
@@ -1194,7 +1195,7 @@ Make each meal specific with exact portions and cooking methods. Ensure all {req
         print(f"[create_adaptive_meal_plan] ✅ Target calories: {target_calories} (from {calorie_target})")
         print(f"[create_adaptive_meal_plan] ✅ Lab values: {lab_values}")
         print(f"[create_adaptive_meal_plan] Profile summary length: {len(comprehensive_profile_summary)} chars")
-        
+
         try:
             response = get_openai_client().chat.completions.create(
                 model=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
@@ -1211,7 +1212,7 @@ Make each meal specific with exact portions and cooking methods. Ensure all {req
                 max_tokens=DEFAULT_MAX_TOKENS,
                 temperature=DEFAULT_TEMPERATURE
             )
-            
+
             # Parse AI response
             ai_content = response.choices[0].message.content
             # Extract JSON from response
@@ -1220,14 +1221,14 @@ Make each meal specific with exact portions and cooking methods. Ensure all {req
             if start_idx != -1 and end_idx != -1:
                 json_str = ai_content[start_idx:end_idx]
                 meal_plan_data = json.loads(json_str)
-                
+
                 # CRITICAL: Enforce dietary restrictions for adaptive meal plan using enhanced detection
                 enhanced_dietary_restrictions = dietary_restrictions.copy()
                 if is_vegetarian:
                     enhanced_dietary_restrictions.append("vegetarian")
                 if no_eggs:
                     enhanced_dietary_restrictions.append("no eggs")
-                    
+
                 user_profile_dict = {
                     'dietaryRestrictions': enhanced_dietary_restrictions,
                     'allergies': allergies,
@@ -1235,14 +1236,14 @@ Make each meal specific with exact portions and cooking methods. Ensure all {req
                     'dietType': diet_type
                 }
                 # Dietary restrictions enforced in ultra-fast service
-                
+
                 # Apply additional safety sanitization for vegetarian/egg-free meals
                 if is_vegetarian or no_eggs:
                     for meal_type in ['breakfast', 'lunch', 'dinner', 'snacks']:
                         if meal_type in meal_plan_data:
                             if isinstance(meal_plan_data[meal_type], list):
                                 meal_plan_data[meal_type] = [
-                                    sanitize_vegetarian_meal(meal, is_vegetarian, no_eggs) 
+                                    sanitize_vegetarian_meal(meal, is_vegetarian, no_eggs)
                                     for meal in meal_plan_data[meal_type]
                                 ]
                             elif isinstance(meal_plan_data[meal_type], str):
@@ -1250,10 +1251,10 @@ Make each meal specific with exact portions and cooking methods. Ensure all {req
                 print("Dietary restrictions enforced for adaptive meal plan")
             else:
                 raise json.JSONDecodeError("No JSON found", ai_content, 0)
-                
+
         except Exception as ai_error:
             print(f"AI generation error: {str(ai_error)}. Using fallback meal plan.")
-            
+
             # Create cuisine-appropriate fallback meals
             def get_fallback_meals(cuisine_type: str, is_vegetarian: bool = False):
                 if 'chinese' in cuisine_type.lower() or 'east asian' in cuisine_type.lower():
@@ -1272,7 +1273,7 @@ Make each meal specific with exact portions and cooking methods. Ensure all {req
                     breakfast_base = ["Greek yogurt with berries", "Oatmeal with nuts", "Cottage cheese with vegetables"]
                     lunch_base = ["Grilled chicken salad", "Lentil soup", "Turkey and avocado wrap"]
                     dinner_base = ["Grilled fish with vegetables", "Chicken stir-fry", "Lean protein with quinoa"]
-                
+
                 # Ensure we have enough meals for the requested days
                 while len(breakfast_base) < req_days:
                     breakfast_base.extend(breakfast_base)
@@ -1280,12 +1281,12 @@ Make each meal specific with exact portions and cooking methods. Ensure all {req
                     lunch_base.extend(lunch_base)
                 while len(dinner_base) < req_days:
                     dinner_base.extend(dinner_base)
-                
+
                 return breakfast_base[:req_days], lunch_base[:req_days], dinner_base[:req_days]
-            
+
             # Use the enhanced dietary detection for fallback meals too
             fallback_breakfast, fallback_lunch, fallback_dinner = get_fallback_meals(cuisine_preference, is_vegetarian)
-            
+
             # Comprehensive fallback meal plan - WITHOUT Day X: prefixes
             meal_plan_data = {
                 "plan_name": f"Adaptive {cuisine_preference} Plan - {datetime.now().strftime('%Y-%m-%d')}",
@@ -1316,7 +1317,7 @@ Make each meal specific with exact portions and cooking methods. Ensure all {req
                 ],
                 "coaching_notes": f"This medically-adaptive plan integrates your complete health profile including medical conditions, medications, health goals, and eating patterns. Your {adherence_rate:.0f}% diabetes adherence rate shows {'excellent' if adherence_rate >= 80 else 'good' if adherence_rate >= 60 else 'room for improvement'} progress. The plan addresses your specific health goals: {', '.join(primary_goals) if primary_goals else 'general wellness'}."
             }
-        
+
         # Save to database using existing function
         meal_plan_data.update({
             "user_id": current_user["email"],  # Use email as user_id for consistency
@@ -1326,7 +1327,7 @@ Make each meal specific with exact portions and cooking methods. Ensure all {req
             "based_on_meals": total_recent_meals,
             "favorite_foods_incorporated": favorite_foods_list[:5]
         })
-        
+
         # Save using existing database function
         try:
             saved_plan = await save_meal_plan(current_user["email"], meal_plan_data)
@@ -1336,7 +1337,7 @@ Make each meal specific with exact portions and cooking methods. Ensure all {req
         except Exception as save_err:
             print(f"[create_adaptive_meal_plan] Error saving meal plan: {save_err}")
             raise HTTPException(status_code=500, detail=f"Failed to save meal plan: {save_err}")
-        
+
         return {
             "success": True,
             "meal_plan": meal_plan_data,
@@ -1350,7 +1351,7 @@ Make each meal specific with exact portions and cooking methods. Ensure all {req
             },
             "message": "Adaptive meal plan created successfully based on your consumption history!"
         }
-        
+
     except Exception as e:
         print(f"Error creating adaptive meal plan: {str(e)}")
         import traceback
@@ -1383,7 +1384,7 @@ async def get_consumption_insights(
     try:
         # Get consumption data using existing function - INCREASED LIMIT to ensure we get ALL today's meals
         consumption_data = await get_user_consumption_history(current_user["email"], limit=400)
-        
+
         # Filter to specified period - USE PROPER TIMEZONE-AWARE FILTERING
         start_date = datetime.utcnow() - timedelta(days=days)
         filtered_data = []
@@ -1394,47 +1395,47 @@ async def get_consumption_insights(
                     filtered_data.append(entry)
             except:
                 continue
-        
+
         consumption_data = filtered_data
-        
+
         if not consumption_data:
             return {
                 "message": "No consumption data found for the specified period",
                 "insights": {}
             }
-        
+
         # Analyze patterns
         daily_calories = {}
         meal_times = {"breakfast": [], "lunch": [], "dinner": [], "snack": []}
         food_frequency = {}
         weekly_adherence = {}
-        
+
         for entry in consumption_data:
             try:
                 entry_date = datetime.fromisoformat(entry.get("timestamp", "").replace("Z", "+00:00"))
                 date_key = entry_date.strftime("%Y-%m-%d")
                 meal_type = entry.get("meal_type", "snack")
                 food_name = entry.get("food_name", "").lower()
-                
+
                 # Get nutritional info
                 nutrition = entry.get("nutritional_info", {})
                 calories = nutrition.get("calories", 0)
-                
+
                 # Daily calories
                 daily_calories[date_key] = daily_calories.get(date_key, 0) + calories
-                
+
                 # Meal timing
                 hour = entry_date.hour
                 meal_times[meal_type].append(hour)
-                
+
                 # Food frequency
                 food_frequency[food_name] = food_frequency.get(food_name, 0) + 1
-                
+
                 # Weekly adherence using medical rating
                 week_key = entry_date.strftime("%Y-W%U")
                 if week_key not in weekly_adherence:
                     weekly_adherence[week_key] = {"total": 0, "diabetes_friendly": 0}
-                
+
                 weekly_adherence[week_key]["total"] += 1
                 medical_rating = entry.get("medical_rating", {})
                 diabetes_suitability = medical_rating.get("diabetes_suitability", "").lower()
@@ -1442,25 +1443,25 @@ async def get_consumption_insights(
                     weekly_adherence[week_key]["diabetes_friendly"] += 1
             except:
                 continue
-        
+
         # Calculate insights
         avg_daily_calories = sum(daily_calories.values()) / len(daily_calories) if daily_calories else 0
-        
+
         # Most common meal times
         common_meal_times = {}
         for meal_type, times in meal_times.items():
             if times:
                 common_meal_times[meal_type] = sum(times) / len(times)
-        
+
         # Top foods
         top_foods = sorted(food_frequency.items(), key=lambda x: x[1], reverse=True)[:10]
-        
+
         # Weekly adherence rates
         adherence_by_week = {}
         for week, data in weekly_adherence.items():
             rate = (data["diabetes_friendly"] / data["total"] * 100) if data["total"] > 0 else 0
             adherence_by_week[week] = round(rate, 1)
-        
+
         return {
             "period_days": days,
             "total_meals_logged": len(consumption_data),
@@ -1477,7 +1478,7 @@ async def get_consumption_insights(
                 "Consider maintaining consistent meal times for better blood sugar control" if len(set(common_meal_times.values())) > 2 else "Good job maintaining consistent meal times!"
             ]
         }
-        
+
     except Exception as e:
         logger.error(f"Error getting consumption insights: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to get consumption insights")
@@ -1489,21 +1490,21 @@ async def get_notifications(
     """Get intelligent notifications based on actual user data - NO FAKE NOTIFICATIONS"""
     try:
         print(f"[get_notifications] Getting notifications for user {current_user['email']}")
-        
+
         # Get user's recent consumption data - INCREASED LIMIT to ensure we get ALL today's meals
         consumption_data = await get_user_consumption_history(current_user["email"], limit=200)
-        
+
         if not consumption_data:
             print("[get_notifications] No consumption data found")
             return []  # Return empty array if no data
-        
+
         # Filter today's consumption - USE PROPER TIMEZONE-AWARE FILTERING
         # Use the new timezone-aware filtering function that resets at midnight
         user_timezone = current_user.get("profile", {}).get("timezone", "UTC")
         today_consumption = filter_today_records(consumption_data, user_timezone=user_timezone)
-        
+
         notifications = []
-        
+
         # Only show meaningful notifications based on actual data
         if len(today_consumption) == 0:
             # Only show this once per day and only if it's past breakfast time
@@ -1520,20 +1521,20 @@ async def get_notifications(
             # Calculate today's totals from actual nutritional_info
             today_totals = {"calories": 0, "protein": 0, "carbohydrates": 0, "fat": 0}
             diabetes_suitable_count = 0
-            
+
             for entry in today_consumption:
                 nutritional_info = entry.get("nutritional_info", {})
                 today_totals["calories"] += nutritional_info.get("calories", 0)
                 today_totals["protein"] += nutritional_info.get("protein", 0)
                 today_totals["carbohydrates"] += nutritional_info.get("carbohydrates", 0)
                 today_totals["fat"] += nutritional_info.get("fat", 0)
-                
+
                 # Check diabetes suitability from medical_rating
                 medical_rating = entry.get("medical_rating", {})
                 diabetes_suitability = medical_rating.get("diabetes_suitability", "").lower()
                 if diabetes_suitability in ["high", "good", "suitable"]:
                     diabetes_suitable_count += 1
-            
+
             # Only show achievement notifications for real accomplishments
             if len(today_consumption) >= 3:  # At least 3 meals logged
                 adherence_rate = (diabetes_suitable_count / len(today_consumption)) * 100
@@ -1545,10 +1546,10 @@ async def get_notifications(
                         "timestamp": datetime.utcnow().isoformat(),
                         "details": "Keep up the great work with your healthy choices!"
                     })
-        
+
         print(f"[get_notifications] Generated {len(notifications)} notifications")
         return notifications
-        
+
     except Exception as e:
         print(f"[get_notifications] Error: {str(e)}")
         return []  # Return empty array on error instead of raising exception
@@ -1654,17 +1655,17 @@ async def get_notifications(
                 }
             }
         ]
-        
+
         # Create records for the last 7 days
         created_records = []
         for day_offset in range(7):
             record_date = datetime.utcnow() - timedelta(days=day_offset)
-            
+
             # Create 2-3 meals per day
             meals_per_day = 2 if day_offset > 3 else 3
             for meal_index in range(meals_per_day):
                 food = sample_foods[meal_index % len(sample_foods)]
-                
+
                 # Adjust timestamp for different meal times
                 if meal_index == 0:  # Breakfast
                     meal_time = record_date.replace(hour=8, minute=30)
@@ -1672,7 +1673,7 @@ async def get_notifications(
                     meal_time = record_date.replace(hour=12, minute=45)
                 else:  # Dinner
                     meal_time = record_date.replace(hour=18, minute=30)
-                
+
                 consumption_record = {
                     "id": f"sample_{day_offset}_{meal_index}_{int(meal_time.timestamp())}",
                     "type": "consumption_record",
@@ -1684,17 +1685,17 @@ async def get_notifications(
                     "session_id": f"sample_session_{day_offset}",
                     "created_at": meal_time.isoformat()
                 }
-                
+
                 # Save to database
                 interactions_container.create_item(body=consumption_record)
                 created_records.append(consumption_record)
-        
+
         return {
             "message": f"Created {len(created_records)} sample consumption records",
             "records_created": len(created_records),
             "date_range": f"{(datetime.utcnow() - timedelta(days=6)).date()} to {datetime.utcnow().date()}"
         }
-        
+
     except Exception as e:
         print(f"Error creating sample data: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to create sample data: {str(e)}")
@@ -1713,25 +1714,25 @@ async def get_notifications(
             from datetime import datetime, timedelta
             thirty_days_ago = datetime.utcnow() - timedelta(days=30)
             recent_consumption = [
-                record for record in consumption_history 
+                record for record in consumption_history
                 if datetime.fromisoformat(record.get("timestamp", "").replace("Z", "+00:00")) > thirty_days_ago
             ]
         except Exception as e:
             print(f"[AI_COACH] Error fetching consumption history: {e}")
             recent_consumption = []
-        
+
         # 3. Get today's consumption for daily analysis - USE PROPER TIMEZONE-AWARE FILTERING
         try:
             # Use the new timezone-aware filtering function that resets at midnight
             user_timezone = user_profile.get("timezone", "UTC")
             today_consumption = filter_today_records(recent_consumption, user_timezone=user_timezone)
-            
+
             print(f"[AI_COACH] Found {len(today_consumption)} meals for today using timezone-aware filtering")
-            
+
         except Exception as e:
             print(f"[AI_COACH] Error filtering today's consumption: {e}")
             today_consumption = []
-        
+
         # 4. Get meal plans history
         try:
             meal_plans = await get_user_meal_plans(current_user["email"])
@@ -1740,7 +1741,7 @@ async def get_notifications(
             print(f"[AI_COACH] Error fetching meal plans: {e}")
             meal_plans = []
             latest_meal_plan = None
-        
+
         # 5. Get consumption analytics for trends
         try:
             # Get user's timezone for analytics
@@ -1751,17 +1752,17 @@ async def get_notifications(
             print(f"[AI_COACH] Error fetching analytics: {e}")
             weekly_analytics = {}
             monthly_analytics = {}
-        
+
         # 6. Get progress data
         try:
             progress_data = await get_consumption_progress(current_user)
         except Exception as e:
             print(f"[AI_COACH] Error fetching progress data: {e}")
             progress_data = {}
-        
+
         # 📊 COMPREHENSIVE DATA ANALYSIS
         print("[AI_COACH] Analyzing comprehensive user data...")
-        
+
         # Calculate today's nutritional totals
         today_totals = {"calories": 0, "protein": 0, "carbs": 0, "fat": 0, "fiber": 0, "sugar": 0, "sodium": 0}
         for record in today_consumption:
@@ -1773,7 +1774,7 @@ async def get_notifications(
             today_totals["fiber"] += nutritional_info.get("fiber", 0)
             today_totals["sugar"] += nutritional_info.get("sugar", 0)
             today_totals["sodium"] += nutritional_info.get("sodium", 0)
-        
+
         # Debug logging for today's consumption
         print(f"[AI_COACH_DEBUG] Found {len(today_consumption)} meals for today")
         print(f"[AI_COACH_DEBUG] Today's totals: {today_totals}")
@@ -1781,7 +1782,7 @@ async def get_notifications(
             print(f"[AI_COACH_DEBUG] Today's meals: {[record.get('food_name') for record in today_consumption]}")
         else:
             print(f"[AI_COACH_DEBUG] No meals found for today - recent_consumption had {len(recent_consumption)} records")
-        
+
         # Calculate weekly averages
         weekly_totals = {"calories": 0, "protein": 0, "carbs": 0, "fat": 0, "meals": 0}
         for record in recent_consumption[-21:]:  # Last 3 weeks for better average
@@ -1791,7 +1792,7 @@ async def get_notifications(
             weekly_totals["carbs"] += nutritional_info.get("carbohydrates", 0)
             weekly_totals["fat"] += nutritional_info.get("fat", 0)
             weekly_totals["meals"] += 1
-        
+
         weekly_averages = {}
         if weekly_totals["meals"] > 0:
             days_logged = max(1, weekly_totals["meals"] / 3)  # Estimate days
@@ -1801,11 +1802,11 @@ async def get_notifications(
                 "carbs": weekly_totals["carbs"] / days_logged,
                 "fat": weekly_totals["fat"] / days_logged
             }
-        
+
         # Get user's goals and health info
         calorie_goal = 2000  # Default
         macro_goals = {"protein": 100, "carbs": 250, "fat": 70}
-        
+
         if user_profile.get("calorieTarget"):
             try:
                 calorie_goal = int(user_profile["calorieTarget"])
@@ -1813,28 +1814,28 @@ async def get_notifications(
                 pass
         elif latest_meal_plan and latest_meal_plan.get("dailyCalories"):
             calorie_goal = latest_meal_plan["dailyCalories"]
-        
+
         # Health conditions and dietary info
         health_conditions = user_profile.get("medicalConditions", []) or user_profile.get("medical_conditions", [])
         dietary_restrictions = user_profile.get("dietaryRestrictions", []) or user_profile.get("dietary_restrictions", [])
         allergies = user_profile.get("allergies", [])
         medications = user_profile.get("currentMedications", [])
-        
+
         # Calculate diabetes adherence and health metrics
         diabetes_suitable_count = 0
         high_carb_meals = 0
         high_sugar_meals = 0
         high_sodium_meals = 0
-        
+
         for record in recent_consumption:
             medical_rating = record.get("medical_rating", {})
             nutritional_info = record.get("nutritional_info", {})
-            
+
             # Diabetes suitability
             diabetes_suitability = medical_rating.get("diabetes_suitability", "").lower()
             if diabetes_suitability in ["high", "good", "suitable"]:
                 diabetes_suitable_count += 1
-            
+
             # Track concerning patterns
             if nutritional_info.get("carbohydrates", 0) > 45:
                 high_carb_meals += 1
@@ -1842,13 +1843,13 @@ async def get_notifications(
                 high_sugar_meals += 1
             if nutritional_info.get("sodium", 0) > 800:
                 high_sodium_meals += 1
-        
+
         total_recent_meals = len(recent_consumption)
         diabetes_adherence = (diabetes_suitable_count / total_recent_meals * 100) if total_recent_meals > 0 else 0
-        
+
         # Calculate consistency streak
         consistency_streak = calculate_consistency_streak(recent_consumption, user_profile.get("timezone", "UTC"))
-        
+
         # Analyze meal timing patterns
         meal_times = {}
         for record in recent_consumption:
@@ -1861,14 +1862,14 @@ async def get_notifications(
                 meal_times[meal_type].append(hour)
             except:
                 pass
-        
+
         # Get recent meal names for pattern analysis
         recent_meals = [record.get("food_name", "Unknown") for record in recent_consumption[:10]]
         today_meals = [record.get("food_name", "Unknown") for record in today_consumption]
-        
+
         # 🤖 BUILD COMPREHENSIVE AI COACH SYSTEM PROMPT
         print("[AI_COACH] Building comprehensive AI response...")
-        
+
         system_prompt = f"""You are an advanced AI Diet Coach and Diabetes Management Specialist with FULL ACCESS to the user's comprehensive health data. You are their personal nutrition expert, meal planner, and health companion.
 
 🎯 **YOUR ROLE**: You are the central intelligence of their diabetes management system with complete visibility into their eating patterns, progress, and health journey.
@@ -1960,13 +1961,13 @@ Be conversational but informative, like a knowledgeable nutrition coach who know
                 timeout=60,
                 context="meal_suggestion"
             )
-            
+
             if api_result["success"]:
                 ai_response = api_result["content"].strip()
             else:
                 print(f"[AI_COACH] OpenAI failed: {api_result['error']}")
                 ai_response = f"I'm having trouble accessing my AI capabilities right now, but I can see you have {len(today_consumption)} meals logged today with {today_totals['calories']:.0f} calories. Your diabetes adherence is at {diabetes_adherence:.1f}%. Please try your question again in a moment."
-            
+
             # 🧹 CLEAN MARKDOWN FORMATTING for better frontend display
             import re
             # Remove markdown headers
@@ -1980,11 +1981,11 @@ Be conversational but informative, like a knowledgeable nutrition coach who know
             ai_response = re.sub(r'^---+$', '', ai_response, flags=re.MULTILINE)
             # Clean up multiple line breaks
             ai_response = re.sub(r'\n{3,}', '\n\n', ai_response)
-            
+
         except Exception as e:
             print(f"[AI_COACH] Error getting AI response: {e}")
             ai_response = f"I'm having trouble accessing my AI capabilities right now, but I can see you have {len(today_consumption)} meals logged today with {today_totals['calories']:.0f} calories. Your diabetes adherence is at {diabetes_adherence:.1f}%. Please try your question again in a moment."
-        
+
         # 📝 LOG THE INTERACTION
         try:
             await log_meal_suggestion(
@@ -2001,9 +2002,9 @@ Be conversational but informative, like a knowledgeable nutrition coach who know
             )
         except Exception as e:
             print(f"[AI_COACH] Error logging interaction: {e}")
-        
+
         print(f"[AI_COACH] Successfully generated comprehensive response for user")
-        
+
         return {
             "success": True,
             "suggestion": ai_response,
@@ -2011,7 +2012,7 @@ Be conversational but informative, like a knowledgeable nutrition coach who know
             "context": {
                 "comprehensive_analysis": True,
                 "data_sources": [
-                    "user_profile", "consumption_history", "meal_plans", 
+                    "user_profile", "consumption_history", "meal_plans",
                     "progress_tracking", "health_conditions", "dietary_patterns"
                 ],
                 "today_meals": len(today_consumption),
@@ -2024,12 +2025,12 @@ Be conversational but informative, like a knowledgeable nutrition coach who know
                 "health_focused": True
             }
         }
-        
+
     except Exception as e:
         print(f"[AI_COACH] Critical error: {str(e)}")
         import traceback
         traceback.print_exc()
-        
+
         return {
             "success": False,
             "error": "I'm experiencing technical difficulties. Please try again in a moment.",
@@ -2050,7 +2051,7 @@ async def get_ai_suggestion(prompt: str) -> str:
             temperature=0.7,
             max_tokens=300
         )
-        
+
         return response.choices[0].message.content.strip()
     except Exception as e:
         logger.error(f"Error getting AI suggestion: {str(e)}")
@@ -2066,7 +2067,7 @@ async def log_meal_suggestion(user_id: str, meal_type: str, suggestion: str, con
             "context": context,
             "timestamp": datetime.utcnow().isoformat()
         }
-        
+
         # Logging moved to ultra-fast service
     except Exception as e:
         logger.error(f"Error logging meal suggestion: {str(e)}")
@@ -2088,7 +2089,7 @@ def build_meal_suggestion_prompt(
     current_hour = context.get("current_hour", 0)
     is_late_meal = context.get("is_late_meal", False)
     todays_meals = context.get("todays_meals", [])
-    
+
     prompt = f"""Based on the user's query "{query_context}", suggest a {meal_type} that:
     1. Fits within {remaining_calories} remaining calories
     2. Considers their dietary restrictions: {', '.join(dietary_restrictions)}
@@ -2097,7 +2098,7 @@ def build_meal_suggestion_prompt(
     5. {"Provides a lighter option since it's a late meal" if is_late_meal else "Provides a satisfying portion"}
     6. Matches their usual meal patterns for {meal_type}
     7. {preferences if preferences else ""}
-    
+
     Include:
     - Specific ingredients and portions
     - Brief preparation instructions
@@ -2105,7 +2106,7 @@ def build_meal_suggestion_prompt(
     - Health benefits
     - Any relevant tips or modifications
     """
-    
+
     return prompt
 
 def analyze_meal_patterns(meal_history: list) -> dict:
@@ -2118,7 +2119,7 @@ def analyze_meal_patterns(meal_history: list) -> dict:
         "dinner": [],
         "snack": []
     }
-    
+
     for meal in meal_history:
         if meal["meal_type"] in patterns:
             patterns[meal["meal_type"]].append({
@@ -2126,7 +2127,7 @@ def analyze_meal_patterns(meal_history: list) -> dict:
                 "frequency": 1,  # Can be updated for repeated meals
                 "calories": meal["nutritional_info"]["calories"]
             })
-    
+
     return patterns
 
 # Consumption fix-meal-types endpoint moved to routers/consumption_management.py
@@ -2136,148 +2137,229 @@ def analyze_meal_patterns(meal_history: list) -> dict:
 @app.get("/coach/smart-daily-meal-plan")
 async def get_smart_daily_meal_plan(current_user: User = Depends(get_current_user)):
     """
-    Enhanced Smart AI-operated daily meal plan with comprehensive health profile integration.
-    
+    Comprehensive Smart Daily Meal Plan with full interconnected system.
+
     Features:
-    - PERSISTENT daily meal plan (same plan all day until midnight reset)
-    - Full medical conditions and medication analysis  
-    - Meal plan history integration for personalized recommendations
-    - Real-time dynamic calibration based on consumption
-    - Protein goals and comprehensive macro tracking
-    - AI-powered nutritional insights and health recommendations
+    - Integrates comprehensive health profile, consumption history, and meal plan history
+    - Dynamic real-time recalibration based on actual consumption vs planned meals
+    - Multiple food logging display with proper formatting
+    - Persistent daily plans (same plan all day until midnight reset)
+    - Macro goal adherence through intelligent meal adjustments
     """
     try:
         user_email = current_user["email"]
         profile = current_user.get("profile", {})
-        today_date = datetime.utcnow().strftime("%Y-%m-%d")
         
-        # 🔍 DEBUG: Basic profile validation
-        dietary_restrictions = profile.get('dietaryRestrictions', [])
-        dietary_features = profile.get('dietaryFeatures', [])
-        print(f"[PROFILE_CHECK] User: {user_email}, dietaryFeatures: {dietary_features}, dietaryRestrictions: {dietary_restrictions}")
+        print(f"[SmartDailyMealPlan] Getting comprehensive meal plan for {user_email}")
         
-        print(f"[smart_daily_meal_plan] Checking for existing plan for {user_email} on {today_date}")
+        # Import and use the new service
+        from services.smart_daily_meal_plan_service import smart_daily_meal_plan_service
         
-        # 🚫 CACHING DISABLED - Always generate fresh plans
-        # This ensures no old recommendation data or non-vegetarian meals persist
-        print(f"[smart_daily_meal_plan] Caching disabled - generating fresh meal plan with no recommendations")
-        
-        print(f"[smart_daily_meal_plan] No existing plan found, generating new comprehensive meal plan")
-        
-        # Import the enhanced meal planner
-        from services.enhanced_smart_meal_planner import enhanced_smart_meal_planner
-        
-        # Generate comprehensive smart meal plan
-        comprehensive_plan = await enhanced_smart_meal_planner.generate_comprehensive_smart_meal_plan(
-            user_email=user_email,
-            user_profile=profile
+        # Get comprehensive meal plan
+        comprehensive_plan = await smart_daily_meal_plan_service.get_smart_daily_meal_plan(
+            user_email, profile
         )
         
-        # 🚫 SAVING DISABLED - No caching to ensure fresh generation every time
-        # await _save_smart_daily_meal_plan(user_email, today_date, comprehensive_plan)
-        print(f"[smart_daily_meal_plan] Saving disabled - meal plan will be fresh on every request")
+        # Format response for frontend compatibility
+        response = {
+            "smart_meal_plan": comprehensive_plan.get("meals", {}),
+            "consumption_by_meal": comprehensive_plan.get("consumption", {}),
+            "macro_progress": comprehensive_plan.get("macro_progress", {}),
+            "meal_configuration": comprehensive_plan.get("meal_configuration", {}),
+            "personalization_factors": {
+                "plan_type": "comprehensive",
+                "health_profile_integration": True,
+                "consumption_integration": True,
+                "meal_history_integration": True,
+                "recalibration_active": len(comprehensive_plan.get("recalibration_history", [])) > 0
+            },
+            "data_completeness": {
+                "health_profile": bool(profile),
+                "consumption_data": len(comprehensive_plan.get("consumption", {})) > 0,
+                "meal_history": True
+            },
+            "recalibration_history": comprehensive_plan.get("recalibration_history", []),
+            "last_updated": comprehensive_plan.get("last_updated", ""),
+            "created_at": comprehensive_plan.get("created_at", "")
+        }
         
-        print(f"[smart_daily_meal_plan] Successfully generated and saved new comprehensive meal plan")
-        print(f"[smart_daily_meal_plan] Recommendation confidence: {comprehensive_plan.get('recommendation_confidence', 0)}")
-        print(f"[smart_daily_meal_plan] Data completeness: {comprehensive_plan.get('data_completeness', {}).get('overall_completeness', 0)}")
-        
-        return comprehensive_plan
-        
+        print(f"[SmartDailyMealPlan] Successfully generated comprehensive meal plan")
+        return response
+
     except Exception as e:
-        print(f"[smart_daily_meal_plan] Error in comprehensive meal planning: {str(e)}")
+        print(f"[SmartDailyMealPlan] Error: {str(e)}")
         import traceback
-        traceback.print_exc()
-        
-        # Fallback to basic meal planning if enhanced version fails
+        print(f"[SmartDailyMealPlan] Traceback: {traceback.format_exc()}")
+
+        # Fallback to basic meal planning if comprehensive version fails
         try:
-            print(f"[smart_daily_meal_plan] Attempting fallback to basic meal planning...")
+            print(f"[SmartDailyMealPlan] Attempting fallback to basic meal planning...")
             return await _fallback_smart_daily_meal_plan(current_user)
         except Exception as fallback_error:
-            print(f"[smart_daily_meal_plan] Fallback also failed: {str(fallback_error)}")
+            print(f"[SmartDailyMealPlan] Fallback also failed: {str(fallback_error)}")
             raise HTTPException(status_code=500, detail=f"Failed to generate smart meal plan: {str(e)}")
 
 
 async def _get_existing_smart_daily_meal_plan(user_email: str, date: str) -> Optional[Dict]:
-    """Check if a Smart Daily Meal Plan exists for the given user and date."""
+    """🔒 ROBUST: Check if a Smart Daily Meal Plan exists for the given user and date - NO CACHING."""
     try:
         from database import interactions_container
         
+        # Use unique daily key for guaranteed database persistence
+        daily_key = f"smart_daily_{user_email}_{date}"
+        
+        # Direct database query - bypasses all caching layers
         query = """
-        SELECT * FROM c 
-        WHERE c.type = 'smart_daily_meal_plan' 
-        AND c.user_id = @user_id 
-        AND c.plan_date = @date
+        SELECT * FROM c
+        WHERE c.id = @daily_key
+        AND c.type = 'smart_daily_meal_plan'
+        ORDER BY c._ts DESC
+        """
+
+        parameters = [
+            {"name": "@daily_key", "value": daily_key}
+        ]
+
+        print(f"[ROBUST_DB] Direct database query for daily key: {daily_key}")
+        items = list(interactions_container.query_items(
+            query=query,
+            parameters=parameters,
+            enable_cross_partition_query=True
+        ))
+
+        if items:
+            latest_plan = items[0]  # Most recent by timestamp
+            print(f"[ROBUST_DB] ✅ Found existing plan for {user_email} on {date} (created: {latest_plan.get('created_at')})")
+            return latest_plan.get("plan_data", latest_plan)
+
+        print(f"[ROBUST_DB] ❌ No existing plan found for {user_email} on {date}")
+        return None
+
+    except Exception as e:
+        print(f"[ROBUST_DB] ⚠️ Database error checking for existing plan: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+
+async def _save_smart_daily_meal_plan(user_email: str, date: str, plan_data: Dict) -> bool:
+    """🔒 ROBUST: Save Smart Daily Meal Plan with guaranteed database persistence - NO CACHING."""
+    try:
+        from database import interactions_container
+        
+        # Use consistent daily key for database persistence
+        daily_key = f"smart_daily_{user_email}_{date}"
+        
+        plan_record = {
+            "id": daily_key,  # Consistent key ensures single plan per day
+            "type": "smart_daily_meal_plan",
+            "user_id": user_email,
+            "plan_date": date,
+            "created_at": datetime.utcnow().isoformat(),
+            "last_updated": datetime.utcnow().isoformat(),
+            "plan_data": plan_data,
+            "persistence_method": "database_first",  # Track that this uses robust persistence
+            "server_restart_safe": True  # Flag indicating restart resilience
+        }
+
+        # Use upsert to handle both create and update cases
+        try:
+            interactions_container.upsert_item(body=plan_record)
+            print(f"[ROBUST_DB] ✅ Successfully saved/updated plan for {user_email} on {date} (key: {daily_key})")
+            return True
+        except Exception as upsert_error:
+            # Fallback to create if upsert fails
+            print(f"[ROBUST_DB] Upsert failed, trying create: {upsert_error}")
+            interactions_container.create_item(body=plan_record)
+            print(f"[ROBUST_DB] ✅ Successfully created plan for {user_email} on {date} (key: {daily_key})")
+            return True
+
+    except Exception as e:
+        print(f"[ROBUST_DB] ⚠️ Database error saving plan: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
+async def _get_today_consumption_direct(user_email: str, user_timezone: str = "UTC") -> List[Dict]:
+    """🔒 ROBUST: Get today's consumption records with direct database query - NO CACHING."""
+    try:
+        from database import interactions_container
+        from datetime import datetime, timezone, timedelta
+        import pytz
+        
+        # Calculate today's date range in user's timezone
+        if user_timezone != "UTC":
+            try:
+                tz = pytz.timezone(user_timezone)
+                local_now = datetime.now(tz)
+            except:
+                local_now = datetime.utcnow()
+        else:
+            local_now = datetime.utcnow()
+        
+        today_start = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
+        today_end = local_now.replace(hour=23, minute=59, second=59, microsecond=999999)
+        
+        # Convert to ISO strings for database query
+        start_iso = today_start.isoformat()
+        end_iso = today_end.isoformat()
+        
+        # Direct database query - bypasses ALL caching layers
+        query = """
+        SELECT * FROM c
+        WHERE c.type = 'consumption_record'
+        AND c.user_id = @user_id
+        AND c.timestamp >= @start_time
+        AND c.timestamp <= @end_time
+        ORDER BY c.timestamp ASC
         """
         
         parameters = [
             {"name": "@user_id", "value": user_email},
-            {"name": "@date", "value": date}
+            {"name": "@start_time", "value": start_iso},
+            {"name": "@end_time", "value": end_iso}
         ]
         
+        print(f"[ROBUST_DB] Direct consumption query for {user_email} ({start_iso} to {end_iso})")
         items = list(interactions_container.query_items(
             query=query,
             parameters=parameters,
             enable_cross_partition_query=True
         ))
         
-        if items:
-            print(f"[get_existing_smart_daily_meal_plan] Found existing plan for {user_email} on {date}")
-            return items[0].get("plan_data", items[0])  # Return plan_data or full record for backward compatibility
-        
-        print(f"[get_existing_smart_daily_meal_plan] No existing plan found for {user_email} on {date}")
-        return None
+        print(f"[ROBUST_DB] Found {len(items)} consumption records for today")
+        return items
         
     except Exception as e:
-        print(f"[get_existing_smart_daily_meal_plan] Error checking for existing plan: {e}")
-        return None
-
-async def _save_smart_daily_meal_plan(user_email: str, date: str, plan_data: Dict) -> bool:
-    """Save Smart Daily Meal Plan for the given user and date."""
-    try:
-        from database import interactions_container
-        import uuid
-        
-        plan_record = {
-            "id": f"smart_daily_meal_plan_{user_email}_{date}_{int(datetime.utcnow().timestamp())}",
-            "type": "smart_daily_meal_plan",
-            "user_id": user_email,
-            "plan_date": date,
-            "created_at": datetime.utcnow().isoformat(),
-            "plan_data": plan_data
-        }
-        
-        interactions_container.create_item(body=plan_record)
-        print(f"[save_smart_daily_meal_plan] Successfully saved plan for {user_email} on {date}")
-        return True
-        
-    except Exception as e:
-        print(f"[save_smart_daily_meal_plan] Error saving plan: {e}")
-        return False
+        print(f"[ROBUST_DB] ⚠️ Error getting today's consumption: {e}")
+        import traceback
+        traceback.print_exc()
+        return []
 
 async def _update_smart_daily_meal_plan(user_email: str, date: str, updated_plan_data: Dict) -> bool:
     """Update existing Smart Daily Meal Plan with calibrated data."""
     try:
         from database import interactions_container
-        
+
         # Get existing plan
         existing_plan = await _get_existing_smart_daily_meal_plan(user_email, date)
         if not existing_plan:
             print(f"[update_smart_daily_meal_plan] No existing plan to update")
             return False
-        
+
         # Update the plan data
         existing_plan["plan_data"] = updated_plan_data
         existing_plan["last_updated"] = datetime.utcnow().isoformat()
-        
+
         # Replace the document
         interactions_container.replace_item(
             item=existing_plan["id"],
             body=existing_plan
         )
-        
+
         print(f"[update_smart_daily_meal_plan] Successfully updated plan for {user_email} on {date}")
         return True
-        
+
     except Exception as e:
         print(f"[update_smart_daily_meal_plan] Error updating plan: {e}")
         return False
@@ -2287,34 +2369,34 @@ async def _fallback_smart_daily_meal_plan(current_user: User):
     user_email = current_user["email"]
     profile = current_user.get("profile", {})
     user_timezone = profile.get("timezone", "UTC")
-    
+
     # Get today's consumption records
     today_consumption = await get_today_consumption_records_async(user_email, user_timezone)
-    
+
     # Get user's target calories and dietary preferences
     calorie_target_str = profile.get('calorieTarget', '2000')
     try:
         target_calories = int(calorie_target_str) if calorie_target_str and calorie_target_str.strip() else 2000
     except (ValueError, TypeError):
         target_calories = 2000
-    
+
     # Calculate calories consumed so far
     calories_consumed = sum(
-        record.get('nutritional_info', {}).get('calories', 0) 
+        record.get('nutritional_info', {}).get('calories', 0)
         for record in today_consumption
     )
-    
+
     # Determine remaining meals
     from datetime import datetime
     import pytz
-    
+
     try:
         user_tz = pytz.timezone(user_timezone)
         current_time = datetime.now(user_tz)
         current_hour = current_time.hour
     except:
         current_hour = datetime.utcnow().hour
-    
+
     remaining_meals = []
     if current_hour < 10:
         remaining_meals = ['breakfast', 'lunch', 'dinner', 'snack']
@@ -2324,19 +2406,19 @@ async def _fallback_smart_daily_meal_plan(current_user: User):
         remaining_meals = ['dinner', 'snack']
     elif current_hour < 22:
         remaining_meals = ['snack']
-    
+
     # Simple fallback meal suggestions
     fallback_meals = {}
     remaining_calories = max(0, target_calories - calories_consumed)
     calories_per_meal = remaining_calories // max(len(remaining_meals), 1) if remaining_calories > 0 else 300
-    
+
     meal_templates = {
         'breakfast': 'Balanced breakfast with protein and complex carbs',
-        'lunch': 'Nutritious lunch with lean protein and vegetables', 
+        'lunch': 'Nutritious lunch with lean protein and vegetables',
         'dinner': 'Well-balanced dinner with protein, vegetables, and healthy carbs',
         'snack': 'Healthy snack to bridge meal gaps'
     }
-    
+
     for meal in remaining_meals:
         fallback_meals[meal] = {
             "meal_name": meal_templates.get(meal, f"Healthy {meal}"),
@@ -2345,7 +2427,7 @@ async def _fallback_smart_daily_meal_plan(current_user: User):
             "health_benefits": ["balanced_nutrition"],
             "preparation_tips": "Follow healthy eating principles"
         }
-    
+
     return {
         "user_email": user_email,
         "target_date": datetime.utcnow().date().isoformat(),
@@ -2378,34 +2460,34 @@ async def _generate_smart_adaptive_meals(
     current_hour: int
 ) -> dict:
     """Generate smart meal suggestions that adapt based on what was already consumed."""
-    
+
     if not remaining_meals:
         return {}
-    
+
     # Calculate how heavy/light the consumed meals were
     breakfast_calories = sum(item['calories'] for item in consumption_by_meal.get('breakfast', []))
     lunch_calories = sum(item['calories'] for item in consumption_by_meal.get('lunch', []))
-    
+
     # Adaptive logic based on consumption patterns
     adaptation_context = ""
     if breakfast_calories > 600:  # Heavy breakfast
         adaptation_context += "User had a heavy breakfast, suggesting lighter lunch/dinner. "
     elif breakfast_calories > 0 and breakfast_calories < 250:  # Light breakfast
         adaptation_context += "User had a light breakfast, can accommodate heartier lunch/dinner. "
-    
+
     if lunch_calories > 700:  # Heavy lunch
         adaptation_context += "User had a heavy lunch, suggesting lighter dinner. "
     elif lunch_calories > 0 and lunch_calories < 300:  # Light lunch
         adaptation_context += "User had a light lunch, dinner can be more substantial. "
-    
+
     # Distribute remaining calories across remaining meals
     calories_per_meal = remaining_calories // max(len(remaining_meals), 1) if remaining_calories > 0 else 300
-    
+
     # Build the AI prompt for smart suggestions
     dietary_info = ", ".join(dietary_restrictions) if dietary_restrictions else "no specific restrictions"
     preferences_info = ", ".join(food_preferences) if food_preferences else "no specific preferences"
     dislikes_info = ", ".join(strong_dislikes) if strong_dislikes else "no specific dislikes"
-    
+
     prompt = f"""Generate smart, adaptive meal suggestions for a diabetes-friendly diet.
 
 CONTEXT:
@@ -2440,13 +2522,13 @@ Return ONLY a JSON object with this structure:
 
     try:
         from services.openai_service import robust_openai_call
-        
+
         ai_response = await robust_openai_call(
             [{"role": "user", "content": prompt}],
             temperature=0.7,
             max_tokens=800
         )
-        
+
         if ai_response and ai_response.strip():
             # Parse the AI response
             import json
@@ -2460,10 +2542,10 @@ Return ONLY a JSON object with this structure:
                 return filtered_suggestions
             except json.JSONDecodeError:
                 print(f"[smart_adaptive] Failed to parse AI response: {ai_response}")
-        
+
     except Exception as e:
         print(f"[smart_adaptive] AI generation failed: {e}")
-    
+
     # Fallback suggestions
     fallback_suggestions = {
         'breakfast': 'Steel-cut oats with fresh berries and almonds',
@@ -2471,7 +2553,7 @@ Return ONLY a JSON object with this structure:
         'dinner': 'Baked salmon with roasted sweet potato and steamed broccoli',
         'snack': 'Greek yogurt with cucumber slices and a handful of nuts'
     }
-    
+
     return {meal: fallback_suggestions[meal] for meal in remaining_meals if meal in fallback_suggestions}
 
 
@@ -2479,45 +2561,45 @@ def _format_consumption_for_ai(consumption_by_meal: dict) -> str:
     """Format consumption data for AI context."""
     if not consumption_by_meal:
         return "No meals consumed yet today."
-    
+
     formatted = []
     for meal_type, items in consumption_by_meal.items():
         if items:
             total_calories = sum(item['calories'] for item in items)
             food_names = [item['food_name'] for item in items]
             formatted.append(f"{meal_type.title()}: {', '.join(food_names)} ({total_calories} calories)")
-    
+
     return '\n'.join(formatted) if formatted else "No meals consumed yet today."
 
 
 def _generate_adaptive_notes(calories_consumed: int, target_calories: int, consumption_by_meal: dict, remaining_meals: list) -> list:
     """Generate adaptive notes based on consumption patterns."""
     notes = []
-    
+
     # Calorie tracking note
     if calories_consumed > target_calories * 0.8:  # Consumed more than 80% of daily calories
         notes.append("You're close to your daily calorie goal. Consider lighter portions for remaining meals.")
     elif calories_consumed < target_calories * 0.3:  # Consumed less than 30% of daily calories
         notes.append("You have plenty of calories left for the day. You can enjoy more substantial meals.")
-    
+
     # Meal timing notes
     breakfast_consumed = len(consumption_by_meal.get('breakfast', []))
     lunch_consumed = len(consumption_by_meal.get('lunch', []))
-    
+
     if breakfast_consumed == 0 and 'breakfast' not in remaining_meals:
         notes.append("You skipped breakfast today. Consider a protein-rich snack to maintain energy levels.")
-    
+
     if lunch_consumed == 0 and 'lunch' not in remaining_meals:
         notes.append("You skipped lunch. Your dinner suggestions are adjusted to be more substantial.")
-    
+
     # Adaptation notes
     if consumption_by_meal.get('breakfast'):
         breakfast_calories = sum(item['calories'] for item in consumption_by_meal['breakfast'])
         if breakfast_calories > 600:
             notes.append("Your breakfast was quite hearty. The remaining meal suggestions are adjusted to be lighter.")
-    
+
     return notes
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000) 
+    uvicorn.run(app, host="0.0.0.0", port=8000)

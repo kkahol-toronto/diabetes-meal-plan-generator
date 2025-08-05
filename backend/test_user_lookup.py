@@ -7,6 +7,9 @@ import json
 # Load environment variables
 load_dotenv()
 
+import pytest
+
+@pytest.mark.asyncio
 async def test_user_lookup():
     """Test if we can find the user kanavtoronto@gmail.com and print admin user details"""
     try:

@@ -12,6 +12,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from database import get_user_meal_plans, interactions_container
 
+import pytest
+
+@pytest.mark.asyncio
 async def test_meal_plan_retrieval():
     """Test that meal plans with PDFs are retrieved correctly"""
     

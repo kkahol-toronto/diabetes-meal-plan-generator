@@ -156,7 +156,7 @@ async def _generate_fresh_dietary_plan(
     try:
         # Get today's consumption for calorie calculation
         user_timezone = user_profile.get("timezone", "UTC")
-    today_consumption = await get_today_consumption_records_async(user_email, user_timezone=user_timezone)
+        today_consumption = await get_today_consumption_records_async(user_email, user_timezone=user_timezone)
         calories_consumed = sum(r.get("nutritional_info", {}).get("calories", 0) for r in today_consumption)
         calorie_target_str = user_profile.get('calorieTarget', '2000')
         try:

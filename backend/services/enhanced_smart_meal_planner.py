@@ -391,6 +391,15 @@ class EnhancedSmartMealPlanner:
         # 🚨 COMBINE dietary restrictions and features for complete dietary info
         all_dietary_info = dietary_restrictions + dietary_features
         
+        # 🚨 ENHANCED DEBUG LOGGING
+        print(f"[MEAL_GEN_DEBUG] ============== DIETARY ANALYSIS DEBUG ==============")
+        print(f"[MEAL_GEN_DEBUG] dietaryRestrictions from profile: {dietary_restrictions}")
+        print(f"[MEAL_GEN_DEBUG] dietaryFeatures from profile: {dietary_features}")
+        print(f"[MEAL_GEN_DEBUG] Combined all_dietary_info: {all_dietary_info}")
+        print(f"[MEAL_GEN_DEBUG] allergies: {allergies}")
+        print(f"[MEAL_GEN_DEBUG] strong_dislikes: {strong_dislikes}")
+        print(f"[MEAL_GEN_DEBUG] ==================================================")
+        
         # Create diverse meal options based on different cuisines and cooking methods
         import random
         from datetime import datetime
@@ -408,14 +417,38 @@ class EnhancedSmartMealPlanner:
         
         # Determine user's dietary category - check BOTH restrictions and features
         dietary_category = "omnivore"  # default
-        diet_info = [str(d).lower() for d in all_dietary_info if d]
+        diet_info = [str(d).lower().strip() for d in all_dietary_info if d]
+        
+        # 🚨 ENHANCED VEGETARIAN DETECTION - Check multiple fields and formats
+        vegetarian_indicators = []
+        
+        # Check in all possible profile fields for vegetarian indicators
+        profile_fields_to_check = [
+            dietary_restrictions, dietary_features, user_profile.get('dietType', []), 
+            user_profile.get('diet_type', []), user_profile.get('diet_features', [])
+        ]
+        
+        for field in profile_fields_to_check:
+            if isinstance(field, list):
+                vegetarian_indicators.extend([str(item).lower().strip() for item in field if item])
+            elif field:
+                vegetarian_indicators.append(str(field).lower().strip())
+        
+        # Comprehensive vegetarian detection
+        is_vegetarian = any(
+            "vegetarian" in indicator or 
+            "veg" in indicator or
+            "no meat" in indicator or
+            "plant-based" in indicator
+            for indicator in vegetarian_indicators
+        )
         
         # Check for dietary patterns in BOTH fields - handle various formats
-        if any("vegetarian" in d for d in diet_info):
+        if is_vegetarian or any("vegetarian" in d for d in diet_info):
             dietary_category = "vegetarian"
             # Check if eggs are allowed for vegetarians
-            has_eggs = any("with eggs" in d or "with egg" in d for d in diet_info)
-            no_eggs = any("no eggs" in d or "no egg" in d for d in diet_info)
+            has_eggs = any("with eggs" in d or "with egg" in d for d in diet_info + vegetarian_indicators)
+            no_eggs = any("no eggs" in d or "no egg" in d or "vegetarian (no eggs)" in d for d in diet_info + vegetarian_indicators)
             print(f"[EnhancedSmartMealPlanner] Vegetarian detected - eggs allowed: {has_eggs}, no eggs: {no_eggs}")
         elif any("vegan" in d for d in diet_info):
             dietary_category = "vegan"  
@@ -424,8 +457,26 @@ class EnhancedSmartMealPlanner:
         
         print(f"[EnhancedSmartMealPlanner] Dietary category: {dietary_category} (from {all_dietary_info})")
         
-        # Get appropriate proteins for user's diet
-        proteins = all_proteins.get(dietary_category, all_proteins["omnivore"])
+        # 🚨 ADDITIONAL DEBUG - Show exactly what we're checking
+        print(f"[MEAL_GEN_DEBUG] ============== DIETARY CATEGORY DETECTION ==============")
+        print(f"[MEAL_GEN_DEBUG] diet_info (lowercased): {diet_info}")
+        print(f"[MEAL_GEN_DEBUG] Checking for 'vegetarian' in diet_info...")
+        vegetarian_found = [d for d in diet_info if "vegetarian" in d]
+        print(f"[MEAL_GEN_DEBUG] Vegetarian matches found: {vegetarian_found}")
+        print(f"[MEAL_GEN_DEBUG] Final dietary_category determined: {dietary_category}")
+        print(f"[MEAL_GEN_DEBUG] =====================================================")
+        
+        # Get appropriate proteins for user's diet - ENHANCED with safety check
+        if dietary_category == "vegetarian" or is_vegetarian:
+            proteins = all_proteins["vegetarian"]
+        elif dietary_category == "vegan":
+            proteins = all_proteins["vegan"]
+        elif dietary_category == "pescatarian":
+            proteins = all_proteins["pescatarian"]
+        else:
+            proteins = all_proteins["omnivore"]
+            
+        print(f"[MEAL_GEN_DEBUG] Selected proteins for {dietary_category} (is_vegetarian: {is_vegetarian}): {proteins}")
         
         # Diverse carb sources (diabetes-friendly)
         carbs = ["quinoa", "brown rice", "sweet potato", "cauliflower rice", "whole grain pasta", "barley", "bulgur wheat", "wild rice", "buckwheat", "steel-cut oats"]
@@ -469,13 +520,14 @@ CREATIVITY GUIDELINES:
 USER IS: {dietary_category.upper()}
 DIETARY INFO: {all_dietary_info}
 DIETARY FEATURES: {dietary_features}
+VEGETARIAN INDICATORS: {vegetarian_indicators}
 
 🛑 ABSOLUTELY FORBIDDEN - DO NOT INCLUDE ANY OF THESE:
-{"- NO MEAT: chicken, beef, pork, lamb, turkey, duck, venison" if dietary_category == "vegetarian" else ""}
-{"- NO SEAFOOD: fish, salmon, tuna, shrimp, crab, lobster, mussels, oysters" if dietary_category == "vegetarian" else ""}
-{"- NO POULTRY: chicken, turkey, duck, goose" if dietary_category == "vegetarian" else ""}
-{"- NO ANIMAL FLESH OF ANY KIND" if dietary_category == "vegetarian" else ""}
-{"- ONLY PLANT-BASED PROTEINS ALLOWED" if dietary_category == "vegetarian" else ""}
+{"- NO MEAT: chicken, beef, pork, lamb, turkey, duck, venison" if dietary_category == "vegetarian" or is_vegetarian else ""}
+{"- NO SEAFOOD: fish, salmon, tuna, shrimp, crab, lobster, mussels, oysters" if dietary_category == "vegetarian" or is_vegetarian else ""}
+{"- NO POULTRY: chicken, turkey, duck, goose" if dietary_category == "vegetarian" or is_vegetarian else ""}
+{"- NO ANIMAL FLESH OF ANY KIND" if dietary_category == "vegetarian" or is_vegetarian else ""}
+{"- ONLY PLANT-BASED PROTEINS ALLOWED" if dietary_category == "vegetarian" or is_vegetarian else ""}
 
 🌱 ONLY USE THESE PROTEINS FOR {dietary_category.upper()}: {proteins}
 
@@ -485,9 +537,11 @@ EXAMPLES of creative meal names for {dietary_category.upper()} diet:
 Create DIVERSE, SPECIFIC meals in JSON format. Make each meal unique and interesting:
 
 🚨 ABSOLUTE REQUIREMENT: If user is VEGETARIAN, you MUST NOT include ANY animal flesh, fish, seafood, chicken, turkey, beef, pork, or any meat products. ONLY plant-based proteins like tofu, lentils, tempeh, chickpeas are allowed.
-{"🥚 EGG RESTRICTION: User is vegetarian with NO EGGS - do not include eggs, omelets, quiche, egg-based dishes" if dietary_category == "vegetarian" and any("no egg" in d for d in diet_info) else ""}
+{"🥚 EGG RESTRICTION: User is vegetarian with NO EGGS - do not include eggs, omelets, quiche, egg-based dishes" if (dietary_category == "vegetarian" or is_vegetarian) and any("no egg" in d for d in diet_info + vegetarian_indicators) else ""}
 
 ⚠️ MANDATORY: All meals MUST comply with {dietary_category} dietary restrictions! Any meal containing forbidden ingredients will be REJECTED!
+
+🚨 TRIPLE CHECK: User profile indicates vegetarian preferences: {is_vegetarian}. If TRUE, meals MUST be 100% vegetarian!
 
 {{"""
         
@@ -593,6 +647,30 @@ BE CREATIVE! Make each meal sound delicious and unique!"""
                     recommendations = json.loads(content)
                     print(f"[EnhancedSmartMealPlanner] Attempt {attempt + 1}: Successfully parsed JSON")
                     
+                    # 🚨 DEBUG: Log generated meals for dietary compliance check
+                    print(f"[MEAL_GEN_DEBUG] ============== GENERATED MEALS DEBUG ==============")
+                    for meal_type, meal_data in recommendations.items():
+                        if isinstance(meal_data, dict):
+                            meal_name = meal_data.get('meal_name', 'No name')
+                            ingredients = meal_data.get('ingredients', [])
+                            print(f"[MEAL_GEN_DEBUG] {meal_type.upper()}: {meal_name}")
+                            print(f"[MEAL_GEN_DEBUG] {meal_type.upper()} ingredients: {ingredients}")
+                            
+                            # Check for problematic ingredients
+                            problematic = []
+                            for ingredient in ingredients:
+                                ingredient_lower = str(ingredient).lower()
+                                if any(meat in ingredient_lower for meat in ['chicken', 'beef', 'pork', 'turkey', 'salmon', 'fish', 'meat', 'bacon', 'ham', 'sausage', 'tuna', 'duck', 'lamb']):
+                                    problematic.append(ingredient)
+                            if problematic:
+                                print(f"[MEAL_GEN_DEBUG] ⚠️  {meal_type.upper()} CONTAINS PROBLEMATIC INGREDIENTS: {problematic}")
+                            
+                            # Check meal name for problematic terms too
+                            meal_name_lower = meal_name.lower()
+                            if any(meat in meal_name_lower for meat in ['chicken', 'beef', 'pork', 'turkey', 'salmon', 'fish', 'meat', 'bacon', 'ham', 'sausage', 'tuna', 'duck', 'lamb']):
+                                print(f"[MEAL_GEN_DEBUG] ⚠️  {meal_type.upper()} MEAL NAME CONTAINS MEAT: {meal_name}")
+                    print(f"[MEAL_GEN_DEBUG] ================================================")
+                    
                     # Validate that we got actual meal recommendations
                     valid_meals = 0
                     for meal_type in remaining_meals:
@@ -605,8 +683,8 @@ BE CREATIVE! Make each meal sound delicious and unique!"""
                         print(f"[EnhancedSmartMealPlanner] SUCCESS! Generated {valid_meals} valid meals")
                         
                         # 🚨 CRITICAL VALIDATION: Check for forbidden animal products
-                        if dietary_category == "vegetarian":
-                            validation_result = self._validate_vegetarian_meals(recommendations, remaining_meals, all_dietary_info)
+                        if dietary_category == "vegetarian" or is_vegetarian:
+                            validation_result = self._validate_vegetarian_meals(recommendations, remaining_meals, all_dietary_info + vegetarian_indicators)
                             if not validation_result["is_valid"]:
                                 print(f"🚨 [DIETARY_VIOLATION] Rejected meals containing: {validation_result['violations']}")
                                 print(f"🚨 [DIETARY_VIOLATION] Attempting new generation...")
@@ -1411,9 +1489,11 @@ Generate simple JSON format:
                 meal_data = recommendations[meal_type]
                 meal_name = meal_data.get('meal_name', '').lower()
                 description = meal_data.get('description', '').lower()
+                ingredients = meal_data.get('ingredients', [])
+                ingredients_text = ' '.join([str(ing).lower() for ing in ingredients])
                 
-                # Check meal name and description for forbidden items
-                full_text = f"{meal_name} {description}"
+                # Check meal name, description, and ingredients for forbidden items
+                full_text = f"{meal_name} {description} {ingredients_text}"
                 
                 for forbidden_item in forbidden_items:
                     if forbidden_item in full_text:

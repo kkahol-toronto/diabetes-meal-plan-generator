@@ -2,11 +2,14 @@ import os
 import asyncio
 from dotenv import load_dotenv
 from database import get_user_by_email
-from main import verify_password
+from utils import verify_password
 
 # Load environment variables
 load_dotenv()
 
+import pytest
+
+@pytest.mark.asyncio
 async def test_admin_password():
     admin_email = "dev@mirakalous.com"
     password = "admin123"
