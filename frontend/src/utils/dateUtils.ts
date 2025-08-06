@@ -15,6 +15,7 @@ export const formatUTCToLocal = (
     includeTime?: boolean;
     relative?: boolean;
     format?: 'short' | 'long' | 'numeric';
+    profileTimezone?: string;
   } = {}
 ): string => {
   const {
@@ -38,8 +39,8 @@ export const formatUTCToLocal = (
       return 'Invalid Date';
     }
 
-    // Get user's timezone
-    const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    // Get user's timezone - use profile timezone if provided, otherwise browser detection
+    const timeZone = options.profileTimezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
 
     // Handle relative dates (Today, Yesterday, etc.)
     if (relative && includeDate) {

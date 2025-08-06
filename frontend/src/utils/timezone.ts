@@ -10,10 +10,11 @@ export interface TimezoneInfo {
 }
 
 /**
- * Get the user's timezone information from the browser
+ * Get the user's timezone information - prioritizing profile timezone over browser detection
  */
-export function getUserTimezone(): TimezoneInfo {
-  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+export function getUserTimezone(profileTimezone?: string): TimezoneInfo {
+  // Use profile timezone if available, otherwise fall back to browser detection
+  const timezone = profileTimezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
   const now = new Date();
   const offset = now.getTimezoneOffset();
   
@@ -31,39 +32,56 @@ export function getUserTimezone(): TimezoneInfo {
 }
 
 /**
- * Get the user's current local date (YYYY-MM-DD format)
+ * Get the user's current local date (YYYY-MM-DD format) in their profile timezone
  */
-export function getUserLocalDate(): string {
+export function getUserLocalDate(profileTimezone?: string): string {
+  const timezone = profileTimezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
   const now = new Date();
   
-  // Use simpler, more reliable approach
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const day = String(now.getDate()).padStart(2, '0');
+  // Use the user's timezone to get the correct local date
+  const localDate = new Intl.DateTimeFormat('en-CA', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).format(now);
   
-  return `${year}-${month}-${day}`;
+  return localDate; // Returns YYYY-MM-DD format
 }
 
 /**
- * Convert a UTC timestamp to user's local date
+ * Convert a UTC timestamp to user's local date in their profile timezone
  */
-export function convertUTCToLocalDate(utcTimestamp: string): string {
-  const utcDate = new Date(utcTimestamp);
+export function convertUTCToLocalDate(utcTimestamp: string, profileTimezone?: string): string {
+  if (!utcTimestamp) return '';
   
-  // Use browser's automatic timezone conversion (simpler and more reliable)
-  const year = utcDate.getFullYear();
-  const month = String(utcDate.getMonth() + 1).padStart(2, '0');
-  const day = String(utcDate.getDate()).padStart(2, '0');
-  
-  return `${year}-${month}-${day}`;
+  try {
+    const date = new Date(utcTimestamp);
+    if (isNaN(date.getTime())) return '';
+    
+    const timezone = profileTimezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
+    
+    // Convert to local date using user's timezone
+    const localDate = new Intl.DateTimeFormat('en-CA', {
+      timeZone: timezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    }).format(date);
+    
+    return localDate; // Returns YYYY-MM-DD format
+  } catch (error) {
+    console.error('Error converting UTC to local date:', error);
+    return '';
+  }
 }
 
 /**
  * Check if a UTC timestamp is from "today" in the user's timezone
  */
-export function isToday(utcTimestamp: string): boolean {
-  const todayLocal = getUserLocalDate();
-  const recordDate = convertUTCToLocalDate(utcTimestamp);
+export function isToday(utcTimestamp: string, profileTimezone?: string): boolean {
+  const todayLocal = getUserLocalDate(profileTimezone);
+  const recordDate = convertUTCToLocalDate(utcTimestamp, profileTimezone);
   
   return recordDate === todayLocal;
 }
@@ -95,8 +113,8 @@ export function getLocalDateRange(days: number): { start: string; end: string } 
 /**
  * Filter consumption records to only include those from today (user's timezone)
  */
-export function filterTodayRecords<T extends { timestamp: string }>(records: T[]): T[] {
-  return records.filter(record => isToday(record.timestamp));
+export function filterTodayRecords<T extends { timestamp: string }>(records: T[], profileTimezone?: string): T[] {
+  return records.filter(record => isToday(record.timestamp, profileTimezone));
 }
 
 /**
@@ -104,12 +122,13 @@ export function filterTodayRecords<T extends { timestamp: string }>(records: T[]
  */
 export function filterRecordsByDateRange<T extends { timestamp: string }>(
   records: T[], 
-  days: number
+  days: number,
+  profileTimezone?: string
 ): T[] {
   const { start, end } = getLocalDateRange(days);
   
   return records.filter(record => {
-    const recordDate = convertUTCToLocalDate(record.timestamp);
+    const recordDate = convertUTCToLocalDate(record.timestamp, profileTimezone);
     return recordDate >= start && recordDate < end;
   });
 }

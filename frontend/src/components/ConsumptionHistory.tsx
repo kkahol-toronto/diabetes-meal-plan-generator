@@ -255,6 +255,7 @@ const ConsumptionHistory: React.FC = () => {
   const [consumptionHistory, setConsumptionHistory] = useState<ConsumptionRecord[]>([]);
   const [analytics, setAnalytics] = useState<ConsumptionAnalytics | null>(null);
   const [dailyInsights, setDailyInsights] = useState<DailyInsights | null>(null);
+  const [userProfile, setUserProfile] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState(0);
@@ -508,10 +509,11 @@ const ConsumptionHistory: React.FC = () => {
       };
 
       // Load raw data (we'll filter client-side for timezone accuracy)
-      const [historyResponse, insightsResponse, mealAnalyticsResponse] = await Promise.all([
+      const [historyResponse, insightsResponse, mealAnalyticsResponse, profileResponse] = await Promise.all([
         fetch(`${config.API_URL}/consumption/history?limit=${fetchLimit}`, { headers }),
         fetch(`${config.API_URL}/coach/daily-insights`, { headers }),
-        fetch(`${config.API_URL}/consumption/meal-analytics?days=${selectedDays}`, { headers })
+        fetch(`${config.API_URL}/consumption/meal-analytics?days=${selectedDays}`, { headers }),
+        fetch(`${config.API_URL}/user/profile`, { headers })
       ]);
 
       if (!historyResponse.ok) {
@@ -535,33 +537,47 @@ const ConsumptionHistory: React.FC = () => {
         setMealAnalytics(mealAnalyticsData);
       }
 
+      // Load user profile for timezone information
+      let profileData = null;
+      if (profileResponse.ok) {
+        const profileResult = await profileResponse.json();
+        profileData = profileResult.profile || {};
+        setUserProfile(profileData);
+        console.log('Loaded user profile:', profileData);
+      }
+
+      // Get user's profile timezone for consistent filtering
+      const userTimezone = profileData?.timezone || 'America/Toronto'; // Default to Toronto if not set
+      
       console.log('Loaded raw consumption data:', { 
         totalRecords: allHistoryData.length, 
         selectedDays, 
-        timezone: getUserTimezone()
+        userTimezone,
+        browserTimezone: getUserTimezone().timezone
       });
 
       // Client-side timezone-aware filtering with debugging
       let filteredHistory: any[] = [];
       
       console.log('=== FILTERING DEBUG ===');
+      console.log('Using user profile timezone:', userTimezone);
       console.log('All records timestamps:', allHistoryData.map((r: any) => ({
         id: r.id, 
         food: r.food_name, 
         timestamp: r.timestamp,
-        local_date: r.timestamp ? convertUTCToLocalDate(r.timestamp) : 'no timestamp'
+        local_date: r.timestamp ? convertUTCToLocalDate(r.timestamp, userTimezone) : 'no timestamp'
       })));
       
       if (selectedDays === 1) {
         // For "Today", use strict filtering - only include records from today
-        const today = getUserLocalDate();
+        const today = getUserLocalDate(userTimezone);
         
-        console.log('Today (local):', today);
+        console.log('Today (user timezone):', today);
         
         filteredHistory = allHistoryData.filter((record: any) => {
           if (!record.timestamp) return false;
           
-          const recordLocalDate = convertUTCToLocalDate(record.timestamp);
+          const recordLocalDate = convertUTCToLocalDate(record.timestamp, userTimezone);
           const isToday = recordLocalDate === today;
           
           console.log(`Record ${record.food_name}: ${record.timestamp} -> ${recordLocalDate} (Today: ${isToday})`);
@@ -571,11 +587,11 @@ const ConsumptionHistory: React.FC = () => {
           return isToday;
         });
         
-        console.log('Filtered for today (lenient):', filteredHistory.length, 'records');
+        console.log('Filtered for today (user timezone):', filteredHistory.length, 'records');
       } else {
         // For other ranges, use the original filtering logic
-        filteredHistory = filterRecordsByDateRange(allHistoryData, selectedDays);
-        console.log(`Filtered for last ${selectedDays} days:`, filteredHistory.length, 'records');
+        filteredHistory = filterRecordsByDateRange(allHistoryData, selectedDays, userTimezone);
+        console.log(`Filtered for last ${selectedDays} days (user timezone):`, filteredHistory.length, 'records');
       }
       
       console.log('Final filtered records:', filteredHistory.map((r: any) => ({
