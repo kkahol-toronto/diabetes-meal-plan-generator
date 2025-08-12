@@ -360,6 +360,11 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({
   const lastSaveRef = useRef<string>('');
 
   useEffect(() => {
+    // In admin mode, this form is used to edit a patient's profile.
+    // We must NOT auto-save to the logged-in admin's own /user/profile.
+    if (isAdminMode) {
+      return;
+    }
     // Debounced auto-save with race condition prevention
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current);
@@ -419,6 +424,16 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({
     const RETRY_DELAY = 1000;
 
     try {
+      // In admin mode, never save to /user/profile with the admin token
+      if (isAdminMode) {
+        console.log('[UserProfileForm] Admin mode: skipping save to /user/profile');
+        setSaveQueue(prev => ({ ...prev, isProcessing: false }));
+        setDebugInfo(prev => ({
+          ...prev,
+          saveStatus: 'idle',
+        }));
+        return;
+      }
       // Mark save as in progress
       setSaveQueue(prev => ({ ...prev, isProcessing: true }));
       setDebugInfo(prev => ({
@@ -461,16 +476,18 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({
       console.log(`[UserProfileForm] Saving profile to database (attempt ${retryCount + 1}) with readinessToChange: ${profileData.readinessToChange}, wantsWeightLoss: ${profileData.wantsWeightLoss}`);
       console.log('[UserProfileForm] Full profile data being saved:', profileData);
       
-      // Also save to localStorage as backup
-      try {
-        localStorage.setItem('userProfile_backup', JSON.stringify({
-          profile: profileData,
-          timestamp: new Date().toISOString(),
-          version: Date.now()
-        }));
-        console.log('[UserProfileForm] Profile backed up to localStorage');
-      } catch (backupError) {
-        console.error('[UserProfileForm] Failed to backup to localStorage:', backupError);
+      // Also save to localStorage as backup (skip in admin mode to avoid polluting admin's storage)
+      if (!isAdminMode) {
+        try {
+          localStorage.setItem('userProfile_backup', JSON.stringify({
+            profile: profileData,
+            timestamp: new Date().toISOString(),
+            version: Date.now()
+          }));
+          console.log('[UserProfileForm] Profile backed up to localStorage');
+        } catch (backupError) {
+          console.error('[UserProfileForm] Failed to backup to localStorage:', backupError);
+        }
       }
       
       const response = await fetch(`${config.API_URL}/user/profile`, {
@@ -555,6 +572,11 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({
   // Load saved profile on mount - try database first, then localStorage
   useEffect(() => {
     const loadProfile = async () => {
+      // In admin mode, we rely on initialProfile passed from the admin patient loader.
+      // Never load the logged-in admin's own profile here.
+      if (isAdminMode) {
+        return;
+      }
       if (!initialProfile) {
         const token = localStorage.getItem('token');
         
