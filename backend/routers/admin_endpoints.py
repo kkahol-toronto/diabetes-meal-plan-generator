@@ -824,17 +824,40 @@ async def get_nutrient_adequacy_analysis(
                 else:
                     rda_compliance_counts["fat"]["high"] += 1
         
-        # Calculate percentages
+        # Calculate percentages using a per-nutrient active denominator
+        # Only users who had any data for a given nutrient are counted in that nutrient's denominator.
         rda_compliance_percentages = {}
+        per_nutrient_denominators = {}
         for nutrient, counts in rda_compliance_counts.items():
-            total = sum(counts.values())
+            total_for_nutrient = sum(counts.values())
+            per_nutrient_denominators[nutrient] = total_for_nutrient
             percentages = {}
             for category, count in counts.items():
                 percentages[category] = {
                     "count": count,
-                    "percentage": round((count / active_users_count) * 100, 1) if active_users_count > 0 else 0
+                    "percentage": round((count / total_for_nutrient) * 100, 1) if total_for_nutrient > 0 else 0
                 }
             rda_compliance_percentages[nutrient] = percentages
+
+        # Ensure all expected nutrient keys are present even if no data was logged,
+        # so the frontend chart reliably renders every bar (including Fiber).
+        expected_nutrients = [
+            "calories",
+            "protein",
+            "carbohydrates",
+            "fat",
+            "fiber",
+            "sodium",
+            "sugar",
+        ]
+        for key in expected_nutrients:
+            if key not in rda_compliance_percentages:
+                rda_compliance_percentages[key] = {
+                    "adequate": {"count": 0, "percentage": 0.0},
+                    # For nutrients that have high/low categories, include both so UI logic is stable
+                    **({"low": {"count": 0, "percentage": 0.0}} if key in ["calories", "protein", "carbohydrates", "fat", "fiber"] else {}),
+                    **({"high": {"count": 0, "percentage": 0.0}} if key in ["calories", "carbohydrates", "fat", "sodium", "sugar"] else {}),
+                }
         
         # Calculate cohort averages
         cohort_averages = {}
@@ -846,28 +869,28 @@ async def get_nutrient_adequacy_analysis(
             {
                 "issue": "Low Fiber Intake",
                 "affected_patients": cohort_deficiencies["low_fiber"],
-                "percentage": round((cohort_deficiencies["low_fiber"] / active_users_count) * 100, 1),
+                "percentage": round((cohort_deficiencies["low_fiber"] / max(1, per_nutrient_denominators.get("fiber", 0))) * 100, 1) if per_nutrient_denominators.get("fiber", 0) > 0 else 0,
                 "severity": "high" if cohort_deficiencies["low_fiber"] / active_users_count > 0.7 else "medium",
                 "recommendation": "Increase whole grains, fruits, and vegetables"
             },
             {
                 "issue": "Excess Sodium",
                 "affected_patients": cohort_deficiencies["excess_sodium"],
-                "percentage": round((cohort_deficiencies["excess_sodium"] / active_users_count) * 100, 1),
+                "percentage": round((cohort_deficiencies["excess_sodium"] / max(1, per_nutrient_denominators.get("sodium", 0))) * 100, 1) if per_nutrient_denominators.get("sodium", 0) > 0 else 0,
                 "severity": "high" if cohort_deficiencies["excess_sodium"] / active_users_count > 0.5 else "medium",
                 "recommendation": "Reduce processed foods and restaurant meals"
             },
             {
                 "issue": "Excess Sugar",
                 "affected_patients": cohort_deficiencies["excess_sugar"],
-                "percentage": round((cohort_deficiencies["excess_sugar"] / active_users_count) * 100, 1),
+                "percentage": round((cohort_deficiencies["excess_sugar"] / max(1, per_nutrient_denominators.get("sugar", 0))) * 100, 1) if per_nutrient_denominators.get("sugar", 0) > 0 else 0,
                 "severity": "medium" if cohort_deficiencies["excess_sugar"] / active_users_count > 0.4 else "low",
                 "recommendation": "Limit sugary beverages and desserts"
             },
             {
                 "issue": "Low Protein",
                 "affected_patients": cohort_deficiencies["low_protein"],
-                "percentage": round((cohort_deficiencies["low_protein"] / active_users_count) * 100, 1),
+                "percentage": round((cohort_deficiencies["low_protein"] / max(1, per_nutrient_denominators.get("protein", 0))) * 100, 1) if per_nutrient_denominators.get("protein", 0) > 0 else 0,
                 "severity": "medium" if cohort_deficiencies["low_protein"] / active_users_count > 0.3 else "low",
                 "recommendation": "Include lean proteins at each meal"
             }

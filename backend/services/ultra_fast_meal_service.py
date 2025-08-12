@@ -95,15 +95,27 @@ async def get_todays_meal_plan_ultra_fast(user_email: str, user_profile: dict) -
             if not templates:  # Fallback to cached templates
                 templates = get_fallback_meals(is_vegetarian=is_vegetarian) 
             
+            # Deterministic rotation to avoid the same meals every day when there is no activity
+            def _pick(items: list, salt: str) -> str:
+                try:
+                    if not isinstance(items, list) or not items:
+                        return str(items)
+                    # Spread selections across days and users
+                    seed = abs(hash(f"{user_email}_{today.isoformat()}_{salt}"))
+                    idx = seed % len(items)
+                    return items[idx]
+                except Exception:
+                    return items[0] if items else ""
+
             todays_plan = {
                 "id": f"template_{user_email}_{today.isoformat()}",
                 "date": today.isoformat(),
                 "type": "preloaded_template",
                 "meals": {
-                    "breakfast": templates.get('breakfast', ['Oatmeal with berries'])[0],
-                    "lunch": templates.get('lunch', ['Healthy salad'])[0],
-                    "dinner": templates.get('dinner', ['Balanced dinner'])[0],
-                    "snack": templates.get('snacks', ['Healthy snack'])[0]
+                    "breakfast": _pick(templates.get('breakfast', ['Oatmeal with berries']), 'b'),
+                    "lunch": _pick(templates.get('lunch', ['Healthy salad']), 'l'),
+                    "dinner": _pick(templates.get('dinner', ['Balanced dinner']), 'd'),
+                    "snack": _pick(templates.get('snacks', ['Healthy snack']), 's')
                 },
                 "dailyCalories": _safe_int_convert(user_profile.get('calorieTarget', '2000'), 2000),
                 "created_at": datetime.utcnow().isoformat(),

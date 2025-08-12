@@ -17,15 +17,31 @@ from constants import (
 # Load environment variables
 load_dotenv(override=True)
 
-# Configure OpenAI for APIM Gateway
-client = AzureOpenAI(
-    api_key=os.getenv("AZURE_OPENAI_KEY"),  # This will be used as Ocp-Apim-Subscription-Key
-    azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
-    api_version=os.getenv("AZURE_OPENAI_API_VERSION"),
-    default_headers={
-        "Ocp-Apim-Subscription-Key": os.getenv("AZURE_OPENAI_KEY")
-    }
-)
+# Configure OpenAI for APIM Gateway with safe defaults
+_api_key = os.getenv("AZURE_OPENAI_KEY")
+_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
+_api_version = os.getenv("AZURE_OPENAI_API_VERSION")
+
+try:
+    client = AzureOpenAI(
+        api_key=_api_key or "",
+        azure_endpoint=_endpoint or "https://invalid-endpoint",
+        api_version=_api_version or "2024-02-01",
+        default_headers={
+            "Ocp-Apim-Subscription-Key": _api_key or ""
+        }
+    )
+except Exception as e:
+    # Create a lightweight stub that will raise on use; robust_openai_call catches and falls back
+    print(f"[openai_service] Warning: Failed to initialize AzureOpenAI client: {e}")
+    class _StubClient:
+        class _Chat:
+            class _Completions:
+                def create(self, *args, **kwargs):
+                    raise RuntimeError("OpenAI client not configured")
+            completions = _Completions()
+        chat = _Chat()
+    client = _StubClient()
 
 async def robust_openai_call(
     messages: List[Dict[str, str]], 

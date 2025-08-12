@@ -17,7 +17,7 @@ from PIL import Image
 from models import User
 from routers.auth import get_current_user
 from database import save_consumption_record, save_chat_message
-from services.openai_service import get_openai_client
+from services.openai_service import get_openai_client, robust_openai_call
 # Handle pending consumption import gracefully due to event loop issues
 try:
     from pending_consumption import pending_consumption_manager
@@ -440,9 +440,9 @@ async def analyze_text_food_only(
         Focus on how this food affects blood sugar and overall diabetes management.
         """
         
-        # Generate analysis using OpenAI
-        response = get_openai_client().chat.completions.create(
-            model=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
+        # Generate analysis using OpenAI with robust fallback
+        analysis_data = None
+        ai_result = await robust_openai_call(
             messages=[
                 {
                     "role": "system",
@@ -454,21 +454,26 @@ async def analyze_text_food_only(
                 }
             ],
             max_tokens=800,
-            temperature=0.3
+            temperature=0.3,
+            context="analyze_text_food_only"
         )
-        
-        analysis_text = response.choices[0].message.content
-        
-        # Parse JSON from response
-        try:
-            import json
-            start_idx = analysis_text.find('{')
-            end_idx = analysis_text.rfind('}') + 1
-            json_str = analysis_text[start_idx:end_idx]
-            analysis_data = json.loads(json_str)
-        except (json.JSONDecodeError, ValueError) as e:
-            print(f"[analyze_text_food_only] Error parsing analysis data: {str(e)}")
-            # Fallback data
+
+        if ai_result.get("success"):
+            analysis_text = ai_result.get("content", "")
+            # Parse JSON from response
+            try:
+                import json
+                start_idx = analysis_text.find('{')
+                end_idx = analysis_text.rfind('}') + 1
+                json_str = analysis_text[start_idx:end_idx]
+                analysis_data = json.loads(json_str)
+            except (json.JSONDecodeError, ValueError) as e:
+                print(f"[analyze_text_food_only] Error parsing analysis data: {str(e)}")
+                analysis_data = None
+
+        if analysis_data is None:
+            # Deterministic fallback to avoid 500s when AI fails (e.g., 401 key issues)
+            print("[analyze_text_food_only] Using deterministic fallback due to AI failure")
             analysis_data = {
                 "food_name": food_name,
                 "estimated_portion": portion,
@@ -487,7 +492,7 @@ async def analyze_text_food_only(
                     "recommended_frequency": "weekly",
                     "portion_recommendation": "moderate portions recommended"
                 },
-                "analysis_notes": f"Nutritional analysis for {food_name}. Please consult with your healthcare provider for personalized dietary advice."
+                "analysis_notes": f"Nutritional analysis for {food_name}. AI unavailable; using conservative defaults."
             }
         
         # Create pending record

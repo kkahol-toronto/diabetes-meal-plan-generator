@@ -45,6 +45,7 @@ import {
 import { Bar, Doughnut, Line } from 'react-chartjs-2';
 import ReactMarkdown from 'react-markdown';
 import config from '../config/environment';
+import { parseLocalYMD } from '../utils/timezone';
 
 ChartJS.register(
   CategoryScale,
@@ -314,7 +315,7 @@ const PatientDetails: React.FC = () => {
     }
     
     return patientData.historical_data.daily_data.filter((day: DailyData) => {
-      const dayDate = new Date(day.date);
+      const dayDate = parseLocalYMD(day.date);
       return dayDate >= startDate && dayDate <= today;
     });
   };
@@ -440,11 +441,11 @@ const PatientDetails: React.FC = () => {
     });
 
     // Sort by date for proper line chart display
-    const sortedCompliance = filteredCompliance.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    const sortedCompliance = filteredCompliance.sort((a, b) => parseLocalYMD(a.date).getTime() - parseLocalYMD(b.date).getTime());
     
     // Prepare data for line chart
     const labels = sortedCompliance.map(day => {
-      const date = new Date(day.date);
+      const date = parseLocalYMD(day.date);
       return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
     });
     

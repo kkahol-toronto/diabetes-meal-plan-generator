@@ -416,32 +416,49 @@ async def generate_consumption_aware_meal_plan(base_meal_plan: dict, consumption
                         warnings.append(f"⚠️ {meal['food_name']} may not be ideal for diabetes management. Try to choose more diabetes-friendly options for your remaining meals.")
                         
             elif meal_type in remaining_meals:
-                # User hasn't consumed this meal type yet - show recommendation
+                # User hasn't consumed this meal type yet - show a recommendation that adapts to remaining calories
                 original_meal = base_meal_plan.get("meals", {}).get(meal_type, "")
-                
-                # Check if meal already has "Recommended: " prefix to avoid duplication
-                def add_recommended_prefix(meal_text: str, prefix: str) -> str:
-                    if not meal_text:
-                        return prefix
-                    # If meal already starts with "Recommended: ", don't add it again
-                    if meal_text.lower().startswith("recommended:"):
-                        return meal_text
-                    return f"{prefix} {meal_text}"
-                
+
+                # Helper to avoid duplicating the prefix; swap in a diabetes-friendly alternative when useful
+                async def build_recommendation(prefix: str, fallback_text: str) -> str:
+                    text = original_meal or fallback_text
+                    try:
+                        alt = await generate_diabetes_friendly_alternative(text, meal_type, user_profile)
+                        text = alt or text
+                    except Exception:
+                        pass
+                    cleaned = text.strip()
+                    if cleaned.lower().startswith("recommended:"):
+                        return cleaned
+                    return f"{prefix} {cleaned}".strip()
+
                 # Adjust recommendation based on remaining calories
                 if remaining_calories < 200:
                     if meal_type == "snack":
-                        consumption_aware_plan["meals"][meal_type] = "Recommended: No additional snacks needed - you've reached your daily calorie goal"
+                        consumption_aware_plan["meals"][meal_type] = (
+                            "Recommended: No additional snacks needed - you've reached your daily calorie goal"
+                        )
                     else:
-                        consumption_aware_plan["meals"][meal_type] = add_recommended_prefix(original_meal, "Recommended: Light") if original_meal else "Recommended: Light, low-calorie option"
-                elif remaining_calories < 300:
+                        consumption_aware_plan["meals"][meal_type] = await build_recommendation(
+                            "Recommended: Light/optional - very low calories left:",
+                            f"Healthy {meal_type}"
+                        )
+                elif remaining_calories < 400:
                     if meal_type == "snack":
-                        consumption_aware_plan["meals"][meal_type] = "Recommended: Optional small piece of fruit or vegetables if genuinely hungry"
+                        consumption_aware_plan["meals"][meal_type] = (
+                            "Recommended: Optional small fruit/veggies if genuinely hungry"
+                        )
                     else:
-                        consumption_aware_plan["meals"][meal_type] = add_recommended_prefix(original_meal, "Recommended:") if original_meal else "Recommended: Balanced, moderate portion"
+                        consumption_aware_plan["meals"][meal_type] = await build_recommendation(
+                            "Recommended: Light:",
+                            f"Healthy {meal_type}"
+                        )
                 else:
                     # Normal recommendation
-                    consumption_aware_plan["meals"][meal_type] = add_recommended_prefix(original_meal, "Recommended:") if original_meal else f"Recommended: Healthy {meal_type} option"
+                    consumption_aware_plan["meals"][meal_type] = await build_recommendation(
+                        "Recommended:",
+                        f"Healthy {meal_type} option"
+                    )
                     
             else:
                 # Meal time has passed and user didn't consume - just show what was planned
@@ -596,6 +613,12 @@ async def trigger_meal_plan_recalibration(user_email: str, user_profile: dict):
         # Save the updated meal plan
         if fresh_meal_plan:
             await save_meal_plan(user_email, fresh_meal_plan)
+            # Invalidate ultra-fast cache to reflect new plan immediately
+            try:
+                from services.ultra_fast_meal_service import clear_meal_plan_cache
+                clear_meal_plan_cache()
+            except Exception as cache_err:
+                print(f"[RECALIBRATION] Cache invalidation warning: {cache_err}")
             print(f"[RECALIBRATION] Successfully updated consumption-aware meal plan for user {user_email}")
         
         return fresh_meal_plan

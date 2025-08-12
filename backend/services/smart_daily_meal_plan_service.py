@@ -71,8 +71,23 @@ class SmartDailyMealPlanService:
             
             if today_consumption:
                 print(f"[{self.service_name}] Applying real-time recalibration based on consumption")
+                # Recalibrate remaining meals to fit within remaining goals
                 meals, recalibrations = await self._apply_recalibration(meals, consumption_by_meal, user_profile)
                 recalibration_history.extend(recalibrations)
+
+            # Always perform a final day-level normalization to ensure the sum of
+            # planned calories does not exceed the daily target, even when there
+            # is no consumption yet or when meals were adapted from history with
+            # fixed estimates.
+            try:
+                calorie_target = int(user_profile.get("calorieTarget", "2000"))
+                normalized, normalization_records = self._normalize_meals_to_daily_target(meals, calorie_target)
+                if normalization_records:
+                    meals = normalized
+                    recalibration_history.extend(normalization_records)
+            except Exception as _norm_err:
+                # Never break plan generation due to normalization errors
+                print(f"[{self.service_name}] Warning: normalization skipped due to: {_norm_err}")
             
             # Step 6: Calculate macro progress
             macro_progress = self._calculate_macro_progress(today_consumption, user_profile)
@@ -370,6 +385,13 @@ class SmartDailyMealPlanService:
             dietary_restrictions = user_profile.get("dietaryRestrictions", [])
             food_preferences = user_profile.get("foodPreferences", [])
             calorie_target = int(user_profile.get("calorieTarget", "2000"))
+
+            # Calorie distribution that sums to 100% of target
+            # breakfast 25%, lunch 35%, dinner 35%, snack 5%
+            b_cal = max(200, int(round(calorie_target * 0.25)))
+            l_cal = max(250, int(round(calorie_target * 0.35)))
+            d_cal = max(250, int(round(calorie_target * 0.35)))
+            s_cal = max(50, int(round(calorie_target * 0.05)))
             
             # Basic meal templates based on health profile
             meal_templates = {
@@ -377,7 +399,7 @@ class SmartDailyMealPlanService:
                     "meal_name": "Balanced Breakfast",
                     "description": "Protein-rich breakfast with complex carbohydrates for sustained energy",
                     "ingredients": ["oats", "berries", "nuts", "protein source"],
-                    "nutritional_info": {"calories": calorie_target // 4, "protein": 20, "carbohydrates": 45, "fat": 12},
+                    "nutritional_info": {"calories": b_cal, "protein": 20, "carbohydrates": 45, "fat": 12},
                     "preparation_time": "10 minutes",
                     "source": "generated_from_profile"
                 },
@@ -385,7 +407,7 @@ class SmartDailyMealPlanService:
                     "meal_name": "Nutritious Lunch",
                     "description": "Balanced lunch with lean protein and vegetables",
                     "ingredients": ["lean protein", "vegetables", "healthy grains"],
-                    "nutritional_info": {"calories": calorie_target // 3, "protein": 25, "carbohydrates": 40, "fat": 15},
+                    "nutritional_info": {"calories": l_cal, "protein": 25, "carbohydrates": 40, "fat": 15},
                     "preparation_time": "20 minutes",
                     "source": "generated_from_profile"
                 },
@@ -393,7 +415,7 @@ class SmartDailyMealPlanService:
                     "meal_name": "Healthy Dinner",
                     "description": "Well-balanced dinner with protein, vegetables, and healthy carbs",
                     "ingredients": ["protein", "vegetables", "complex carbs"],
-                    "nutritional_info": {"calories": calorie_target // 3, "protein": 30, "carbohydrates": 35, "fat": 18},
+                    "nutritional_info": {"calories": d_cal, "protein": 30, "carbohydrates": 35, "fat": 18},
                     "preparation_time": "25 minutes",
                     "source": "generated_from_profile"
                 },
@@ -401,7 +423,7 @@ class SmartDailyMealPlanService:
                     "meal_name": "Healthy Snack",
                     "description": "Nutritious snack to bridge meal gaps",
                     "ingredients": ["nuts", "fruit"],
-                    "nutritional_info": {"calories": 150, "protein": 5, "carbohydrates": 15, "fat": 8},
+                    "nutritional_info": {"calories": s_cal, "protein": 5, "carbohydrates": 15, "fat": 8},
                     "preparation_time": "5 minutes",
                     "source": "generated_from_profile"
                 }
@@ -483,42 +505,88 @@ class SmartDailyMealPlanService:
                 for meal_items in consumption_by_meal.values()
             )
             
-            # Check if recalibration is needed
-            remaining_calories = calorie_target - total_consumed_calories
-            remaining_protein = protein_target - total_consumed_protein
-            
+            # Compute remaining goals
+            remaining_calories = max(0, calorie_target - total_consumed_calories)
+            remaining_protein = max(0, protein_target - total_consumed_protein)
+
             # Count remaining meals (meals that haven't been consumed)
             remaining_meals = [
                 meal_type for meal_type, consumption in consumption_by_meal.items()
                 if not consumption and meal_type in meals
             ]
-            
-            if remaining_meals and (remaining_calories < 0 or remaining_calories > calorie_target * 0.6):
-                # Need recalibration
-                calories_per_remaining_meal = max(200, remaining_calories // len(remaining_meals))
-                protein_per_remaining_meal = max(10, remaining_protein // len(remaining_meals))
-                
-                for meal_type in remaining_meals:
-                    if meal_type in meals:
-                        # Adjust meal nutrition
-                        old_calories = meals[meal_type]["nutritional_info"]["calories"]
-                        meals[meal_type]["nutritional_info"]["calories"] = calories_per_remaining_meal
-                        meals[meal_type]["nutritional_info"]["protein"] = protein_per_remaining_meal
-                        
-                        recalibrations.append({
-                            "meal_type": meal_type,
-                            "reason": "calorie_adjustment",
-                            "old_calories": old_calories,
-                            "new_calories": calories_per_remaining_meal,
-                            "timestamp": datetime.utcnow().isoformat()
-                        })
-                
-                print(f"[{self.service_name}] Applied recalibration to {len(remaining_meals)} remaining meals")
+
+            if remaining_meals:
+                # Planned total for the remaining meals
+                planned_remaining_total = sum(
+                    max(0, meals[m].get("nutritional_info", {}).get("calories", 0))
+                    for m in remaining_meals if m in meals
+                )
+
+                # If planned calories for remaining meals exceed what is left,
+                # scale them down proportionally to fit within the remaining budget.
+                if planned_remaining_total > max(0, remaining_calories):
+                    scale = (remaining_calories / planned_remaining_total) if planned_remaining_total > 0 else 0
+                    for meal_type in remaining_meals:
+                        if meal_type in meals and "nutritional_info" in meals[meal_type]:
+                            info = meals[meal_type]["nutritional_info"]
+                            old_cal = int(info.get("calories", 0))
+                            old_pro = int(info.get("protein", 0))
+                            # Keep sensible minimums
+                            min_cal = 50 if meal_type == "snack" else 120
+                            new_cal = max(min_cal, int(round(old_cal * scale)))
+                            # Scale protein similarly but keep a small floor
+                            new_pro = max(5 if meal_type == "snack" else 12, int(round(old_pro * scale)))
+                            info["calories"] = new_cal
+                            info["protein"] = new_pro
+                            recalibrations.append({
+                                "meal_type": meal_type,
+                                "reason": "scaled_to_remaining_calories",
+                                "old_calories": old_cal,
+                                "new_calories": new_cal,
+                                "timestamp": datetime.utcnow().isoformat()
+                            })
+                    print(f"[{self.service_name}] Recalibrated remaining meals to fit within remaining calories ({remaining_calories} kcal)")
             
             return meals, recalibrations
             
         except Exception as e:
             print(f"[{self.service_name}] Error applying recalibration: {e}")
+            return meals, []
+
+    def _normalize_meals_to_daily_target(self, meals: Dict, calorie_target: int) -> tuple:
+        """Ensure the sum of all planned meal calories does not exceed the daily target.
+
+        Returns (updated_meals, recalibration_records).
+        """
+        try:
+            meal_keys = [k for k in ["breakfast", "lunch", "dinner", "snack"] if k in meals]
+            planned_total = sum(
+                max(0, meals[k].get("nutritional_info", {}).get("calories", 0)) for k in meal_keys
+            )
+            if planned_total <= max(0, calorie_target):
+                return meals, []
+
+            scale = (calorie_target / planned_total) if planned_total > 0 else 0
+            records = []
+            for k in meal_keys:
+                info = meals[k].get("nutritional_info", {})
+                old_cal = int(info.get("calories", 0))
+                old_pro = int(info.get("protein", 0))
+                min_cal = 50 if k == "snack" else 120
+                new_cal = max(min_cal, int(round(old_cal * scale)))
+                new_pro = max(5 if k == "snack" else 12, int(round(old_pro * scale)))
+                info["calories"] = new_cal
+                info["protein"] = new_pro
+                records.append({
+                    "meal_type": k,
+                    "reason": "normalized_to_daily_target",
+                    "old_calories": old_cal,
+                    "new_calories": new_cal,
+                    "timestamp": datetime.utcnow().isoformat()
+                })
+            return meals, records
+        except Exception as _e:
+            print(f"[{self.service_name}] Error in daily normalization: {_e}")
             return meals, []
     
     def _calculate_macro_progress(self, today_consumption: List[Dict], user_profile: Dict) -> Dict:
@@ -635,6 +703,16 @@ class SmartDailyMealPlanService:
             existing_plan["meals"] = meals
             existing_plan["recalibration_history"].extend(new_recalibrations)
             existing_plan["last_updated"] = datetime.utcnow().isoformat()
+
+            # Final guard: normalize plan to user's calorie target after updates
+            try:
+                calorie_target = int(user_profile.get("calorieTarget", "2000"))
+                normalized, normalization_records = self._normalize_meals_to_daily_target(meals, calorie_target)
+                if normalization_records:
+                    existing_plan["meals"] = normalized
+                    existing_plan["recalibration_history"].extend(normalization_records)
+            except Exception as _norm_err:
+                print(f"[{self.service_name}] Warning: normalization on update skipped due to: {_norm_err}")
             
             # Save updated plan
             await self._save_daily_plan(user_email, existing_plan["plan_date"], existing_plan)

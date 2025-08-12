@@ -210,3 +210,53 @@ export function debugTimezone(): void {
   console.log('UTC Date:', new Date().toISOString().split('T')[0]);
   console.log('========================');
 } 
+
+/**
+ * Safely parse a YYYY-MM-DD string as a LOCAL date (midnight in local tz).
+ * new Date('YYYY-MM-DD') is treated as UTC in JS and can render as previous day
+ * for users behind UTC. This helper avoids that off-by-one.
+ */
+export function parseLocalYMD(dateStr: string): Date {
+  try {
+    if (!dateStr || typeof dateStr !== 'string') return new Date(NaN);
+    const [yearStr, monthStr, dayStr] = dateStr.split('-');
+    const year = parseInt(yearStr, 10);
+    const month = parseInt(monthStr, 10);
+    const day = parseInt(dayStr, 10);
+    if (Number.isNaN(year) || Number.isNaN(month) || Number.isNaN(day)) {
+      return new Date(dateStr);
+    }
+    // JS Date(y, mIndex, d) constructs a local-time date at midnight
+    return new Date(year, month - 1, day);
+  } catch {
+    return new Date(dateStr);
+  }
+}
+
+/**
+ * Convenience: format a YYYY-MM-DD as a localized label using local midnight.
+ */
+export function formatLocalYMD(
+  dateStr: string,
+  locale: string = 'en-US',
+  options: Intl.DateTimeFormatOptions = { weekday: 'short', month: 'short', day: 'numeric' }
+): string {
+  const d = parseLocalYMD(dateStr);
+  return isNaN(d.getTime()) ? dateStr : d.toLocaleDateString(locale, options);
+}
+
+/**
+ * Convert a UTC timestamp to a localized HH:MM string in user's timezone.
+ */
+export function formatLocalTime(
+  utcTimestamp: string,
+  profileTimezone?: string,
+  locale: string = 'en-US',
+  options: Intl.DateTimeFormatOptions = { hour: '2-digit', minute: '2-digit', hour12: false }
+): string {
+  if (!utcTimestamp) return '';
+  const date = new Date(utcTimestamp);
+  if (isNaN(date.getTime())) return '';
+  const timezone = profileTimezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
+  return new Intl.DateTimeFormat(locale, { timeZone: timezone, ...options }).format(date);
+}

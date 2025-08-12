@@ -7,7 +7,8 @@ import os
 from models import User
 from routers.auth import get_current_user
 from database import save_consumption_record
-from services.openai_service import get_openai_client
+from database import get_today_smart_daily_plan
+from services.openai_service import get_openai_client, robust_openai_call
 from services.consumption_analysis import trigger_meal_plan_recalibration
 import traceback
 
@@ -72,11 +73,47 @@ async def accept_pending_consumption(
         if record.user_email != current_user["email"]:
             raise HTTPException(status_code=403, detail="Access denied")
         
-        # Prepare consumption data for saving
+        # Optionally align macros with today's planned meal if the names match.
+        # This prevents drift when the AI estimates different portions for the
+        # same dish the plan recommended.
+        planned_nutrition = None
+        try:
+            smart_plan = await get_today_smart_daily_plan(current_user["email"], current_user.get("profile", {}).get("timezone", "UTC"))
+            if smart_plan and isinstance(smart_plan.get("meals"), dict):
+                meal_type_key = (record.meal_type or "").lower() or None
+                # fuzzy match within the same meal_type only
+                if meal_type_key and meal_type_key in smart_plan["meals"]:
+                    planned_entry = smart_plan["meals"][meal_type_key]
+                    # Planned entries in smart plan are structured objects in our service
+                    if isinstance(planned_entry, dict):
+                        planned_name = str(planned_entry.get("meal_name", ""))
+                        planned_info = planned_entry.get("nutritional_info", {}) or {}
+                    else:
+                        planned_name = str(planned_entry)
+                        planned_info = {}
+
+                    def _normalize(s: str) -> str:
+                        return (s or "").lower().strip()
+
+                    planned_nm = _normalize(planned_name)
+                    consumed_nm = _normalize(record.food_name)
+
+                    # simple fuzzy: name containment either way and token overlap
+                    tokens_plan = {t for t in planned_nm.split() if len(t) > 3}
+                    tokens_cons = {t for t in consumed_nm.split() if len(t) > 3}
+                    overlap = len(tokens_plan & tokens_cons)
+                    if planned_nm and consumed_nm and (
+                        planned_nm in consumed_nm or consumed_nm in planned_nm or overlap >= max(1, min(len(tokens_plan), len(tokens_cons)) // 2)
+                    ):
+                        planned_nutrition = planned_info if planned_info else None
+        except Exception as _e:
+            print(f"[accept_pending_consumption] Planned macro alignment skipped due to: {_e}")
+
+        # Prepare consumption data for saving (using aligned macros when available)
         consumption_data = {
             "food_name": record.food_name,
             "estimated_portion": record.estimated_portion,
-            "nutritional_info": record.nutritional_info,
+            "nutritional_info": planned_nutrition or record.nutritional_info,
             "medical_rating": record.medical_rating,
             "image_analysis": record.analysis_notes,
             "image_url": record.image_url,
@@ -94,6 +131,12 @@ async def accept_pending_consumption(
         try:
             profile = current_user.get("profile", {})
             await trigger_meal_plan_recalibration(current_user["email"], profile)
+            # Invalidate ultra-fast cache so UI reflects recalibration immediately
+            try:
+                from services.ultra_fast_meal_service import clear_meal_plan_cache
+                clear_meal_plan_cache()
+            except Exception as cache_err:
+                print(f"[accept_pending_consumption] Cache invalidation warning: {cache_err}")
             print(f"[accept_pending_consumption] Meal plan recalibrated after accepting food")
         except Exception as recal_error:
             print(f"[accept_pending_consumption] Error in meal plan recalibration: {recal_error}")
@@ -274,24 +317,24 @@ Examples of what to detect:
 
 Be conversational and helpful. If you make nutritional updates, recalculate all values proportionally when possible."""
 
-        # Get AI response
-        response = get_openai_client().chat.completions.create(
-            model=os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME"),
+        # Get AI response with robust fallback
+        ai_result = await robust_openai_call(
             messages=[
                 {
                     "role": "system",
                     "content": "You are a helpful nutrition assistant. Always respond with valid JSON."
                 },
                 {
-                    "role": "user", 
+                    "role": "user",
                     "content": ai_prompt
                 }
             ],
             max_tokens=800,
-            temperature=0.3
+            temperature=0.3,
+            context="chat_with_pending_consumption"
         )
-        
-        response_text = response.choices[0].message.content
+
+        response_text = ai_result.get("content", "{\n  \"response\": \"I can help update your food details. Please tell me exactly what to change (name, portion, or calories/macros).\",\n  \"has_updates\": false\n}")
         
         try:
             # Parse AI response

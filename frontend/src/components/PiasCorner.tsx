@@ -65,6 +65,7 @@ import {
 } from 'chart.js';
 import { Bar, Pie, Line, Scatter } from 'react-chartjs-2';
 import config from '../config/environment';
+import { formatLocalYMD, parseLocalYMD } from '../utils/timezone';
 
 // Register Chart.js components
 ChartJS.register(
@@ -108,13 +109,13 @@ interface CohortAverages {
     protein: number;
     carbohydrates: number;
     fat: number;
-    fiber: number;
+
     sodium: number;
     sugar: number;
   };
   vs_rda: {
     protein_deficit: number;
-    fiber_deficit: number;
+
     sodium_excess: number;
   };
 }
@@ -128,7 +129,7 @@ interface DeficiencyAnalysis {
     recommendation?: string;
   }>;
   summary: {
-    patients_with_fiber_deficiency: number;
+
     patients_with_excess_sodium: number;
     patients_with_excess_sugar: number;
     patients_with_low_protein: number;
@@ -413,7 +414,7 @@ interface PatientSummary {
     protein: number;
     carbohydrates: number;
     fat: number;
-    fiber: number;
+
     sodium: number;
     sugar: number;
   };
@@ -454,7 +455,7 @@ interface EnhancedAnalyticsData {
     protein: number;
     carbohydrates: number;
     fat: number;
-    fiber: number;
+
     sugar: number;
     sodium: number;
   }>;
@@ -493,7 +494,7 @@ interface IndividualPatientNutrition {
     protein: number;
     carbohydrates: number;
     fat: number;
-    fiber: number;
+
     sugar: number;
     sodium: number;
   };
@@ -503,7 +504,7 @@ interface IndividualPatientNutrition {
     protein: number;
     carbohydrates: number;
     fat: number;
-    fiber: number;
+
     sugar: number;
     sodium: number;
   }>;
@@ -517,7 +518,7 @@ interface IndividualPatientNutrition {
     };
   };
   rda_compliance: {
-    fiber: number;
+
     sodium: number;
     sugar: number;
     protein: number;
@@ -778,24 +779,34 @@ const PiasCorner: React.FC = () => {
   };
 
   const fetchNutrientAdequacyData = useCallback(async () => {
+
     try {
       setLoading(true);
       setError(null);
-      const response = await fetch(`${config.API_URL}/admin/pias-corner/nutrient-adequacy?days=${analysisPeriod}`, {
+      const url = `${config.API_URL}/admin/pias-corner/nutrient-adequacy?days=${analysisPeriod}`;
+
+      
+      const response = await fetch(url, {
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`,
           'Content-Type': 'application/json',
         },
       });
 
+
+
       if (!response.ok) {
-        throw new Error('Failed to fetch nutrient adequacy data');
+        const errorText = await response.text();
+        console.error('Response error:', errorText);
+        throw new Error(`Failed to fetch nutrient adequacy data: ${response.status} ${errorText}`);
       }
 
       const result: NutrientAdequacyData = await response.json();
+
       setData(result);
     } catch (err) {
-      console.error('Error fetching nutrient adequacy data:', err);
+      console.error('=== ERROR FETCHING NUTRIENT ADEQUACY ===');
+      console.error('Error details:', err);
       setError(err instanceof Error ? err.message : 'An error occurred');
     } finally {
       setLoading(false);
@@ -1081,6 +1092,7 @@ const PiasCorner: React.FC = () => {
 
   useEffect(() => {
     fetchNutrientAdequacyData();
+    
     fetchEngagementMetrics();
     fetchOutlierDetection();
     fetchBehaviorClusters();
@@ -1121,14 +1133,13 @@ const PiasCorner: React.FC = () => {
     }
     
     return {
-      labels: ['Protein (g)', 'Carbs (g)', 'Fat (g)', 'Fiber (g)', 'Sodium (g)', 'Sugar (g)'],
+      labels: ['Protein (g)', 'Carbs (g)', 'Fat (g)', 'Sodium (g)', 'Sugar (g)'],
       datasets: [{
         label: 'Daily Average',
         data: [
           dailyAverages.protein || 0,
           dailyAverages.carbohydrates || 0,
           dailyAverages.fat || 0,
-          dailyAverages.fiber || 0,
           (dailyAverages.sodium || 0) / 1000, // Convert mg to grams for display
           dailyAverages.sugar || 0
         ],
@@ -1136,7 +1147,6 @@ const PiasCorner: React.FC = () => {
           '#FF6384', // Red for Protein
           '#36A2EB', // Blue for Carbs
           '#FFCE56', // Yellow for Fat
-          '#4BC0C0', // Teal for Fiber
           '#9966FF', // Purple for Sodium
           '#FF9F40'  // Orange for Sugar
         ],
@@ -1144,7 +1154,6 @@ const PiasCorner: React.FC = () => {
           '#FF6384',
           '#36A2EB',
           '#FFCE56',
-          '#4BC0C0',
           '#9966FF',
           '#FF9F40'
         ],
@@ -1154,84 +1163,86 @@ const PiasCorner: React.FC = () => {
   };
 
   const generateComplianceHeatmapChart = () => {
-    // Use patient-specific compliance if available, otherwise use population data
-    if (selectedPatient && patientNutritionData?.rda_compliance) {
-      const compliance = patientNutritionData.rda_compliance;
-      
-      // Use the percentage values directly from backend
-      const compliancePercentages = {
-        'Fiber': Math.round(compliance.fiber || 0),
-        'Sodium': Math.round(compliance.sodium || 0),
-        'Sugar': Math.round(compliance.sugar || 0),
-        'Protein': Math.round(compliance.protein || 0)
-      };
-      
-      const nutrients = Object.keys(compliancePercentages);
-      const complianceValues = Object.values(compliancePercentages);
-      
-      // Function to get color based on compliance percentage
-      const getComplianceColor = (percentage: number) => {
-        if (percentage >= 80) return '#4CAF50'; // Green - Good
-        if (percentage >= 60) return '#FF9800'; // Orange - Fair  
-        if (percentage >= 40) return '#FF5722'; // Red-Orange - Poor
-        return '#F44336'; // Red - Very Poor
-      };
+    const RDA = {
+      calories: { min: 1800, max: 2200 },
+      protein: { min: 50, max: 100 },
+      carbohydrates: { min: 130, max: 300 },
+      fat: { min: 44, max: 78 },
 
-      return {
-        labels: nutrients,
-        datasets: [{
-          label: 'RDA Compliance (%)',
-          data: complianceValues,
-          backgroundColor: complianceValues.map(value => getComplianceColor(value)),
-          borderColor: complianceValues.map(value => getComplianceColor(value)),
-          borderWidth: 2,
-          maxBarThickness: 60,
-        }]
-      };
-    } else if (data?.rda_compliance) {
-      // Use population data
-      const compliance = data.rda_compliance;
-      const nutrients = Object.keys(compliance);
-      
-      // Extract "adequate" percentage from the nested structure
-      const complianceValues = nutrients.map(nutrient => {
-        const nutrientData = compliance[nutrient];
-        // Get the "adequate" percentage, or 0 if not available
-        return nutrientData?.adequate?.percentage || 0;
-      });
+      sodium: { max: 2300 },
+      sugar: { max: 50 },
+    } as const;
 
-      // Function to get color based on compliance percentage
-      const getComplianceColor = (percentage: number) => {
-        if (percentage >= 80) return '#4CAF50'; // Green - Good
-        if (percentage >= 60) return '#FF9800'; // Orange - Fair  
-        if (percentage >= 40) return '#FF5722'; // Red-Orange - Poor
-        return '#F44336'; // Red - Very Poor
-      };
+    const desiredOrder = ['calories','protein','carbohydrates','fat','sodium','sugar'];
 
-      // Format nutrient names for display
-      const formatNutrientName = (nutrient: string) => {
-        switch (nutrient) {
-          case 'carbohydrates': return 'Carbs';
-          case 'sodium': return 'Sodium';
-          case 'sugar': return 'Sugar';
-          default: return nutrient.charAt(0).toUpperCase() + nutrient.slice(1);
-        }
-      };
+    const pctFromRange = (avg: number, min?: number, max?: number) => {
+      const safeAvg = Number.isFinite(avg) ? avg : 0;
+      const safeMin = Number.isFinite(min as number) ? (min as number) : undefined;
+      const safeMax = Number.isFinite(max as number) ? (max as number) : undefined;
+      if (safeMin != null && safeMax != null) {
+        if (safeAvg >= safeMin && safeAvg <= safeMax) return 100;
+        if (safeAvg < safeMin) return Math.max(0, Math.min(100, (safeAvg / safeMin) * 100));
+        return Math.max(0, Math.min(100, (safeMax / safeAvg) * 100));
+      }
+      if (safeMax != null) {
+        return Math.max(0, Math.min(100, (safeMax / Math.max(safeAvg, 1e-9)) * 100));
+      }
+      if (safeMin != null) {
+        return Math.max(0, Math.min(100, (safeAvg / safeMin) * 100));
+      }
+      return 0;
+    };
 
-      return {
-        labels: nutrients.map(nutrient => formatNutrientName(nutrient)),
-        datasets: [{
-          label: 'RDA Compliance (%)',
-          data: complianceValues,
-          backgroundColor: complianceValues.map(value => getComplianceColor(value)),
-          borderColor: complianceValues.map(value => getComplianceColor(value)),
-          borderWidth: 2,
-          maxBarThickness: 60,
-        }]
-      };
-    }
-    
-    return null;
+    const compliance = (selectedPatient ? (patientNutritionData as any)?.rda_compliance : (data as any)?.rda_compliance) as Record<string, any> | undefined;
+    const cohortAverages = data?.cohort_averages?.daily_averages;
+    const deficiencies = data?.deficiency_analysis?.top_deficiencies ?? [];
+
+
+    const excessSodiumPct = Number(
+      deficiencies.find((d: any) => typeof d?.issue === 'string' && d.issue.toLowerCase().includes('excess sodium'))?.percentage ?? NaN
+    );
+    const excessSugarPct = Number(
+      deficiencies.find((d: any) => typeof d?.issue === 'string' && d.issue.toLowerCase().includes('excess sugar'))?.percentage ?? NaN
+    );
+    const lowProteinPct = Number(
+      deficiencies.find((d: any) => typeof d?.issue === 'string' && d.issue.toLowerCase().includes('low protein'))?.percentage ?? NaN
+    );
+
+    const values = desiredOrder.map((nutrient) => {
+
+
+      const adequatePct = compliance && typeof compliance === 'object' ? compliance[nutrient]?.adequate?.percentage : undefined;
+      if (Number.isFinite(adequatePct as number)) {
+
+        return (adequatePct as number);
+      }
+
+
+      if (nutrient === 'sodium' && Number.isFinite(excessSodiumPct)) return Math.max(0, 100 - (excessSodiumPct as number));
+      if (nutrient === 'sugar' && Number.isFinite(excessSugarPct)) return Math.max(0, 100 - (excessSugarPct as number));
+      if (nutrient === 'protein' && Number.isFinite(lowProteinPct)) return Math.max(0, 100 - (lowProteinPct as number));
+
+      const avg = cohortAverages?.[nutrient as keyof typeof cohortAverages] ?? 0;
+      const r = (RDA as any)[nutrient] ?? {};
+      const fallback = pctFromRange(avg, r.min, r.max);
+
+      return fallback;
+    });
+
+    const labelFormat = (n: string) => n === 'carbohydrates' ? 'Carbs' : n.charAt(0).toUpperCase() + n.slice(1);
+    const colors = values.map(v => v >= 80 ? '#4CAF50' : v >= 60 ? '#FF9800' : v >= 40 ? '#FF5722' : '#F44336');
+
+    return {
+      labels: desiredOrder.map(labelFormat),
+      datasets: [{
+        label: 'RDA Compliance (%)',
+        data: values,
+        backgroundColor: colors,
+        borderColor: colors,
+        borderWidth: 2,
+        maxBarThickness: 60,
+      }]
+    };
   };
 
   const generateEngagementFunnelChart = () => {
@@ -1280,12 +1291,12 @@ const PiasCorner: React.FC = () => {
 
     // Sort metrics by date to ensure proper chronological order
     const sortedMetrics = [...engagementData.daily_metrics].sort((a, b) => 
-      new Date(a.date).getTime() - new Date(b.date).getTime()
+      parseLocalYMD(a.date).getTime() - parseLocalYMD(b.date).getTime()
     );
 
     // Generate complete date range to fill any gaps
-    const startDate = new Date(sortedMetrics[0].date);
-    const endDate = new Date(sortedMetrics[sortedMetrics.length - 1].date);
+    const startDate = parseLocalYMD(sortedMetrics[0].date);
+    const endDate = parseLocalYMD(sortedMetrics[sortedMetrics.length - 1].date);
     
     const completeData = [];
     const metricsMap = new Map(sortedMetrics.map(m => [m.date, m]));
@@ -1483,7 +1494,7 @@ const PiasCorner: React.FC = () => {
 
     const trends = dataSource.nutrient_trends;
     const labels = trends.map(trend => {
-      const date = new Date(trend.date);
+      const date = parseLocalYMD(trend.date);
       return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
     });
 
@@ -1923,6 +1934,7 @@ const PiasCorner: React.FC = () => {
           >
             Retry
           </Button>
+
         </Paper>
       </Container>
     );
@@ -2155,7 +2167,9 @@ const PiasCorner: React.FC = () => {
                     </Box>
                     {data?.deficiency_analysis?.top_deficiencies ? (
                       <Grid container spacing={2}>
-                        {data.deficiency_analysis.top_deficiencies.slice(0, 4).map((deficiency, index) => (
+                        {data.deficiency_analysis.top_deficiencies
+                          .filter((deficiency: any) => !deficiency.issue?.toLowerCase().includes('fiber'))
+                          .slice(0, 4).map((deficiency, index) => (
                           <Grid item xs={12} sm={6} md={3} key={index}>
                             <Box sx={{ 
                               textAlign: 'center', 
@@ -2779,7 +2793,7 @@ const PiasCorner: React.FC = () => {
                               <Box key={day.date} sx={{ mb: 2, p: 2, bgcolor: 'background.paper', borderRadius: 1, border: '1px solid #e0e0e0' }}>
                                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
                                   <Typography variant="subtitle2" fontWeight="bold">
-                                    {new Date(day.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                                    {formatLocalYMD(day.date, 'en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
                                   </Typography>
                                   <Chip size="small" label={`${day.total_logs} logs`} color="primary" />
                                 </Box>

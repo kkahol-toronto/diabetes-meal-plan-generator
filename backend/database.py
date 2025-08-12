@@ -327,6 +327,52 @@ async def get_user_meal_plans(user_id: str, limit: int = None):
         print(f"[get_user_meal_plans] Error: {str(e)}")
         raise Exception(f"Failed to get meal plans: {str(e)}")
 
+async def get_today_smart_daily_plan(user_id: str, user_timezone: str = "UTC"):
+    """Return today's Smart Daily Meal Plan (plan_data) if it exists.
+
+    The Smart Daily Meal Plan is stored using id pattern
+    `smart_daily_{user_email}_{YYYY-MM-DD}` with type `smart_daily_meal_plan`.
+    """
+    try:
+        if not user_id:
+            raise ValueError("User ID is required")
+
+        # Compute today's date in user's timezone
+        from datetime import datetime
+        import pytz
+
+        try:
+            tz = pytz.timezone(user_timezone)
+            local_now = datetime.now(tz)
+        except Exception:
+            local_now = datetime.utcnow()
+
+        today_date = local_now.date().isoformat()
+        daily_key = f"smart_daily_{user_id}_{today_date}"
+
+        query = (
+            "SELECT * FROM c "
+            "WHERE c.id = @daily_key AND c.type = 'smart_daily_meal_plan'"
+        )
+
+        items = list(
+            interactions_container.query_items(
+                query=query,
+                parameters=[{"name": "@daily_key", "value": daily_key}],
+                enable_cross_partition_query=True,
+            )
+        )
+
+        if not items:
+            return None
+
+        plan = items[0]
+        return plan.get("plan_data", plan)
+
+    except Exception as e:
+        print(f"[get_today_smart_daily_plan] Error: {e}")
+        return None
+
 async def get_meal_plan_by_id(plan_id: str, user_id: str):
     """Get a specific meal plan by ID"""
     try:

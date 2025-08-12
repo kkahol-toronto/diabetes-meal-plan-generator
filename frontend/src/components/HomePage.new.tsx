@@ -12,6 +12,7 @@ import {
   CardContent,
   LinearProgress,
   Alert,
+  AlertTitle,
   CircularProgress,
   Dialog,
   DialogTitle,
@@ -298,14 +299,12 @@ const HomePage: React.FC = () => {
             value={quickLogFood}
             onChange={(e) => setQuickLogFood(e.target.value)}
           />
-          <Box sx={{ mt: 2, p: 2, bgcolor: 'info.light', borderRadius: 1 }}>
-            <Typography variant="body2" color="info.dark" sx={{ fontWeight: 'bold', mb: 1 }}>
-              ✅ No meal plan required!
+          <Alert severity="success" variant="outlined" sx={{ mt: 2, alignItems: 'flex-start' }}>
+            <AlertTitle>No meal plan required</AlertTitle>
+            <Typography variant="body2" color="text.primary">
+              Our AI will analyze nutrition and diabetes suitability automatically. Food logging works independently and updates your daily nutrition score. Meal type will be auto-detected based on the current time.
             </Typography>
-            <Typography variant="body2" color="text.secondary">
-              Our AI will analyze nutrition and diabetes suitability automatically. Food logging works independently and updates your daily nutrition score.
-            </Typography>
-          </Box>
+          </Alert>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setShowQuickLogDialog(false)}>Cancel</Button>

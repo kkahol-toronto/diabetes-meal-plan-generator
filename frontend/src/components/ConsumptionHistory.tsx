@@ -2194,11 +2194,11 @@ const ConsumptionHistory: React.FC = () => {
                   <Card>
                     <CardContent>
                       <Typography variant="h6" gutterBottom>
-                        📈 Trends Analysis
-                              </Typography>
+                        📈 Protein Trend (vs Goal)
+                      </Typography>
                       <Box sx={{ height: 400 }}>
-                        {renderChart(selectedMetric)}
-                            </Box>
+                        {renderChart('protein')}
+                      </Box>
                     </CardContent>
                   </Card>
                         </Grid>

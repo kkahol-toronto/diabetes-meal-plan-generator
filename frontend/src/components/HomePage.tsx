@@ -12,6 +12,7 @@ import {
   CardContent,
   LinearProgress,
   Alert,
+  AlertTitle,
   CircularProgress,
   Dialog,
   DialogTitle,
@@ -3995,15 +3996,13 @@ const HomePage: React.FC = () => {
               <MenuItem value="snack">Snack</MenuItem>
             </Select>
           </FormControl>
-          <Box sx={{ mt: 2, p: 2, bgcolor: 'info.light', borderRadius: 1 }}>
-            <Typography variant="body2" color="info.dark" sx={{ fontWeight: 'bold', mb: 1 }}>
-              ✅ No meal plan required!
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
+          <Alert severity="success" variant="outlined" sx={{ mt: 2, alignItems: 'flex-start' }}>
+            <AlertTitle>No meal plan required</AlertTitle>
+            <Typography variant="body2" color="text.primary">
               Our AI will analyze nutrition and diabetes suitability automatically. Food logging works independently and updates your daily nutrition score.
-              {!quickLogMealType && ' Meal type will be auto-detected based on current time.'}
+              {!quickLogMealType && ' Meal type will be auto-detected based on the current time.'}
             </Typography>
-          </Box>
+          </Alert>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setShowQuickLogDialog(false)}>Cancel</Button>
