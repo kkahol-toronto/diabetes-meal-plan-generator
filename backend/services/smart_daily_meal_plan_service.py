@@ -14,6 +14,7 @@ This service provides a comprehensive Smart Daily Meal Plan functionality that:
 from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Optional, Any
 import json
+import re
 
 
 class SmartDailyMealPlanService:
@@ -291,25 +292,51 @@ class SmartDailyMealPlanService:
             
             print(f"[{self.service_name}] Adapting from meal plan with meals: {list(base_meals.keys())}")
             
+            # Helper to sanitize any strings that came from consumption-aware plans
+            def _sanitize_meal_text(raw_text: str) -> Optional[str]:
+                if not isinstance(raw_text, str):
+                    return None
+                text = raw_text.strip()
+                lower = text.lower()
+                # Remove consumption status prefixes and trailing check/calorie notes
+                if lower.startswith("you ate:"):
+                    text = re.sub(r"^you ate:\s*", "", text, flags=re.IGNORECASE)
+                    text = re.sub(r"\s*✓.*$", "", text).strip()
+                if lower.startswith("recommended:"):
+                    text = re.sub(r"^recommended:\s*", "", text, flags=re.IGNORECASE).strip()
+                # Skip message-like snack guidance rather than a dish
+                if any(phrase in lower for phrase in [
+                    "no additional snacks needed",
+                    "optional light snack",
+                    "optional very light snack",
+                    "light snack if needed"
+                ]):
+                    return None
+                return text or None
+
             for meal_type in active_meals:
                 if meal_type in base_meals and base_meals[meal_type]:
                     # Handle different meal data structures
                     meal_data = base_meals[meal_type]
                     
                     if isinstance(meal_data, str):
-                        # Simple string meal name
-                        adapted_meals[meal_type] = {
-                            "meal_name": meal_data,
-                            "description": f"Adapted from your meal plan history",
-                            "ingredients": [meal_data],
-                            "nutritional_info": self._estimate_nutrition(meal_data, meal_type),
-                            "preparation_time": "15 minutes",
-                            "source": "adapted_from_history"
-                        }
+                        # Simple string meal name (may include consumption-aware artifacts)
+                        cleaned = _sanitize_meal_text(meal_data)
+                        if cleaned:
+                            adapted_meals[meal_type] = {
+                                "meal_name": cleaned,
+                                "description": f"Adapted from your meal plan history",
+                                "ingredients": [cleaned],
+                                "nutritional_info": self._estimate_nutrition(cleaned, meal_type),
+                                "preparation_time": "15 minutes",
+                                "source": "adapted_from_history"
+                            }
                     elif isinstance(meal_data, dict):
                         # Structured meal data
+                        name_candidate = meal_data.get("meal_name", meal_data.get("name", f"Planned {meal_type}"))
+                        cleaned = _sanitize_meal_text(name_candidate) or f"Planned {meal_type}"
                         adapted_meals[meal_type] = {
-                            "meal_name": meal_data.get("meal_name", meal_data.get("name", f"Planned {meal_type}")),
+                            "meal_name": cleaned,
                             "description": meal_data.get("description", f"Adapted from your meal plan history"),
                             "ingredients": meal_data.get("ingredients", []),
                             "nutritional_info": meal_data.get("nutritional_info", self._estimate_nutrition("", meal_type)),
@@ -320,17 +347,21 @@ class SmartDailyMealPlanService:
                         # Array of meals - take the first one
                         first_meal = meal_data[0]
                         if isinstance(first_meal, str):
-                            adapted_meals[meal_type] = {
-                                "meal_name": first_meal,
-                                "description": f"Adapted from your meal plan history",
-                                "ingredients": [first_meal],
-                                "nutritional_info": self._estimate_nutrition(first_meal, meal_type),
-                                "preparation_time": "15 minutes",
-                                "source": "adapted_from_history"
-                            }
+                            cleaned = _sanitize_meal_text(first_meal)
+                            if cleaned:
+                                adapted_meals[meal_type] = {
+                                    "meal_name": cleaned,
+                                    "description": f"Adapted from your meal plan history",
+                                    "ingredients": [cleaned],
+                                    "nutritional_info": self._estimate_nutrition(cleaned, meal_type),
+                                    "preparation_time": "15 minutes",
+                                    "source": "adapted_from_history"
+                                }
                         elif isinstance(first_meal, dict):
+                            name_candidate = first_meal.get("meal_name", first_meal.get("name", f"Planned {meal_type}"))
+                            cleaned = _sanitize_meal_text(name_candidate) or f"Planned {meal_type}"
                             adapted_meals[meal_type] = {
-                                "meal_name": first_meal.get("meal_name", first_meal.get("name", f"Planned {meal_type}")),
+                                "meal_name": cleaned,
                                 "description": first_meal.get("description", f"Adapted from your meal plan history"),
                                 "ingredients": first_meal.get("ingredients", []),
                                 "nutritional_info": first_meal.get("nutritional_info", self._estimate_nutrition("", meal_type)),
@@ -347,24 +378,28 @@ class SmartDailyMealPlanService:
                             # Take the first snack from the array
                             first_snack = snacks_data[0]
                             if isinstance(first_snack, str):
+                                cleaned_snack = _sanitize_meal_text(first_snack)
+                                if cleaned_snack:
+                                    adapted_meals[meal_type] = {
+                                        "meal_name": cleaned_snack,
+                                        "description": f"Healthy snack from your meal plan",
+                                        "ingredients": [cleaned_snack],
+                                        "nutritional_info": self._estimate_nutrition(cleaned_snack, "snack"),
+                                        "preparation_time": "5 minutes",
+                                        "source": "adapted_from_history"
+                                    }
+                                print(f"[{self.service_name}] ✅ Found snack from history (plural): {first_snack}")
+                        elif isinstance(snacks_data, str):
+                            cleaned_snack = _sanitize_meal_text(snacks_data)
+                            if cleaned_snack:
                                 adapted_meals[meal_type] = {
-                                    "meal_name": first_snack,
+                                    "meal_name": cleaned_snack,
                                     "description": f"Healthy snack from your meal plan",
-                                    "ingredients": [first_snack],
-                                    "nutritional_info": self._estimate_nutrition(first_snack, "snack"),
+                                    "ingredients": [cleaned_snack],
+                                    "nutritional_info": self._estimate_nutrition(cleaned_snack, "snack"),
                                     "preparation_time": "5 minutes",
                                     "source": "adapted_from_history"
                                 }
-                                print(f"[{self.service_name}] ✅ Found snack from history (plural): {first_snack}")
-                        elif isinstance(snacks_data, str):
-                            adapted_meals[meal_type] = {
-                                "meal_name": snacks_data,
-                                "description": f"Healthy snack from your meal plan",
-                                "ingredients": [snacks_data],
-                                "nutritional_info": self._estimate_nutrition(snacks_data, "snack"),
-                                "preparation_time": "5 minutes",
-                                "source": "adapted_from_history"
-                            }
                             print(f"[{self.service_name}] ✅ Found snack from history (string): {snacks_data}")
             
             print(f"[{self.service_name}] Successfully adapted {len(adapted_meals)} meals from history")
@@ -698,6 +733,41 @@ class SmartDailyMealPlanService:
             
             # Apply recalibration if needed
             meals = existing_plan.get("meals", {})
+
+            # Defensive cleanup: sanitize any legacy text artifacts like "You ate:" leaking into planned meal names
+            try:
+                for k, v in list(meals.items()):
+                    # If meal is a plain string, convert to structured format after cleaning
+                    if isinstance(v, str):
+                        name = v.strip()
+                        lower = name.lower()
+                        if lower.startswith("you ate:"):
+                            name = re.sub(r"^you ate:\\s*", "", name, flags=re.IGNORECASE)
+                            name = re.sub(r"\\s*✓.*$", "", name).strip()
+                        if lower.startswith("recommended:"):
+                            name = re.sub(r"^recommended:\\s*", "", name, flags=re.IGNORECASE).strip()
+                        meals[k] = {
+                            "meal_name": name,
+                            "description": meals.get(k, {}).get("description", f"Adapted from your meal plan history") if isinstance(meals.get(k), dict) else f"Adapted from your meal plan history",
+                            "ingredients": [name],
+                            "nutritional_info": self._estimate_nutrition(name, k),
+                            "preparation_time": "15 minutes",
+                            "source": meals.get(k, {}).get("source", "adapted_from_history") if isinstance(meals.get(k), dict) else "adapted_from_history",
+                        }
+                    elif isinstance(v, dict):
+                        nm = v.get("meal_name") or v.get("name")
+                        if isinstance(nm, str):
+                            cleaned = nm.strip()
+                            lower = cleaned.lower()
+                            if lower.startswith("you ate:"):
+                                cleaned = re.sub(r"^you ate:\\s*", "", cleaned, flags=re.IGNORECASE)
+                                cleaned = re.sub(r"\\s*✓.*$", "", cleaned).strip()
+                            if lower.startswith("recommended:"):
+                                cleaned = re.sub(r"^recommended:\\s*", "", cleaned, flags=re.IGNORECASE).strip()
+                            v["meal_name"] = cleaned
+                            meals[k] = v
+            except Exception as _cleanup_err:
+                print(f"[{self.service_name}] Warning: cleanup skipped due to: {_cleanup_err}")
             meals, new_recalibrations = await self._apply_recalibration(meals, consumption_by_meal, user_profile)
             
             existing_plan["meals"] = meals
