@@ -13,7 +13,7 @@ import AdminPatientProfile from './components/AdminPatientProfile';
 import PiasCorner from './components/PiasCorner';
 import PatientDetails from './components/PatientDetails';
 
-import Navigation from './components/Navigation';
+import BottomNavigation from './components/BottomNavigation';
 import ThankYou from './components/ThankYou';
 import AllRecipesPage from './pages/AllRecipesPage';
 import AllShoppingListsPage from './pages/AllShoppingListsPage';
@@ -271,9 +271,8 @@ function App() {
             minHeight: '100vh',
           }}
         >
-          <Navigation />
           {token && userId && <NotificationSystem userId={userId} />}
-          <Box component="main" sx={{ flex: 1 }}>
+          <Box component="main" sx={{ flex: 1, pb: 14 }}>
             <Routes>
           {/* Moved Consumption History Route Up & Restored ProtectedRoute */}
           <Route
@@ -387,6 +386,7 @@ function App() {
           <Route path="*" element={<div>404 - Page Not Found or Route Not Matched</div>} />
         </Routes>
           </Box>
+          {token && <BottomNavigation />}
           <ComplianceFooter />
         </Box>
       </ThemeProvider>

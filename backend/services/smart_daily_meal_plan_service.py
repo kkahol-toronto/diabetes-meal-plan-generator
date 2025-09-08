@@ -58,7 +58,7 @@ class SmartDailyMealPlanService:
             meals = {}
             if meal_plan_history:
                 print(f"[{self.service_name}] Adapting meals from meal plan history")
-                meals = await self._adapt_from_meal_history(meal_config["active_meals"], meal_plan_history)
+                meals = await self._adapt_from_meal_history(meal_config["active_meals"], meal_plan_history, user_profile)
             
             if not meals or len(meals) < len(meal_config["active_meals"]):
                 print(f"[{self.service_name}] Generating missing meals from health profile")
@@ -270,13 +270,24 @@ class SmartDailyMealPlanService:
             print(f"[{self.service_name}] Error getting meal plan history: {e}")
             return []
     
-    async def _adapt_from_meal_history(self, active_meals: List[str], meal_plan_history: List[Dict]) -> Dict:
-        """Adapt meals from past meal plans in history"""
+    async def _adapt_from_meal_history(self, active_meals: List[str], meal_plan_history: List[Dict], user_profile: Dict = None) -> Dict:
+        """Adapt meals from past meal plans in history, considering current cuisine preferences"""
         adapted_meals = {}
         
         try:
             if not meal_plan_history:
                 return adapted_meals
+            
+            # Get current cuisine preferences from user profile
+            current_cuisine_prefs = []
+            if user_profile:
+                diet_type = user_profile.get("dietType") or user_profile.get("diet_type", [])
+                if isinstance(diet_type, str):
+                    current_cuisine_prefs = [diet_type.lower()]
+                elif isinstance(diet_type, list):
+                    current_cuisine_prefs = [dt.lower() for dt in diet_type if isinstance(dt, str)]
+            
+            print(f"[{self.service_name}] Current cuisine preferences: {current_cuisine_prefs}")
             
             # Use the most recent meal plan as base
             latest_plan = meal_plan_history[0]
@@ -298,12 +309,31 @@ class SmartDailyMealPlanService:
                     return None
                 text = raw_text.strip()
                 lower = text.lower()
+                
                 # Remove consumption status prefixes and trailing check/calorie notes
                 if lower.startswith("you ate:"):
                     text = re.sub(r"^you ate:\s*", "", text, flags=re.IGNORECASE)
                     text = re.sub(r"\s*✓.*$", "", text).strip()
                 if lower.startswith("recommended:"):
                     text = re.sub(r"^recommended:\s*", "", text, flags=re.IGNORECASE).strip()
+                
+                # Handle comma-separated duplicated values (e.g., "paneer butter masala, paneer butter masala")
+                if "," in text:
+                    parts = [p.strip() for p in text.split(",")]
+                    # Remove duplicates while preserving order
+                    unique_parts = []
+                    for part in parts:
+                        if part and part not in unique_parts:
+                            unique_parts.append(part)
+                    # If we have unique parts, join them back, otherwise take the first non-empty part
+                    if len(unique_parts) == 1:
+                        text = unique_parts[0]
+                    elif len(unique_parts) > 1:
+                        # Multiple different items - take the first one for smart daily meal plan
+                        text = unique_parts[0]
+                    else:
+                        text = ""
+                
                 # Skip message-like snack guidance rather than a dish
                 if any(phrase in lower for phrase in [
                     "no additional snacks needed",
@@ -312,7 +342,41 @@ class SmartDailyMealPlanService:
                     "light snack if needed"
                 ]):
                     return None
-                return text or None
+                
+                return text.strip() if text.strip() else None
+
+            # Helper to check if a meal matches current cuisine preferences
+            def _matches_cuisine_preference(meal_name: str) -> bool:
+                if not current_cuisine_prefs or not meal_name:
+                    return True  # No preference specified or no meal name to check
+                
+                meal_lower = meal_name.lower()
+                
+                # Define cuisine-specific keywords for matching
+                cuisine_keywords = {
+                    'korean': ['kimchi', 'bulgogi', 'bibimbap', 'korean', 'gochujang', 'banchan'],
+                    'chinese': ['stir-fry', 'fried rice', 'dim sum', 'wonton', 'chinese', 'soy sauce', 'noodles'],
+                    'east asian': ['stir-fry', 'fried rice', 'dim sum', 'wonton', 'chinese', 'soy sauce', 'noodles', 'kimchi', 'korean'],
+                    'south asian': ['curry', 'dal', 'roti', 'chapati', 'tandoor', 'biryani', 'paneer', 'masala', 'indian'],
+                    'indian': ['curry', 'dal', 'roti', 'chapati', 'tandoor', 'biryani', 'paneer', 'masala'],
+                    'mediterranean': ['olive oil', 'hummus', 'feta', 'greek', 'mediterranean', 'tzatziki'],
+                    'western': ['sandwich', 'burger', 'steak', 'pasta', 'pizza', 'salad', 'grilled'],
+                    'european': ['sandwich', 'burger', 'steak', 'pasta', 'pizza', 'salad', 'grilled']
+                }
+                
+                # Check if meal matches any of the current cuisine preferences
+                for pref in current_cuisine_prefs:
+                    if pref in cuisine_keywords:
+                        keywords = cuisine_keywords[pref]
+                        if any(keyword in meal_lower for keyword in keywords):
+                            return True
+                
+                # If we have specific cuisine preferences but no match found, it doesn't match
+                if current_cuisine_prefs:
+                    print(f"[{self.service_name}] Meal '{meal_name}' doesn't match cuisine preferences {current_cuisine_prefs}")
+                    return False
+                
+                return True
 
             for meal_type in active_meals:
                 if meal_type in base_meals and base_meals[meal_type]:
@@ -322,7 +386,7 @@ class SmartDailyMealPlanService:
                     if isinstance(meal_data, str):
                         # Simple string meal name (may include consumption-aware artifacts)
                         cleaned = _sanitize_meal_text(meal_data)
-                        if cleaned:
+                        if cleaned and _matches_cuisine_preference(cleaned):
                             adapted_meals[meal_type] = {
                                 "meal_name": cleaned,
                                 "description": f"Adapted from your meal plan history",
@@ -331,24 +395,29 @@ class SmartDailyMealPlanService:
                                 "preparation_time": "15 minutes",
                                 "source": "adapted_from_history"
                             }
+                        elif cleaned:
+                            print(f"[{self.service_name}] Skipping {meal_type} '{cleaned}' - doesn't match cuisine preference")
                     elif isinstance(meal_data, dict):
                         # Structured meal data
                         name_candidate = meal_data.get("meal_name", meal_data.get("name", f"Planned {meal_type}"))
                         cleaned = _sanitize_meal_text(name_candidate) or f"Planned {meal_type}"
-                        adapted_meals[meal_type] = {
-                            "meal_name": cleaned,
-                            "description": meal_data.get("description", f"Adapted from your meal plan history"),
-                            "ingredients": meal_data.get("ingredients", []),
-                            "nutritional_info": meal_data.get("nutritional_info", self._estimate_nutrition("", meal_type)),
-                            "preparation_time": meal_data.get("preparation_time", "15 minutes"),
-                            "source": "adapted_from_history"
-                        }
+                        if _matches_cuisine_preference(cleaned):
+                            adapted_meals[meal_type] = {
+                                "meal_name": cleaned,
+                                "description": meal_data.get("description", f"Adapted from your meal plan history"),
+                                "ingredients": meal_data.get("ingredients", []),
+                                "nutritional_info": meal_data.get("nutritional_info", self._estimate_nutrition("", meal_type)),
+                                "preparation_time": meal_data.get("preparation_time", "15 minutes"),
+                                "source": "adapted_from_history"
+                            }
+                        else:
+                            print(f"[{self.service_name}] Skipping {meal_type} '{cleaned}' - doesn't match cuisine preference")
                     elif isinstance(meal_data, list) and len(meal_data) > 0:
                         # Array of meals - take the first one
                         first_meal = meal_data[0]
                         if isinstance(first_meal, str):
                             cleaned = _sanitize_meal_text(first_meal)
-                            if cleaned:
+                            if cleaned and _matches_cuisine_preference(cleaned):
                                 adapted_meals[meal_type] = {
                                     "meal_name": cleaned,
                                     "description": f"Adapted from your meal plan history",
@@ -357,17 +426,22 @@ class SmartDailyMealPlanService:
                                     "preparation_time": "15 minutes",
                                     "source": "adapted_from_history"
                                 }
+                            elif cleaned:
+                                print(f"[{self.service_name}] Skipping {meal_type} '{cleaned}' - doesn't match cuisine preference")
                         elif isinstance(first_meal, dict):
                             name_candidate = first_meal.get("meal_name", first_meal.get("name", f"Planned {meal_type}"))
                             cleaned = _sanitize_meal_text(name_candidate) or f"Planned {meal_type}"
-                            adapted_meals[meal_type] = {
-                                "meal_name": cleaned,
-                                "description": first_meal.get("description", f"Adapted from your meal plan history"),
-                                "ingredients": first_meal.get("ingredients", []),
-                                "nutritional_info": first_meal.get("nutritional_info", self._estimate_nutrition("", meal_type)),
-                                "preparation_time": first_meal.get("preparation_time", "15 minutes"),
-                                "source": "adapted_from_history"
-                            }
+                            if _matches_cuisine_preference(cleaned):
+                                adapted_meals[meal_type] = {
+                                    "meal_name": cleaned,
+                                    "description": first_meal.get("description", f"Adapted from your meal plan history"),
+                                    "ingredients": first_meal.get("ingredients", []),
+                                    "nutritional_info": first_meal.get("nutritional_info", self._estimate_nutrition("", meal_type)),
+                                    "preparation_time": first_meal.get("preparation_time", "15 minutes"),
+                                    "source": "adapted_from_history"
+                                }
+                            else:
+                                print(f"[{self.service_name}] Skipping {meal_type} '{cleaned}' - doesn't match cuisine preference")
                 
                 # Special handling for snacks - check both "snack" and "snacks" keys
                 elif meal_type == "snack":
@@ -412,7 +486,7 @@ class SmartDailyMealPlanService:
             return {}
     
     async def _generate_from_health_profile(self, missing_meals: List[str], user_profile: Dict) -> Dict:
-        """Generate meals based on user's comprehensive health profile"""
+        """Generate meals based on user's comprehensive health profile and cuisine preferences"""
         generated_meals = {}
         
         try:
@@ -420,6 +494,14 @@ class SmartDailyMealPlanService:
             dietary_restrictions = user_profile.get("dietaryRestrictions", [])
             food_preferences = user_profile.get("foodPreferences", [])
             calorie_target = int(user_profile.get("calorieTarget", "2000"))
+            
+            # Get cuisine preferences
+            diet_type = user_profile.get("dietType") or user_profile.get("diet_type", [])
+            cuisine_prefs = []
+            if isinstance(diet_type, str):
+                cuisine_prefs = [diet_type.lower()]
+            elif isinstance(diet_type, list):
+                cuisine_prefs = [dt.lower() for dt in diet_type if isinstance(dt, str)]
 
             # Calorie distribution that sums to 100% of target
             # breakfast 25%, lunch 35%, dinner 35%, snack 5%
@@ -428,41 +510,116 @@ class SmartDailyMealPlanService:
             d_cal = max(250, int(round(calorie_target * 0.35)))
             s_cal = max(50, int(round(calorie_target * 0.05)))
             
-            # Basic meal templates based on health profile
-            meal_templates = {
-                "breakfast": {
-                    "meal_name": "Balanced Breakfast",
-                    "description": "Protein-rich breakfast with complex carbohydrates for sustained energy",
-                    "ingredients": ["oats", "berries", "nuts", "protein source"],
-                    "nutritional_info": {"calories": b_cal, "protein": 20, "carbohydrates": 45, "fat": 12},
-                    "preparation_time": "10 minutes",
-                    "source": "generated_from_profile"
-                },
-                "lunch": {
-                    "meal_name": "Nutritious Lunch",
-                    "description": "Balanced lunch with lean protein and vegetables",
-                    "ingredients": ["lean protein", "vegetables", "healthy grains"],
-                    "nutritional_info": {"calories": l_cal, "protein": 25, "carbohydrates": 40, "fat": 15},
-                    "preparation_time": "20 minutes",
-                    "source": "generated_from_profile"
-                },
-                "dinner": {
-                    "meal_name": "Healthy Dinner",
-                    "description": "Well-balanced dinner with protein, vegetables, and healthy carbs",
-                    "ingredients": ["protein", "vegetables", "complex carbs"],
-                    "nutritional_info": {"calories": d_cal, "protein": 30, "carbohydrates": 35, "fat": 18},
-                    "preparation_time": "25 minutes",
-                    "source": "generated_from_profile"
-                },
-                "snack": {
-                    "meal_name": "Healthy Snack",
-                    "description": "Nutritious snack to bridge meal gaps",
-                    "ingredients": ["nuts", "fruit"],
-                    "nutritional_info": {"calories": s_cal, "protein": 5, "carbohydrates": 15, "fat": 8},
-                    "preparation_time": "5 minutes",
-                    "source": "generated_from_profile"
-                }
-            }
+            # Cuisine-specific meal templates based on health profile
+            def get_cuisine_specific_meals():
+                if 'korean' in cuisine_prefs or 'east asian' in cuisine_prefs:
+                    return {
+                        "breakfast": {
+                            "meal_name": "Korean-style Breakfast Bowl",
+                            "description": "Balanced Korean breakfast with vegetables and protein",
+                            "ingredients": ["brown rice", "vegetables", "protein", "kimchi"],
+                            "nutritional_info": {"calories": b_cal, "protein": 20, "carbohydrates": 45, "fat": 12},
+                            "preparation_time": "15 minutes",
+                            "source": "generated_from_profile"
+                        },
+                        "lunch": {
+                            "meal_name": "Asian-style Stir-fry",
+                            "description": "Healthy stir-fry with lean protein and vegetables",
+                            "ingredients": ["lean protein", "mixed vegetables", "brown rice", "light soy sauce"],
+                            "nutritional_info": {"calories": l_cal, "protein": 25, "carbohydrates": 40, "fat": 15},
+                            "preparation_time": "20 minutes",
+                            "source": "generated_from_profile"
+                        },
+                        "dinner": {
+                            "meal_name": "Korean-inspired Protein Bowl",
+                            "description": "Well-balanced Korean-style dinner bowl",
+                            "ingredients": ["protein", "steamed vegetables", "quinoa", "Korean seasonings"],
+                            "nutritional_info": {"calories": d_cal, "protein": 30, "carbohydrates": 35, "fat": 18},
+                            "preparation_time": "25 minutes",
+                            "source": "generated_from_profile"
+                        },
+                        "snack": {
+                            "meal_name": "Asian-style Healthy Snack",
+                            "description": "Light Asian-inspired snack",
+                            "ingredients": ["nuts", "dried seaweed", "fruit"],
+                            "nutritional_info": {"calories": s_cal, "protein": 5, "carbohydrates": 15, "fat": 8},
+                            "preparation_time": "5 minutes",
+                            "source": "generated_from_profile"
+                        }
+                    }
+                elif 'chinese' in cuisine_prefs:
+                    return {
+                        "breakfast": {
+                            "meal_name": "Chinese-style Congee",
+                            "description": "Nutritious rice porridge with protein",
+                            "ingredients": ["rice porridge", "lean protein", "vegetables", "ginger"],
+                            "nutritional_info": {"calories": b_cal, "protein": 20, "carbohydrates": 45, "fat": 12},
+                            "preparation_time": "15 minutes",
+                            "source": "generated_from_profile"
+                        },
+                        "lunch": {
+                            "meal_name": "Chinese Steamed Dish",
+                            "description": "Healthy steamed protein with vegetables",
+                            "ingredients": ["steamed protein", "mixed vegetables", "brown rice"],
+                            "nutritional_info": {"calories": l_cal, "protein": 25, "carbohydrates": 40, "fat": 15},
+                            "preparation_time": "20 minutes",
+                            "source": "generated_from_profile"
+                        },
+                        "dinner": {
+                            "meal_name": "Chinese-style Healthy Dinner",
+                            "description": "Balanced Chinese-inspired dinner",
+                            "ingredients": ["protein", "steamed vegetables", "brown rice"],
+                            "nutritional_info": {"calories": d_cal, "protein": 30, "carbohydrates": 35, "fat": 18},
+                            "preparation_time": "25 minutes",
+                            "source": "generated_from_profile"
+                        },
+                        "snack": {
+                            "meal_name": "Chinese-style Tea Snack",
+                            "description": "Light Chinese-inspired snack",
+                            "ingredients": ["nuts", "tea", "fruit"],
+                            "nutritional_info": {"calories": s_cal, "protein": 5, "carbohydrates": 15, "fat": 8},
+                            "preparation_time": "5 minutes",
+                            "source": "generated_from_profile"
+                        }
+                    }
+                else:
+                    # Default healthy meals
+                    return {
+                        "breakfast": {
+                            "meal_name": "Balanced Breakfast",
+                            "description": "Protein-rich breakfast with complex carbohydrates for sustained energy",
+                            "ingredients": ["oats", "berries", "nuts", "protein source"],
+                            "nutritional_info": {"calories": b_cal, "protein": 20, "carbohydrates": 45, "fat": 12},
+                            "preparation_time": "10 minutes",
+                            "source": "generated_from_profile"
+                        },
+                        "lunch": {
+                            "meal_name": "Nutritious Lunch",
+                            "description": "Balanced lunch with lean protein and vegetables",
+                            "ingredients": ["lean protein", "vegetables", "healthy grains"],
+                            "nutritional_info": {"calories": l_cal, "protein": 25, "carbohydrates": 40, "fat": 15},
+                            "preparation_time": "20 minutes",
+                            "source": "generated_from_profile"
+                        },
+                        "dinner": {
+                            "meal_name": "Healthy Dinner",
+                            "description": "Well-balanced dinner with protein, vegetables, and healthy carbs",
+                            "ingredients": ["protein", "vegetables", "complex carbs"],
+                            "nutritional_info": {"calories": d_cal, "protein": 30, "carbohydrates": 35, "fat": 18},
+                            "preparation_time": "25 minutes",
+                            "source": "generated_from_profile"
+                        },
+                        "snack": {
+                            "meal_name": "Healthy Snack",
+                            "description": "Nutritious snack to bridge meal gaps",
+                            "ingredients": ["nuts", "fruit"],
+                            "nutritional_info": {"calories": s_cal, "protein": 5, "carbohydrates": 15, "fat": 8},
+                            "preparation_time": "5 minutes",
+                            "source": "generated_from_profile"
+                        }
+                    }
+            
+            meal_templates = get_cuisine_specific_meals()
             
             for meal_type in missing_meals:
                 if meal_type in meal_templates:
@@ -741,11 +898,24 @@ class SmartDailyMealPlanService:
                     if isinstance(v, str):
                         name = v.strip()
                         lower = name.lower()
+                        
+                        # Remove consumption status prefixes
                         if lower.startswith("you ate:"):
                             name = re.sub(r"^you ate:\\s*", "", name, flags=re.IGNORECASE)
                             name = re.sub(r"\\s*✓.*$", "", name).strip()
                         if lower.startswith("recommended:"):
                             name = re.sub(r"^recommended:\\s*", "", name, flags=re.IGNORECASE).strip()
+                        
+                        # Handle comma-separated duplicated values
+                        if "," in name:
+                            parts = [p.strip() for p in name.split(",")]
+                            unique_parts = []
+                            for part in parts:
+                                if part and part not in unique_parts:
+                                    unique_parts.append(part)
+                            if len(unique_parts) >= 1:
+                                name = unique_parts[0]  # Take the first unique part
+                        
                         meals[k] = {
                             "meal_name": name,
                             "description": meals.get(k, {}).get("description", f"Adapted from your meal plan history") if isinstance(meals.get(k), dict) else f"Adapted from your meal plan history",
@@ -759,11 +929,24 @@ class SmartDailyMealPlanService:
                         if isinstance(nm, str):
                             cleaned = nm.strip()
                             lower = cleaned.lower()
+                            
+                            # Remove consumption status prefixes
                             if lower.startswith("you ate:"):
                                 cleaned = re.sub(r"^you ate:\\s*", "", cleaned, flags=re.IGNORECASE)
                                 cleaned = re.sub(r"\\s*✓.*$", "", cleaned).strip()
                             if lower.startswith("recommended:"):
                                 cleaned = re.sub(r"^recommended:\\s*", "", cleaned, flags=re.IGNORECASE).strip()
+                            
+                            # Handle comma-separated duplicated values
+                            if "," in cleaned:
+                                parts = [p.strip() for p in cleaned.split(",")]
+                                unique_parts = []
+                                for part in parts:
+                                    if part and part not in unique_parts:
+                                        unique_parts.append(part)
+                                if len(unique_parts) >= 1:
+                                    cleaned = unique_parts[0]  # Take the first unique part
+                            
                             v["meal_name"] = cleaned
                             meals[k] = v
             except Exception as _cleanup_err:

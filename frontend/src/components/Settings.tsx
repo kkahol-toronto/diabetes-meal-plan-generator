@@ -40,6 +40,7 @@ import {
   Warning as WarningIcon,
   CheckCircle as CheckIcon,
   Close as CloseIcon,
+  Logout as LogoutIcon,
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../contexts/AppContext';
@@ -288,6 +289,15 @@ const Settings: React.FC = () => {
     }
   };
 
+  const handleLogout = () => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('isAdmin');
+    localStorage.removeItem('userProfile');
+    localStorage.removeItem('userProfile_backup');
+    showNotification('You have been logged out successfully', 'info');
+    navigate('/login');
+  };
+
   const getExportSizeEstimate = () => {
     const sizes = { 'Small': 1, 'Medium': 5, 'Large': 20 };
     const totalMB = selectedDataTypes.reduce((total, type) => {
@@ -445,6 +455,36 @@ const Settings: React.FC = () => {
                   </Typography>
                 </Grid>
               </Grid>
+            </CardContent>
+          </Card>
+        </Grid>
+
+        {/* Account Actions */}
+        <Grid item xs={12}>
+          <Card>
+            <CardContent>
+              <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
+                <LogoutIcon sx={{ mr: 1, color: 'primary.main' }} />
+                Account Actions
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+                Sign out of your account or manage your session.
+              </Typography>
+              
+              <Button
+                variant="contained"
+                color="primary"
+                startIcon={<LogoutIcon />}
+                onClick={handleLogout}
+                sx={{
+                  background: 'linear-gradient(45deg, #FF6B6B 30%, #4ECDC4 90%)',
+                  '&:hover': {
+                    background: 'linear-gradient(45deg, #FF5252 30%, #26A69A 90%)',
+                  },
+                }}
+              >
+                Sign Out
+              </Button>
             </CardContent>
           </Card>
         </Grid>
