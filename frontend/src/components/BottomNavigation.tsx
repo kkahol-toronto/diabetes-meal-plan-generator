@@ -211,7 +211,8 @@ const BottomNavigation: React.FC = () => {
                   flexDirection: 'column',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  minWidth: 70,
+                  minWidth: 80,
+                  width: 80,
                   padding: '16px 12px',
                   borderRadius: '24px',
                   cursor: 'pointer',
@@ -228,8 +229,9 @@ const BottomNavigation: React.FC = () => {
                     ? `0 8px 32px ${alpha(item.color, 0.4)}, 0 0 0 1px ${alpha(item.color, 0.2)}` 
                     : '0 4px 16px rgba(0, 0, 0, 0.15), 0 2px 8px rgba(255, 255, 255, 0.8) inset',
                   '@media (max-width: 600px)': {
-                    minWidth: 60,
-                    padding: '14px 10px',
+                    minWidth: 70,
+                    width: 70,
+                    padding: '14px 8px',
                     borderRadius: '20px',
                   },
                   '&:hover': {
@@ -290,11 +292,17 @@ const BottomNavigation: React.FC = () => {
                     fontWeight: isActive ? 700 : 500,
                     color: isActive ? item.color : 'rgba(80, 80, 80, 0.9)',
                     textAlign: 'center',
-                    lineHeight: 1.2,
+                    lineHeight: 1.1,
                     letterSpacing: '0.02em',
                     textShadow: isActive ? `0 1px 2px ${alpha(item.color, 0.1)}` : '0 1px 2px rgba(255,255,255,0.8)',
+                    width: '100%',
+                    height: '24px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
                     '@media (max-width: 600px)': {
                       fontSize: '0.7rem',
+                      height: '22px',
                     },
                   }}
                 >
