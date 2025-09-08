@@ -1,5 +1,5 @@
 import React from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { ThemeProvider, createTheme, CssBaseline, Box } from '@mui/material';
 import { AppProvider } from './contexts/AppContext';
 import HomePage from './components/HomePage';
@@ -257,8 +257,13 @@ const AdminRoute = ({ children }: { children: React.ReactNode }) => {
 };
 
 function App() {
+  const location = useLocation();
   const token = localStorage.getItem('token');
   const userId = localStorage.getItem('userId');
+  
+  // Check if current route should show navigation
+  const authRoutes = ['/login', '/register', '/admin/login', '/thank-you'];
+  const shouldShowNavigation = token && !authRoutes.includes(location.pathname);
   
   return (
     <AppProvider>
@@ -272,7 +277,7 @@ function App() {
           }}
         >
           {token && userId && <NotificationSystem userId={userId} />}
-          <Box component="main" sx={{ flex: 1, pb: 14 }}>
+          <Box component="main" sx={{ flex: 1, pb: shouldShowNavigation ? 14 : 0 }}>
             <Routes>
           {/* Moved Consumption History Route Up & Restored ProtectedRoute */}
           <Route
@@ -386,7 +391,7 @@ function App() {
           <Route path="*" element={<div>404 - Page Not Found or Route Not Matched</div>} />
         </Routes>
           </Box>
-          {token && <BottomNavigation />}
+          {shouldShowNavigation && <BottomNavigation />}
           <ComplianceFooter />
         </Box>
       </ThemeProvider>
