@@ -31,7 +31,11 @@ import {
   Tooltip,
   IconButton,
   Stack,
-  Container
+  Container,
+  Fade,
+  Slide,
+  Zoom,
+  keyframes
 } from '@mui/material';
 import { 
   filterRecordsByDateRange,
@@ -96,6 +100,70 @@ ChartJS.register(
   LineElement,
   Filler
 );
+
+// Enhanced Mobile Animations
+const slideInUp = keyframes`
+  0% { 
+    opacity: 0;
+    transform: translateY(30px);
+  }
+  100% { 
+    opacity: 1;
+    transform: translateY(0);
+  }
+`;
+
+const fadeInScale = keyframes`
+  0% { 
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  100% { 
+    opacity: 1;
+    transform: scale(1);
+  }
+`;
+
+const shimmer = keyframes`
+  0% { background-position: -200px 0; }
+  100% { background-position: calc(200px + 100%) 0; }
+`;
+
+const pulse = keyframes`
+  0% { transform: scale(1); }
+  50% { transform: scale(1.05); }
+  100% { transform: scale(1); }
+`;
+
+const gradientShift = keyframes`
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+`;
+
+const bounceIn = keyframes`
+  0% { 
+    opacity: 0;
+    transform: scale(0.3);
+  }
+  50% { 
+    opacity: 1;
+    transform: scale(1.05);
+  }
+  70% { 
+    transform: scale(0.9);
+  }
+  100% { 
+    opacity: 1;
+    transform: scale(1);
+  }
+`;
+
+const float = keyframes`
+  0% { transform: translateY(0px); }
+  50% { transform: translateY(-3px); }
+  100% { transform: translateY(0px); }
+`;
 
 // Enhanced types for comprehensive nutrition tracking
 interface NutritionalInfo {
@@ -733,6 +801,14 @@ const ConsumptionHistory: React.FC = () => {
     }
   };
 
+  // Helper function to convert hex to rgba with transparency
+  const hexToRgba = (hex: string, alpha: number = 0.5) => {
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  };
+
   // Recommended daily values for different nutrients
   const dailyRecommendations: Record<string, number> = {
     calories: 2000,
@@ -798,9 +874,9 @@ const ConsumptionHistory: React.FC = () => {
           labels,
           datasets: [{
             data: values,
-            backgroundColor: ['#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A'],
+            backgroundColor: ['rgba(255, 107, 107, 0.7)', 'rgba(78, 205, 196, 0.7)', 'rgba(69, 183, 209, 0.7)', 'rgba(255, 160, 122, 0.7)'],
             borderWidth: 2,
-            borderColor: '#fff',
+            borderColor: 'rgba(255, 255, 255, 0.8)',
             hoverOffset: 4
           }]
         };
@@ -817,9 +893,9 @@ const ConsumptionHistory: React.FC = () => {
         labels: labels.map(l => l.charAt(0).toUpperCase() + l.slice(1)),
         datasets: [{
           data: values,
-          backgroundColor: ['#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A', '#98D8C8', '#F7DC6F'],
+          backgroundColor: ['rgba(255, 107, 107, 0.7)', 'rgba(78, 205, 196, 0.7)', 'rgba(69, 183, 209, 0.7)', 'rgba(255, 160, 122, 0.7)', 'rgba(152, 216, 200, 0.7)', 'rgba(247, 220, 111, 0.7)'],
           borderWidth: 2,
-          borderColor: '#fff',
+          borderColor: 'rgba(255, 255, 255, 0.8)',
           hoverOffset: 4
         }]
       };
@@ -845,13 +921,13 @@ const ConsumptionHistory: React.FC = () => {
         datasets: [{
           label: `${metric.charAt(0).toUpperCase() + metric.slice(1)} by Meal (Today)`,
           data: mealValues,
-          backgroundColor: selectedChartType === 'line' ? 'rgba(0,0,0,0.05)' : colorForType,
+          backgroundColor: selectedChartType === 'line' ? 'rgba(255, 255, 255, 0.1)' : hexToRgba(colorForType, 0.5),
           borderColor: colorForType,
           borderWidth: 2,
           fill: selectedChartType === 'line',
           tension: 0.4,
           pointBackgroundColor: colorForType,
-          pointBorderColor: '#fff',
+          pointBorderColor: 'rgba(255, 255, 255, 0.8)',
           pointBorderWidth: 2,
           pointRadius: 4,
           pointHoverRadius: 6
@@ -885,13 +961,13 @@ const ConsumptionHistory: React.FC = () => {
       {
         label: `Current (${timeRanges.find(r => r.value === selectedTimeRange)?.label})`,
         data: valueList,
-        backgroundColor: selectedChartType === 'line' ? 'rgba(0,0,0,0.05)' : colorLater,
+        backgroundColor: selectedChartType === 'line' ? 'rgba(255, 255, 255, 0.1)' : hexToRgba(colorLater, 0.5),
         borderColor: colorLater,
         borderWidth: 2,
         fill: selectedChartType === 'line',
         tension: 0.4,
         pointBackgroundColor: colorLater,
-        pointBorderColor: '#fff',
+        pointBorderColor: 'rgba(255, 255, 255, 0.8)',
         pointBorderWidth: 2,
         pointRadius: 4,
         pointHoverRadius: 6
@@ -912,18 +988,18 @@ const ConsumptionHistory: React.FC = () => {
         return (comparisonMap[iso]?.[metric] as number) || 0;
       });
 
-      const comparisonColor = 'rgba(0,0,0,0.4)';
+      const comparisonColor = 'rgba(255, 255, 255, 0.6)';
 
       datasets.push({
         label: `Comparison (${timeRanges.find(r => r.value === comparisonTimeRange)?.label})`,
         data: comparisonValues,
-        backgroundColor: selectedChartType === 'line' ? 'rgba(0,0,0,0.03)' : comparisonColor,
+        backgroundColor: selectedChartType === 'line' ? 'rgba(255, 255, 255, 0.05)' : comparisonColor,
         borderColor: comparisonColor,
         borderWidth: 2,
         fill: selectedChartType === 'line',
         tension: 0.4,
         pointBackgroundColor: comparisonColor,
-        pointBorderColor: '#fff',
+        pointBorderColor: 'rgba(255, 255, 255, 0.8)',
         pointBorderWidth: 2,
         pointRadius: 4,
         pointHoverRadius: 6,
@@ -1106,6 +1182,7 @@ const ConsumptionHistory: React.FC = () => {
     const baseOptions = {
       responsive: true,
       maintainAspectRatio: false,
+      backgroundColor: 'transparent',
       interaction: {
         mode: 'index' as const,
         intersect: false,
@@ -1116,6 +1193,7 @@ const ConsumptionHistory: React.FC = () => {
           labels: {
             usePointStyle: true,
             padding: 20,
+            color: 'white',
             font: {
               size: 12
             }
@@ -1124,6 +1202,7 @@ const ConsumptionHistory: React.FC = () => {
         title: {
           display: true,
           text: `${chartConfig?.title || metric} - ${selectedTimeRangeLabel}${comparisonMode ? ' (Comparison Mode)' : ''}`,
+          color: 'white',
           font: {
             size: 16,
             weight: 'bold' as const
@@ -1131,9 +1210,9 @@ const ConsumptionHistory: React.FC = () => {
           padding: 20
         },
         tooltip: {
-          backgroundColor: 'rgba(0,0,0,0.8)',
-          titleColor: '#fff',
-          bodyColor: '#fff',
+          backgroundColor: 'rgba(255, 255, 255, 0.9)',
+          titleColor: '#333',
+          bodyColor: '#333',
           borderColor: chartConfig?.color || '#45B7D1',
           borderWidth: 1,
           cornerRadius: 6,
@@ -1163,10 +1242,11 @@ const ConsumptionHistory: React.FC = () => {
           y: {
             beginAtZero: true,
             grid: {
-              color: 'rgba(0,0,0,0.1)',
+              color: 'rgba(255, 255, 255, 0.2)',
               borderDash: [5, 5]
             },
             ticks: {
+              color: 'white',
               font: {
                 size: 12
               },
@@ -1177,6 +1257,7 @@ const ConsumptionHistory: React.FC = () => {
             title: {
               display: true,
               text: `${chartConfig?.title || metric} (${unit})`,
+              color: 'white',
               font: {
                 size: 14,
                 weight: 'bold' as const
@@ -1185,10 +1266,11 @@ const ConsumptionHistory: React.FC = () => {
           },
           x: {
             grid: {
-              color: 'rgba(0,0,0,0.1)',
+              color: 'rgba(255, 255, 255, 0.2)',
               borderDash: [5, 5]
             },
             ticks: {
+              color: 'white',
               font: {
                 size: 12
               },
@@ -1198,6 +1280,7 @@ const ConsumptionHistory: React.FC = () => {
             title: {
               display: true,
               text: 'Time Period',
+              color: 'white',
               font: {
                 size: 14,
                 weight: 'bold' as const
@@ -1373,90 +1456,349 @@ const ConsumptionHistory: React.FC = () => {
 
   if (loading) {
     return (
-      <Box display="flex" flexDirection="column" alignItems="center" justifyContent="center" minHeight="400px">
-        <CircularProgress size={60} sx={{ mb: 2 }} />
-        <Typography color="textSecondary">Loading consumption data...</Typography>
+      <Box sx={{
+        minHeight: '100vh',
+        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        p: 2
+      }}>
+        <Fade in={true} timeout={1000}>
+          <Paper elevation={0} sx={{
+            p: 4,
+            borderRadius: '24px',
+            background: 'rgba(255, 255, 255, 0.25)',
+            backdropFilter: 'blur(20px)',
+            border: '1px solid rgba(255, 255, 255, 0.2)',
+            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
+            textAlign: 'center',
+            maxWidth: 400,
+            animation: `${pulse} 2s ease-in-out infinite`,
+          }}>
+            <CircularProgress 
+              size={80} 
+              sx={{ 
+                mb: 3,
+                color: 'white',
+                animation: `${float} 3s ease-in-out infinite`
+              }} 
+            />
+            <Typography 
+              variant="h6" 
+              sx={{ 
+                color: 'white',
+                fontWeight: 600,
+                textShadow: '0 2px 4px rgba(0,0,0,0.3)',
+                mb: 1
+              }}
+            >
+              🍎 Loading Nutrition Analytics
+            </Typography>
+            <Typography 
+              variant="body2" 
+              sx={{ 
+                color: 'rgba(255, 255, 255, 0.8)',
+                textShadow: '0 1px 3px rgba(0,0,0,0.2)'
+              }}
+            >
+              Analyzing your consumption data...
+            </Typography>
+          </Paper>
+        </Fade>
       </Box>
     );
   }
 
   if (error) {
     return (
-      <Box maxWidth="600px" mx="auto" p={3}>
-        <Alert severity="error" sx={{ mb: 2 }}>
-          <Typography variant="h6" gutterBottom>Error Loading Data</Typography>
-          <Typography>{error}</Typography>
-          </Alert>
-        <Button variant="contained" onClick={loadConsumptionData} startIcon={<RefreshIcon />}>
-          Try Again
-        </Button>
+      <Box sx={{
+        minHeight: '100vh',
+        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        p: 2
+      }}>
+        <Fade in={true} timeout={1000}>
+          <Paper elevation={0} sx={{
+            p: 4,
+            borderRadius: '24px',
+            background: 'rgba(255, 255, 255, 0.25)',
+            backdropFilter: 'blur(20px)',
+            border: '1px solid rgba(255, 255, 255, 0.2)',
+            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
+            textAlign: 'center',
+            maxWidth: 400,
+          }}>
+            <Alert 
+              severity="error" 
+              sx={{ 
+                mb: 3,
+                borderRadius: '16px',
+                background: 'rgba(244, 67, 54, 0.1)',
+                border: '1px solid rgba(244, 67, 54, 0.3)',
+                color: 'white',
+                '& .MuiAlert-icon': {
+                  color: 'white'
+                }
+              }}
+            >
+              <Typography variant="h6" gutterBottom sx={{ color: 'white', fontWeight: 600 }}>
+                Error Loading Data
+              </Typography>
+              <Typography sx={{ color: 'rgba(255, 255, 255, 0.9)' }}>
+                {error}
+              </Typography>
+            </Alert>
+            <Button 
+              variant="contained" 
+              onClick={loadConsumptionData} 
+              startIcon={<RefreshIcon />}
+              sx={{
+                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                color: 'white',
+                borderRadius: '50px',
+                px: 4,
+                py: 1.5,
+                fontWeight: 600,
+                textTransform: 'none',
+                boxShadow: '0 4px 12px rgba(0, 0, 0, 0.2)',
+                '&:hover': {
+                  background: 'linear-gradient(135deg, #5a67d8 0%, #6b46c1 100%)',
+                  transform: 'translateY(-2px)',
+                  boxShadow: '0 6px 16px rgba(0, 0, 0, 0.3)',
+                },
+                transition: 'all 0.3s ease',
+              }}
+            >
+              Try Again
+            </Button>
+          </Paper>
+        </Fade>
       </Box>
     );
   }
 
   return (
-    <Container maxWidth="xl" sx={{ mt: 2, mb: 4 }}>
-      {/* Enhanced Header with Controls */}
-      <Paper elevation={2} sx={{ p: 3, mb: 3, background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: 'white' }}>
-        <Box display="flex" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={2}>
-          <Box>
-            <Typography variant="h3" component="h1" gutterBottom sx={{ fontWeight: 'bold' }}>
-              🍎 Nutrition Analytics Dashboard
-          </Typography>
-            <Typography variant="h6" sx={{ opacity: 0.9 }}>
-              Advanced insights into your dietary patterns and nutritional progress
-                </Typography>
-          </Box>
-          <Stack direction="row" spacing={2} alignItems="center">
-                  <Button
-              variant="contained"
-              onClick={loadConsumptionData}
-              startIcon={<RefreshIcon />}
-              sx={{ bgcolor: 'rgba(255,255,255,0.2)', '&:hover': { bgcolor: 'rgba(255,255,255,0.3)' } }}
-            >
-              Refresh Data
-                  </Button>
-          </Stack>
-        </Box>
-      </Paper>
+    <Box sx={{
+      minHeight: '100vh',
+      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+      py: { xs: 1, sm: 2 },
+      px: { xs: 1, sm: 2 },
+      position: 'relative',
+      '&::before': {
+        content: '""',
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        background: 'linear-gradient(45deg, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0.05) 100%)',
+        animation: `${gradientShift} 8s ease infinite`,
+        backgroundSize: '400% 400%',
+        zIndex: 0,
+      }
+    }}>
+      <Container maxWidth="sm" sx={{ 
+        position: 'relative',
+        zIndex: 1,
+        py: 2
+      }}>
+        {/* Enhanced Header with Controls */}
+        <Fade in={true} timeout={1000}>
+          <Paper elevation={0} sx={{ 
+            p: { xs: 2, sm: 3 }, 
+            mb: 3,
+            borderRadius: '24px',
+            background: 'rgba(255, 255, 255, 0.25)',
+            backdropFilter: 'blur(20px)',
+            border: '1px solid rgba(255, 255, 255, 0.2)',
+            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
+            color: 'white',
+            animation: `${fadeInScale} 0.8s ease-out`,
+            position: 'relative',
+            '&::before': {
+              content: '""',
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              background: 'linear-gradient(45deg, rgba(255,255,255,0.1), rgba(255,255,255,0.05))',
+              borderRadius: '24px',
+              animation: `${shimmer} 3s ease-in-out infinite`,
+              backgroundImage: 'linear-gradient(45deg, transparent 30%, rgba(255,255,255,0.1) 50%, transparent 70%)',
+              backgroundSize: '200px 100%',
+              backgroundRepeat: 'no-repeat',
+            }
+          }}>
+            <Box sx={{ position: 'relative', zIndex: 1 }}>
+              <Slide direction="right" in={true} timeout={800}>
+                <Box display="flex" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={2}>
+                  <Box>
+                    <Typography variant="h4" component="h1" gutterBottom sx={{ 
+                      fontWeight: 'bold',
+                      fontSize: { xs: '1.5rem', sm: '2rem' },
+                      textShadow: '0 2px 4px rgba(0,0,0,0.3)',
+                      animation: `${bounceIn} 1s ease-out 0.3s both`
+                    }}>
+                      🍎 Nutrition Analytics
+                    </Typography>
+                    <Typography variant="body1" sx={{ 
+                      color: 'rgba(255, 255, 255, 0.9)',
+                      textShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                      fontSize: { xs: '0.9rem', sm: '1rem' },
+                      animation: `${slideInUp} 0.8s ease-out 0.5s both`
+                    }}>
+                      Advanced insights into your dietary patterns
+                    </Typography>
+                  </Box>
+                  <Zoom in={true} timeout={1000} style={{ transitionDelay: '0.7s' }}>
+                    <Button
+                      variant="contained"
+                      onClick={loadConsumptionData}
+                      startIcon={<RefreshIcon />}
+                      sx={{
+                        background: 'rgba(255, 255, 255, 0.2)',
+                        backdropFilter: 'blur(10px)',
+                        color: 'white',
+                        border: '1px solid rgba(255, 255, 255, 0.3)',
+                        borderRadius: '50px',
+                        px: 3,
+                        py: 1,
+                        fontWeight: 600,
+                        boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
+                        '&:hover': {
+                          background: 'rgba(255, 255, 255, 0.3)',
+                          transform: 'translateY(-2px)',
+                          boxShadow: '0 6px 16px rgba(0, 0, 0, 0.2)',
+                        },
+                        transition: 'all 0.3s ease',
+                      }}
+                    >
+                      Refresh
+                    </Button>
+                  </Zoom>
+                </Box>
+              </Slide>
+            </Box>
+          </Paper>
+        </Fade>
 
-      {/* Advanced Controls Panel */}
-      <Paper elevation={1} sx={{ p: 3, mb: 3 }}>
-        <Grid container spacing={3} alignItems="center">
-          <Grid item xs={12} sm={6} md={3}>
-            <FormControl fullWidth>
-              <InputLabel>Time Period</InputLabel>
-              <Select
-                value={selectedTimeRange}
-                label="Time Period"
-                onChange={(e) => setSelectedTimeRange(e.target.value)}
-                startAdornment={<TimeIcon sx={{ mr: 1, color: 'action.active' }} />}
-              >
-                {timeRanges.map((range) => (
-                  <MenuItem key={range.value} value={range.value}>
-                    {range.label}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-          </Grid>
-          
-          <Grid item xs={12} sm={6} md={3}>
-            <FormControl fullWidth>
-              <InputLabel>Chart Type</InputLabel>
-              <Select
-                value={selectedChartType}
-                label="Chart Type"
-                onChange={(e) => setSelectedChartType(e.target.value as any)}
-              >
-                <MenuItem value="auto"><AnalyticsIcon sx={{ mr: 1 }} />Auto (Smart Charts)</MenuItem>
-                <MenuItem value="bar"><BarChartIcon sx={{ mr: 1 }} />Bar Chart</MenuItem>
-                <MenuItem value="line"><LineChartIcon sx={{ mr: 1 }} />Line Chart</MenuItem>
-                <MenuItem value="pie"><PieChartIcon sx={{ mr: 1 }} />Pie Chart</MenuItem>
-                <MenuItem value="doughnut"><AnalyticsIcon sx={{ mr: 1 }} />Doughnut</MenuItem>
-              </Select>
-            </FormControl>
-          </Grid>
+        {/* Advanced Controls Panel */}
+        <Slide direction="up" in={true} timeout={1200}>
+          <Paper elevation={0} sx={{ 
+            p: { xs: 2, sm: 3 },
+            mb: 3,
+            borderRadius: '24px',
+            background: 'rgba(255, 255, 255, 0.25)',
+            backdropFilter: 'blur(20px)',
+            border: '1px solid rgba(255, 255, 255, 0.2)',
+            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
+            animation: `${slideInUp} 0.8s ease-out 0.3s both`,
+            position: 'relative',
+            '&::before': {
+              content: '""',
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              background: 'linear-gradient(45deg, rgba(255,255,255,0.08), rgba(255,255,255,0.04))',
+              borderRadius: '24px',
+              animation: `${shimmer} 4s ease-in-out infinite`,
+              backgroundImage: 'linear-gradient(45deg, transparent 30%, rgba(255,255,255,0.1) 50%, transparent 70%)',
+              backgroundSize: '200px 100%',
+              backgroundRepeat: 'no-repeat',
+            }
+          }}>
+            <Box sx={{ position: 'relative', zIndex: 1 }}>
+              <Grid container spacing={2} alignItems="center">
+                <Grid item xs={12} sm={6}>
+                  <Zoom in={true} timeout={600} style={{ transitionDelay: '0.5s' }}>
+                    <FormControl fullWidth>
+                      <InputLabel sx={{ color: 'rgba(255, 255, 255, 0.9)' }}>Time Period</InputLabel>
+                      <Select
+                        value={selectedTimeRange}
+                        label="Time Period"
+                        onChange={(e) => setSelectedTimeRange(e.target.value)}
+                        startAdornment={<TimeIcon sx={{ mr: 1, color: 'rgba(255, 255, 255, 0.7)' }} />}
+                        sx={{
+                          '& .MuiOutlinedInput-root': {
+                            background: 'rgba(255, 255, 255, 0.1)',
+                            backdropFilter: 'blur(10px)',
+                            borderRadius: '16px',
+                            border: '1px solid rgba(255, 255, 255, 0.2)',
+                            color: 'white',
+                            '&:hover': {
+                              background: 'rgba(255, 255, 255, 0.15)',
+                              transform: 'translateY(-1px)',
+                            },
+                            '&.Mui-focused': {
+                              background: 'rgba(255, 255, 255, 0.2)',
+                              transform: 'translateY(-2px)',
+                              boxShadow: '0 4px 12px rgba(102, 126, 234, 0.3)',
+                            },
+                            transition: 'all 0.3s ease',
+                          },
+                          '& .MuiSelect-icon': {
+                            color: 'rgba(255, 255, 255, 0.7)',
+                          },
+                        }}
+                      >
+                        {timeRanges.map((range) => (
+                          <MenuItem key={range.value} value={range.value}>
+                            {range.label}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                  </Zoom>
+                </Grid>
+                
+                <Grid item xs={12} sm={6}>
+                  <Zoom in={true} timeout={600} style={{ transitionDelay: '0.7s' }}>
+                    <FormControl fullWidth>
+                      <InputLabel sx={{ color: 'rgba(255, 255, 255, 0.9)' }}>Chart Type</InputLabel>
+                      <Select
+                        value={selectedChartType}
+                        label="Chart Type"
+                        onChange={(e) => setSelectedChartType(e.target.value as any)}
+                        sx={{
+                          '& .MuiOutlinedInput-root': {
+                            background: 'rgba(255, 255, 255, 0.1)',
+                            backdropFilter: 'blur(10px)',
+                            borderRadius: '16px',
+                            border: '1px solid rgba(255, 255, 255, 0.2)',
+                            color: 'white',
+                            '&:hover': {
+                              background: 'rgba(255, 255, 255, 0.15)',
+                              transform: 'translateY(-1px)',
+                            },
+                            '&.Mui-focused': {
+                              background: 'rgba(255, 255, 255, 0.2)',
+                              transform: 'translateY(-2px)',
+                              boxShadow: '0 4px 12px rgba(102, 126, 234, 0.3)',
+                            },
+                            transition: 'all 0.3s ease',
+                          },
+                          '& .MuiSelect-icon': {
+                            color: 'rgba(255, 255, 255, 0.7)',
+                          },
+                        }}
+                      >
+                        <MenuItem value="auto"><AnalyticsIcon sx={{ mr: 1 }} />Auto Charts</MenuItem>
+                        <MenuItem value="bar"><BarChartIcon sx={{ mr: 1 }} />Bar Chart</MenuItem>
+                        <MenuItem value="line"><LineChartIcon sx={{ mr: 1 }} />Line Chart</MenuItem>
+                        <MenuItem value="pie"><PieChartIcon sx={{ mr: 1 }} />Pie Chart</MenuItem>
+                        <MenuItem value="doughnut"><AnalyticsIcon sx={{ mr: 1 }} />Doughnut</MenuItem>
+                      </Select>
+                    </FormControl>
+                  </Zoom>
+                </Grid>
 
           <Grid item xs={12} sm={6} md={3} sx={{ display: 'none' }}>
             <FormControl fullWidth>
@@ -1478,68 +1820,170 @@ const ConsumptionHistory: React.FC = () => {
             </FormControl>
           </Grid>
 
-          <Grid item xs={12} sm={6} md={3}>
-            <ToggleButtonGroup
-              value={comparisonMode}
-              exclusive
-              onChange={(e, value) => setComparisonMode(value)}
-              aria-label="comparison mode"
-              fullWidth
-            >
-              <ToggleButton value={false} aria-label="single view">
-                <AssessmentIcon sx={{ mr: 1 }} />
-                Single View
-              </ToggleButton>
-              <ToggleButton value={true} aria-label="comparison view">
-                <TimelineIcon sx={{ mr: 1 }} />
-                Compare
-              </ToggleButton>
-            </ToggleButtonGroup>
-          </Grid>
+                <Grid item xs={12}>
+                  <Zoom in={true} timeout={600} style={{ transitionDelay: '0.9s' }}>
+                    <ToggleButtonGroup
+                      value={comparisonMode}
+                      exclusive
+                      onChange={(e, value) => setComparisonMode(value)}
+                      aria-label="comparison mode"
+                      fullWidth
+                      sx={{
+                        '& .MuiToggleButton-root': {
+                          background: 'rgba(255, 255, 255, 0.1)',
+                          backdropFilter: 'blur(10px)',
+                          border: '1px solid rgba(255, 255, 255, 0.2)',
+                          color: 'rgba(255, 255, 255, 0.8)',
+                          borderRadius: '12px',
+                          px: 2,
+                          py: 1,
+                          fontWeight: 600,
+                          fontSize: { xs: '0.8rem', sm: '0.9rem' },
+                          '&:hover': {
+                            background: 'rgba(255, 255, 255, 0.15)',
+                            transform: 'translateY(-1px)',
+                          },
+                          '&.Mui-selected': {
+                            background: 'rgba(255, 255, 255, 0.25)',
+                            color: 'white',
+                            transform: 'translateY(-2px)',
+                            boxShadow: '0 4px 12px rgba(102, 126, 234, 0.3)',
+                          },
+                          transition: 'all 0.3s ease',
+                        }
+                      }}
+                    >
+                      <ToggleButton value={false} aria-label="single view">
+                        <AssessmentIcon sx={{ mr: 1, fontSize: '1rem' }} />
+                        Single View
+                      </ToggleButton>
+                      <ToggleButton value={true} aria-label="comparison view">
+                        <TimelineIcon sx={{ mr: 1, fontSize: '1rem' }} />
+                        Compare
+                      </ToggleButton>
+                    </ToggleButtonGroup>
+                  </Zoom>
+                </Grid>
 
-          {/* Comparison Time Range - only show when comparison mode is enabled */}
-          {comparisonMode && (
-            <Grid item xs={12} sm={6} md={3}>
-              <FormControl fullWidth>
-                <InputLabel>Compare With</InputLabel>
-                <Select
-                  value={comparisonTimeRange}
-                  label="Compare With"
-                  onChange={(e) => setComparisonTimeRange(e.target.value)}
-                  startAdornment={<TimeIcon sx={{ mr: 1, color: 'action.active' }} />}
-                >
-                  {timeRanges.map((range) => (
-                    <MenuItem key={range.value} value={range.value}>
-                      {range.label}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Grid>
-          )}
-        </Grid>
-      </Paper>
+                {/* Comparison Time Range - only show when comparison mode is enabled */}
+                {comparisonMode && (
+                  <Grid item xs={12}>
+                    <Fade in={comparisonMode} timeout={600}>
+                      <FormControl fullWidth>
+                        <InputLabel sx={{ color: 'rgba(255, 255, 255, 0.9)' }}>Compare With</InputLabel>
+                        <Select
+                          value={comparisonTimeRange}
+                          label="Compare With"
+                          onChange={(e) => setComparisonTimeRange(e.target.value)}
+                          startAdornment={<TimeIcon sx={{ mr: 1, color: 'rgba(255, 255, 255, 0.7)' }} />}
+                          sx={{
+                            '& .MuiOutlinedInput-root': {
+                              background: 'rgba(255, 255, 255, 0.1)',
+                              backdropFilter: 'blur(10px)',
+                              borderRadius: '16px',
+                              border: '1px solid rgba(255, 255, 255, 0.2)',
+                              color: 'white',
+                              '&:hover': {
+                                background: 'rgba(255, 255, 255, 0.15)',
+                                transform: 'translateY(-1px)',
+                              },
+                              '&.Mui-focused': {
+                                background: 'rgba(255, 255, 255, 0.2)',
+                                transform: 'translateY(-2px)',
+                                boxShadow: '0 4px 12px rgba(102, 126, 234, 0.3)',
+                              },
+                              transition: 'all 0.3s ease',
+                            },
+                            '& .MuiSelect-icon': {
+                              color: 'rgba(255, 255, 255, 0.7)',
+                            },
+                          }}
+                        >
+                          {timeRanges.map((range) => (
+                            <MenuItem key={range.value} value={range.value}>
+                              {range.label}
+                            </MenuItem>
+                          ))}
+                        </Select>
+                      </FormControl>
+                    </Fade>
+                  </Grid>
+                )}
+              </Grid>
+            </Box>
+          </Paper>
+        </Slide>
 
-      {/* Enhanced Tabs with Advanced Analytics */}
-      <Paper elevation={2} sx={{ width: '100%' }}>
-        <Tabs 
-          value={activeTab} 
-          onChange={handleTabChange} 
-          aria-label="consumption tabs"
-          variant="scrollable"
-          scrollButtons="auto"
-          allowScrollButtonsMobile
-          sx={{ 
-            borderBottom: 1, 
-            borderColor: 'divider',
-            '& .MuiTab-root': { 
-              fontWeight: 'bold',
-              fontSize: { xs: '0.75rem', sm: '0.875rem', md: '1rem' },
-              minWidth: { xs: 80, sm: 120, md: 160 },
-              px: { xs: 1, sm: 2 }
+        {/* Enhanced Tabs with Advanced Analytics */}
+        <Fade in={true} timeout={1500}>
+          <Paper elevation={0} sx={{ 
+            width: '100%',
+            borderRadius: '24px',
+            background: 'rgba(255, 255, 255, 0.25)',
+            backdropFilter: 'blur(20px)',
+            border: '1px solid rgba(255, 255, 255, 0.2)',
+            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
+            mb: 3,
+            animation: `${slideInUp} 0.8s ease-out 0.6s both`,
+            position: 'relative',
+            '&::before': {
+              content: '""',
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              background: 'linear-gradient(45deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02))',
+              borderRadius: '24px',
+              animation: `${shimmer} 5s ease-in-out infinite`,
+              backgroundImage: 'linear-gradient(45deg, transparent 30%, rgba(255,255,255,0.08) 50%, transparent 70%)',
+              backgroundSize: '200px 100%',
+              backgroundRepeat: 'no-repeat',
             }
-          }}
-        >
+          }}>
+            <Box sx={{ position: 'relative', zIndex: 1 }}>
+              <Tabs 
+                value={activeTab} 
+                onChange={handleTabChange} 
+                aria-label="consumption tabs"
+                variant="scrollable"
+                scrollButtons="auto"
+                allowScrollButtonsMobile
+                sx={{
+                  '& .MuiTab-root': {
+                    color: 'rgba(255, 255, 255, 0.8)',
+                    fontWeight: 600,
+                    minWidth: { xs: 90, sm: 120 },
+                    fontSize: { xs: '0.7rem', sm: '0.8rem' },
+                    borderRadius: '16px',
+                    margin: '8px 4px',
+                    textTransform: 'none',
+                    transition: 'all 0.3s ease',
+                    px: { xs: 1, sm: 2 },
+                    '&:hover': {
+                      background: 'rgba(255, 255, 255, 0.1)',
+                      color: 'white',
+                      transform: 'translateY(-2px)',
+                    },
+                    '&.Mui-selected': {
+                      background: 'rgba(255, 255, 255, 0.2)',
+                      color: 'white',
+                      fontWeight: 700,
+                      transform: 'translateY(-2px)',
+                      boxShadow: '0 4px 12px rgba(102, 126, 234, 0.3)',
+                    }
+                  },
+                  '& .MuiTabs-indicator': {
+                    display: 'none'
+                  },
+                  '& .MuiTabs-scrollButtons': {
+                    color: 'rgba(255, 255, 255, 0.7)',
+                    '&:hover': {
+                      background: 'rgba(255, 255, 255, 0.1)',
+                    }
+                  }
+                }}
+              >
           <Tab 
             label="DAILY INSIGHTS" 
             icon={<TrendingUpIcon />}
@@ -1560,7 +2004,10 @@ const ConsumptionHistory: React.FC = () => {
             icon={<AssessmentIcon />}
             iconPosition="start"
           />
-        </Tabs>
+              </Tabs>
+            </Box>
+          </Paper>
+        </Fade>
 
         {/* Daily Insights Tab */}
         <TabPanel value={activeTab} index={0}>
@@ -1779,15 +2226,34 @@ const ConsumptionHistory: React.FC = () => {
             <Box>
               {/* Multi-metric Charts */}
               <Box sx={{ mb: 3 }}>
-                <Typography variant="h5" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <Typography variant="h5" gutterBottom sx={{ 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  gap: 1,
+                  color: 'white',
+                  fontWeight: 600,
+                  textShadow: '0 2px 4px rgba(0,0,0,0.3)'
+                }}>
                   📈 Nutrition Metrics Charts
                 </Typography>
                 <Grid container spacing={3}>
                   {chartConfigs.map((config) => (
                     <Grid item xs={12} md={6} key={config.metric}>
-                      <Card>
+                      <Card sx={{
+                        background: 'rgba(255, 255, 255, 0.1)',
+                        backdropFilter: 'blur(20px)',
+                        border: '1px solid rgba(255, 255, 255, 0.2)',
+                        borderRadius: '16px',
+                        boxShadow: '0 4px 16px rgba(0, 0, 0, 0.1)'
+                      }}>
                         <CardContent>
-                          <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <Typography variant="h6" gutterBottom sx={{ 
+                            display: 'flex', 
+                            alignItems: 'center', 
+                            gap: 1,
+                            color: 'white',
+                            fontWeight: 600
+                          }}>
                             {config.icon} {config.title}
                           </Typography>
                           <Box sx={{ height: 300 }}>
@@ -2129,56 +2595,75 @@ const ConsumptionHistory: React.FC = () => {
         {/* Detailed Reports Tab */}
         <TabPanel value={activeTab} index={3}>
           <Box>
-            <Typography variant="h5" gutterBottom>
+            <Typography variant="h5" gutterBottom sx={{ 
+              color: 'white',
+              fontWeight: 600,
+              textShadow: '0 2px 4px rgba(0,0,0,0.3)'
+            }}>
               📋 Comprehensive Nutrition Report
-                          </Typography>
-            <Typography variant="body1" color="textSecondary" paragraph>
+            </Typography>
+            <Typography variant="body1" paragraph sx={{ 
+              color: 'rgba(255, 255, 255, 0.8)',
+              textShadow: '0 1px 3px rgba(0,0,0,0.2)'
+            }}>
               Detailed breakdown of your nutritional intake for {timeRanges.find(r => r.value === selectedTimeRange)?.label.toLowerCase()}
-                          </Typography>
+            </Typography>
 
             {analytics && (
               <Grid container spacing={3}>
                 {/* Macronutrients Breakdown */}
                 <Grid item xs={12} md={6}>
-                  <Card>
+                  <Card sx={{
+                    background: 'rgba(255, 255, 255, 0.1)',
+                    backdropFilter: 'blur(20px)',
+                    border: '1px solid rgba(255, 255, 255, 0.2)',
+                    borderRadius: '16px',
+                    boxShadow: '0 4px 16px rgba(0, 0, 0, 0.1)'
+                  }}>
                     <CardContent>
-                      <Typography variant="h6" gutterBottom>
+                      <Typography variant="h6" gutterBottom sx={{ color: 'white', fontWeight: 600 }}>
                         🥩 Macronutrients Breakdown
-                          </Typography>
+                      </Typography>
                       <Box sx={{ height: 300 }}>
                         {renderChart('calories')}
-                          </Box>
+                      </Box>
                     </CardContent>
                   </Card>
                 </Grid>
 
                 {/* Micronutrients */}
                 <Grid item xs={12} md={6}>
-                  <Card>
+                  <Card sx={{
+                    background: 'rgba(255, 255, 255, 0.1)',
+                    backdropFilter: 'blur(20px)',
+                    border: '1px solid rgba(255, 255, 255, 0.2)',
+                    borderRadius: '16px',
+                    boxShadow: '0 4px 16px rgba(0, 0, 0, 0.1)'
+                  }}>
                     <CardContent>
-                      <Typography variant="h6" gutterBottom>
+                      <Typography variant="h6" gutterBottom sx={{ color: 'white', fontWeight: 600 }}>
                         🌿 Micronutrients Overview
-                            </Typography>
+                      </Typography>
                       <Stack spacing={2}>
-                                                <Box display="flex" justifyContent="space-between" alignItems="center">
-                          <Typography>Fiber</Typography>
-                          <Typography fontWeight="bold">
+                        <Box display="flex" justifyContent="space-between" alignItems="center">
+                          <Typography sx={{ color: 'rgba(255, 255, 255, 0.9)' }}>Fiber</Typography>
+                          <Typography fontWeight="bold" sx={{ color: 'white' }}>
                             {selectedTimeRange === '1' && dailyInsights?.today_totals ? 
                               Math.round(dailyInsights.today_totals.fiber || 0) : 
                               Math.round(analytics!.daily_averages.fiber || 0)}g{selectedTimeRange === '1' ? '' : '/day'}
                           </Typography>
                         </Box>
                         <Box display="flex" justifyContent="space-between" alignItems="center">
-                          <Typography>Sugar</Typography>
-                          <Typography fontWeight="bold">
+                          <Typography sx={{ color: 'rgba(255, 255, 255, 0.9)' }}>Sugar</Typography>
+                          <Typography fontWeight="bold" sx={{ color: 'white' }}>
                             {selectedTimeRange === '1' && dailyInsights?.today_totals ? 
                               Math.round(dailyInsights.today_totals.sugar || 0) : 
                               Math.round(analytics!.daily_averages.sugar || 0)}g{selectedTimeRange === '1' ? '' : '/day'}
                           </Typography>
                         </Box>
                         <Box display="flex" justifyContent="space-between" alignItems="center">
-                          <Typography>Sodium</Typography>
-                          <Typography fontWeight="bold">
+                          <Typography sx={{ color: 'rgba(255, 255, 255, 0.9)' }}>Sodium</Typography>
+                          <Typography fontWeight="bold" sx={{ color: 'white' }}>
                             {selectedTimeRange === '1' && dailyInsights?.today_totals ? 
                               Math.round(dailyInsights.today_totals.sodium || 0) : 
                               Math.round(analytics!.daily_averages.sodium || 0)}mg{selectedTimeRange === '1' ? '' : '/day'}
@@ -2191,9 +2676,15 @@ const ConsumptionHistory: React.FC = () => {
 
                 {/* Trends Analysis */}
                 <Grid item xs={12}>
-                  <Card>
+                  <Card sx={{
+                    background: 'rgba(255, 255, 255, 0.1)',
+                    backdropFilter: 'blur(20px)',
+                    border: '1px solid rgba(255, 255, 255, 0.2)',
+                    borderRadius: '16px',
+                    boxShadow: '0 4px 16px rgba(0, 0, 0, 0.1)'
+                  }}>
                     <CardContent>
-                      <Typography variant="h6" gutterBottom>
+                      <Typography variant="h6" gutterBottom sx={{ color: 'white', fontWeight: 600 }}>
                         📈 Protein Trend (vs Goal)
                       </Typography>
                       <Box sx={{ height: 400 }}>
@@ -2201,13 +2692,13 @@ const ConsumptionHistory: React.FC = () => {
                       </Box>
                     </CardContent>
                   </Card>
-                        </Grid>
+                </Grid>
                       </Grid>
             )}
             </Box>
         </TabPanel>
-      </Paper>
       </Container>
+    </Box>
   );
 };
 

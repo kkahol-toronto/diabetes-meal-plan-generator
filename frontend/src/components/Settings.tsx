@@ -28,6 +28,10 @@ import {
   Grid,
   IconButton,
   Tooltip,
+  Fade,
+  Slide,
+  Zoom,
+  keyframes,
 } from '@mui/material';
 import {
   Download as DownloadIcon,
@@ -46,6 +50,76 @@ import { useNavigate } from 'react-router-dom';
 import { useApp } from '../contexts/AppContext';
 import { api } from '../utils/api';
 import { handleAuthError } from '../utils/auth';
+
+// Enhanced Mobile Animations
+const slideInUp = keyframes`
+  0% { 
+    opacity: 0;
+    transform: translateY(30px);
+  }
+  100% { 
+    opacity: 1;
+    transform: translateY(0);
+  }
+`;
+
+const fadeInScale = keyframes`
+  0% { 
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  100% { 
+    opacity: 1;
+    transform: scale(1);
+  }
+`;
+
+const shimmer = keyframes`
+  0% { background-position: -200px 0; }
+  100% { background-position: calc(200px + 100%) 0; }
+`;
+
+const pulse = keyframes`
+  0% { transform: scale(1); }
+  50% { transform: scale(1.05); }
+  100% { transform: scale(1); }
+`;
+
+const gradientShift = keyframes`
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+`;
+
+const bounceIn = keyframes`
+  0% { 
+    opacity: 0;
+    transform: scale(0.3);
+  }
+  50% { 
+    opacity: 1;
+    transform: scale(1.05);
+  }
+  70% { 
+    transform: scale(0.9);
+  }
+  100% { 
+    opacity: 1;
+    transform: scale(1);
+  }
+`;
+
+const glow = keyframes`
+  0% { box-shadow: 0 0 5px rgba(102, 126, 234, 0.5); }
+  50% { box-shadow: 0 0 20px rgba(102, 126, 234, 0.8), 0 0 30px rgba(102, 126, 234, 0.4); }
+  100% { box-shadow: 0 0 5px rgba(102, 126, 234, 0.5); }
+`;
+
+const float = keyframes`
+  0% { transform: translateY(0px); }
+  50% { transform: translateY(-3px); }
+  100% { transform: translateY(0px); }
+`;
 
 interface ConsentSettings {
   consent_given: boolean;
@@ -308,216 +382,760 @@ const Settings: React.FC = () => {
   };
 
   return (
-    <Container maxWidth="lg" sx={{ py: 4 }}>
-      <Box sx={{ mb: 4 }}>
-        <Typography variant="h4" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
-          <SecurityIcon sx={{ mr: 2, color: 'primary.main' }} />
-          Privacy & Data Settings
-        </Typography>
-        <Typography variant="body1" color="text.secondary">
-          Manage your personal data, privacy preferences, and exercise your data rights in compliance with GDPR and privacy regulations.
-        </Typography>
-      </Box>
-      
-      <Alert 
-        severity="info" 
-        sx={{ mb: 4 }}
-        action={
-          <Tooltip title="Learn more about your privacy rights">
-            <IconButton size="small" color="inherit">
-              <InfoIcon />
-            </IconButton>
-          </Tooltip>
-        }
-      >
-        You have full control over your personal health data. Export, modify consent preferences, or delete your account at any time.
-      </Alert>
-
-      <Grid container spacing={3}>
-        {/* Data Export Section */}
-        <Grid item xs={12} md={6}>
-          <Card sx={{ height: '100%' }}>
-            <CardContent>
-              <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
-                <DownloadIcon sx={{ mr: 1, color: 'primary.main' }} />
-                Download My Data
-              </Typography>
-              <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-                Export your personal health data in a professional format. Choose what data to include and your preferred format.
-              </Typography>
-              
-              <Box sx={{ mb: 2 }}>
-                <Chip 
-                  label="GDPR Compliant" 
-                  color="success" 
-                  size="small" 
-                  icon={<CheckIcon />}
-                  sx={{ mr: 1 }}
-                />
-                <Chip 
-                  label="Secure Export" 
-                  color="primary" 
-                  size="small" 
-                  icon={<SecurityIcon />}
-                />
-              </Box>
-
-              <Button
-                variant="contained"
-                startIcon={<DownloadIcon />}
-                onClick={() => setExportDialogOpen(true)}
-                fullWidth
-                sx={{ mt: 2 }}
-              >
-                Export My Data
-              </Button>
-            </CardContent>
-          </Card>
-        </Grid>
-
-        {/* Consent Management */}
-        <Grid item xs={12} md={6}>
-          <Card sx={{ height: '100%' }}>
-            <CardContent>
-              <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
-                <SecurityIcon sx={{ mr: 1, color: 'primary.main' }} />
-                Privacy Preferences
-              </Typography>
-              <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-                Manage your consent preferences and data usage settings.
-              </Typography>
-
-              <Box sx={{ mb: 2 }}>
-                <Typography variant="body2" sx={{ mb: 1 }}>
-                  <strong>Current Settings:</strong>
-                </Typography>
-                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <Typography variant="body2">Marketing Communications</Typography>
-                    <Switch 
-                      checked={consentSettings.marketing_consent} 
-                      size="small"
-                      disabled
-                    />
-                  </Box>
-                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <Typography variant="body2">Analytics & Insights</Typography>
-                    <Switch 
-                      checked={consentSettings.analytics_consent} 
-                      size="small"
-                      disabled
-                    />
-                  </Box>
+    <Box sx={{
+      minHeight: '100vh',
+      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+      py: { xs: 1, sm: 2 },
+      px: { xs: 1, sm: 2 },
+      position: 'relative',
+      '&::before': {
+        content: '""',
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        background: 'linear-gradient(45deg, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0.05) 100%)',
+        animation: `${gradientShift} 8s ease infinite`,
+        backgroundSize: '400% 400%',
+        zIndex: 0,
+      }
+    }}>
+      <Container maxWidth="sm" sx={{ 
+        position: 'relative',
+        zIndex: 1,
+        py: 2
+      }}>
+        <Fade in={true} timeout={1000}>
+          <Paper elevation={0} sx={{ 
+            p: { xs: 2, sm: 3 },
+            mb: 3,
+            borderRadius: '24px',
+            background: 'rgba(255, 255, 255, 0.25)',
+            backdropFilter: 'blur(20px)',
+            border: '1px solid rgba(255, 255, 255, 0.2)',
+            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
+            animation: `${fadeInScale} 0.8s ease-out`,
+            position: 'relative',
+            '&::before': {
+              content: '""',
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              background: 'linear-gradient(45deg, rgba(255,255,255,0.1), rgba(255,255,255,0.05))',
+              borderRadius: '24px',
+              animation: `${shimmer} 3s ease-in-out infinite`,
+              backgroundImage: 'linear-gradient(45deg, transparent 30%, rgba(255,255,255,0.1) 50%, transparent 70%)',
+              backgroundSize: '200px 100%',
+              backgroundRepeat: 'no-repeat',
+            }
+          }}>
+            <Box sx={{ position: 'relative', zIndex: 1 }}>
+              <Slide direction="down" in={true} timeout={800}>
+                <Box sx={{ mb: 4 }}>
+                  <Typography variant="h4" gutterBottom sx={{ 
+                    display: 'flex', 
+                    alignItems: 'center',
+                    color: 'white',
+                    fontWeight: 'bold',
+                    fontSize: { xs: '1.75rem', sm: '2.125rem' },
+                    textShadow: '0 2px 4px rgba(0,0,0,0.3)',
+                    animation: `${bounceIn} 1s ease-out 0.3s both`
+                  }}>
+                    <Box sx={{
+                      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                      borderRadius: '16px',
+                      p: 1.5,
+                      mr: 2,
+                      boxShadow: '0 4px 12px rgba(102, 126, 234, 0.3)',
+                      animation: `${float} 3s ease-in-out infinite`
+                    }}>
+                      <SecurityIcon sx={{ color: 'white', fontSize: '1.5rem' }} />
+                    </Box>
+                    🔒 Privacy & Settings
+                  </Typography>
+                  <Typography variant="body1" sx={{
+                    color: 'rgba(255, 255, 255, 0.9)',
+                    textShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                    fontSize: { xs: '0.9rem', sm: '1rem' },
+                    animation: `${slideInUp} 0.8s ease-out 0.5s both`
+                  }}>
+                    Manage your personal data, privacy preferences, and exercise your data rights
+                  </Typography>
                 </Box>
-              </Box>
+              </Slide>
+            </Box>
+          </Paper>
+        </Fade>
+        <Slide direction="up" in={true} timeout={1200}>
+          <Alert 
+            severity="info" 
+            sx={{ 
+              mb: 4,
+              borderRadius: '16px',
+              background: 'rgba(33, 150, 243, 0.1)',
+              backdropFilter: 'blur(10px)',
+              border: '1px solid rgba(33, 150, 243, 0.3)',
+              color: 'white',
+              '& .MuiAlert-icon': {
+                color: 'white'
+              },
+              animation: `${slideInUp} 0.8s ease-out 0.7s both`
+            }}
+            action={
+              <Tooltip title="Learn more about your privacy rights">
+                <IconButton size="small" sx={{ color: 'rgba(255, 255, 255, 0.8)' }}>
+                  <InfoIcon />
+                </IconButton>
+              </Tooltip>
+            }
+          >
+            <Typography sx={{ 
+              color: 'white',
+              fontWeight: 500,
+              textShadow: '0 1px 2px rgba(0,0,0,0.1)'
+            }}>
+              🛡️ You have full control over your personal health data. Export, modify consent preferences, or delete your account at any time.
+            </Typography>
+          </Alert>
+        </Slide>
 
-              <Button
-                variant="outlined"
-                onClick={() => setConsentDialogOpen(true)}
-                fullWidth
-                sx={{ mt: 2 }}
-              >
-                Update Preferences
-              </Button>
-            </CardContent>
-          </Card>
-        </Grid>
-
-        {/* Account Information */}
-        <Grid item xs={12}>
-          <Card>
-            <CardContent>
-              <Typography variant="h6" gutterBottom>
-                Account Information
-              </Typography>
-              <Grid container spacing={2}>
-                <Grid item xs={12} sm={6}>
-                  <Typography variant="body2" color="text.secondary">Email</Typography>
-                  <Typography variant="body1">{userInfo?.email || 'Loading...'}</Typography>
-                </Grid>
-                <Grid item xs={12} sm={6}>
-                  <Typography variant="body2" color="text.secondary">Account Type</Typography>
-                  <Typography variant="body1">
-                    {userInfo?.is_admin ? 'Administrator' : 'Standard User'}
+        <Grid container spacing={3}>
+          {/* Data Export Section */}
+          <Grid item xs={12}>
+            <Zoom in={true} timeout={600} style={{ transitionDelay: '0.9s' }}>
+              <Card sx={{ 
+                borderRadius: '20px',
+                background: 'rgba(255, 255, 255, 0.1)',
+                backdropFilter: 'blur(20px)',
+                border: '1px solid rgba(255, 255, 255, 0.2)',
+                boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
+                transition: 'all 0.3s ease',
+                position: 'relative',
+                overflow: 'hidden',
+                '&::before': {
+                  content: '""',
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  background: 'linear-gradient(45deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02))',
+                  borderRadius: '20px',
+                  animation: `${shimmer} 4s ease-in-out infinite`,
+                  backgroundImage: 'linear-gradient(45deg, transparent 30%, rgba(255,255,255,0.08) 50%, transparent 70%)',
+                  backgroundSize: '200px 100%',
+                  backgroundRepeat: 'no-repeat',
+                },
+                '&:hover': {
+                  transform: 'translateY(-4px)',
+                  boxShadow: '0 12px 40px rgba(102, 126, 234, 0.2)',
+                  background: 'rgba(255, 255, 255, 0.15)',
+                },
+              }}>
+                <CardContent sx={{ position: 'relative', zIndex: 1, p: 3 }}>
+                  <Typography variant="h6" gutterBottom sx={{ 
+                    display: 'flex', 
+                    alignItems: 'center',
+                    color: 'white',
+                    fontWeight: 600,
+                    textShadow: '0 1px 3px rgba(0,0,0,0.2)'
+                  }}>
+                    <Box sx={{
+                      background: 'linear-gradient(135deg, #2196F3 0%, #1976D2 100%)',
+                      borderRadius: '12px',
+                      p: 1,
+                      mr: 2,
+                      boxShadow: '0 3px 10px rgba(33, 150, 243, 0.3)',
+                      animation: `${float} 3s ease-in-out infinite`
+                    }}>
+                      <DownloadIcon sx={{ color: 'white', fontSize: '1.2rem' }} />
+                    </Box>
+                    📥 Download My Data
                   </Typography>
-                </Grid>
-                <Grid item xs={12} sm={6}>
-                  <Typography variant="body2" color="text.secondary">Data Policy Version</Typography>
-                  <Typography variant="body1">{userInfo?.policy_version || '1.0'}</Typography>
-                </Grid>
-                <Grid item xs={12} sm={6}>
-                  <Typography variant="body2" color="text.secondary">Member Since</Typography>
-                  <Typography variant="body1">
-                    {userInfo?.consent_timestamp ? 
-                      new Date(userInfo.consent_timestamp).toLocaleDateString() : 
-                      'Unknown'
-                    }
+                  <Typography variant="body2" sx={{ 
+                    mb: 3,
+                    color: 'rgba(255, 255, 255, 0.8)',
+                    textShadow: '0 1px 2px rgba(0,0,0,0.1)',
+                    lineHeight: 1.5
+                  }}>
+                    Export your personal health data in a professional format. Choose what data to include and your preferred format.
                   </Typography>
-                </Grid>
-              </Grid>
-            </CardContent>
-          </Card>
+                  
+                  <Box sx={{ mb: 3, display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                    <Chip 
+                      label="✅ GDPR Compliant" 
+                      size="small" 
+                      icon={<CheckIcon />}
+                      sx={{
+                        background: 'rgba(76, 175, 80, 0.2)',
+                        color: 'rgba(255, 255, 255, 0.9)',
+                        border: '1px solid rgba(76, 175, 80, 0.3)',
+                        fontWeight: 500,
+                      }}
+                    />
+                    <Chip 
+                      label="🔒 Secure Export" 
+                      size="small" 
+                      icon={<SecurityIcon />}
+                      sx={{
+                        background: 'rgba(102, 126, 234, 0.2)',
+                        color: 'rgba(255, 255, 255, 0.9)',
+                        border: '1px solid rgba(102, 126, 234, 0.3)',
+                        fontWeight: 500,
+                      }}
+                    />
+                  </Box>
+
+                  <Button
+                    variant="contained"
+                    startIcon={<DownloadIcon />}
+                    onClick={() => setExportDialogOpen(true)}
+                    fullWidth
+                    sx={{
+                      background: 'linear-gradient(135deg, #2196F3 0%, #1976D2 100%)',
+                      color: 'white',
+                      borderRadius: '50px',
+                      py: 1.5,
+                      fontWeight: 600,
+                      textTransform: 'none',
+                      fontSize: '1rem',
+                      boxShadow: '0 4px 15px rgba(33, 150, 243, 0.4)',
+                      border: '1px solid rgba(255, 255, 255, 0.2)',
+                      '&:hover': {
+                        background: 'linear-gradient(135deg, #1976D2 0%, #1565C0 100%)',
+                        transform: 'translateY(-2px)',
+                        boxShadow: '0 6px 20px rgba(33, 150, 243, 0.5)',
+                        animation: `${glow} 2s ease-in-out infinite`,
+                      },
+                      transition: 'all 0.3s ease',
+                    }}
+                  >
+                    📤 Export My Data
+                  </Button>
+                </CardContent>
+              </Card>
+            </Zoom>
+          </Grid>
+
+          {/* Privacy Preferences */}
+          <Grid item xs={12}>
+            <Zoom in={true} timeout={600} style={{ transitionDelay: '1.1s' }}>
+              <Card sx={{ 
+                borderRadius: '20px',
+                background: 'rgba(255, 255, 255, 0.1)',
+                backdropFilter: 'blur(20px)',
+                border: '1px solid rgba(255, 255, 255, 0.2)',
+                boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
+                transition: 'all 0.3s ease',
+                position: 'relative',
+                overflow: 'hidden',
+                '&::before': {
+                  content: '""',
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  background: 'linear-gradient(45deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02))',
+                  borderRadius: '20px',
+                  animation: `${shimmer} 4s ease-in-out infinite`,
+                  backgroundImage: 'linear-gradient(45deg, transparent 30%, rgba(255,255,255,0.08) 50%, transparent 70%)',
+                  backgroundSize: '200px 100%',
+                  backgroundRepeat: 'no-repeat',
+                },
+                '&:hover': {
+                  transform: 'translateY(-4px)',
+                  boxShadow: '0 12px 40px rgba(102, 126, 234, 0.2)',
+                  background: 'rgba(255, 255, 255, 0.15)',
+                },
+              }}>
+                <CardContent sx={{ position: 'relative', zIndex: 1, p: 3 }}>
+                  <Typography variant="h6" gutterBottom sx={{ 
+                    display: 'flex', 
+                    alignItems: 'center',
+                    color: 'white',
+                    fontWeight: 600,
+                    textShadow: '0 1px 3px rgba(0,0,0,0.2)'
+                  }}>
+                    <Box sx={{
+                      background: 'linear-gradient(135deg, #9C27B0 0%, #7B1FA2 100%)',
+                      borderRadius: '12px',
+                      p: 1,
+                      mr: 2,
+                      boxShadow: '0 3px 10px rgba(156, 39, 176, 0.3)',
+                      animation: `${float} 3s ease-in-out infinite`
+                    }}>
+                      <SecurityIcon sx={{ color: 'white', fontSize: '1.2rem' }} />
+                    </Box>
+                    🔐 Privacy Preferences
+                  </Typography>
+                  <Typography variant="body2" sx={{ 
+                    mb: 3,
+                    color: 'rgba(255, 255, 255, 0.8)',
+                    textShadow: '0 1px 2px rgba(0,0,0,0.1)',
+                    lineHeight: 1.5
+                  }}>
+                    Manage your consent preferences and data usage settings.
+                  </Typography>
+
+                  <Box sx={{ mb: 3 }}>
+                    <Typography variant="body2" sx={{ 
+                      mb: 2,
+                      color: 'rgba(255, 255, 255, 0.9)',
+                      fontWeight: 600,
+                      textShadow: '0 1px 2px rgba(0,0,0,0.1)'
+                    }}>
+                      ⚙️ Current Settings:
+                    </Typography>
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                      <Box sx={{ 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        justifyContent: 'space-between',
+                        p: 2,
+                        borderRadius: '12px',
+                        background: 'rgba(255, 255, 255, 0.1)',
+                        border: '1px solid rgba(255, 255, 255, 0.2)',
+                      }}>
+                        <Typography variant="body2" sx={{ 
+                          color: 'rgba(255, 255, 255, 0.9)',
+                          fontWeight: 500
+                        }}>
+                          📧 Marketing Communications
+                        </Typography>
+                        <Switch 
+                          checked={consentSettings.marketing_consent} 
+                          size="small"
+                          disabled
+                          sx={{
+                            '& .MuiSwitch-thumb': {
+                              backgroundColor: consentSettings.marketing_consent ? '#4CAF50' : '#f44336',
+                            },
+                            '& .MuiSwitch-track': {
+                              backgroundColor: 'rgba(255, 255, 255, 0.3)',
+                            }
+                          }}
+                        />
+                      </Box>
+                      <Box sx={{ 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        justifyContent: 'space-between',
+                        p: 2,
+                        borderRadius: '12px',
+                        background: 'rgba(255, 255, 255, 0.1)',
+                        border: '1px solid rgba(255, 255, 255, 0.2)',
+                      }}>
+                        <Typography variant="body2" sx={{ 
+                          color: 'rgba(255, 255, 255, 0.9)',
+                          fontWeight: 500
+                        }}>
+                          📊 Analytics & Insights
+                        </Typography>
+                        <Switch 
+                          checked={consentSettings.analytics_consent} 
+                          size="small"
+                          disabled
+                          sx={{
+                            '& .MuiSwitch-thumb': {
+                              backgroundColor: consentSettings.analytics_consent ? '#4CAF50' : '#f44336',
+                            },
+                            '& .MuiSwitch-track': {
+                              backgroundColor: 'rgba(255, 255, 255, 0.3)',
+                            }
+                          }}
+                        />
+                      </Box>
+                    </Box>
+                  </Box>
+
+                  <Button
+                    variant="contained"
+                    onClick={() => setConsentDialogOpen(true)}
+                    fullWidth
+                    sx={{
+                      background: 'linear-gradient(135deg, #9C27B0 0%, #7B1FA2 100%)',
+                      color: 'white',
+                      borderRadius: '50px',
+                      py: 1.5,
+                      fontWeight: 600,
+                      textTransform: 'none',
+                      fontSize: '1rem',
+                      boxShadow: '0 4px 15px rgba(156, 39, 176, 0.4)',
+                      border: '1px solid rgba(255, 255, 255, 0.2)',
+                      '&:hover': {
+                        background: 'linear-gradient(135deg, #7B1FA2 0%, #6A1B9A 100%)',
+                        transform: 'translateY(-2px)',
+                        boxShadow: '0 6px 20px rgba(156, 39, 176, 0.5)',
+                        animation: `${glow} 2s ease-in-out infinite`,
+                      },
+                      transition: 'all 0.3s ease',
+                    }}
+                  >
+                    ⚙️ Update Preferences
+                  </Button>
+                </CardContent>
+              </Card>
+            </Zoom>
+          </Grid>
+
+          {/* Account Information */}
+          <Grid item xs={12}>
+            <Zoom in={true} timeout={600} style={{ transitionDelay: '1.3s' }}>
+              <Card sx={{ 
+                borderRadius: '20px',
+                background: 'rgba(255, 255, 255, 0.1)',
+                backdropFilter: 'blur(20px)',
+                border: '1px solid rgba(255, 255, 255, 0.2)',
+                boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
+                transition: 'all 0.3s ease',
+                position: 'relative',
+                overflow: 'hidden',
+                '&::before': {
+                  content: '""',
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  background: 'linear-gradient(45deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02))',
+                  borderRadius: '20px',
+                  animation: `${shimmer} 4s ease-in-out infinite`,
+                  backgroundImage: 'linear-gradient(45deg, transparent 30%, rgba(255,255,255,0.08) 50%, transparent 70%)',
+                  backgroundSize: '200px 100%',
+                  backgroundRepeat: 'no-repeat',
+                },
+                '&:hover': {
+                  transform: 'translateY(-4px)',
+                  boxShadow: '0 12px 40px rgba(102, 126, 234, 0.2)',
+                  background: 'rgba(255, 255, 255, 0.15)',
+                },
+              }}>
+                <CardContent sx={{ position: 'relative', zIndex: 1, p: 3 }}>
+                  <Typography variant="h6" gutterBottom sx={{
+                    color: 'white',
+                    fontWeight: 600,
+                    textShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                    mb: 3
+                  }}>
+                    👤 Account Information
+                  </Typography>
+                  <Grid container spacing={3}>
+                    <Grid item xs={12} sm={6}>
+                      <Box sx={{
+                        p: 2,
+                        borderRadius: '12px',
+                        background: 'rgba(255, 255, 255, 0.1)',
+                        border: '1px solid rgba(255, 255, 255, 0.2)',
+                      }}>
+                        <Typography variant="body2" sx={{ 
+                          color: 'rgba(255, 255, 255, 0.7)',
+                          fontSize: '0.8rem',
+                          mb: 0.5
+                        }}>
+                          📧 Email
+                        </Typography>
+                        <Typography variant="body1" sx={{
+                          color: 'white',
+                          fontWeight: 500,
+                          textShadow: '0 1px 2px rgba(0,0,0,0.1)'
+                        }}>
+                          {userInfo?.email || 'Loading...'}
+                        </Typography>
+                      </Box>
+                    </Grid>
+                    <Grid item xs={12} sm={6}>
+                      <Box sx={{
+                        p: 2,
+                        borderRadius: '12px',
+                        background: 'rgba(255, 255, 255, 0.1)',
+                        border: '1px solid rgba(255, 255, 255, 0.2)',
+                      }}>
+                        <Typography variant="body2" sx={{ 
+                          color: 'rgba(255, 255, 255, 0.7)',
+                          fontSize: '0.8rem',
+                          mb: 0.5
+                        }}>
+                          👑 Account Type
+                        </Typography>
+                        <Typography variant="body1" sx={{
+                          color: 'white',
+                          fontWeight: 500,
+                          textShadow: '0 1px 2px rgba(0,0,0,0.1)'
+                        }}>
+                          {userInfo?.is_admin ? '👑 Administrator' : '👤 Standard User'}
+                        </Typography>
+                      </Box>
+                    </Grid>
+                    <Grid item xs={12} sm={6}>
+                      <Box sx={{
+                        p: 2,
+                        borderRadius: '12px',
+                        background: 'rgba(255, 255, 255, 0.1)',
+                        border: '1px solid rgba(255, 255, 255, 0.2)',
+                      }}>
+                        <Typography variant="body2" sx={{ 
+                          color: 'rgba(255, 255, 255, 0.7)',
+                          fontSize: '0.8rem',
+                          mb: 0.5
+                        }}>
+                          📋 Data Policy Version
+                        </Typography>
+                        <Typography variant="body1" sx={{
+                          color: 'white',
+                          fontWeight: 500,
+                          textShadow: '0 1px 2px rgba(0,0,0,0.1)'
+                        }}>
+                          v{userInfo?.policy_version || '1.0'}
+                        </Typography>
+                      </Box>
+                    </Grid>
+                    <Grid item xs={12} sm={6}>
+                      <Box sx={{
+                        p: 2,
+                        borderRadius: '12px',
+                        background: 'rgba(255, 255, 255, 0.1)',
+                        border: '1px solid rgba(255, 255, 255, 0.2)',
+                      }}>
+                        <Typography variant="body2" sx={{ 
+                          color: 'rgba(255, 255, 255, 0.7)',
+                          fontSize: '0.8rem',
+                          mb: 0.5
+                        }}>
+                          📅 Member Since
+                        </Typography>
+                        <Typography variant="body1" sx={{
+                          color: 'white',
+                          fontWeight: 500,
+                          textShadow: '0 1px 2px rgba(0,0,0,0.1)'
+                        }}>
+                          {userInfo?.consent_timestamp ? 
+                            new Date(userInfo.consent_timestamp).toLocaleDateString() : 
+                            'Unknown'
+                          }
+                        </Typography>
+                      </Box>
+                    </Grid>
+                  </Grid>
+                </CardContent>
+              </Card>
+            </Zoom>
+          </Grid>
+
+          {/* Account Actions */}
+          <Grid item xs={12}>
+            <Zoom in={true} timeout={600} style={{ transitionDelay: '1.5s' }}>
+              <Card sx={{ 
+                borderRadius: '20px',
+                background: 'rgba(255, 255, 255, 0.1)',
+                backdropFilter: 'blur(20px)',
+                border: '1px solid rgba(255, 255, 255, 0.2)',
+                boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
+                transition: 'all 0.3s ease',
+                position: 'relative',
+                overflow: 'hidden',
+                '&::before': {
+                  content: '""',
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  background: 'linear-gradient(45deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02))',
+                  borderRadius: '20px',
+                  animation: `${shimmer} 4s ease-in-out infinite`,
+                  backgroundImage: 'linear-gradient(45deg, transparent 30%, rgba(255,255,255,0.08) 50%, transparent 70%)',
+                  backgroundSize: '200px 100%',
+                  backgroundRepeat: 'no-repeat',
+                },
+                '&:hover': {
+                  transform: 'translateY(-4px)',
+                  boxShadow: '0 12px 40px rgba(102, 126, 234, 0.2)',
+                  background: 'rgba(255, 255, 255, 0.15)',
+                },
+              }}>
+                <CardContent sx={{ position: 'relative', zIndex: 1, p: 3 }}>
+                  <Typography variant="h6" gutterBottom sx={{ 
+                    display: 'flex', 
+                    alignItems: 'center',
+                    color: 'white',
+                    fontWeight: 600,
+                    textShadow: '0 1px 3px rgba(0,0,0,0.2)'
+                  }}>
+                    <Box sx={{
+                      background: 'linear-gradient(135deg, #FF6B6B 0%, #4ECDC4 100%)',
+                      borderRadius: '12px',
+                      p: 1,
+                      mr: 2,
+                      boxShadow: '0 3px 10px rgba(255, 107, 107, 0.3)',
+                      animation: `${float} 3s ease-in-out infinite`
+                    }}>
+                      <LogoutIcon sx={{ color: 'white', fontSize: '1.2rem' }} />
+                    </Box>
+                    🚪 Account Actions
+                  </Typography>
+                  <Typography variant="body2" sx={{ 
+                    mb: 3,
+                    color: 'rgba(255, 255, 255, 0.8)',
+                    textShadow: '0 1px 2px rgba(0,0,0,0.1)',
+                    lineHeight: 1.5
+                  }}>
+                    Sign out of your account or manage your session.
+                  </Typography>
+                  
+                  <Button
+                    variant="contained"
+                    startIcon={<LogoutIcon />}
+                    onClick={handleLogout}
+                    fullWidth
+                    sx={{
+                      background: 'linear-gradient(135deg, #FF6B6B 0%, #4ECDC4 100%)',
+                      color: 'white',
+                      borderRadius: '50px',
+                      py: 1.5,
+                      fontWeight: 600,
+                      textTransform: 'none',
+                      fontSize: '1rem',
+                      boxShadow: '0 4px 15px rgba(255, 107, 107, 0.4)',
+                      border: '1px solid rgba(255, 255, 255, 0.2)',
+                      '&:hover': {
+                        background: 'linear-gradient(135deg, #FF5252 0%, #26A69A 100%)',
+                        transform: 'translateY(-2px)',
+                        boxShadow: '0 6px 20px rgba(255, 107, 107, 0.5)',
+                        animation: `${glow} 2s ease-in-out infinite`,
+                      },
+                      transition: 'all 0.3s ease',
+                    }}
+                  >
+                    🚪 Sign Out
+                  </Button>
+                </CardContent>
+              </Card>
+            </Zoom>
+          </Grid>
+
+          {/* Danger Zone */}
+          <Grid item xs={12}>
+            <Zoom in={true} timeout={600} style={{ transitionDelay: '1.7s' }}>
+              <Card sx={{ 
+                borderRadius: '20px',
+                background: 'rgba(244, 67, 54, 0.1)',
+                backdropFilter: 'blur(20px)',
+                border: '2px solid rgba(244, 67, 54, 0.3)',
+                boxShadow: '0 8px 32px rgba(244, 67, 54, 0.1)',
+                transition: 'all 0.3s ease',
+                position: 'relative',
+                overflow: 'hidden',
+                '&::before': {
+                  content: '""',
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  background: 'linear-gradient(45deg, rgba(244, 67, 54, 0.05), rgba(244, 67, 54, 0.02))',
+                  borderRadius: '20px',
+                  animation: `${shimmer} 4s ease-in-out infinite`,
+                  backgroundImage: 'linear-gradient(45deg, transparent 30%, rgba(244, 67, 54, 0.1) 50%, transparent 70%)',
+                  backgroundSize: '200px 100%',
+                  backgroundRepeat: 'no-repeat',
+                },
+                '&:hover': {
+                  transform: 'translateY(-4px)',
+                  boxShadow: '0 12px 40px rgba(244, 67, 54, 0.2)',
+                  background: 'rgba(244, 67, 54, 0.15)',
+                  animation: `${pulse} 2s ease-in-out infinite`,
+                },
+              }}>
+                <CardContent sx={{ position: 'relative', zIndex: 1, p: 3 }}>
+                  <Typography variant="h6" gutterBottom sx={{ 
+                    display: 'flex', 
+                    alignItems: 'center',
+                    color: '#ff6b6b',
+                    fontWeight: 600,
+                    textShadow: '0 1px 3px rgba(0,0,0,0.2)'
+                  }}>
+                    <Box sx={{
+                      background: 'linear-gradient(135deg, #f44336 0%, #d32f2f 100%)',
+                      borderRadius: '12px',
+                      p: 1,
+                      mr: 2,
+                      boxShadow: '0 3px 10px rgba(244, 67, 54, 0.3)',
+                      animation: `${float} 3s ease-in-out infinite`
+                    }}>
+                      <WarningIcon sx={{ color: 'white', fontSize: '1.2rem' }} />
+                    </Box>
+                    ⚠️ Danger Zone
+                  </Typography>
+                  <Typography variant="body2" sx={{ 
+                    mb: 3,
+                    color: 'rgba(255, 255, 255, 0.8)',
+                    textShadow: '0 1px 2px rgba(0,0,0,0.1)',
+                    lineHeight: 1.5
+                  }}>
+                    Permanently delete your account and all associated data. This action cannot be undone.
+                  </Typography>
+                  
+                  <Alert 
+                    severity="warning" 
+                    sx={{ 
+                      mb: 3,
+                      borderRadius: '12px',
+                      background: 'rgba(255, 152, 0, 0.1)',
+                      backdropFilter: 'blur(10px)',
+                      border: '1px solid rgba(255, 152, 0, 0.3)',
+                      color: 'white',
+                      '& .MuiAlert-icon': {
+                        color: '#ffab40'
+                      }
+                    }}
+                  >
+                    <Typography sx={{ 
+                      color: 'white',
+                      fontWeight: 500,
+                      textShadow: '0 1px 2px rgba(0,0,0,0.1)'
+                    }}>
+                      🗑️ Account deletion will remove all your health data, meal plans, consumption history, and chat conversations.
+                    </Typography>
+                  </Alert>
+
+                  <Button
+                    variant="contained"
+                    startIcon={<DeleteIcon />}
+                    onClick={() => setDeleteDialogOpen(true)}
+                    fullWidth
+                    sx={{
+                      background: 'linear-gradient(135deg, #f44336 0%, #d32f2f 100%)',
+                      color: 'white',
+                      borderRadius: '50px',
+                      py: 1.5,
+                      fontWeight: 600,
+                      textTransform: 'none',
+                      fontSize: '1rem',
+                      boxShadow: '0 4px 15px rgba(244, 67, 54, 0.4)',
+                      border: '1px solid rgba(255, 255, 255, 0.2)',
+                      '&:hover': {
+                        background: 'linear-gradient(135deg, #d32f2f 0%, #c62828 100%)',
+                        transform: 'translateY(-2px)',
+                        boxShadow: '0 6px 20px rgba(244, 67, 54, 0.5)',
+                        animation: `${pulse} 1s ease-in-out infinite`,
+                      },
+                      transition: 'all 0.3s ease',
+                    }}
+                  >
+                    🗑️ Delete My Account
+                  </Button>
+                </CardContent>
+              </Card>
+            </Zoom>
+          </Grid>
         </Grid>
-
-        {/* Account Actions */}
-        <Grid item xs={12}>
-          <Card>
-            <CardContent>
-              <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
-                <LogoutIcon sx={{ mr: 1, color: 'primary.main' }} />
-                Account Actions
-              </Typography>
-              <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-                Sign out of your account or manage your session.
-              </Typography>
-              
-              <Button
-                variant="contained"
-                color="primary"
-                startIcon={<LogoutIcon />}
-                onClick={handleLogout}
-                sx={{
-                  background: 'linear-gradient(45deg, #FF6B6B 30%, #4ECDC4 90%)',
-                  '&:hover': {
-                    background: 'linear-gradient(45deg, #FF5252 30%, #26A69A 90%)',
-                  },
-                }}
-              >
-                Sign Out
-              </Button>
-            </CardContent>
-          </Card>
-        </Grid>
-
-        {/* Danger Zone */}
-        <Grid item xs={12}>
-          <Card sx={{ borderColor: 'error.main', borderWidth: 1, borderStyle: 'solid' }}>
-            <CardContent>
-              <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', color: 'error.main' }}>
-                <WarningIcon sx={{ mr: 1 }} />
-                Danger Zone
-              </Typography>
-              <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-                Permanently delete your account and all associated data. This action cannot be undone.
-              </Typography>
-              
-              <Alert severity="warning" sx={{ mb: 2 }}>
-                Account deletion will remove all your health data, meal plans, consumption history, and chat conversations.
-              </Alert>
-
-              <Button
-                variant="outlined"
-                color="error"
-                startIcon={<DeleteIcon />}
-                onClick={() => setDeleteDialogOpen(true)}
-              >
-                Delete My Account
-              </Button>
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
-
+      </Container>
+      
+      {/* Dialogs */}
       {/* Export Dialog */}
       <Dialog open={exportDialogOpen} onClose={() => setExportDialogOpen(false)} maxWidth="md" fullWidth>
         <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -747,7 +1365,7 @@ const Settings: React.FC = () => {
           </Button>
         </DialogActions>
       </Dialog>
-    </Container>
+    </Box>
   );
 };
 

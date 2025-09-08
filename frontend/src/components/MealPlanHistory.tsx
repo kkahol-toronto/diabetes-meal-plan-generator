@@ -36,7 +36,7 @@ import { MealPlanData } from '../types';
 import { handleAuthError, getAuthHeaders } from '../utils/auth';
 import { mealPlanApi } from '../utils/api';
 
-// Animations
+// Enhanced Mobile Animations
 const float = keyframes`
   0% { transform: translateY(0px); }
   50% { transform: translateY(-5px); }
@@ -58,6 +58,52 @@ const gradientShift = keyframes`
   0% { background-position: 0% 50%; }
   50% { background-position: 100% 50%; }
   100% { background-position: 0% 50%; }
+`;
+
+const slideInUp = keyframes`
+  0% { 
+    opacity: 0;
+    transform: translateY(30px);
+  }
+  100% { 
+    opacity: 1;
+    transform: translateY(0);
+  }
+`;
+
+const fadeInScale = keyframes`
+  0% { 
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  100% { 
+    opacity: 1;
+    transform: scale(1);
+  }
+`;
+
+const bounceIn = keyframes`
+  0% { 
+    opacity: 0;
+    transform: scale(0.3);
+  }
+  50% { 
+    opacity: 1;
+    transform: scale(1.05);
+  }
+  70% { 
+    transform: scale(0.9);
+  }
+  100% { 
+    opacity: 1;
+    transform: scale(1);
+  }
+`;
+
+const glow = keyframes`
+  0% { box-shadow: 0 0 5px rgba(102, 126, 234, 0.5); }
+  50% { box-shadow: 0 0 20px rgba(102, 126, 234, 0.8), 0 0 30px rgba(102, 126, 234, 0.4); }
+  100% { box-shadow: 0 0 5px rgba(102, 126, 234, 0.5); }
 `;
 
 const MealPlanHistory = () => {
@@ -472,62 +518,220 @@ const MealPlanHistory = () => {
 
   if (loading && filteredPlans.length === 0) {
     return (
-      <Box display="flex" justifyContent="center" alignItems="center" minHeight="100vh">
-        <CircularProgress />
+      <Box sx={{
+        minHeight: '100vh',
+        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        p: 2
+      }}>
+        <Fade in={true} timeout={1000}>
+          <Paper elevation={0} sx={{
+            p: 4,
+            borderRadius: '24px',
+            background: 'rgba(255, 255, 255, 0.25)',
+            backdropFilter: 'blur(20px)',
+            border: '1px solid rgba(255, 255, 255, 0.2)',
+            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
+            textAlign: 'center',
+            maxWidth: 400,
+            animation: `${pulse} 2s ease-in-out infinite`,
+          }}>
+            <CircularProgress 
+              size={80} 
+              sx={{ 
+                mb: 3,
+                color: 'white',
+                animation: `${float} 3s ease-in-out infinite`
+              }} 
+            />
+            <Typography 
+              variant="h6" 
+              sx={{ 
+                color: 'white',
+                fontWeight: 600,
+                textShadow: '0 2px 4px rgba(0,0,0,0.3)',
+                mb: 1
+              }}
+            >
+              📚 Loading Meal Plan History
+            </Typography>
+            <Typography 
+              variant="body2" 
+              sx={{ 
+                color: 'rgba(255, 255, 255, 0.8)',
+                textShadow: '0 1px 3px rgba(0,0,0,0.2)'
+              }}
+            >
+              Fetching your saved meal plans...
+            </Typography>
+          </Paper>
+        </Fade>
       </Box>
     );
   }
 
   return (
-    <Container maxWidth="lg" sx={{ py: 4 }}>
-      <Paper elevation={3} sx={{ p: 4 }}>
-        <Typography variant="h4" component="h1" gutterBottom align="center" sx={{ mb: 4 }}>
-          Meal Plan History
-        </Typography>
+    <Box sx={{
+      minHeight: '100vh',
+      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+      py: { xs: 1, sm: 2 },
+      px: { xs: 1, sm: 2 },
+      position: 'relative',
+      '&::before': {
+        content: '""',
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        background: 'linear-gradient(45deg, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0.05) 100%)',
+        animation: `${gradientShift} 8s ease infinite`,
+        backgroundSize: '400% 400%',
+        zIndex: 0,
+      }
+    }}>
+      <Container maxWidth="sm" sx={{ 
+        position: 'relative',
+        zIndex: 1,
+        py: 2
+      }}>
+        <Fade in={true} timeout={1000}>
+          <Paper elevation={0} sx={{ 
+            p: { xs: 2, sm: 3 },
+            mb: 3,
+            borderRadius: '24px',
+            background: 'rgba(255, 255, 255, 0.25)',
+            backdropFilter: 'blur(20px)',
+            border: '1px solid rgba(255, 255, 255, 0.2)',
+            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
+            animation: `${fadeInScale} 0.8s ease-out`,
+            position: 'relative',
+            '&::before': {
+              content: '""',
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              background: 'linear-gradient(45deg, rgba(255,255,255,0.1), rgba(255,255,255,0.05))',
+              borderRadius: '24px',
+              animation: `${shimmer} 3s ease-in-out infinite`,
+              backgroundImage: 'linear-gradient(45deg, transparent 30%, rgba(255,255,255,0.1) 50%, transparent 70%)',
+              backgroundSize: '200px 100%',
+              backgroundRepeat: 'no-repeat',
+            }
+          }}>
+            <Box sx={{ position: 'relative', zIndex: 1 }}>
+              <Slide direction="down" in={true} timeout={800}>
+                <Typography variant="h4" component="h1" gutterBottom align="center" sx={{ 
+                  mb: 4,
+                  color: 'white',
+                  fontWeight: 'bold',
+                  fontSize: { xs: '1.75rem', sm: '2.125rem' },
+                  textShadow: '0 2px 4px rgba(0,0,0,0.3)',
+                  animation: `${bounceIn} 1s ease-out 0.3s both`
+                }}>
+                  📚 Meal Plan History
+                </Typography>
+              </Slide>
+            </Box>
+          </Paper>
+        </Fade>
 
         {error && (
-          <Alert severity="error" sx={{ mb: 2 }}>
-            {error}
-          </Alert>
+          <Fade in={true} timeout={600}>
+            <Alert 
+              severity="error" 
+              sx={{ 
+                mb: 3,
+                borderRadius: '16px',
+                background: 'rgba(244, 67, 54, 0.1)',
+                backdropFilter: 'blur(10px)',
+                border: '1px solid rgba(244, 67, 54, 0.3)',
+                color: 'white',
+                '& .MuiAlert-icon': {
+                  color: 'white'
+                }
+              }}
+            >
+              {error}
+            </Alert>
+          </Fade>
         )}
 
         {filteredPlans.length > 0 && (
-            <Box sx={{ 
-              display: 'flex', 
-              flexDirection: { xs: 'column', md: 'row' },
-              justifyContent: { xs: 'center', md: 'space-between' }, 
-              alignItems: { xs: 'stretch', md: 'center' }, 
-              gap: 2, 
-              mb: 2 
+          <Slide direction="up" in={true} timeout={1200}>
+            <Paper elevation={0} sx={{ 
+              p: { xs: 2, sm: 3 },
+              mb: 3,
+              borderRadius: '20px',
+              background: 'rgba(255, 255, 255, 0.15)',
+              backdropFilter: 'blur(15px)',
+              border: '1px solid rgba(255, 255, 255, 0.2)',
+              boxShadow: '0 6px 24px rgba(0, 0, 0, 0.1)',
+              animation: `${slideInUp} 0.8s ease-out 0.3s both`,
             }}>
+              <Box sx={{ 
+                display: 'flex', 
+                flexDirection: { xs: 'column', md: 'row' },
+                justifyContent: { xs: 'center', md: 'space-between' }, 
+                alignItems: { xs: 'stretch', md: 'center' }, 
+                gap: 2
+              }}>
                 <Box sx={{ 
                   display: 'flex', 
                   flexDirection: { xs: 'column', sm: 'row' },
                   gap: 1, 
                   alignItems: { xs: 'center', sm: 'flex-start' }
                 }}>
-                    <Button
-                        variant="outlined"
+                    <Zoom in={true} timeout={600} style={{ transitionDelay: '0.5s' }}>
+                      <Button
+                        variant="contained"
                         size="small"
                         onClick={handleSelectAll}
                         disabled={loading}
                         sx={{ 
                           minWidth: { xs: '140px', sm: 'auto' },
-                          fontSize: { xs: '0.75rem', sm: '0.875rem' }
+                          fontSize: { xs: '0.75rem', sm: '0.875rem' },
+                          background: 'linear-gradient(135deg, #4CAF50 0%, #45a049 100%)',
+                          color: 'white',
+                          borderRadius: '50px',
+                          px: 3,
+                          py: 1,
+                          fontWeight: 600,
+                          textTransform: 'none',
+                          boxShadow: '0 4px 12px rgba(76, 175, 80, 0.3)',
+                          border: '1px solid rgba(255, 255, 255, 0.2)',
+                          '&:hover': {
+                            background: 'linear-gradient(135deg, #45a049 0%, #3d8b40 100%)',
+                            transform: 'translateY(-2px)',
+                            boxShadow: '0 6px 16px rgba(76, 175, 80, 0.4)',
+                          },
+                          '&:disabled': {
+                            background: 'rgba(255, 255, 255, 0.2)',
+                            color: 'rgba(255, 255, 255, 0.5)',
+                          },
+                          transition: 'all 0.3s ease',
                         }}
-                    >
+                      >
                         {filteredPlans.every(plan => selectedMealPlans.includes(plan.id || '')) 
-                            ? 'Deselect All' 
-                            : 'Select All'
+                            ? '✓ Deselect All' 
+                            : '☐ Select All'
                         }
-                    </Button>
+                      </Button>
+                    </Zoom>
                     <Typography variant="body2" sx={{ 
                       alignSelf: 'center', 
-                      color: 'text.secondary',
+                      color: 'rgba(255, 255, 255, 0.8)',
                       textAlign: { xs: 'center', sm: 'left' },
-                      fontSize: { xs: '0.75rem', sm: '0.875rem' }
+                      fontSize: { xs: '0.75rem', sm: '0.875rem' },
+                      fontWeight: 500,
+                      textShadow: '0 1px 3px rgba(0,0,0,0.2)'
                     }}>
-                        {selectedMealPlans.length} of {filteredPlans.length} selected
+                        📊 {selectedMealPlans.length} of {filteredPlans.length} selected
                     </Typography>
                 </Box>
                 <Box sx={{ 
@@ -539,136 +743,323 @@ const MealPlanHistory = () => {
                 }}>
                      <Tooltip title="If a plan can't be deleted, it may have already been removed or is corrupted. The list will refresh automatically.">
                        <span>
-                     <Button
-                        variant="outlined"
-                        color="error"
-                        startIcon={<DeleteIcon />}
-                        onClick={handleDeleteSelected}
-                        disabled={selectedMealPlans.length === 0 || loading}
-                        sx={{ 
-                          minWidth: { xs: '160px', sm: 'auto' },
-                          fontSize: { xs: '0.75rem', sm: '0.875rem' }
-                        }}
-                     >
-                        Delete Selected ({selectedMealPlans.length})
-                     </Button>
+                         <Zoom in={true} timeout={600} style={{ transitionDelay: '0.7s' }}>
+                           <Button
+                             variant="contained"
+                             startIcon={<DeleteIcon />}
+                             onClick={handleDeleteSelected}
+                             disabled={selectedMealPlans.length === 0 || loading}
+                             sx={{ 
+                               minWidth: { xs: '160px', sm: 'auto' },
+                               fontSize: { xs: '0.75rem', sm: '0.875rem' },
+                               background: 'linear-gradient(135deg, #f44336 0%, #d32f2f 100%)',
+                               color: 'white',
+                               borderRadius: '50px',
+                               px: 3,
+                               py: 1,
+                               fontWeight: 600,
+                               textTransform: 'none',
+                               boxShadow: '0 4px 12px rgba(244, 67, 54, 0.3)',
+                               border: '1px solid rgba(255, 255, 255, 0.2)',
+                               '&:hover': {
+                                 background: 'linear-gradient(135deg, #d32f2f 0%, #c62828 100%)',
+                                 transform: 'translateY(-2px)',
+                                 boxShadow: '0 6px 16px rgba(244, 67, 54, 0.4)',
+                               },
+                               '&:disabled': {
+                                 background: 'rgba(255, 255, 255, 0.2)',
+                                 color: 'rgba(255, 255, 255, 0.5)',
+                               },
+                               transition: 'all 0.3s ease',
+                             }}
+                           >
+                             🗑️ Delete Selected ({selectedMealPlans.length})
+                           </Button>
+                         </Zoom>
                        </span>
                      </Tooltip>
-                     <Button
-                        variant="outlined"
-                        color="error"
-                        onClick={handleClearAll}
-                        disabled={loading}
-                        sx={{ 
-                          minWidth: { xs: '120px', sm: 'auto' },
-                          fontSize: { xs: '0.75rem', sm: '0.875rem' }
-                        }}
-                     >
-                        Clear All
-                     </Button>
+                     <Zoom in={true} timeout={600} style={{ transitionDelay: '0.9s' }}>
+                       <Button
+                         variant="contained"
+                         onClick={handleClearAll}
+                         disabled={loading}
+                         sx={{ 
+                           minWidth: { xs: '120px', sm: 'auto' },
+                           fontSize: { xs: '0.75rem', sm: '0.875rem' },
+                           background: 'linear-gradient(135deg, #ff9800 0%, #f57c00 100%)',
+                           color: 'white',
+                           borderRadius: '50px',
+                           px: 3,
+                           py: 1,
+                           fontWeight: 600,
+                           textTransform: 'none',
+                           boxShadow: '0 4px 12px rgba(255, 152, 0, 0.3)',
+                           border: '1px solid rgba(255, 255, 255, 0.2)',
+                           '&:hover': {
+                             background: 'linear-gradient(135deg, #f57c00 0%, #ef6c00 100%)',
+                             transform: 'translateY(-2px)',
+                             boxShadow: '0 6px 16px rgba(255, 152, 0, 0.4)',
+                           },
+                           '&:disabled': {
+                             background: 'rgba(255, 255, 255, 0.2)',
+                             color: 'rgba(255, 255, 255, 0.5)',
+                           },
+                           transition: 'all 0.3s ease',
+                         }}
+                       >
+                         🧹 Clear All
+                       </Button>
+                     </Zoom>
                 </Box>
-            </Box>
+              </Box>
+            </Paper>
+          </Slide>
         )}
 
-        <Box sx={{ mb: 4, maxWidth: 600, mx: 'auto' }}>
-          <TextField
-            fullWidth
-            variant="outlined"
-            placeholder="Search by ID, date, calories, or macronutrients..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  <SearchIcon />
-                </InputAdornment>
-              ),
-            }}
-          />
-        </Box>
+        <Slide direction="up" in={true} timeout={1400}>
+          <Box sx={{ mb: 4, maxWidth: 600, mx: 'auto' }}>
+            <TextField
+              fullWidth
+              variant="outlined"
+              placeholder="🔍 Search by ID, date, calories, or macronutrients..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              sx={{
+                '& .MuiOutlinedInput-root': {
+                  background: 'rgba(255, 255, 255, 0.15)',
+                  backdropFilter: 'blur(10px)',
+                  borderRadius: '50px',
+                  border: '1px solid rgba(255, 255, 255, 0.3)',
+                  color: 'white',
+                  fontSize: '0.9rem',
+                  '& fieldset': {
+                    border: 'none',
+                  },
+                  '&:hover': {
+                    background: 'rgba(255, 255, 255, 0.2)',
+                    transform: 'translateY(-1px)',
+                    boxShadow: '0 4px 12px rgba(102, 126, 234, 0.2)',
+                  },
+                  '&.Mui-focused': {
+                    background: 'rgba(255, 255, 255, 0.25)',
+                    transform: 'translateY(-2px)',
+                    boxShadow: '0 6px 16px rgba(102, 126, 234, 0.3)',
+                    animation: `${glow} 2s ease-in-out infinite`,
+                  },
+                  transition: 'all 0.3s ease',
+                },
+                '& .MuiInputBase-input': {
+                  color: 'white',
+                  '&::placeholder': {
+                    color: 'rgba(255, 255, 255, 0.7)',
+                    opacity: 1,
+                  },
+                },
+              }}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon sx={{ color: 'rgba(255, 255, 255, 0.7)' }} />
+                  </InputAdornment>
+                ),
+              }}
+            />
+          </Box>
+        </Slide>
 
         {filteredPlans.length === 0 ? (
-          <Box textAlign="center" py={4}>
-            <Typography variant="h6" color="text.secondary" gutterBottom>
-              {searchQuery ? 'No matching meal plans found' : 'No meal plans found'}
-            </Typography>
-            <Button
-              variant="contained"
-              color="primary"
-              onClick={() => navigate('/meal-plan')}
-              sx={{ mt: 2 }}
-            >
-              Create New Meal Plan
-            </Button>
-          </Box>
-        ) : (
-          <Grid container spacing={3}>
-            {filteredPlans.map((plan) => (
-              <Grid item xs={12} md={6} lg={4} key={plan.id}>
-                <Card 
-                  sx={{ 
-                    height: '100%',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    transition: 'transform 0.2s',
+          <Fade in={true} timeout={1000}>
+            <Paper elevation={0} sx={{
+              p: 6,
+              borderRadius: '24px',
+              background: 'rgba(255, 255, 255, 0.15)',
+              backdropFilter: 'blur(20px)',
+              border: '1px solid rgba(255, 255, 255, 0.2)',
+              boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
+              textAlign: 'center',
+              animation: `${fadeInScale} 0.8s ease-out`,
+            }}>
+              <Typography variant="h5" gutterBottom sx={{ 
+                color: 'white',
+                fontWeight: 600,
+                textShadow: '0 2px 4px rgba(0,0,0,0.3)',
+                mb: 2
+              }}>
+                {searchQuery ? '🔍 No matching meal plans found' : '📋 No meal plans found'}
+              </Typography>
+              <Typography variant="body1" sx={{ 
+                color: 'rgba(255, 255, 255, 0.8)',
+                textShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                mb: 4
+              }}>
+                {searchQuery ? 'Try adjusting your search terms' : 'Start by creating your first personalized meal plan'}
+              </Typography>
+              <Zoom in={true} timeout={800} style={{ transitionDelay: '0.5s' }}>
+                <Button
+                  variant="contained"
+                  onClick={() => navigate('/meal-plan')}
+                  sx={{
+                    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                    color: 'white',
+                    borderRadius: '50px',
+                    px: 4,
+                    py: 1.5,
+                    fontSize: '1rem',
+                    fontWeight: 600,
+                    textTransform: 'none',
+                    boxShadow: '0 6px 20px rgba(102, 126, 234, 0.4)',
+                    border: '1px solid rgba(255, 255, 255, 0.2)',
                     '&:hover': {
-                      transform: 'translateY(-4px)',
-                      boxShadow: 4,
+                      background: 'linear-gradient(135deg, #5a67d8 0%, #6b46c1 100%)',
+                      transform: 'translateY(-3px) scale(1.05)',
+                      boxShadow: '0 8px 25px rgba(102, 126, 234, 0.5)',
+                      animation: `${glow} 1.5s ease-in-out infinite`,
                     },
+                    transition: 'all 0.3s ease',
                   }}
                 >
-                  <CardContent>
-                     <FormControlLabel
+                  ✨ Create New Meal Plan
+                </Button>
+              </Zoom>
+            </Paper>
+          </Fade>
+        ) : (
+          <Grid container spacing={3}>
+            {filteredPlans.map((plan, index) => (
+              <Grid item xs={12} sm={6} key={plan.id}>
+                <Zoom 
+                  in={true} 
+                  timeout={600} 
+                  style={{ transitionDelay: `${index * 100}ms` }}
+                >
+                  <Card 
+                    sx={{ 
+                      height: '100%',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      borderRadius: '20px',
+                      background: 'rgba(255, 255, 255, 0.1)',
+                      backdropFilter: 'blur(20px)',
+                      border: '1px solid rgba(255, 255, 255, 0.2)',
+                      boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
+                      transition: 'all 0.3s ease',
+                      position: 'relative',
+                      overflow: 'hidden',
+                      '&::before': {
+                        content: '""',
+                        position: 'absolute',
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        background: 'linear-gradient(45deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02))',
+                        borderRadius: '20px',
+                        animation: `${shimmer} 4s ease-in-out infinite`,
+                        backgroundImage: 'linear-gradient(45deg, transparent 30%, rgba(255,255,255,0.08) 50%, transparent 70%)',
+                        backgroundSize: '200px 100%',
+                        backgroundRepeat: 'no-repeat',
+                      },
+                      '&:hover': {
+                        transform: 'translateY(-8px) scale(1.02)',
+                        boxShadow: '0 12px 40px rgba(102, 126, 234, 0.2)',
+                        background: 'rgba(255, 255, 255, 0.15)',
+                        animation: `${glow} 2s ease-in-out infinite`,
+                      },
+                    }}
+                  >
+                    <CardContent sx={{ position: 'relative', zIndex: 1, p: 3 }}>
+                      <FormControlLabel
                         control={
-                           <Checkbox
-                              checked={selectedMealPlans.includes(plan.id || '')}
-                              onChange={() => handleSelectPlan(plan.id || '')}
-                              disabled={!plan.id}
-                           />
+                          <Checkbox
+                            checked={selectedMealPlans.includes(plan.id || '')}
+                            onChange={() => handleSelectPlan(plan.id || '')}
+                            disabled={!plan.id}
+                            sx={{
+                              color: 'rgba(255, 255, 255, 0.7)',
+                              '&.Mui-checked': {
+                                color: '#4CAF50',
+                              },
+                            }}
+                          />
                         }
                         label={
-                            <Typography variant="h6" gutterBottom>
-                               Meal Plan {formatMealPlanId(plan.id || '')}
-                            </Typography>
+                          <Typography variant="h6" gutterBottom sx={{
+                            color: 'white',
+                            fontWeight: 600,
+                            textShadow: '0 1px 3px rgba(0,0,0,0.2)'
+                          }}>
+                            📋 Meal Plan {formatMealPlanId(plan.id || '')}
+                          </Typography>
                         }
-                        sx={{ mb: 1, alignItems: 'flex-start' }}
-                     />
-                   
-                    <Typography variant="body2" color="text.secondary" gutterBottom>
-                      Created {formatDate(plan.created_at || '')}
-                    </Typography>
-                    
-                    <Box mt={2}>
-                      <Chip 
-                        label={`${plan.dailyCalories || 'N/A'} kcal`}
-                        color="primary"
-                        sx={{ mb: 1 }}
+                        sx={{ mb: 2, alignItems: 'flex-start' }}
                       />
-                      <Typography 
-                        variant="caption" 
-                        color="text.secondary" 
-                        sx={{ display: 'block', mb: 1, fontWeight: 500 }}
-                      >
-                        Daily Macro Targets
+                   
+                      <Typography variant="body2" gutterBottom sx={{
+                        color: 'rgba(255, 255, 255, 0.8)',
+                        textShadow: '0 1px 2px rgba(0,0,0,0.1)',
+                        mb: 2
+                      }}>
+                        📅 Created {formatDate(plan.created_at || '')}
                       </Typography>
-                      <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-                        <Chip
-                          label={`Protein: ${plan.macronutrients?.protein ?? 'N/A'}g`}
-                          variant="outlined"
-                          size="small"
+                    
+                      <Box mt={2}>
+                        <Chip 
+                          label={`🔥 ${plan.dailyCalories || 'N/A'} kcal`}
+                          sx={{ 
+                            mb: 2,
+                            background: 'linear-gradient(135deg, #ff9800 0%, #f57c00 100%)',
+                            color: 'white',
+                            fontWeight: 600,
+                            border: '1px solid rgba(255, 255, 255, 0.3)',
+                            boxShadow: '0 2px 8px rgba(255, 152, 0, 0.3)',
+                          }}
                         />
-                        <Chip
-                          label={`Carbs: ${plan.macronutrients?.carbs ?? 'N/A'}g`}
-                          variant="outlined"
-                          size="small"
-                        />
-                        <Chip
-                          label={`Fats: ${plan.macronutrients?.fats ?? 'N/A'}g`}
-                          variant="outlined"
-                          size="small"
-                        />
-                      </Stack>
-                    </Box>
+                        <Typography 
+                          variant="caption" 
+                          sx={{ 
+                            display: 'block', 
+                            mb: 1, 
+                            fontWeight: 600,
+                            color: 'rgba(255, 255, 255, 0.9)',
+                            textShadow: '0 1px 2px rgba(0,0,0,0.1)',
+                            fontSize: '0.8rem'
+                          }}
+                        >
+                          📊 Daily Macro Targets
+                        </Typography>
+                        <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                          <Chip
+                            label={`💪 ${plan.macronutrients?.protein ?? 'N/A'}g`}
+                            size="small"
+                            sx={{
+                              background: 'rgba(76, 175, 80, 0.2)',
+                              color: 'rgba(255, 255, 255, 0.9)',
+                              border: '1px solid rgba(76, 175, 80, 0.3)',
+                              fontWeight: 500,
+                            }}
+                          />
+                          <Chip
+                            label={`🌾 ${plan.macronutrients?.carbs ?? 'N/A'}g`}
+                            size="small"
+                            sx={{
+                              background: 'rgba(33, 150, 243, 0.2)',
+                              color: 'rgba(255, 255, 255, 0.9)',
+                              border: '1px solid rgba(33, 150, 243, 0.3)',
+                              fontWeight: 500,
+                            }}
+                          />
+                          <Chip
+                            label={`🥑 ${plan.macronutrients?.fats ?? 'N/A'}g`}
+                            size="small"
+                            sx={{
+                              background: 'rgba(156, 39, 176, 0.2)',
+                              color: 'rgba(255, 255, 255, 0.9)',
+                              border: '1px solid rgba(156, 39, 176, 0.3)',
+                              fontWeight: 500,
+                            }}
+                          />
+                        </Stack>
+                      </Box>
 
                     <Box 
                       mt={2} 
@@ -680,56 +1071,93 @@ const MealPlanHistory = () => {
                         gap: 1
                       }}
                     >
-                      {/* Show PDF button for all meal plans */}
-                      <Button
-                        variant="outlined"
-                        color="secondary"
-                        size="small"
-                        startIcon={<DownloadIcon />}
-                        onClick={() => {
-                          if (plan.consolidated_pdf?.filename) {
-                            // Download existing PDF
-                            handleDownloadPDF(plan.consolidated_pdf.filename);
-                          } else {
-                            // Generate PDF on-demand
-                            handleGeneratePDF(plan.id || '');
-                          }
-                        }}
-                        disabled={!plan.id}
-                        sx={{ 
-                          minWidth: { xs: '120px', sm: 'auto' },
-                          width: { xs: '100%', sm: 'auto' },
-                          maxWidth: { xs: '200px', sm: 'none' },
-                          fontSize: { xs: '0.75rem', sm: '0.875rem' }
-                        }}
-                      >
-                        Download PDF
-                      </Button>
-                      <Button
-                        variant="contained"
-                        color="primary"
-                        size="small"
-                        onClick={() => navigate(`/meal-plan/${plan.id || ''}`)}
-                        disabled={!plan.id}
-                        sx={{ 
-                          minWidth: { xs: '120px', sm: 'auto' },
-                          width: { xs: '100%', sm: 'auto' },
-                          maxWidth: { xs: '200px', sm: 'none' },
-                          fontSize: { xs: '0.75rem', sm: '0.875rem' }
-                        }}
-                      >
-                        View Details
-                      </Button>
-                    </Box>
-                  </CardContent>
-                </Card>
+                        {/* Show PDF button for all meal plans */}
+                        <Button
+                          variant="contained"
+                          size="small"
+                          startIcon={<DownloadIcon />}
+                          onClick={() => {
+                            if (plan.consolidated_pdf?.filename) {
+                              // Download existing PDF
+                              handleDownloadPDF(plan.consolidated_pdf.filename);
+                            } else {
+                              // Generate PDF on-demand
+                              handleGeneratePDF(plan.id || '');
+                            }
+                          }}
+                          disabled={!plan.id}
+                          sx={{ 
+                            minWidth: { xs: '120px', sm: 'auto' },
+                            width: { xs: '100%', sm: 'auto' },
+                            maxWidth: { xs: '200px', sm: 'none' },
+                            fontSize: { xs: '0.75rem', sm: '0.875rem' },
+                            background: 'linear-gradient(135deg, #2196F3 0%, #1976D2 100%)',
+                            color: 'white',
+                            borderRadius: '50px',
+                            px: 2,
+                            py: 0.5,
+                            fontWeight: 600,
+                            textTransform: 'none',
+                            boxShadow: '0 3px 10px rgba(33, 150, 243, 0.3)',
+                            border: '1px solid rgba(255, 255, 255, 0.2)',
+                            '&:hover': {
+                              background: 'linear-gradient(135deg, #1976D2 0%, #1565C0 100%)',
+                              transform: 'translateY(-1px)',
+                              boxShadow: '0 4px 12px rgba(33, 150, 243, 0.4)',
+                            },
+                            '&:disabled': {
+                              background: 'rgba(255, 255, 255, 0.2)',
+                              color: 'rgba(255, 255, 255, 0.5)',
+                            },
+                            transition: 'all 0.3s ease',
+                          }}
+                        >
+                          📄 Download PDF
+                        </Button>
+                        <Button
+                          variant="contained"
+                          size="small"
+                          onClick={() => navigate(`/meal-plan/${plan.id || ''}`)}
+                          disabled={!plan.id}
+                          sx={{ 
+                            minWidth: { xs: '120px', sm: 'auto' },
+                            width: { xs: '100%', sm: 'auto' },
+                            maxWidth: { xs: '200px', sm: 'none' },
+                            fontSize: { xs: '0.75rem', sm: '0.875rem' },
+                            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                            color: 'white',
+                            borderRadius: '50px',
+                            px: 2,
+                            py: 0.5,
+                            fontWeight: 600,
+                            textTransform: 'none',
+                            boxShadow: '0 3px 10px rgba(102, 126, 234, 0.3)',
+                            border: '1px solid rgba(255, 255, 255, 0.2)',
+                            '&:hover': {
+                              background: 'linear-gradient(135deg, #5a67d8 0%, #6b46c1 100%)',
+                              transform: 'translateY(-1px)',
+                              boxShadow: '0 4px 12px rgba(102, 126, 234, 0.4)',
+                            },
+                            '&:disabled': {
+                              background: 'rgba(255, 255, 255, 0.2)',
+                              color: 'rgba(255, 255, 255, 0.5)',
+                            },
+                            transition: 'all 0.3s ease',
+                          }}
+                        >
+                          👁️ View Details
+                        </Button>
+                      </Box>
+                    </CardContent>
+                  </Card>
+                </Zoom>
               </Grid>
             ))}
           </Grid>
         )}
-
-      </Paper>
-
+      </Container>
+      
+      {/* Snackbar and Loading Overlay */}
       <Snackbar open={snackbarOpen} autoHideDuration={6000} onClose={handleCloseSnackbar} anchorOrigin={{ vertical: 'top', horizontal: 'center' }}>
         <Alert onClose={handleCloseSnackbar} severity={snackbarSeverity} sx={{ width: '100%' }}>
           {snackbarMessage.split('\n').map((line, idx) => <div key={idx}>{line}</div>)}
@@ -753,12 +1181,13 @@ const MealPlanHistory = () => {
           )}
         </Alert>
       </Snackbar>
+      
       {loading && (
         <Box position="fixed" top={0} left={0} width="100vw" height="100vh" zIndex={2000} display="flex" alignItems="center" justifyContent="center" bgcolor="rgba(255,255,255,0.6)">
           <CircularProgress size={60} />
         </Box>
       )}
-    </Container>
+    </Box>
   );
 };
 
