@@ -129,14 +129,21 @@ class SmartDailyMealPlanService:
             # Step 7: Build comprehensive response
             comprehensive_plan = {
                 "meals": meals,
+                "smart_meal_plan": meals,  # Include both formats for compatibility
                 "consumption": consumption_by_meal,
+                "consumption_by_meal": consumption_by_meal,  # Include both formats for compatibility
                 "macro_progress": macro_progress,
                 "meal_configuration": meal_config,
                 "recalibration_history": recalibration_history,
                 "created_at": datetime.utcnow().isoformat(),
                 "last_updated": datetime.utcnow().isoformat(),
                 "plan_date": today_date,
-                "user_email": user_email
+                "user_email": user_email,
+                "personalization_factors": {
+                    "force_refreshed": False,
+                    "snack_history_support": True,
+                    "meal_history_adaptation": True
+                }
             }
             
             # Step 8: Save plan for persistence
@@ -683,6 +690,91 @@ class SmartDailyMealPlanService:
         
         return nutrition_estimates.get(meal_type, {"calories": 300, "protein": 15, "carbohydrates": 30, "fat": 10})
     
+    def _check_plan_matches_consumption(self, smart_meal_plan: Dict, today_consumption: List[Dict]) -> bool:
+        """Check if user consumed what was planned using robust meal matching"""
+        try:
+            if not today_consumption or not smart_meal_plan:
+                return True  # No consumption yet, so no mismatch
+            
+            # Group consumption by meal type
+            consumed_by_meal = {}
+            for item in today_consumption:
+                meal_type = item.get('meal_type', '').lower()
+                if meal_type not in consumed_by_meal:
+                    consumed_by_meal[meal_type] = []
+                consumed_by_meal[meal_type].append(item.get('food_name', '').lower())
+            
+            # Check each planned meal against consumption
+            matches = 0
+            total_planned = 0
+            
+            for meal_type, meal_data in smart_meal_plan.items():
+                if isinstance(meal_data, dict) and ('meal_name' in meal_data or 'name' in meal_data):
+                    total_planned += 1
+                    planned_meal = (meal_data.get('meal_name') or meal_data.get('name', '')).lower()
+                    consumed_foods = consumed_by_meal.get(meal_type.lower(), [])
+                    
+                    print(f"[{self.service_name}] Checking {meal_type}: planned='{planned_meal}' vs consumed={consumed_foods}")
+                    
+                    # Check if any consumed food matches the planned meal using robust matching
+                    meal_matches = False
+                    for consumed_food in consumed_foods:
+                        if self._meals_match_robust(planned_meal, consumed_food):
+                            matches += 1
+                            meal_matches = True
+                            print(f"[{self.service_name}] ✅ MATCH found for {meal_type}")
+                            break
+                    
+                    if not meal_matches and consumed_foods:
+                        print(f"[{self.service_name}] ❌ NO MATCH for {meal_type}: planned '{planned_meal}' != consumed {consumed_foods}")
+            
+            # Consider it a match if at least 80% of consumed meals match the plan
+            match_rate = matches / total_planned if total_planned > 0 else 1.0
+            is_matching = match_rate >= 0.8
+            
+            print(f"[{self.service_name}] Plan matching result: {matches}/{total_planned} = {match_rate:.1%}, Overall match: {is_matching}")
+            return is_matching
+            
+        except Exception as e:
+            print(f"[{self.service_name}] Error checking plan matches: {e}")
+            return True  # Default to no recalibration on error
+    
+    def _meals_match_robust(self, planned_meal: str, consumed_food: str) -> bool:
+        """Robust meal matching logic (same as enhanced_smart_meal_planner.py)"""
+        if not planned_meal or not consumed_food:
+            return False
+            
+        # Expanded common words to exclude from matching
+        common_words = ['with', 'and', 'in', 'on', 'the', 'a', 'an', 'for', 'to', 'of', 'from', 'or']
+        
+        # Extract significant words (remove punctuation, filter length and common words)
+        import re
+        planned_words = [
+            re.sub(r'[^\w]', '', word) for word in planned_meal.split()
+            if len(word) > 3 and word not in common_words
+        ]
+        consumed_words = [
+            re.sub(r'[^\w]', '', word) for word in consumed_food.split()
+            if len(word) > 3 and word not in common_words
+        ]
+        
+        if not planned_words:
+            return False
+        
+        # Count matches (exact matches or partial matches for compound words)
+        matches = []
+        for planned_word in planned_words:
+            for consumed_word in consumed_words:
+                if planned_word == consumed_word or planned_word in consumed_word or consumed_word in planned_word:
+                    matches.append(planned_word)
+                    break
+        
+        # Require at least 30% of significant planned words to match
+        match_threshold = max(1, len(planned_words) * 0.3)
+        is_match = len(matches) >= match_threshold
+        
+        return is_match
+
     def _organize_consumption_by_meal(self, today_consumption: List[Dict]) -> Dict:
         """Organize today's consumption records by meal type"""
         consumption_by_meal = {
@@ -921,8 +1013,32 @@ class SmartDailyMealPlanService:
             existing_plan["consumption"] = consumption_by_meal
             existing_plan["macro_progress"] = self._calculate_macro_progress(today_consumption, user_profile)
             
-            # Apply recalibration if needed
+            # CRITICAL: Check if consumption matches planned meals and trigger recalibration if not
             meals = existing_plan.get("meals", {})
+            smart_meal_plan = existing_plan.get("smart_meal_plan", meals)  # Support both formats
+            
+            # Check if user consumed what was planned
+            plan_matches_consumption = self._check_plan_matches_consumption(smart_meal_plan, today_consumption)
+            
+            if not plan_matches_consumption and today_consumption:
+                print(f"[{self.service_name}] 🚨 CONSUMPTION DOESN'T MATCH PLAN - TRIGGERING RECALIBRATION")
+                
+                # Apply recalibration to remaining meals
+                meals, recalibrations = await self._apply_recalibration(meals, consumption_by_meal, user_profile)
+                existing_plan["meals"] = meals
+                existing_plan["smart_meal_plan"] = meals  # Update both formats
+                
+                # Track recalibration
+                recalibration_history = existing_plan.get("recalibration_history", [])
+                recalibration_history.extend(recalibrations)
+                existing_plan["recalibration_history"] = recalibration_history
+                
+                print(f"[{self.service_name}] ✅ Applied {len(recalibrations)} recalibrations to remaining meals")
+                
+                # Save the updated plan with recalibrations
+                await self._save_daily_plan(user_email, existing_plan)
+            else:
+                print(f"[{self.service_name}] ✅ Consumption matches plan or no consumption yet - no recalibration needed")
 
             # Defensive cleanup: sanitize any legacy text artifacts like "You ate:" leaking into planned meal names
             try:

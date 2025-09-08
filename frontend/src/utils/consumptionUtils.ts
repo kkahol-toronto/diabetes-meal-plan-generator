@@ -92,7 +92,7 @@ export const getTotalNutrition = (consumptionRecords: ConsumptionRecord[]): Nutr
 
 /**
  * Check if consumption matches planned meal
- * Uses keyword matching to determine if what was consumed matches what was planned
+ * Uses intelligent keyword matching to determine if what was consumed matches what was planned
  */
 export const isConsumptionMatchingPlan = (
   plannedMealName: string,
@@ -105,11 +105,44 @@ export const isConsumptionMatchingPlan = (
   const plannedName = plannedMealName.toLowerCase();
   const consumedText = consumptionText.toLowerCase();
   
-  // Extract keywords from planned meal name (words longer than 3 characters)
-  const plannedKeywords = plannedName.split(/\s+/).filter((word: string) => word.length > 3);
+  // Common words to exclude from matching (same as backend logic)
+  const commonWords = ['with', 'and', 'in', 'on', 'the', 'a', 'an', 'for', 'to', 'of', 'from'];
   
-  // Check if any planned keywords appear in consumed text
-  return plannedKeywords.some((keyword: string) => consumedText.includes(keyword));
+  // Extract significant keywords from planned meal (exclude common words and short words)
+  const plannedWords = plannedName.split(/\s+/)
+    .filter((word: string) => word.length > 3 && !commonWords.includes(word))
+    .map((word: string) => word.replace(/[^\w]/g, '')); // Remove punctuation
+  
+  // Extract significant keywords from consumed text
+  const consumedWords = consumedText.split(/\s+/)
+    .filter((word: string) => word.length > 3 && !commonWords.includes(word))
+    .map((word: string) => word.replace(/[^\w]/g, '')); // Remove punctuation
+  
+  if (plannedWords.length === 0) {
+    return false;
+  }
+  
+  // Count matches between planned and consumed significant words
+  const matches = plannedWords.filter((plannedWord: string) => 
+    consumedWords.some((consumedWord: string) => 
+      // Check for exact match or partial match (for compound words)
+      consumedWord.includes(plannedWord) || plannedWord.includes(consumedWord)
+    )
+  );
+  
+  // Require at least 30% of significant planned words to match
+  const matchThreshold = Math.max(1, Math.ceil(plannedWords.length * 0.3));
+  const isMatch = matches.length >= matchThreshold;
+  
+  // Debug logging
+  console.log(`[Meal Matching] Planned: "${plannedMealName}"`);
+  console.log(`[Meal Matching] Consumed: "${consumptionText}"`);
+  console.log(`[Meal Matching] Planned words: [${plannedWords.join(', ')}]`);
+  console.log(`[Meal Matching] Consumed words: [${consumedWords.join(', ')}]`);
+  console.log(`[Meal Matching] Matches: [${matches.join(', ')}] (${matches.length}/${plannedWords.length})`);
+  console.log(`[Meal Matching] Threshold: ${matchThreshold}, Result: ${isMatch}`);
+  
+  return isMatch;
 };
 
 /**

@@ -1381,21 +1381,49 @@ Generate simple JSON format:
             return False
 
     def _meals_match(self, planned_meal: str, consumed_food: str) -> bool:
-        """Check if consumed food matches planned meal."""
-        # Simple keyword matching - could be enhanced with ML
-        planned_words = set(planned_meal.split())
-        consumed_words = set(consumed_food.split())
+        """Check if consumed food matches planned meal using robust keyword matching."""
+        if not planned_meal or not consumed_food:
+            return False
+            
+        planned_lower = planned_meal.lower()
+        consumed_lower = consumed_food.lower()
         
-        # Find common significant words (excluding common words)
-        common_words = ['with', 'and', 'in', 'on', 'the', 'a', 'an']
-        planned_significant = {w for w in planned_words if w not in common_words and len(w) > 3}
-        consumed_significant = {w for w in consumed_words if w not in common_words and len(w) > 3}
+        # Expanded common words to exclude from matching
+        common_words = ['with', 'and', 'in', 'on', 'the', 'a', 'an', 'for', 'to', 'of', 'from', 'or']
         
-        # Check for overlap
-        overlap = len(planned_significant.intersection(consumed_significant))
-        match_threshold = max(1, len(planned_significant) * 0.3)  # At least 30% overlap
+        # Extract significant words (remove punctuation, filter length and common words)
+        import re
+        planned_words = [
+            re.sub(r'[^\w]', '', word) for word in planned_lower.split()
+            if len(word) > 3 and word not in common_words
+        ]
+        consumed_words = [
+            re.sub(r'[^\w]', '', word) for word in consumed_lower.split()
+            if len(word) > 3 and word not in common_words
+        ]
         
-        return overlap >= match_threshold
+        if not planned_words:
+            return False
+        
+        # Count matches (exact matches or partial matches for compound words)
+        matches = []
+        for planned_word in planned_words:
+            for consumed_word in consumed_words:
+                if planned_word == consumed_word or planned_word in consumed_word or consumed_word in planned_word:
+                    matches.append(planned_word)
+                    break
+        
+        # Require at least 30% of significant planned words to match
+        match_threshold = max(1, len(planned_words) * 0.3)
+        is_match = len(matches) >= match_threshold
+        
+        print(f"[EnhancedSmartMealPlanner] Meal matching:")
+        print(f"  Planned: '{planned_meal}' -> words: {planned_words}")
+        print(f"  Consumed: '{consumed_food}' -> words: {consumed_words}")
+        print(f"  Matches: {matches} ({len(matches)}/{len(planned_words)})")
+        print(f"  Threshold: {match_threshold}, Result: {is_match}")
+        
+        return is_match
 
     def _get_remaining_meals(self, smart_meal_plan: Dict, today_consumption: List[Dict]) -> List[str]:
         """Get list of meals that haven't been consumed yet today."""

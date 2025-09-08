@@ -65,17 +65,33 @@ import { v4 as uuidv4 } from 'uuid';
 import config from '../config/environment';
 import PendingConsumptionDialog from './PendingConsumptionDialog';
 
-// Animations
+// Enhanced Mobile Animations
 const float = keyframes`
   0% { transform: translateY(0px); }
   50% { transform: translateY(-3px); }
   100% { transform: translateY(0px); }
 `;
 
-const pulse = keyframes`
-  0% { transform: scale(1); }
-  50% { transform: scale(1.02); }
-  100% { transform: scale(1); }
+const slideInUp = keyframes`
+  0% { 
+    opacity: 0;
+    transform: translateY(30px);
+  }
+  100% { 
+    opacity: 1;
+    transform: translateY(0);
+  }
+`;
+
+const fadeInScale = keyframes`
+  0% { 
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  100% { 
+    opacity: 1;
+    transform: scale(1);
+  }
 `;
 
 const shimmer = keyframes`
@@ -83,11 +99,37 @@ const shimmer = keyframes`
   100% { background-position: calc(200px + 100%) 0; }
 `;
 
+const pulse = keyframes`
+  0% { transform: scale(1); }
+  50% { transform: scale(1.05); }
+  100% { transform: scale(1); }
+`;
+
 const gradientShift = keyframes`
   0% { background-position: 0% 50%; }
   50% { background-position: 100% 50%; }
   100% { background-position: 0% 50%; }
 `;
+
+const bounceIn = keyframes`
+  0% { 
+    opacity: 0;
+    transform: scale(0.3);
+  }
+  50% { 
+    opacity: 1;
+    transform: scale(1.05);
+  }
+  70% { 
+    transform: scale(0.9);
+  }
+  100% { 
+    opacity: 1;
+    transform: scale(1);
+  }
+`;
+
+// Removed duplicate keyframes (already defined above)
 
 const typewriter = keyframes`
   from { width: 0; }
@@ -131,6 +173,43 @@ interface ImageAnalysisOption {
   color: string;
   action: (file: File) => void;
 }
+
+// Helper function for action button colors
+const getActionColor = (color: string) => {
+  const colorMap = {
+    primary: {
+      gradient: '#667eea 0%, #764ba2 100%',
+      hoverGradient: '#5a67d8 0%, #6b46c1 100%',
+      shadow: 'rgba(102, 126, 234, 0.3)'
+    },
+    secondary: {
+      gradient: '#f093fb 0%, #f5576c 100%',
+      hoverGradient: '#ec4899 0%, #ef4444 100%',
+      shadow: 'rgba(240, 147, 251, 0.3)'
+    },
+    success: {
+      gradient: '#4facfe 0%, #00f2fe 100%',
+      hoverGradient: '#06b6d4 0%, #0891b2 100%',
+      shadow: 'rgba(79, 172, 254, 0.3)'
+    },
+    warning: {
+      gradient: '#ffecd2 0%, #fcb69f 100%',
+      hoverGradient: '#f59e0b 0%, #f97316 100%',
+      shadow: 'rgba(255, 236, 210, 0.3)'
+    },
+    error: {
+      gradient: '#ff9a9e 0%, #fecfef 100%',
+      hoverGradient: '#f87171 0%, #fb7185 100%',
+      shadow: 'rgba(255, 154, 158, 0.3)'
+    },
+    info: {
+      gradient: '#a8edea 0%, #fed6e3 100%',
+      hoverGradient: '#06b6d4 0%, #ec4899 100%',
+      shadow: 'rgba(168, 237, 234, 0.3)'
+    }
+  };
+  return colorMap[color as keyof typeof colorMap] || colorMap.primary;
+};
 
 const Chat = () => {
   const theme = useTheme();
@@ -820,21 +899,59 @@ const Chat = () => {
   };
 
   return (
-    <Container maxWidth="lg" sx={{ 
-      height: '100vh', 
-      display: 'flex', 
-      flexDirection: 'column', 
+    <Box sx={{
+      minHeight: '100vh',
+      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
       py: { xs: 1, sm: 2 },
-      px: { xs: 1, sm: 3 }
+      px: { xs: 1, sm: 2 },
+      position: 'relative',
+      '&::before': {
+        content: '""',
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        background: 'linear-gradient(45deg, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0.05) 100%)',
+        animation: `${gradientShift} 8s ease infinite`,
+        backgroundSize: '400% 400%',
+        zIndex: 0,
+      }
     }}>
-      {/* Header */}
-      <Paper elevation={2} sx={{ 
-        p: { xs: 1.5, sm: 2 }, 
-        mb: { xs: 1, sm: 2 }, 
-        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', 
-        color: 'white',
-        borderRadius: { xs: 1, sm: 2 }
+      <Container maxWidth="sm" sx={{ 
+        height: '100vh', 
+        display: 'flex', 
+        flexDirection: 'column',
+        position: 'relative',
+        zIndex: 1,
       }}>
+      {/* Header */}
+      <Fade in={true} timeout={1000}>
+        <Paper elevation={0} sx={{ 
+          p: { xs: 2, sm: 3 }, 
+          mb: { xs: 1, sm: 2 }, 
+          background: 'rgba(255, 255, 255, 0.25)',
+          backdropFilter: 'blur(20px)',
+          border: '1px solid rgba(255, 255, 255, 0.2)',
+          borderRadius: '24px',
+          boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
+          color: 'white',
+          animation: `${fadeInScale} 0.8s ease-out`,
+          '&::before': {
+            content: '""',
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'linear-gradient(45deg, rgba(255,255,255,0.1), rgba(255,255,255,0.05))',
+            borderRadius: '24px',
+            animation: `${shimmer} 3s ease-in-out infinite`,
+            backgroundImage: 'linear-gradient(45deg, transparent 30%, rgba(255,255,255,0.1) 50%, transparent 70%)',
+            backgroundSize: '200px 100%',
+            backgroundRepeat: 'no-repeat',
+          }
+        }}>
         <Box sx={{ 
           display: 'flex', 
           alignItems: 'center', 
@@ -843,108 +960,222 @@ const Chat = () => {
           gap: { xs: 1, sm: 2 },
           flexDirection: { xs: 'column', sm: 'row' }
         }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-            <Avatar sx={{ bgcolor: 'white', color: 'primary.main' }}>
-              <SmartToyIcon />
-            </Avatar>
-            <Box>
-              <Typography variant="h5" sx={{ fontWeight: 'bold' }}>
-                🤖 AI Health Coach
-              </Typography>
-              <Typography variant="body2" sx={{ opacity: 0.9 }}>
-                Your intelligent diabetes management companion
-              </Typography>
-            </Box>
-          </Box>
-          
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
-            {userStats && (
-              <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-                <Chip 
-                  icon={<LocalFireDepartmentIcon />} 
-                  label={`${userStats.today_totals?.calories || 0} cal`}
-                  sx={{ bgcolor: alpha('#fff', 0.2), color: 'white' }}
-                />
-                <Chip 
-                  icon={<FavoriteIcon />} 
-                  label={`${Math.round(userStats.diabetes_adherence || 0)}% score`}
-                  sx={{ bgcolor: alpha('#fff', 0.2), color: 'white' }}
-                />
+          <Slide direction="right" in={true} timeout={800}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+              <Box sx={{
+                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                borderRadius: '50%',
+                p: 1,
+                boxShadow: '0 4px 12px rgba(102, 126, 234, 0.4)',
+                animation: `${pulse} 2s ease-in-out infinite`,
+              }}>
+                <Avatar sx={{ bgcolor: 'rgba(255, 255, 255, 0.9)', color: '#667eea' }}>
+                  <SmartToyIcon />
+                </Avatar>
               </Box>
-            )}
-            
-            <Box sx={{ 
-              bgcolor: 'white', 
-              borderRadius: 1, 
-              p: 0.5,
-              boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
-            }}>
-              <ButtonGroup 
-                variant="contained" 
-                size="small" 
-                sx={{ 
-                  '& .MuiButton-root': { 
-                    bgcolor: 'white', 
-                    color: '#333', 
-                    fontWeight: 'bold',
-                    border: '1px solid #e0e0e0',
-                    boxShadow: 'none',
-                    '&:hover': { 
-                      bgcolor: '#f5f5f5',
-                      border: '1px solid #d0d0d0'
-                    },
-                    '&:not(:last-child)': {
-                      borderRight: '1px solid #d0d0d0'
-                    }
-                  } 
-                }}
-              >
+              <Box>
+                <Typography variant="h5" sx={{ 
+                  fontWeight: 'bold',
+                  textShadow: '0 2px 4px rgba(0,0,0,0.3)',
+                  animation: `${bounceIn} 1s ease-out 0.3s both`
+                }}>
+                  🤖 AI Health Coach
+                </Typography>
+                <Typography variant="body2" sx={{ 
+                  color: 'rgba(255, 255, 255, 0.9)',
+                  textShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                  animation: `${slideInUp} 0.8s ease-out 0.5s both`
+                }}>
+                  Your intelligent diabetes management companion
+                </Typography>
+              </Box>
+            </Box>
+          </Slide>
+          
+          <Slide direction="left" in={true} timeout={1000}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+              {userStats && (
+                <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap' }}>
+                  <Zoom in={true} timeout={800} style={{ transitionDelay: '0.2s' }}>
+                    <Chip 
+                      icon={<LocalFireDepartmentIcon />} 
+                      label={`${userStats.today_totals?.calories || 0} cal`}
+                      sx={{ 
+                        background: 'linear-gradient(135deg, rgba(255,87,34,0.8) 0%, rgba(255,152,0,0.8) 100%)',
+                        color: 'white',
+                        fontWeight: 'bold',
+                        boxShadow: '0 4px 12px rgba(255,87,34,0.3)',
+                        border: '1px solid rgba(255,255,255,0.2)',
+                        '&:hover': {
+                          transform: 'translateY(-2px)',
+                          boxShadow: '0 6px 16px rgba(255,87,34,0.4)',
+                        },
+                        transition: 'all 0.3s ease',
+                      }}
+                    />
+                  </Zoom>
+                  <Zoom in={true} timeout={800} style={{ transitionDelay: '0.4s' }}>
+                    <Chip 
+                      icon={<FavoriteIcon />} 
+                      label={`${Math.round(userStats.diabetes_adherence || 0)}% score`}
+                      sx={{ 
+                        background: 'linear-gradient(135deg, rgba(233,30,99,0.8) 0%, rgba(156,39,176,0.8) 100%)',
+                        color: 'white',
+                        fontWeight: 'bold',
+                        boxShadow: '0 4px 12px rgba(233,30,99,0.3)',
+                        border: '1px solid rgba(255,255,255,0.2)',
+                        '&:hover': {
+                          transform: 'translateY(-2px)',
+                          boxShadow: '0 6px 16px rgba(233,30,99,0.4)',
+                        },
+                        transition: 'all 0.3s ease',
+                      }}
+                    />
+                  </Zoom>
+                </Box>
+              )}
+              
+              <Zoom in={true} timeout={1000} style={{ transitionDelay: '0.6s' }}>
+                <Box sx={{ 
+                  background: 'rgba(255, 255, 255, 0.2)',
+                  backdropFilter: 'blur(10px)',
+                  border: '1px solid rgba(255, 255, 255, 0.3)',
+                  borderRadius: '16px', 
+                  p: 0.5,
+                  boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
+                }}>
+                  <ButtonGroup 
+                    variant="contained" 
+                    size="small" 
+                    sx={{ 
+                      '& .MuiButton-root': { 
+                        background: 'rgba(255, 255, 255, 0.9)',
+                        color: '#333', 
+                        fontWeight: 'bold',
+                        border: 'none',
+                        borderRadius: '12px',
+                        boxShadow: 'none',
+                        '&:hover': { 
+                          background: 'white',
+                          transform: 'translateY(-1px)',
+                          boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+                        },
+                        '&:not(:last-child)': {
+                          marginRight: '4px'
+                        },
+                        transition: 'all 0.3s ease',
+                      } 
+                    }}
+                  >
                 <Button startIcon={<AddCommentIcon />} onClick={handleNewChat}>
                   New Chat
                 </Button>
                 <Button startIcon={<CloseIcon />} onClick={handleClearHistory}>
                   Clear
                 </Button>
-              </ButtonGroup>
+                  </ButtonGroup>
+                </Box>
+              </Zoom>
             </Box>
-          </Box>
+          </Slide>
         </Box>
       </Paper>
+      </Fade>
 
 
 
       {/* Quick Actions */}
       {showQuickActions && messages.length === 0 && (
-        <Fade in={showQuickActions}>
-          <Paper elevation={1} sx={{ p: 3, mb: 2, bgcolor: 'grey.50' }}>
-            <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <LightbulbIcon color="primary" />
-              Quick Actions
-            </Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              Get started with these common requests:
-            </Typography>
-            <Grid container spacing={1}>
+        <Fade in={showQuickActions} timeout={1200}>
+          <Paper elevation={0} sx={{ 
+            p: { xs: 2, sm: 3 },
+            mb: 2,
+            borderRadius: '24px',
+            background: 'rgba(255, 255, 255, 0.25)',
+            backdropFilter: 'blur(20px)',
+            border: '1px solid rgba(255, 255, 255, 0.2)',
+            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
+            animation: `${slideInUp} 0.8s ease-out 0.3s both`,
+            position: 'relative',
+            '&::before': {
+              content: '""',
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              background: 'linear-gradient(45deg, rgba(255,255,255,0.1), rgba(255,255,255,0.05))',
+              borderRadius: '24px',
+              animation: `${shimmer} 3s ease-in-out infinite`,
+              backgroundImage: 'linear-gradient(45deg, transparent 30%, rgba(255,255,255,0.1) 50%, transparent 70%)',
+              backgroundSize: '200px 100%',
+              backgroundRepeat: 'no-repeat',
+            }
+          }}>
+            <Box sx={{ position: 'relative', zIndex: 1 }}>
+              <Typography variant="h6" gutterBottom sx={{ 
+                display: 'flex', 
+                alignItems: 'center', 
+                gap: 1,
+                color: 'white',
+                fontWeight: 700,
+                textShadow: '0 2px 4px rgba(0,0,0,0.3)',
+                animation: `${bounceIn} 1s ease-out 0.5s both`
+              }}>
+                <Box sx={{
+                  background: 'linear-gradient(135deg, #FFD700 0%, #FFA500 100%)',
+                  borderRadius: '50%',
+                  p: 1,
+                  boxShadow: '0 4px 12px rgba(255, 215, 0, 0.4)',
+                  animation: `${pulse} 2s ease-in-out infinite`,
+                }}>
+                  <LightbulbIcon sx={{ color: 'white' }} />
+                </Box>
+                Quick Actions
+              </Typography>
+              <Typography variant="body2" sx={{ 
+                mb: 2,
+                color: 'rgba(255, 255, 255, 0.9)',
+                textShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                animation: `${slideInUp} 0.8s ease-out 0.7s both`
+              }}>
+                Get started with these common requests:
+              </Typography>
+            </Box>
+            <Grid container spacing={2} sx={{ position: 'relative', zIndex: 1 }}>
               {quickActions.map((action, index) => (
                 <Grid item xs={12} sm={6} md={4} key={index}>
-                  <Button
-                    variant="outlined"
-                    fullWidth
-                    startIcon={action.icon}
-                    onClick={() => handleQuickAction(action)}
-                    color={action.color}
-                    sx={{ 
-                      py: 1.5, 
-                      justifyContent: 'flex-start',
-                      '&:hover': {
-                        transform: 'translateY(-2px)',
-                        boxShadow: 2
-                      },
-                      transition: 'all 0.2s ease-in-out'
-                    }}
-                  >
-                    {action.label}
-                  </Button>
+                  <Zoom in={true} timeout={600} style={{ transitionDelay: `${0.9 + index * 0.1}s` }}>
+                    <Button
+                      variant="contained"
+                      fullWidth
+                      startIcon={action.icon}
+                      onClick={() => handleQuickAction(action)}
+                      sx={{ 
+                        py: 2,
+                        px: 2,
+                        borderRadius: '16px',
+                        background: `linear-gradient(135deg, ${getActionColor(action.color).gradient})`,
+                        color: 'white',
+                        border: '1px solid rgba(255, 255, 255, 0.2)',
+                        boxShadow: `0 4px 12px ${getActionColor(action.color).shadow}`,
+                        fontWeight: 600,
+                        textTransform: 'none',
+                        justifyContent: 'flex-start',
+                        '&:hover': {
+                          transform: 'translateY(-3px) scale(1.02)',
+                          boxShadow: `0 8px 20px ${getActionColor(action.color).shadow}`,
+                          background: `linear-gradient(135deg, ${getActionColor(action.color).hoverGradient})`,
+                        },
+                        '&:active': {
+                          transform: 'translateY(-1px) scale(0.98)',
+                        },
+                        transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                      }}
+                    >
+                      {action.label}
+                    </Button>
+                  </Zoom>
                 </Grid>
               ))}
             </Grid>
@@ -953,37 +1184,87 @@ const Chat = () => {
       )}
 
       {/* Messages */}
-      <Paper 
-        elevation={1} 
-        sx={{ 
-          flex: 1, 
-          display: 'flex', 
-          flexDirection: 'column', 
-          overflow: 'hidden',
-          mb: 2
-        }}
-      >
+      <Fade in={true} timeout={1500}>
+        <Paper 
+          elevation={0} 
+          sx={{ 
+            flex: 1, 
+            display: 'flex', 
+            flexDirection: 'column', 
+            overflow: 'hidden',
+            mb: 2,
+            borderRadius: '24px',
+            background: 'rgba(255, 255, 255, 0.25)',
+            backdropFilter: 'blur(20px)',
+            border: '1px solid rgba(255, 255, 255, 0.2)',
+            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
+            animation: `${fadeInScale} 1s ease-out 1s both`,
+            position: 'relative',
+            '&::before': {
+              content: '""',
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              background: 'linear-gradient(45deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02))',
+              borderRadius: '24px',
+              animation: `${shimmer} 4s ease-in-out infinite`,
+              backgroundImage: 'linear-gradient(45deg, transparent 30%, rgba(255,255,255,0.08) 50%, transparent 70%)',
+              backgroundSize: '200px 100%',
+              backgroundRepeat: 'no-repeat',
+            }
+          }}
+        >
         <Box
           ref={chatContainerRef}
           sx={{
             flex: 1,
             overflowY: 'auto',
-            p: 2,
+            p: { xs: 2, sm: 3 },
             display: 'flex',
             flexDirection: 'column',
             gap: 2,
+            position: 'relative',
+            zIndex: 1,
           }}
         >
           {messages.length === 0 && !showQuickActions && (
-            <Box sx={{ textAlign: 'center', py: 4 }}>
-              <SmartToyIcon sx={{ fontSize: 60, color: 'grey.400', mb: 2 }} />
-              <Typography variant="h6" color="text.secondary">
-                Start a conversation with your AI health coach
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                Ask about nutrition, meal planning, or diabetes management
-              </Typography>
-            </Box>
+            <Fade in={true} timeout={2000}>
+              <Box sx={{ 
+                textAlign: 'center', 
+                py: 6,
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                gap: 2
+              }}>
+                <Box sx={{
+                  background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                  borderRadius: '50%',
+                  p: 3,
+                  boxShadow: '0 8px 24px rgba(102, 126, 234, 0.4)',
+                  animation: `${pulse} 2s ease-in-out infinite`,
+                }}>
+                  <SmartToyIcon sx={{ fontSize: 40, color: 'white' }} />
+                </Box>
+                <Typography variant="h6" sx={{
+                  color: 'white',
+                  fontWeight: 600,
+                  textShadow: '0 2px 4px rgba(0,0,0,0.3)',
+                  animation: `${bounceIn} 1s ease-out 2.2s both`
+                }}>
+                  Start a conversation with your AI health coach
+                </Typography>
+                <Typography variant="body2" sx={{
+                  color: 'rgba(255, 255, 255, 0.8)',
+                  textShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                  animation: `${slideInUp} 0.8s ease-out 2.4s both`
+                }}>
+                  Ask about nutrition, meal planning, or diabetes management
+                </Typography>
+              </Box>
+            </Fade>
           )}
 
           {messages.map((message, index) => (
@@ -1109,9 +1390,34 @@ const Chat = () => {
           <div ref={messagesEndRef} />
         </Box>
       </Paper>
+      </Fade>
 
       {/* Input Area */}
-      <Paper elevation={2} sx={{ p: 2 }}>
+      <Fade in={true} timeout={1800}>
+        <Paper elevation={0} sx={{ 
+          p: { xs: 2, sm: 3 },
+          borderRadius: '24px',
+          background: 'rgba(255, 255, 255, 0.25)',
+          backdropFilter: 'blur(20px)',
+          border: '1px solid rgba(255, 255, 255, 0.2)',
+          boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
+          animation: `${slideInUp} 0.8s ease-out 1.2s both`,
+          position: 'relative',
+          '&::before': {
+            content: '""',
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'linear-gradient(45deg, rgba(255,255,255,0.08), rgba(255,255,255,0.04))',
+            borderRadius: '24px',
+            animation: `${shimmer} 4s ease-in-out infinite`,
+            backgroundImage: 'linear-gradient(45deg, transparent 30%, rgba(255,255,255,0.1) 50%, transparent 70%)',
+            backgroundSize: '200px 100%',
+            backgroundRepeat: 'no-repeat',
+          }
+        }}>
         {selectedImage && (
           <Box sx={{ mb: 2, p: 1, bgcolor: 'grey.50', borderRadius: 1 }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
@@ -1189,7 +1495,7 @@ const Chat = () => {
           </Box>
         )}
 
-        <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-end' }}>
+        <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-end', position: 'relative', zIndex: 1 }}>
           <TextField
             fullWidth
             multiline
@@ -1216,46 +1522,104 @@ const Chat = () => {
             }}
             sx={{
               '& .MuiOutlinedInput-root': {
-                borderRadius: 3,
+                borderRadius: '20px',
+                background: 'rgba(255, 255, 255, 0.9)',
+                backdropFilter: 'blur(10px)',
+                border: '1px solid rgba(255, 255, 255, 0.3)',
+                boxShadow: '0 4px 12px rgba(0, 0, 0, 0.05)',
+                '&:hover': {
+                  boxShadow: '0 6px 16px rgba(0, 0, 0, 0.1)',
+                  transform: 'translateY(-1px)',
+                },
+                '&.Mui-focused': {
+                  boxShadow: '0 8px 20px rgba(102, 126, 234, 0.2)',
+                  transform: 'translateY(-2px)',
+                },
+                transition: 'all 0.3s ease',
               },
+              '& .MuiOutlinedInput-input': {
+                color: '#333',
+                fontWeight: 500,
+              },
+              '& .MuiInputBase-input::placeholder': {
+                color: 'rgba(0, 0, 0, 0.6)',
+                fontWeight: 400,
+              }
             }}
           />
-          <Tooltip title="Enhanced Image Analysis">
-            <IconButton onClick={handleRecordFoodButtonClick} color="primary"
-              sx={{
-                bgcolor: 'secondary.main',
-                color: 'white',
-                '&:hover': { bgcolor: 'secondary.dark' },
-                width: 48,
-                height: 48,
-              }}
-            >
-              <Badge badgeContent="NEW" color="error">
-                <PhotoCameraIcon />
-              </Badge>
-            </IconButton>
-          </Tooltip>
-          <Tooltip title="Send Message">
-            <span>
-              <IconButton
-                color="primary"
-                onClick={handleSendMessage}
-                disabled={(!input.trim() && !selectedImage) || isLoading}
+          <Zoom in={true} timeout={600} style={{ transitionDelay: '1.4s' }}>
+            <Tooltip title="Enhanced Image Analysis">
+              <IconButton onClick={handleRecordFoodButtonClick}
                 sx={{
-                  bgcolor: 'primary.main',
+                  background: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
                   color: 'white',
-                  '&:hover': { bgcolor: 'primary.dark' },
-                  '&:disabled': { bgcolor: 'grey.300' },
-                  width: 48,
-                  height: 48,
+                  width: 52,
+                  height: 52,
+                  borderRadius: '50%',
+                  boxShadow: '0 4px 12px rgba(240, 147, 251, 0.4)',
+                  border: '1px solid rgba(255, 255, 255, 0.3)',
+                  '&:hover': { 
+                    background: 'linear-gradient(135deg, #ec4899 0%, #ef4444 100%)',
+                    transform: 'translateY(-2px) scale(1.05)',
+                    boxShadow: '0 8px 20px rgba(240, 147, 251, 0.6)',
+                  },
+                  '&:active': {
+                    transform: 'translateY(0px) scale(0.95)',
+                  },
+                  transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
                 }}
               >
-                <SendIcon />
+                <PhotoCameraIcon sx={{ fontSize: 24 }} />
               </IconButton>
-            </span>
-          </Tooltip>
+            </Tooltip>
+          </Zoom>
+          <Zoom in={true} timeout={600} style={{ transitionDelay: '1.6s' }}>
+            <Tooltip title="Send Message">
+              <span>
+                <IconButton
+                  onClick={handleSendMessage}
+                  disabled={(!input.trim() && !selectedImage) || isLoading}
+                  sx={{
+                    background: (!input.trim() && !selectedImage) || isLoading 
+                      ? 'rgba(0, 0, 0, 0.12)'
+                      : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                    color: 'white',
+                    width: 52,
+                    height: 52,
+                    borderRadius: '50%',
+                    boxShadow: (!input.trim() && !selectedImage) || isLoading 
+                      ? 'none'
+                      : '0 4px 12px rgba(102, 126, 234, 0.4)',
+                    border: '1px solid rgba(255, 255, 255, 0.3)',
+                    '&:hover': !isLoading && (input.trim() || selectedImage) ? { 
+                      background: 'linear-gradient(135deg, #5a67d8 0%, #6b46c1 100%)',
+                      transform: 'translateY(-2px) scale(1.05)',
+                      boxShadow: '0 8px 20px rgba(102, 126, 234, 0.6)',
+                    } : {},
+                    '&:active': !isLoading && (input.trim() || selectedImage) ? {
+                      transform: 'translateY(0px) scale(0.95)',
+                    } : {},
+                    '&:disabled': { 
+                      background: 'rgba(0, 0, 0, 0.12)',
+                      color: 'rgba(0, 0, 0, 0.26)',
+                      transform: 'none',
+                      boxShadow: 'none',
+                    },
+                    transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                  }}
+                >
+                  {isLoading ? (
+                    <CircularProgress size={24} sx={{ color: 'white' }} />
+                  ) : (
+                    <SendIcon sx={{ fontSize: 24 }} />
+                  )}
+                </IconButton>
+              </span>
+            </Tooltip>
+          </Zoom>
         </Box>
       </Paper>
+      </Fade>
 
       {/* Hidden file inputs */}
       <input
@@ -1424,7 +1788,8 @@ const Chat = () => {
         onAccept={handlePendingAccept}
         onDelete={handlePendingDelete}
       />
-    </Container>
+      </Container>
+    </Box>
   );
 };
 
