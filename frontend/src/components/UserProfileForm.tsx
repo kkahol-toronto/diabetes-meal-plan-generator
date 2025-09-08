@@ -27,6 +27,10 @@ import {
   Switch,
   RadioGroup,
   Radio,
+  keyframes,
+  Fade,
+  Slide,
+  Zoom,
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import PersonIcon from '@mui/icons-material/Person';
@@ -41,6 +45,34 @@ import TrackChangesIcon from '@mui/icons-material/TrackChanges';
 import { UserProfile } from '../types';
 import config from '../config/environment';
 import { isTokenExpired } from '../utils/auth';
+
+// Enhanced mobile animations
+const slideInUp = keyframes`
+  0% { 
+    opacity: 0;
+    transform: translateY(30px);
+  }
+  100% { 
+    opacity: 1;
+    transform: translateY(0);
+  }
+`;
+
+const fadeInScale = keyframes`
+  0% { 
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  100% { 
+    opacity: 1;
+    transform: scale(1);
+  }
+`;
+
+const shimmer = keyframes`
+  0% { background-position: -200px 0; }
+  100% { background-position: calc(200px + 100%) 0; }
+`;
 
 interface UserProfileFormProps {
   onSubmit: (profile: UserProfile) => void;
@@ -965,42 +997,126 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({
 
   const sectionStyle = {
     mb: 3,
-    background: 'linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)',
-    borderRadius: 2,
+    background: 'rgba(255, 255, 255, 0.15)',
+    backdropFilter: 'blur(10px)',
+    border: '1px solid rgba(255, 255, 255, 0.2)',
+    borderRadius: '16px',
     overflow: 'hidden',
+    boxShadow: '0 4px 16px rgba(31, 38, 135, 0.1)',
+    transition: 'all 0.3s ease',
+    position: 'relative',
+    zIndex: 1,
+    animation: `${slideInUp} 0.6s ease-out`,
+    '&:hover': {
+      transform: 'translateY(-2px)',
+      boxShadow: '0 8px 25px rgba(31, 38, 135, 0.15)',
+    },
+    '&.Mui-expanded': {
+      boxShadow: '0 8px 25px rgba(102, 126, 234, 0.2)',
+    }
   };
 
   const sectionHeaderStyle = {
-    background: `linear-gradient(135deg, ${theme.palette.primary.main}, ${theme.palette.primary.dark})`,
+    background: 'linear-gradient(135deg, rgba(102, 126, 234, 0.8) 0%, rgba(118, 75, 162, 0.8) 100%)',
     color: 'white',
     py: 2,
     px: 3,
+    minHeight: '64px',
+    '& .MuiAccordionSummary-expandIconWrapper': {
+      color: 'white',
+      transition: 'transform 0.3s ease',
+    },
+    '& .MuiAccordionSummary-expandIconWrapper.Mui-expanded': {
+      transform: 'rotate(180deg)',
+    },
+    '&:hover': {
+      background: 'linear-gradient(135deg, rgba(102, 126, 234, 0.9) 0%, rgba(118, 75, 162, 0.9) 100%)',
+    }
   };
 
   return (
     <Box sx={{ 
-      maxWidth: 1200, 
+      maxWidth: { xs: '100%', sm: 'sm' },
       mx: 'auto', 
-      p: { xs: 1, sm: 2, md: 3 } // Mobile: 8px, Tablet: 16px, Desktop: 24px
+      p: { xs: 0.5, sm: 1 },
+      animation: `${fadeInScale} 0.8s ease-out`
     }}>
-      <Paper elevation={3} sx={{ 
-        p: { xs: 2, sm: 3, md: 4 } // Mobile: 16px, Tablet: 24px, Desktop: 32px
-      }}>
-        <Typography variant="h4" align="center" gutterBottom sx={{ 
-          color: theme.palette.primary.main,
-          fontWeight: 'bold',
-          mb: 3 
-        }}>
-          Comprehensive Health Profile
-        </Typography>
+      <Paper 
+        elevation={0}
+        sx={{ 
+          p: { xs: 1.5, sm: 3 },
+          borderRadius: '20px',
+          background: 'rgba(255, 255, 255, 0.9)',
+          backdropFilter: 'blur(20px)',
+          border: '1px solid rgba(255, 255, 255, 0.2)',
+          boxShadow: '0 8px 32px rgba(31, 38, 135, 0.15)',
+          position: 'relative',
+          overflow: 'hidden',
+          minHeight: 'auto',
+          '&::before': {
+            content: '""',
+            position: 'absolute',
+            top: 0,
+            left: '-200px',
+            width: '200px',
+            height: '100%',
+            background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent)',
+            animation: `${shimmer} 3s infinite`,
+          },
+        }}
+      >
+        <Fade in={true} timeout={1000}>
+          <Box>
+            <Box sx={{ textAlign: 'center', mb: 3, position: 'relative', zIndex: 1 }}>
+              <Typography 
+                variant="h5" 
+                component="h1"
+                sx={{ 
+                  fontWeight: 700,
+                  color: '#667eea',
+                  textShadow: '0 2px 4px rgba(102, 126, 234, 0.3)',
+                  mb: 1,
+                  fontSize: { xs: '1.25rem', sm: '1.5rem' }
+                }}
+              >
+                🏥 Comprehensive Health Profile
+              </Typography>
+              <Typography 
+                variant="body2" 
+                sx={{ 
+                  color: 'rgba(102, 126, 234, 0.8)',
+                  fontWeight: 500
+                }}
+              >
+                Your personalized nutrition journey starts here
+              </Typography>
+            </Box>
+          </Box>
+        </Fade>
         
-        <Alert severity="info" sx={{ mb: 3 }}>
-          {isAdminMode ? (
-            <>🏥 You are filling out this profile on behalf of the patient. The patient can complete any missing information later. Only the patient name is required.</>
-          ) : (
-            <>🔒 Your information is automatically saved as you type and stays private. The more details you provide, the more personalized your meal plan will be. All fields marked with * are required.</>
-          )}
-        </Alert>
+        <Slide direction="up" in={true} timeout={1200}>
+          <Alert 
+            severity="info" 
+            sx={{ 
+              mb: 3, 
+              borderRadius: '12px',
+              background: 'rgba(102, 126, 234, 0.1)',
+              border: '1px solid rgba(102, 126, 234, 0.2)',
+              color: '#667eea',
+              position: 'relative',
+              zIndex: 1,
+              '& .MuiAlert-icon': {
+                color: '#667eea'
+              }
+            }}
+          >
+            {isAdminMode ? (
+              <>🏥 You are filling out this profile on behalf of the patient. The patient can complete any missing information later. Only the patient name is required.</>
+            ) : (
+              <>🔒 Your information is automatically saved as you type and stays private. The more details you provide, the more personalized your meal plan will be. All fields marked with * are required.</>
+            )}
+          </Alert>
+        </Slide>
 
         {/* Debug Section - only show if there are issues */}
         {(debugInfo.saveStatus === 'error' || !debugInfo.tokenValid) && (
@@ -1043,10 +1159,12 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({
           <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={sectionHeaderStyle}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               <PersonIcon />
-              <Typography variant="h6">👤 Patient Demographics</Typography>
+              <Typography variant="h6" sx={{ fontSize: { xs: '1rem', sm: '1.25rem' }, fontWeight: 600 }}>
+                👤 Patient Demographics
+              </Typography>
             </Box>
           </AccordionSummary>
-          <AccordionDetails sx={{ p: 3 }}>
+          <AccordionDetails sx={{ p: { xs: 2, sm: 3 } }}>
             <Grid container spacing={3}>
               <Grid item xs={12} md={6}>
                 <TextField
@@ -1165,10 +1283,12 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({
           <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={sectionHeaderStyle}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               <FavoriteIcon />
-              <Typography variant="h6">📏 Vital Signs</Typography>
+              <Typography variant="h6" sx={{ fontSize: { xs: '1rem', sm: '1.25rem' }, fontWeight: 600 }}>
+                📏 Vital Signs
+              </Typography>
             </Box>
           </AccordionSummary>
-          <AccordionDetails sx={{ p: 3 }}>
+          <AccordionDetails sx={{ p: { xs: 2, sm: 3 } }}>
             <Grid container spacing={3}>
               {/* Height Section */}
               <Grid item xs={12}>
@@ -1442,10 +1562,12 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({
           <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={sectionHeaderStyle}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               <LocalHospitalIcon />
-              <Typography variant="h6">🩺 Medical History</Typography>
+              <Typography variant="h6" sx={{ fontSize: { xs: '1rem', sm: '1.25rem' }, fontWeight: 600 }}>
+                🩺 Medical History
+              </Typography>
             </Box>
           </AccordionSummary>
-          <AccordionDetails sx={{ p: 3 }}>
+          <AccordionDetails sx={{ p: { xs: 2, sm: 3 } }}>
             <FormControl component="fieldset" fullWidth>
               <FormLabel component="legend">Check all that apply</FormLabel>
               <FormGroup>
@@ -1518,10 +1640,12 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({
           <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={sectionHeaderStyle}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               <MedicationIcon />
-              <Typography variant="h6">💊 Current Medications</Typography>
+              <Typography variant="h6" sx={{ fontSize: { xs: '1rem', sm: '1.25rem' }, fontWeight: 600 }}>
+                💊 Current Medications
+              </Typography>
             </Box>
           </AccordionSummary>
-          <AccordionDetails sx={{ p: 3 }}>
+          <AccordionDetails sx={{ p: { xs: 2, sm: 3 } }}>
             <FormControl component="fieldset" fullWidth>
               <FormLabel component="legend">Check all that apply</FormLabel>
               <FormGroup>
@@ -1594,10 +1718,12 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({
           <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={sectionHeaderStyle}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               <ScienceIcon />
-              <Typography variant="h6">🧪 Most Recent Lab Values (Optional)</Typography>
+              <Typography variant="h6" sx={{ fontSize: { xs: '1rem', sm: '1.25rem' }, fontWeight: 600 }}>
+                🧪 Most Recent Lab Values (Optional)
+              </Typography>
             </Box>
           </AccordionSummary>
-          <AccordionDetails sx={{ p: 3 }}>
+          <AccordionDetails sx={{ p: { xs: 2, sm: 3 } }}>
             <Grid container spacing={3}>
               <Grid item xs={12} md={4}>
                 <TextField
@@ -1735,10 +1861,12 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({
           <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={sectionHeaderStyle}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               <RestaurantIcon />
-              <Typography variant="h6">🍽️ Dietary Information</Typography>
+              <Typography variant="h6" sx={{ fontSize: { xs: '1rem', sm: '1.25rem' }, fontWeight: 600 }}>
+                🍽️ Dietary Information
+              </Typography>
             </Box>
           </AccordionSummary>
-          <AccordionDetails sx={{ p: 3 }}>
+          <AccordionDetails sx={{ p: { xs: 2, sm: 3 } }}>
             <Grid container spacing={3}>
               <Grid item xs={12}>
                 <FormControl component="fieldset" fullWidth>
@@ -1879,10 +2007,12 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({
           <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={sectionHeaderStyle}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               <FitnessIcon />
-              <Typography variant="h6">🏃 Physical Activity Profile</Typography>
+              <Typography variant="h6" sx={{ fontSize: { xs: '1rem', sm: '1.25rem' }, fontWeight: 600 }}>
+                🏃 Physical Activity Profile
+              </Typography>
             </Box>
           </AccordionSummary>
-          <AccordionDetails sx={{ p: 3 }}>
+          <AccordionDetails sx={{ p: { xs: 2, sm: 3 } }}>
             <Grid container spacing={3}>
               <Grid item xs={12} md={6}>
                 <FormControl fullWidth>
@@ -1997,10 +2127,12 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({
           <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={sectionHeaderStyle}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               <HomeIcon />
-              <Typography variant="h6">🧭 Lifestyle & Preferences</Typography>
+              <Typography variant="h6" sx={{ fontSize: { xs: '1rem', sm: '1.25rem' }, fontWeight: 600 }}>
+                🧭 Lifestyle & Preferences
+              </Typography>
             </Box>
           </AccordionSummary>
-          <AccordionDetails sx={{ p: 3 }}>
+          <AccordionDetails sx={{ p: { xs: 2, sm: 3 } }}>
             <Grid container spacing={3}>
               <Grid item xs={12} md={6}>
                 <FormControl fullWidth>
@@ -2138,10 +2270,12 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({
           <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={sectionHeaderStyle}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               <TrackChangesIcon />
-              <Typography variant="h6">🎯 Goals & Readiness to Change</Typography>
+              <Typography variant="h6" sx={{ fontSize: { xs: '1rem', sm: '1.25rem' }, fontWeight: 600 }}>
+                🎯 Goals & Readiness to Change
+              </Typography>
             </Box>
           </AccordionSummary>
-          <AccordionDetails sx={{ p: 3 }}>
+          <AccordionDetails sx={{ p: { xs: 2, sm: 3 } }}>
             <Grid container spacing={3}>
               <Grid item xs={12}>
                 <FormControl component="fieldset" fullWidth>
@@ -2211,15 +2345,76 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({
               </Grid>
               <Grid item xs={12} md={6}>
                 <FormControl fullWidth>
-                  <FormLabel>Readiness to Change</FormLabel>
+                  <FormLabel sx={{ 
+                    fontSize: { xs: '0.95rem', sm: '1rem' },
+                    fontWeight: 600,
+                    color: '#667eea',
+                    mb: 1,
+                    display: 'block'
+                  }}>
+                    Readiness to Change
+                  </FormLabel>
                   <RadioGroup
                     value={profile.readinessToChange}
                     onChange={(e) => handleInputChange('readinessToChange', e.target.value)}
+                    sx={{ mt: 1 }}
                   >
-                    <FormControlLabel value="Not ready" control={<Radio />} label="Not ready" />
-                    <FormControlLabel value="Thinking about it" control={<Radio />} label="Thinking about it" />
-                    <FormControlLabel value="Ready to take action" control={<Radio />} label="Ready to take action" />
-                    <FormControlLabel value="Already making changes" control={<Radio />} label="Already making changes" />
+                    <FormControlLabel 
+                      value="Not ready" 
+                      control={<Radio size="small" />} 
+                      label="Not ready"
+                      sx={{ 
+                        '& .MuiFormControlLabel-label': { 
+                          fontSize: { xs: '0.9rem', sm: '1rem' },
+                          fontWeight: 500
+                        } 
+                      }}
+                    />
+                    <FormControlLabel 
+                      value="Thinking about it" 
+                      control={<Radio size="small" />} 
+                      label={
+                        <Box sx={{ lineHeight: 1.2 }}>
+                          Thinking about it
+                        </Box>
+                      }
+                      sx={{ 
+                        '& .MuiFormControlLabel-label': { 
+                          fontSize: { xs: '0.9rem', sm: '1rem' },
+                          fontWeight: 500
+                        } 
+                      }}
+                    />
+                    <FormControlLabel 
+                      value="Ready to take action" 
+                      control={<Radio size="small" />} 
+                      label={
+                        <Box sx={{ lineHeight: 1.2 }}>
+                          Ready to take action
+                        </Box>
+                      }
+                      sx={{ 
+                        '& .MuiFormControlLabel-label': { 
+                          fontSize: { xs: '0.9rem', sm: '1rem' },
+                          fontWeight: 500
+                        } 
+                      }}
+                    />
+                    <FormControlLabel 
+                      value="Already making changes" 
+                      control={<Radio size="small" />} 
+                      label={
+                        <Box sx={{ lineHeight: 1.2 }}>
+                          Already making changes
+                        </Box>
+                      }
+                      sx={{ 
+                        '& .MuiFormControlLabel-label': { 
+                          fontSize: { xs: '0.9rem', sm: '1rem' },
+                          fontWeight: 500
+                        } 
+                      }}
+                    />
                   </RadioGroup>
                 </FormControl>
               </Grid>
@@ -2235,16 +2430,79 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({
                     label="Patient wants weight loss"
                   />
                   <FormControl fullWidth sx={{ mt: 2 }}>
-                    <FormLabel>Suggested Calorie Target</FormLabel>
+                    <FormLabel sx={{ 
+                      fontSize: { xs: '0.95rem', sm: '1rem' },
+                      fontWeight: 600,
+                      color: '#667eea',
+                      mb: 1,
+                      display: 'block'
+                    }}>
+                      Suggested Calorie Target
+                    </FormLabel>
                     <RadioGroup
                       value={profile.calorieTarget}
                       onChange={(e) => handleInputChange('calorieTarget', e.target.value)}
+                      sx={{ mt: 1 }}
                     >
-                      <FormControlLabel value="1500" control={<Radio />} label="1500 kcal" />
-                      <FormControlLabel value="1800" control={<Radio />} label="1800 kcal" />
-                      <FormControlLabel value="2000" control={<Radio />} label="2000 kcal" />
-                      <FormControlLabel value="2200" control={<Radio />} label="2200 kcal" />
-                      <FormControlLabel value="Other" control={<Radio />} label="Custom calorie target" />
+                      <FormControlLabel 
+                        value="1500" 
+                        control={<Radio size="small" />} 
+                        label="1500 kcal"
+                        sx={{ 
+                          '& .MuiFormControlLabel-label': { 
+                            fontSize: { xs: '0.9rem', sm: '1rem' },
+                            fontWeight: 500
+                          } 
+                        }}
+                      />
+                      <FormControlLabel 
+                        value="1800" 
+                        control={<Radio size="small" />} 
+                        label="1800 kcal"
+                        sx={{ 
+                          '& .MuiFormControlLabel-label': { 
+                            fontSize: { xs: '0.9rem', sm: '1rem' },
+                            fontWeight: 500
+                          } 
+                        }}
+                      />
+                      <FormControlLabel 
+                        value="2000" 
+                        control={<Radio size="small" />} 
+                        label="2000 kcal"
+                        sx={{ 
+                          '& .MuiFormControlLabel-label': { 
+                            fontSize: { xs: '0.9rem', sm: '1rem' },
+                            fontWeight: 500
+                          } 
+                        }}
+                      />
+                      <FormControlLabel 
+                        value="2200" 
+                        control={<Radio size="small" />} 
+                        label="2200 kcal"
+                        sx={{ 
+                          '& .MuiFormControlLabel-label': { 
+                            fontSize: { xs: '0.9rem', sm: '1rem' },
+                            fontWeight: 500
+                          } 
+                        }}
+                      />
+                      <FormControlLabel 
+                        value="Other" 
+                        control={<Radio size="small" />} 
+                        label={
+                          <Box sx={{ lineHeight: 1.2 }}>
+                            Custom calorie target
+                          </Box>
+                        }
+                        sx={{ 
+                          '& .MuiFormControlLabel-label': { 
+                            fontSize: { xs: '0.9rem', sm: '1rem' },
+                            fontWeight: 500
+                          } 
+                        }}
+                      />
                     </RadioGroup>
                     {profile.calorieTarget === 'Other' && (
                       <Box sx={{ mt: 2, display: 'flex', gap: 1, alignItems: 'center' }}>
@@ -2288,28 +2546,44 @@ const UserProfileForm: React.FC<UserProfileFormProps> = ({
           </AccordionDetails>
         </Accordion>
 
-        <Box sx={{ mt: 4, textAlign: 'center' }}>
-          <Button
-            variant="contained"
-            size="large"
-            onClick={handleSubmit}
-            sx={{
-              px: 6,
-              py: 2,
-              fontSize: '1.2rem',
-              fontWeight: 'bold',
-              background: `linear-gradient(45deg, ${theme.palette.primary.main}, ${theme.palette.primary.dark})`,
-              '&:hover': {
-                background: `linear-gradient(45deg, ${theme.palette.primary.dark}, ${theme.palette.primary.main})`,
-                transform: 'translateY(-2px)',
-                boxShadow: '0 8px 20px rgba(0,0,0,0.15)',
-              },
-              transition: 'all 0.3s ease',
-            }}
-          >
-            {submitButtonText}
-          </Button>
-        </Box>
+        <Zoom in={true} timeout={1500}>
+          <Box sx={{ mt: 4, textAlign: 'center', position: 'relative', zIndex: 1, px: 1 }}>
+            <Button
+              variant="contained"
+              size="large"
+              onClick={handleSubmit}
+              sx={{
+                px: { xs: 3, sm: 6 },
+                py: { xs: 2, sm: 2.5 },
+                fontSize: { xs: '0.9rem', sm: '1.1rem', md: '1.2rem' },
+                fontWeight: 700,
+                borderRadius: '50px',
+                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                boxShadow: '0 8px 25px rgba(102, 126, 234, 0.4)',
+                color: 'white',
+                textTransform: 'none',
+                letterSpacing: '0.3px',
+                width: { xs: '100%', sm: 'auto' },
+                maxWidth: { xs: '100%', sm: '400px' },
+                minHeight: '48px',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                '&:hover': {
+                  background: 'linear-gradient(135deg, #5a6fd8 0%, #6a4190 100%)',
+                  transform: 'translateY(-3px)',
+                  boxShadow: '0 12px 35px rgba(102, 126, 234, 0.5)',
+                },
+                '&:active': {
+                  transform: 'translateY(-1px)',
+                },
+                transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+              }}
+            >
+              {submitButtonText}
+            </Button>
+          </Box>
+        </Zoom>
       </Paper>
     </Box>
   );

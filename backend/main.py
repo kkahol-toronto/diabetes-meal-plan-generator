@@ -2196,6 +2196,79 @@ async def get_smart_daily_meal_plan(current_user: User = Depends(get_current_use
         print(f"[SmartDailyMealPlan] Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Failed to generate Smart Daily Meal Plan: {str(e)}")
 
+
+@app.post("/coach/smart-daily-meal-plan/refresh")
+async def refresh_smart_daily_meal_plan(current_user: User = Depends(get_current_user)):
+    """
+    Force refresh the Smart Daily Meal Plan - clears cache and generates new plan
+    """
+    try:
+        user_email = current_user["email"]
+        profile = current_user.get("profile", {})
+        
+        print(f"[SmartDailyMealPlan] 🔄 Force refreshing meal plan for {user_email}")
+        
+        # Import the service
+        from services.smart_daily_meal_plan_service import smart_daily_meal_plan_service
+        
+        # Get user's timezone-aware date
+        user_timezone = profile.get("timezone", "UTC")
+        try:
+            import pytz
+            if user_timezone and user_timezone != "UTC":
+                user_tz = pytz.timezone(user_timezone)
+                user_now = datetime.utcnow().replace(tzinfo=pytz.UTC).astimezone(user_tz)
+                today_date = user_now.date().isoformat()
+            else:
+                today_date = datetime.utcnow().date().isoformat()
+        except Exception:
+            today_date = datetime.utcnow().date().isoformat()
+        
+        # Clear existing plan from database
+        await smart_daily_meal_plan_service._clear_daily_plan(user_email, today_date)
+        
+        # Generate fresh plan
+        comprehensive_plan = await smart_daily_meal_plan_service.get_smart_daily_meal_plan(
+            user_email, profile
+        )
+        
+        # Format response
+        response = {
+            "smart_meal_plan": comprehensive_plan.get("meals", {}),
+            "consumption_by_meal": comprehensive_plan.get("consumption", {}),
+            "macro_progress": comprehensive_plan.get("macro_progress", {}),
+            "meal_configuration": comprehensive_plan.get("meal_configuration", {}),
+            "personalization_factors": {
+                "plan_type": "comprehensive_v2_refreshed",
+                "health_profile_integration": True,
+                "consumption_integration": True,
+                "meal_history_integration": True,
+                "recalibration_active": len(comprehensive_plan.get("recalibration_history", [])) > 0,
+                "snack_history_support": True,
+                "force_refreshed": True
+            },
+            "data_completeness": {
+                "health_profile": bool(profile),
+                "consumption_data": len(comprehensive_plan.get("consumption", {})) > 0,
+                "meal_history": True
+            },
+            "recalibration_history": comprehensive_plan.get("recalibration_history", []),
+            "last_updated": comprehensive_plan.get("last_updated", ""),
+            "created_at": comprehensive_plan.get("created_at", ""),
+            "plan_date": comprehensive_plan.get("plan_date", ""),
+            "refresh_timestamp": datetime.utcnow().isoformat()
+        }
+        
+        print(f"[SmartDailyMealPlan] ✅ Successfully refreshed Smart Daily Meal Plan")
+        return response
+        
+    except Exception as e:
+        print(f"[SmartDailyMealPlan] ❌ Refresh error: {str(e)}")
+        import traceback
+        print(f"[SmartDailyMealPlan] Traceback: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"Failed to refresh smart daily meal plan: {str(e)}")
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

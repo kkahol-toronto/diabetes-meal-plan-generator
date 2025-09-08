@@ -77,6 +77,47 @@ function stripDayPrefix(meal: string) {
   return meal.replace(/^Day \d+:\s*/, '');
 }
 
+// Enhanced animations for mobile
+const slideInUp = keyframes`
+  0% { 
+    opacity: 0;
+    transform: translateY(30px);
+  }
+  100% { 
+    opacity: 1;
+    transform: translateY(0);
+  }
+`;
+
+const fadeInScale = keyframes`
+  0% { 
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  100% { 
+    opacity: 1;
+    transform: scale(1);
+  }
+`;
+
+const bounceIn = keyframes`
+  0% { 
+    opacity: 0;
+    transform: scale(0.3);
+  }
+  50% { 
+    opacity: 1;
+    transform: scale(1.05);
+  }
+  70% { 
+    transform: scale(0.9);
+  }
+  100% { 
+    opacity: 1;
+    transform: scale(1);
+  }
+`;
+
 const MealPlanRequest: React.FC = () => {
   const theme = useTheme();
   const [loaded, setLoaded] = useState(false);
@@ -872,8 +913,15 @@ const MealPlanRequest: React.FC = () => {
           <Box>
             {generatingRecipes && (
               <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', mb: 2 }}>
-                <CircularProgress sx={{ mb: 1 }} />
-                <Typography>Generating recipes... {Math.round(recipeProgress)}%</Typography>
+                <CircularProgress sx={{ mb: 1, color: 'white' }} />
+                <Typography sx={{ 
+                  color: 'white',
+                  textShadow: '0 2px 4px rgba(0,0,0,0.3)',
+                  fontWeight: 600,
+                  fontSize: '1.1rem'
+                }}>
+                  Generating recipes... {Math.round(recipeProgress)}%
+                </Typography>
               </Box>
             )}
             {recipes && <RecipeList recipes={recipes} />}
@@ -1173,27 +1221,40 @@ const MealPlanRequest: React.FC = () => {
     <Box
       sx={{
         minHeight: '100vh',
-        background: `linear-gradient(-45deg, ${theme.palette.primary.main}08, ${theme.palette.secondary.main}08, ${theme.palette.primary.main}05, ${theme.palette.secondary.main}05)`,
-        backgroundSize: '400% 400%',
-        animation: `${gradientShift} 15s ease infinite`,
-        py: 4,
+        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+        position: 'relative',
+        py: { xs: 2, sm: 4 },
+        px: { xs: 1, sm: 2 },
+        '&::before': {
+          content: '""',
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%)',
+          animation: `${gradientShift} 15s ease infinite`,
+        }
       }}
     >
-      <Container maxWidth="lg" sx={{ 
-        px: { xs: 1, sm: 3 } // Reduce horizontal padding on mobile
+      <Container maxWidth="sm" sx={{ 
+        position: 'relative',
+        zIndex: 1,
+        px: { xs: 1, sm: 2 },
       }}>
         <Fade in={loaded} timeout={1000}>
           <Paper 
             elevation={0}
             sx={{ 
-              p: { xs: 1.5, sm: 3, md: 4 }, // Slightly reduce padding on mobile 
-              borderRadius: 4,
-              background: 'rgba(255,255,255,0.95)',
+              p: { xs: 2, sm: 3 },
+              borderRadius: '24px',
+              background: 'rgba(255, 255, 255, 0.25)',
               backdropFilter: 'blur(20px)',
-              border: '1px solid rgba(255,255,255,0.3)',
-              boxShadow: '0 8px 32px rgba(0,0,0,0.1)',
+              border: '1px solid rgba(255, 255, 255, 0.18)',
+              boxShadow: '0 8px 32px rgba(31, 38, 135, 0.37)',
               position: 'relative',
               overflow: 'hidden',
+              animation: `${fadeInScale} 0.8s ease-out`,
               '&::before': {
                 content: '""',
                 position: 'absolute',
@@ -1207,49 +1268,117 @@ const MealPlanRequest: React.FC = () => {
             }}
           >
             <Slide direction="down" in={loaded} timeout={1200}>
-              <Typography 
-                variant="h3" 
-                component="h1" 
-                gutterBottom 
-                align="center" 
-                sx={{ 
-                  fontWeight: 800,
-                  mb: 4,
-                  background: `linear-gradient(45deg, ${theme.palette.primary.main}, ${theme.palette.secondary.main})`,
-                  backgroundClip: 'text',
-                  WebkitBackgroundClip: 'text',
-                  WebkitTextFillColor: 'transparent',
-                  textShadow: '0 4px 8px rgba(0,0,0,0.1)',
-                }}
-              >
-                🍽️ Personalized Meal Plan Generator
-              </Typography>
+              <Box sx={{ textAlign: 'center', mb: 4, animation: `${bounceIn} 1s ease-out` }}>
+                <Typography 
+                  variant="h4" 
+                  component="h1" 
+                  sx={{ 
+                    fontWeight: 700,
+                    fontSize: { xs: '1.5rem', sm: '2rem' },
+                    color: 'white',
+                    textShadow: '0 2px 10px rgba(0,0,0,0.3)',
+                    mb: 1,
+                    letterSpacing: '0.5px'
+                  }}
+                >
+                  🍽️ Personalized Meal Plan
+                </Typography>
+                <Typography 
+                  variant="h6" 
+                  sx={{ 
+                    fontWeight: 600,
+                    fontSize: { xs: '1rem', sm: '1.25rem' },
+                    color: 'rgba(255, 255, 255, 0.9)',
+                    textShadow: '0 1px 5px rgba(0,0,0,0.2)',
+                  }}
+                >
+                  Generator
+                </Typography>
+              </Box>
             </Slide>
 
             <Zoom in={loaded} timeout={1500}>
               <Card
                 sx={{
-                  mb: 4,
-                  borderRadius: 3,
-                  background: 'rgba(255,255,255,0.8)',
-                  border: `2px solid ${theme.palette.primary.main}20`,
+                  mb: 3,
+                  borderRadius: '20px',
+                  background: 'rgba(255, 255, 255, 0.2)',
+                  backdropFilter: 'blur(10px)',
+                  border: '1px solid rgba(255, 255, 255, 0.3)',
+                  boxShadow: '0 4px 16px rgba(31, 38, 135, 0.2)',
                   transition: 'all 0.3s ease',
+                  animation: `${slideInUp} 0.8s ease-out`,
                   '&:hover': {
                     transform: 'translateY(-2px)',
-                    boxShadow: '0 8px 25px rgba(0,0,0,0.1)',
+                    boxShadow: '0 8px 25px rgba(31, 38, 135, 0.3)',
                   },
                 }}
               >
-                <CardContent>
+                <CardContent sx={{ py: 3, px: { xs: 2, sm: 4 } }}>
                   <Stepper 
                     activeStep={activeStep} 
                     alternativeLabel 
-                    sx={{ 
+                    sx={{
+                      '& .MuiStepLabel-root .Mui-completed': {
+                        color: '#4CAF50',
+                      },
+                      '& .MuiStepLabel-root .Mui-active': {
+                        color: 'white',
+                      },
                       '& .MuiStepIcon-root': {
+                        fontSize: '1.8rem',
                         transition: 'all 0.3s ease',
-                        '&.Mui-active': {
-                          animation: `${pulse} 2s ease-in-out infinite`,
+                        color: 'rgba(255, 255, 255, 0.6)',
+                        backgroundColor: 'rgba(255, 255, 255, 0.9)',
+                        borderRadius: '50%',
+                        '&:hover': {
+                          transform: 'scale(1.1)',
                         },
+                      },
+                      '& .MuiStepIcon-root.Mui-active': {
+                        background: '#1a1a1a !important',
+                        borderRadius: '50%',
+                        color: 'white !important',
+                        boxShadow: '0 4px 12px rgba(102, 126, 234, 0.4)',
+                        animation: `${pulse} 2s ease-in-out infinite`,
+                        border: '4px solid #667eea',
+                        '& .MuiStepIcon-text': {
+                          fill: '#FFFFFF !important',
+                          fontWeight: '900',
+                          fontSize: '1.1rem',
+                          textShadow: '0 0 4px rgba(0,0,0,0.8)',
+                        },
+                      },
+                      '& .MuiStepIcon-root.Mui-completed': {
+                        background: '#4CAF50 !important',
+                        borderRadius: '50%',
+                        color: 'white !important',
+                        boxShadow: '0 4px 12px rgba(76, 175, 80, 0.4)',
+                        '& .MuiStepIcon-text': {
+                          fill: 'white !important',
+                          fontWeight: 'bold',
+                        },
+                      },
+                      '& .MuiStepIcon-text': {
+                        fill: '#333 !important',
+                        fontWeight: '700',
+                        fontSize: '0.9rem',
+                      },
+                      '& .MuiStepConnector-root': {
+                        top: 14,
+                        left: 'calc(-50% + 16px)',
+                        right: 'calc(50% + 16px)',
+                      },
+                      '& .MuiStepConnector-line': {
+                        borderTopWidth: 3,
+                        borderRadius: 1,
+                        borderColor: 'rgba(255, 255, 255, 0.3)',
+                      },
+                      '& .Mui-completed .MuiStepConnector-line': {
+                        borderColor: '#4CAF50',
+                      },
+                      '& .Mui-active .MuiStepConnector-line': {
+                        borderColor: 'white',
                       },
                     }}
                   >
@@ -1258,8 +1387,18 @@ const MealPlanRequest: React.FC = () => {
                         <StepLabel
                           sx={{
                             '& .MuiStepLabel-label': {
-                              fontWeight: activeStep === index ? 'bold' : 'normal',
+                              fontSize: { xs: '0.75rem', sm: '0.875rem' },
+                              fontWeight: activeStep === index ? 700 : 600,
+                              mt: 1,
+                              color: 'white',
+                              textShadow: '0 1px 3px rgba(0,0,0,0.3)',
                               transition: 'all 0.3s ease',
+                            },
+                            '& .MuiStepLabel-label.Mui-active': {
+                              color: 'white',
+                            },
+                            '& .MuiStepLabel-label.Mui-completed': {
+                              color: 'rgba(255, 255, 255, 0.9)',
                             },
                           }}
                         >
@@ -1294,7 +1433,8 @@ const MealPlanRequest: React.FC = () => {
                       variant="h6" 
                       fontWeight="bold"
                       sx={{ 
-                        color: theme.palette.primary.main,
+                        color: 'white',
+                        textShadow: '0 2px 4px rgba(0,0,0,0.3)',
                         mb: 3,
                         textAlign: 'center',
                       }}
@@ -1437,7 +1577,8 @@ const MealPlanRequest: React.FC = () => {
                         variant="h6" 
                         fontWeight="bold"
                         sx={{ 
-                          color: theme.palette.primary.main,
+                          color: 'white',
+                          textShadow: '0 2px 4px rgba(0,0,0,0.3)',
                           mb: 2,
                           textAlign: 'center',
                         }}
@@ -1446,8 +1587,13 @@ const MealPlanRequest: React.FC = () => {
                       </Typography>
                       <Typography 
                         variant="body2" 
-                        color="text.secondary"
-                        sx={{ mb: 3, textAlign: 'center', lineHeight: 1.5 }}
+                        sx={{ 
+                          mb: 3, 
+                          textAlign: 'center', 
+                          lineHeight: 1.5,
+                          color: 'rgba(255, 255, 255, 0.9)',
+                          textShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                        }}
                       >
                         Choose how many days you want your meal plan to cover (1-7 days)
                       </Typography>
@@ -1460,9 +1606,10 @@ const MealPlanRequest: React.FC = () => {
                               key={day}
                               variant="caption"
                               sx={{
-                                color: selectedDays === day ? theme.palette.primary.main : theme.palette.text.secondary,
+                                color: selectedDays === day ? 'white' : 'rgba(255, 255, 255, 0.7)',
                                 fontWeight: selectedDays === day ? 'bold' : 'normal',
                                 transition: 'all 0.2s ease',
+                                textShadow: selectedDays === day ? '0 1px 3px rgba(0,0,0,0.3)' : 'none',
                               }}
                             >
                               {day}
@@ -1479,44 +1626,45 @@ const MealPlanRequest: React.FC = () => {
                            valueLabelDisplay="auto"
                            valueLabelFormat={(value: number) => `${value} day${value > 1 ? 's' : ''}`}
                           sx={{
-                            color: theme.palette.primary.main,
+                            color: 'white',
                             '& .MuiSlider-thumb': {
-                              backgroundColor: theme.palette.primary.main,
-                              border: `3px solid ${theme.palette.background.paper}`,
-                              boxShadow: `0 0 0 8px ${theme.palette.primary.main}20`,
+                              backgroundColor: 'white',
+                              border: `3px solid #667eea`,
+                              boxShadow: `0 0 0 8px rgba(255, 255, 255, 0.2)`,
                               '&:hover': {
-                                boxShadow: `0 0 0 12px ${theme.palette.primary.main}30`,
+                                boxShadow: `0 0 0 12px rgba(255, 255, 255, 0.3)`,
                               },
                             },
                             '& .MuiSlider-track': {
-                              backgroundColor: theme.palette.primary.main,
+                              backgroundColor: 'white',
                               height: 6,
                             },
                             '& .MuiSlider-rail': {
-                              backgroundColor: theme.palette.primary.light,
+                              backgroundColor: 'rgba(255,255,255,0.3)',
                               height: 6,
                             },
                             '& .MuiSlider-mark': {
-                              backgroundColor: theme.palette.primary.main,
+                              backgroundColor: 'white',
                               height: 8,
                               width: 8,
                               borderRadius: '50%',
                             },
                             '& .MuiSlider-markActive': {
-                              backgroundColor: theme.palette.primary.dark,
+                              backgroundColor: '#667eea',
                             },
                           }}
                         />
                         <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2 }}>
                           <Chip
                             label={`${selectedDays} day${selectedDays > 1 ? 's' : ''} meal plan`}
-                            color="primary"
                             variant="filled"
                             sx={{
                               fontWeight: 'bold',
                               fontSize: '0.9rem',
                               px: 2,
-                              background: `linear-gradient(45deg, ${theme.palette.primary.main}, ${theme.palette.primary.dark})`,
+                              background: 'rgba(255, 255, 255, 0.9)',
+                              color: '#333',
+                              border: '2px solid white',
                             }}
                           />
                         </Box>

@@ -32,8 +32,21 @@ class SmartDailyMealPlanService:
         print(f"[{self.service_name}] Starting Smart Daily Meal Plan generation for {user_email}")
         
         try:
-            # Get today's date for consistency
-            today_date = datetime.utcnow().date().isoformat()
+            # Get today's date in user's timezone for proper midnight reset
+            user_timezone = user_profile.get("timezone", "UTC")
+            try:
+                import pytz
+                if user_timezone and user_timezone != "UTC":
+                    user_tz = pytz.timezone(user_timezone)
+                    user_now = datetime.utcnow().replace(tzinfo=pytz.UTC).astimezone(user_tz)
+                    today_date = user_now.date().isoformat()
+                    print(f"[{self.service_name}] Using user timezone {user_timezone}, today_date: {today_date}")
+                else:
+                    today_date = datetime.utcnow().date().isoformat()
+                    print(f"[{self.service_name}] Using UTC timezone, today_date: {today_date}")
+            except Exception as tz_error:
+                print(f"[{self.service_name}] Timezone error, falling back to UTC: {tz_error}")
+                today_date = datetime.utcnow().date().isoformat()
             
             # Check if we have an existing plan for today (persistence requirement)
             existing_plan = await self._get_existing_daily_plan(user_email, today_date)
@@ -54,17 +67,37 @@ class SmartDailyMealPlanService:
             # Step 3: Get past meal plans from meal plan history  
             meal_plan_history = await self._get_meal_plan_history(user_email)
             
-            # Step 4: Generate meals - prioritize history, fallback to health profile
+            # Step 4: Generate meals with robust error handling - prioritize history, fallback to health profile
             meals = {}
-            if meal_plan_history:
-                print(f"[{self.service_name}] Adapting meals from meal plan history")
-                meals = await self._adapt_from_meal_history(meal_config["active_meals"], meal_plan_history, user_profile)
+            generation_errors = []
             
-            if not meals or len(meals) < len(meal_config["active_meals"]):
-                print(f"[{self.service_name}] Generating missing meals from health profile")
-                missing_meals = [meal for meal in meal_config["active_meals"] if meal not in meals]
-                generated_meals = await self._generate_from_health_profile(missing_meals, user_profile)
-                meals.update(generated_meals)
+            try:
+                if meal_plan_history:
+                    print(f"[{self.service_name}] Adapting meals from meal plan history")
+                    meals = await self._adapt_from_meal_history(meal_config["active_meals"], meal_plan_history, user_profile)
+            except Exception as history_error:
+                print(f"[{self.service_name}] Error adapting from history: {history_error}")
+                generation_errors.append(f"History adaptation failed: {str(history_error)}")
+            
+            # Ensure all required meals are present
+            missing_meals = [meal for meal in meal_config["active_meals"] if meal not in meals or not meals[meal]]
+            if missing_meals:
+                print(f"[{self.service_name}] Generating missing meals: {missing_meals}")
+                try:
+                    generated_meals = await self._generate_from_health_profile(missing_meals, user_profile)
+                    meals.update(generated_meals)
+                except Exception as gen_error:
+                    print(f"[{self.service_name}] Error generating meals: {gen_error}")
+                    generation_errors.append(f"Meal generation failed: {str(gen_error)}")
+                    # Provide fallback meals
+                    fallback_meals = self._create_fallback_meals(missing_meals, user_profile)
+                    meals.update(fallback_meals)
+            
+            # Final validation - ensure no meal is None or empty
+            for meal_type in meal_config["active_meals"]:
+                if not meals.get(meal_type):
+                    print(f"[{self.service_name}] Creating emergency fallback for {meal_type}")
+                    meals[meal_type] = self._create_emergency_fallback_meal(meal_type, user_profile)
             
             # Step 5: Apply real-time recalibration based on today's consumption
             consumption_by_meal = self._organize_consumption_by_meal(today_consumption)
@@ -976,6 +1009,102 @@ class SmartDailyMealPlanService:
         except Exception as e:
             print(f"[{self.service_name}] Error applying real-time updates: {e}")
             return existing_plan
+
+
+    def _create_fallback_meals(self, meal_types: List[str], user_profile: Dict) -> Dict:
+        """Create fallback meals when generation fails"""
+        fallback_meals = {}
+        is_vegetarian = user_profile.get("isVegetarian", False)
+        
+        fallback_options = {
+            "breakfast": {
+                "vegetarian": ["Oatmeal with fresh berries", "Greek yogurt with granola", "Whole grain toast with avocado"],
+                "regular": ["Scrambled eggs with spinach", "Oatmeal with banana", "Greek yogurt parfait"]
+            },
+            "lunch": {
+                "vegetarian": ["Quinoa salad with vegetables", "Lentil soup with whole grain bread", "Caprese sandwich"],
+                "regular": ["Grilled chicken salad", "Turkey wrap with vegetables", "Tuna salad with crackers"]
+            },
+            "dinner": {
+                "vegetarian": ["Vegetable stir-fry with tofu", "Pasta with marinara sauce", "Black bean tacos"],
+                "regular": ["Baked salmon with vegetables", "Grilled chicken with quinoa", "Lean beef stir-fry"]
+            },
+            "snack": {
+                "vegetarian": ["Apple with almond butter", "Mixed nuts and dried fruit", "Hummus with vegetables"],
+                "regular": ["Greek yogurt", "Handful of almonds", "Cheese and crackers"]
+            }
+        }
+        
+        diet_key = "vegetarian" if is_vegetarian else "regular"
+        
+        for meal_type in meal_types:
+            if meal_type in fallback_options:
+                import random
+                meal_name = random.choice(fallback_options[meal_type][diet_key])
+                
+                # Estimate calories based on meal type
+                calorie_estimates = {"breakfast": 350, "lunch": 450, "dinner": 500, "snack": 150}
+                protein_estimates = {"breakfast": 15, "lunch": 25, "dinner": 30, "snack": 8}
+                
+                fallback_meals[meal_type] = {
+                    "meal_name": meal_name,
+                    "description": f"Healthy {meal_type} option",
+                    "nutritional_info": {
+                        "calories": calorie_estimates.get(meal_type, 300),
+                        "protein": protein_estimates.get(meal_type, 15),
+                        "carbs": 30,
+                        "fat": 10
+                    },
+                    "source": "fallback_generated",
+                    "ingredients": [meal_name.split()[0], meal_name.split()[-1]] if " " in meal_name else [meal_name]
+                }
+        
+        return fallback_meals
+    
+    def _create_emergency_fallback_meal(self, meal_type: str, user_profile: Dict) -> Dict:
+        """Create a single emergency fallback meal"""
+        emergency_meals = {
+            "breakfast": "Healthy breakfast bowl",
+            "lunch": "Balanced lunch meal", 
+            "dinner": "Nutritious dinner",
+            "snack": "Healthy snack"
+        }
+        
+        calorie_estimates = {"breakfast": 300, "lunch": 400, "dinner": 450, "snack": 100}
+        
+        return {
+            "meal_name": emergency_meals.get(meal_type, "Healthy meal"),
+            "description": f"Emergency fallback {meal_type}",
+            "nutritional_info": {
+                "calories": calorie_estimates.get(meal_type, 300),
+                "protein": 15,
+                "carbs": 25,
+                "fat": 8
+            },
+            "source": "emergency_fallback",
+            "ingredients": ["Healthy ingredients"]
+        }
+    
+    async def _clear_daily_plan(self, user_email: str, date: str) -> bool:
+        """Clear existing Smart Daily Meal Plan for force refresh"""
+        try:
+            from database import interactions_container
+            
+            daily_key = f"smart_daily_{user_email}_{date}"
+            
+            # Delete existing plan
+            try:
+                await interactions_container.delete_item(item=daily_key, partition_key=daily_key)
+                print(f"[{self.service_name}] Cleared existing plan for {user_email} on {date}")
+                return True
+            except Exception as delete_error:
+                # Plan might not exist, which is fine
+                print(f"[{self.service_name}] No existing plan to clear (this is normal): {delete_error}")
+                return True
+            
+        except Exception as e:
+            print(f"[{self.service_name}] Error clearing daily plan: {e}")
+            return False
 
 
 # Create singleton instance

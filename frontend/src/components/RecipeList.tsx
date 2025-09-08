@@ -12,11 +12,14 @@ import {
   Divider,
   Chip,
   Grid,
-  ListItemIcon
+  ListItemIcon,
+  keyframes,
+  Fade,
+  Slide,
+  Card,
+  CardContent,
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
-import { Recipe } from '../types';
-
 // Import icons for sections and nutrition
 import RestaurantIcon from '@mui/icons-material/Restaurant';
 import MenuBookIcon from '@mui/icons-material/MenuBook';
@@ -25,6 +28,30 @@ import LocalFireDepartmentIcon from '@mui/icons-material/LocalFireDepartment';
 import FitnessCenterIcon from '@mui/icons-material/FitnessCenter';
 import SpaIcon from '@mui/icons-material/Spa';
 import HealingIcon from '@mui/icons-material/Healing';
+import { Recipe } from '../types';
+
+// Enhanced mobile animations
+const slideInUp = keyframes`
+  0% { 
+    opacity: 0;
+    transform: translateY(30px);
+  }
+  100% { 
+    opacity: 1;
+    transform: translateY(0);
+  }
+`;
+
+const fadeInScale = keyframes`
+  0% { 
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  100% { 
+    opacity: 1;
+    transform: scale(1);
+  }
+`;
 
 interface RecipeListProps {
   recipes: Recipe[];
@@ -33,50 +60,122 @@ interface RecipeListProps {
 const RecipeList: React.FC<RecipeListProps> = ({ recipes }) => {
   if (!recipes || recipes.length === 0) {
     return (
-      <Paper elevation={2} sx={{ p: 3, textAlign: 'center' }}>
-        <Typography variant="h6">No recipes generated yet.</Typography>
-        <Typography variant="body1">Please generate recipes to see them here.</Typography>
-      </Paper>
+      <Fade in={true} timeout={800}>
+        <Card
+          sx={{
+            p: 4,
+            textAlign: 'center',
+            borderRadius: '20px',
+            background: 'rgba(255, 255, 255, 0.9)',
+            backdropFilter: 'blur(20px)',
+            border: '1px solid rgba(255, 255, 255, 0.2)',
+            boxShadow: '0 8px 32px rgba(31, 38, 135, 0.15)',
+          }}
+        >
+          <Typography variant="h6" sx={{ color: '#667eea', fontWeight: 600, mb: 1 }}>
+            No recipes generated yet.
+          </Typography>
+          <Typography variant="body1" sx={{ color: 'rgba(102, 126, 234, 0.7)' }}>
+            Please generate recipes to see them here.
+          </Typography>
+        </Card>
+      </Fade>
     );
   }
 
   return (
-    <Paper elevation={0} sx={{ p: {xs: 1, sm: 2}, backgroundColor: 'transparent' }}>
-      <Typography variant="h5" component="h2" gutterBottom align="center" sx={{ fontWeight: 'bold', mb: 3 }}>
-        Your Generated Recipes
-      </Typography>
-      {recipes.map((recipe, index) => (
-        <Accordion 
-          key={index} 
-          sx={{ 
-            mb: 2, 
-            borderRadius: '12px', 
-            boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
-            '&:before': { display: 'none' },
-          }}
-          defaultExpanded={index === 0}
-        >
-          <AccordionSummary 
-            expandIcon={<ExpandMoreIcon />} 
-            aria-controls={`recipe-content-${index}`} 
-            id={`recipe-header-${index}`}
+    <Box sx={{ p: { xs: 1, sm: 2 } }}>
+      <Fade in={true} timeout={1000}>
+        <Box sx={{ textAlign: 'center', mb: 4 }}>
+          <Typography 
+            variant="h5" 
+            component="h2" 
             sx={{ 
-              borderTopLeftRadius: '12px', 
-              borderTopRightRadius: '12px', 
-              borderBottomLeftRadius: index === recipes.length -1 || !recipe ? '12px' : 0,
-              borderBottomRightRadius: index === recipes.length -1 || !recipe ? '12px' : 0,
-              backgroundColor: 'grey.100',
-              '&:hover': {
-                backgroundColor: 'grey.200'
-              }
+              fontWeight: 700, 
+              color: 'white',
+              textShadow: '0 2px 4px rgba(0,0,0,0.3)',
+              mb: 1,
+              fontSize: { xs: '1.25rem', sm: '1.5rem' }
             }}
           >
-            <ListItemIcon sx={{minWidth: 'auto', mr: 1.5, color: 'primary.main'}}><RestaurantIcon /></ListItemIcon>
-            <Typography variant="h6" component="div" sx={{ fontWeight: 500 }}>
-              {recipe.name}
-            </Typography>
-          </AccordionSummary>
-          <AccordionDetails sx={{ p: {xs: 2, sm: 3}, backgroundColor: 'white'}}>
+            🍳 Your Generated Recipes
+          </Typography>
+          <Typography 
+            variant="body2" 
+            sx={{ 
+              color: 'rgba(255, 255, 255, 0.8)',
+              fontWeight: 500
+            }}
+          >
+            Delicious meals crafted just for you
+          </Typography>
+        </Box>
+      </Fade>
+      {recipes.map((recipe, index) => (
+        <Slide direction="up" in={true} timeout={800 + index * 200} key={index}>
+          <Accordion 
+            sx={{ 
+              mb: 3,
+              borderRadius: '20px',
+              background: 'rgba(255, 255, 255, 0.9)',
+              backdropFilter: 'blur(20px)',
+              border: '1px solid rgba(255, 255, 255, 0.2)',
+              boxShadow: '0 8px 32px rgba(31, 38, 135, 0.15)',
+              overflow: 'hidden',
+              transition: 'all 0.3s ease',
+              '&:before': { display: 'none' },
+              '&:hover': {
+                transform: 'translateY(-2px)',
+                boxShadow: '0 12px 40px rgba(31, 38, 135, 0.2)',
+              },
+              '&.Mui-expanded': {
+                boxShadow: '0 12px 40px rgba(102, 126, 234, 0.25)',
+              }
+            }}
+            defaultExpanded={index === 0}
+          >
+            <AccordionSummary 
+              expandIcon={<ExpandMoreIcon sx={{ color: 'white' }} />} 
+              aria-controls={`recipe-content-${index}`} 
+              id={`recipe-header-${index}`}
+              sx={{ 
+                background: 'linear-gradient(135deg, rgba(102, 126, 234, 0.8) 0%, rgba(118, 75, 162, 0.8) 100%)',
+                color: 'white',
+                minHeight: '72px',
+                '&:hover': {
+                  background: 'linear-gradient(135deg, rgba(102, 126, 234, 0.9) 0%, rgba(118, 75, 162, 0.9) 100%)',
+                },
+                '& .MuiAccordionSummary-expandIconWrapper': {
+                  color: 'white',
+                  transition: 'transform 0.3s ease',
+                },
+                '& .MuiAccordionSummary-expandIconWrapper.Mui-expanded': {
+                  transform: 'rotate(180deg)',
+                }
+              }}
+            >
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                <Box sx={{ 
+                  background: 'rgba(255, 255, 255, 0.2)', 
+                  borderRadius: '12px', 
+                  p: 1.5,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}>
+                  <RestaurantIcon sx={{ color: 'white' }} />
+                </Box>
+                <Typography variant="h6" component="div" sx={{ 
+                  fontWeight: 600,
+                  color: 'white',
+                  textShadow: '0 1px 3px rgba(0,0,0,0.3)',
+                  fontSize: { xs: '1rem', sm: '1.25rem' }
+                }}>
+                  {recipe.name}
+                </Typography>
+              </Box>
+            </AccordionSummary>
+            <AccordionDetails sx={{ p: { xs: 2, sm: 3 }, backgroundColor: 'rgba(255, 255, 255, 0.95)' }}>
             
             <Box sx={{ mb: 3 }}>
               <Typography variant="subtitle1" gutterBottom sx={{ display: 'flex', alignItems: 'center', fontWeight: 'medium' }}>
@@ -140,8 +239,9 @@ const RecipeList: React.FC<RecipeListProps> = ({ recipes }) => {
 
           </AccordionDetails>
         </Accordion>
+        </Slide>
       ))}
-    </Paper>
+    </Box>
   );
 };
 

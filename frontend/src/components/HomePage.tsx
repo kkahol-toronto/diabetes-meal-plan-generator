@@ -324,16 +324,28 @@ const SmartDailyMealPlan: React.FC<SmartDailyMealPlanProps> = ({ dashboardData }
   const [smartMealPlan, setSmartMealPlan] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
-  const fetchSmartMealPlan = useCallback(async () => {
+  const fetchSmartMealPlan = useCallback(async (forceRefresh = false) => {
     const token = localStorage.getItem('token');
     if (!token) return;
 
     try {
-      setLoading(true);
+      if (forceRefresh) {
+        setRefreshing(true);
+      } else {
+        setLoading(true);
+      }
       setError(null);
       
-      const response = await fetch(`${config.API_URL}/coach/smart-daily-meal-plan`, {
+      const endpoint = forceRefresh 
+        ? `${config.API_URL}/coach/smart-daily-meal-plan/refresh`
+        : `${config.API_URL}/coach/smart-daily-meal-plan`;
+      
+      const method = forceRefresh ? 'POST' : 'GET';
+      
+      const response = await fetch(endpoint, {
+        method,
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
@@ -347,7 +359,7 @@ const SmartDailyMealPlan: React.FC<SmartDailyMealPlanProps> = ({ dashboardData }
       }
 
       if (!response.ok) {
-        throw new Error(`Failed to fetch smart meal plan: ${response.statusText}`);
+        throw new Error(`Failed to ${forceRefresh ? 'refresh' : 'fetch'} smart meal plan: ${response.statusText}`);
       }
 
       const data = await response.json();
@@ -355,15 +367,16 @@ const SmartDailyMealPlan: React.FC<SmartDailyMealPlanProps> = ({ dashboardData }
       console.log('Full API response:', data);
       console.log('Smart meal plan:', data?.smart_meal_plan);
       console.log('Consumption by meal:', data?.consumption_by_meal);
-      console.log('Snack handling support:', data?.personalization_factors?.snack_history_support);
+      console.log('Force refreshed:', data?.personalization_factors?.force_refreshed);
       console.log('=====================================');
       setSmartMealPlan(data);
       
     } catch (err) {
-      console.error('Error fetching smart meal plan:', err);
-      setError('Unable to load meal plan. Please try again.');
+      console.error(`Error ${forceRefresh ? 'refreshing' : 'fetching'} smart meal plan:`, err);
+      setError(`Unable to ${forceRefresh ? 'refresh' : 'load'} meal plan. Please try again.`);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, []);
 
@@ -406,7 +419,7 @@ const SmartDailyMealPlan: React.FC<SmartDailyMealPlanProps> = ({ dashboardData }
             {error}
           </Typography>
           <Button
-            onClick={fetchSmartMealPlan}
+            onClick={() => fetchSmartMealPlan(false)}
             sx={{
               mt: 2,
               backgroundColor: 'rgba(255, 255, 255, 0.2)',
@@ -425,11 +438,28 @@ const SmartDailyMealPlan: React.FC<SmartDailyMealPlanProps> = ({ dashboardData }
 
   return (
     <Card sx={{ 
-      background: 'linear-gradient(135deg, #1e3c72 0%, #2a5298 100%)',
-      border: '1px solid rgba(255, 255, 255, 0.2)',
-      boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)',
-      borderRadius: '16px',
-      backdropFilter: 'blur(10px)'
+      background: 'rgba(255, 255, 255, 0.08)',
+      backdropFilter: 'blur(20px)',
+      border: '1px solid rgba(255, 255, 255, 0.15)',
+      borderRadius: '24px',
+      boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.2)',
+      transition: 'all 0.3s ease',
+      '&:hover': {
+        transform: 'translateY(-4px)',
+        boxShadow: '0 12px 40px rgba(0, 0, 0, 0.15)',
+        background: 'rgba(255, 255, 255, 0.12)',
+      },
+      '&::before': {
+        content: '""',
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        borderRadius: '24px',
+        background: 'linear-gradient(135deg, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0.05) 100%)',
+        zIndex: -1
+      }
     }}>
       <CardContent sx={{ p: 3 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3 }}>
@@ -437,11 +467,12 @@ const SmartDailyMealPlan: React.FC<SmartDailyMealPlanProps> = ({ dashboardData }
             <Box
               sx={{
                 p: 1.5,
-                backgroundColor: 'rgba(255, 255, 255, 0.15)',
+                background: 'linear-gradient(135deg, #7c4dff, #9c27b0)',
                 borderRadius: '12px',
                 display: 'flex',
                 alignItems: 'center',
-                justifyContent: 'center'
+                justifyContent: 'center',
+                boxShadow: '0 4px 12px rgba(124, 77, 255, 0.3)'
               }}
             >
               <RestaurantIcon sx={{ color: 'white', fontSize: '1.8rem' }} />
@@ -468,6 +499,49 @@ const SmartDailyMealPlan: React.FC<SmartDailyMealPlanProps> = ({ dashboardData }
               </Typography>
             </Box>
           </Box>
+          
+          <Button
+            variant="contained"
+            size="small"
+            disabled={refreshing || loading}
+            onClick={() => fetchSmartMealPlan(true)}
+            sx={{
+              background: refreshing 
+                ? 'rgba(255, 255, 255, 0.1)' 
+                : 'linear-gradient(135deg, #4caf50, #2e7d32)',
+              color: 'white',
+              borderRadius: '12px',
+              px: 2,
+              py: 1,
+              fontSize: '0.8rem',
+              fontWeight: 600,
+              textTransform: 'none',
+              boxShadow: '0 4px 12px rgba(76, 175, 80, 0.3)',
+              border: '1px solid rgba(255, 255, 255, 0.2)',
+              minWidth: '100px',
+              '&:hover': {
+                background: refreshing 
+                  ? 'rgba(255, 255, 255, 0.1)' 
+                  : 'linear-gradient(135deg, #388e3c, #1b5e20)',
+                boxShadow: '0 6px 16px rgba(76, 175, 80, 0.4)',
+              },
+              '&:disabled': {
+                color: 'rgba(255, 255, 255, 0.5)',
+                background: 'rgba(255, 255, 255, 0.1)',
+              }
+            }}
+          >
+            {refreshing ? (
+              <>
+                <CircularProgress size={16} sx={{ color: 'white', mr: 1 }} />
+                Refreshing...
+              </>
+            ) : (
+              <>
+                🔄 REFRESH
+              </>
+            )}
+          </Button>
         </Box>
 
         {/* Macro Progress Display - Synchronized with Homepage Dashboard */}
@@ -497,15 +571,21 @@ const SmartDailyMealPlan: React.FC<SmartDailyMealPlanProps> = ({ dashboardData }
         {/* Meal Cards with Full Consumption Integration */}
         <Grid container spacing={2}>
           {(smartMealPlan?.meal_configuration?.active_meals || ['breakfast', 'lunch', 'dinner', 'snack']).map((mealType: string) => {
-            const plannedMeal = smartMealPlan?.smart_meal_plan?.[mealType];
-            const consumptionRecords = smartMealPlan?.consumption_by_meal?.[mealType] || [];
+            // Robust data extraction with fallbacks
+            const plannedMeal = smartMealPlan?.smart_meal_plan?.[mealType] || null;
+            const consumptionRecords = Array.isArray(smartMealPlan?.consumption_by_meal?.[mealType]) 
+              ? smartMealPlan.consumption_by_meal[mealType] 
+              : [];
             const isConsumed = consumptionRecords.length > 0;
             const consumptionText = formatConsumptionText(consumptionRecords);
             const totalNutrition = getTotalNutrition(consumptionRecords);
 
+            // Safe meal name extraction
+            const mealName = plannedMeal?.meal_name || plannedMeal?.name || `Planned ${mealType}`;
+            
             // Check if consumption matches the planned meal
             const isMatchingPlan = plannedMeal && isConsumed 
-              ? isConsumptionMatchingPlan(plannedMeal.meal_name || '', consumptionText)
+              ? isConsumptionMatchingPlan(mealName, consumptionText)
               : false;
 
             return (
@@ -555,7 +635,7 @@ const SmartDailyMealPlan: React.FC<SmartDailyMealPlanProps> = ({ dashboardData }
                           🎯 PLANNED:
                         </Typography>
                         <Typography variant="body2" sx={{ color: 'white', fontWeight: 'bold', fontSize: '0.85rem' }}>
-                          {plannedMeal.meal_name || `Planned ${mealType}`}
+                          {mealName}
                         </Typography>
                         {plannedMeal.description && (
                           <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.8)', fontSize: '0.75rem', mt: 0.5 }}>
@@ -616,40 +696,42 @@ const SmartDailyMealPlan: React.FC<SmartDailyMealPlanProps> = ({ dashboardData }
           })}
         </Grid>
 
-        {/* Plan Info & Refresh */}
-        <Box sx={{ mt: 3, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <Box>
-            {smartMealPlan?.personalization_factors?.snack_history_support && (
-              <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.8)', fontSize: '0.8rem' }}>
-                ✨ Enhanced snack history support enabled
-              </Typography>
-            )}
-            {smartMealPlan?.recalibration_history?.length > 0 ? (
-              <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.8)', fontSize: '0.8rem' }}>
-                🔄 Plan recalibrated {smartMealPlan.recalibration_history.length} time(s) today
-              </Typography>
-            ) : (
-              <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.6)', fontSize: '0.8rem' }}>
-                ✅ No recalibrations needed
+        {/* Plan Info & Status */}
+        <Box sx={{ 
+          mt: 3, 
+          p: 2,
+          borderRadius: '12px',
+          background: 'rgba(255, 255, 255, 0.05)',
+          border: '1px solid rgba(255, 255, 255, 0.1)'
+        }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 2 }}>
+            <Box>
+              {smartMealPlan?.personalization_factors?.force_refreshed ? (
+                <Typography variant="body2" sx={{ color: 'rgba(76, 175, 80, 1)', fontSize: '0.8rem', fontWeight: 600 }}>
+                  🔄 Freshly generated meal plan
+                </Typography>
+              ) : smartMealPlan?.personalization_factors?.snack_history_support && (
+                <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.8)', fontSize: '0.8rem' }}>
+                  ✨ Enhanced snack history support enabled
+                </Typography>
+              )}
+              {smartMealPlan?.recalibration_history?.length > 0 ? (
+                <Typography variant="body2" sx={{ color: 'rgba(255, 193, 7, 1)', fontSize: '0.8rem', mt: 0.5 }}>
+                  🔄 Plan recalibrated {smartMealPlan.recalibration_history.length} time(s) today
+                </Typography>
+              ) : (
+                <Typography variant="body2" sx={{ color: 'rgba(76, 175, 80, 0.8)', fontSize: '0.8rem', mt: 0.5 }}>
+                  ✅ No recalibrations needed
+                </Typography>
+              )}
+            </Box>
+            
+            {smartMealPlan?.plan_date && (
+              <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.6)', fontSize: '0.75rem' }}>
+                📅 Plan for: {new Date(smartMealPlan.plan_date).toLocaleDateString()}
               </Typography>
             )}
           </Box>
-          <Button
-            onClick={fetchSmartMealPlan}
-            size="small"
-            sx={{
-              backgroundColor: 'rgba(255, 255, 255, 0.2)',
-              color: 'white',
-              fontSize: '0.75rem',
-              px: 2,
-              py: 0.5,
-              '&:hover': {
-                backgroundColor: 'rgba(255, 255, 255, 0.3)'
-              }
-            }}
-          >
-            {loading ? <CircularProgress size={14} /> : 'REFRESH'}
-          </Button>
         </Box>
       </CardContent>
     </Card>
@@ -1453,6 +1535,18 @@ const HomePage: React.FC = () => {
   };
 
   // Default chart for fallback
+  // Create gradient backgrounds for modern chart styling
+  const createGradient = (ctx: any, color: string, opacity: number = 0.3) => {
+    if (!ctx) return color;
+    
+    const gradient = ctx.createLinearGradient(0, 0, 0, 400);
+    gradient.addColorStop(0, `${color}${Math.round(opacity * 255).toString(16).padStart(2, '0')}`);
+    gradient.addColorStop(0.5, `${color}${Math.round(opacity * 0.5 * 255).toString(16).padStart(2, '0')}`);
+    gradient.addColorStop(1, `${color}00`);
+    
+    return gradient;
+  };
+
   const generateDefaultChartData = (metric: keyof NutritionalInfo, data: any[], color: string) => {
     const chartConfig = chartConfigs.find(config => config.metric === metric);
 
@@ -1506,25 +1600,32 @@ const HomePage: React.FC = () => {
         datasets: [{
           label: `Actual ${chartConfig?.title || metric}`,
           data: values,
-          backgroundColor: `${color}80`,
+          backgroundColor: (ctx: any) => createGradient(ctx.chart.ctx, color, 0.4),
           borderColor: color,
-          borderWidth: 2,
-          fill: false,
+          borderWidth: 3,
+          fill: true,
           tension: 0.4,
-          pointBackgroundColor: color,
-          pointBorderColor: '#fff',
-          pointBorderWidth: 2,
-          pointRadius: 4,
-          pointHoverRadius: 6
+          pointBackgroundColor: 'rgba(255, 255, 255, 0.9)',
+          pointBorderColor: color,
+          pointBorderWidth: 3,
+          pointRadius: 6,
+          pointHoverRadius: 8,
+          pointHoverBackgroundColor: color,
+          pointHoverBorderColor: 'rgba(255, 255, 255, 1)',
+          pointHoverBorderWidth: 3,
+          shadowOffsetX: 0,
+          shadowOffsetY: 4,
+          shadowBlur: 8,
+          shadowColor: `${color}40`
         }, {
           label: `Target ${chartConfig?.title || metric}`,
           data: targetValues,
           backgroundColor: 'transparent',
-          borderColor: '#FF6B6B',
+          borderColor: 'rgba(255, 107, 107, 0.8)',
           borderWidth: 2,
-          borderDash: [5, 5],
+          borderDash: [8, 4],
           fill: false,
-          tension: 0,
+          tension: 0.2,
           pointRadius: 0,
           pointHoverRadius: 0
         }]
@@ -1631,17 +1732,27 @@ const HomePage: React.FC = () => {
         datasets: [{
           label: `${chartConfig?.title || metric} by Meal`,
           data: values,
-          backgroundColor: analyticsChartType === 'line' ? 'rgba(0,0,0,0.05)' : 
-                           analyticsChartType === 'area' ? mealColors.map(c => `${c}30`) : mealColors,
+          backgroundColor: analyticsChartType === 'line' 
+            ? (ctx: any) => createGradient(ctx.chart.ctx, color, 0.3)
+            : analyticsChartType === 'area' 
+              ? (ctx: any) => createGradient(ctx.chart.ctx, color, 0.4)
+              : mealColors.map(c => `${c}CC`),
           borderColor: analyticsChartType === 'line' ? color : mealColors,
-          borderWidth: 2,
-          fill: analyticsChartType === 'area',
+          borderWidth: 3,
+          fill: analyticsChartType === 'area' || analyticsChartType === 'line',
           tension: 0.4,
-          pointBackgroundColor: analyticsChartType === 'line' ? color : mealColors,
-          pointBorderColor: '#fff',
-          pointBorderWidth: 2,
-          pointRadius: 4,
-          pointHoverRadius: 6
+          pointBackgroundColor: 'rgba(255, 255, 255, 0.9)',
+          pointBorderColor: analyticsChartType === 'line' ? color : mealColors,
+          pointBorderWidth: 3,
+          pointRadius: 6,
+          pointHoverRadius: 8,
+          pointHoverBackgroundColor: analyticsChartType === 'line' ? color : mealColors,
+          pointHoverBorderColor: 'rgba(255, 255, 255, 1)',
+          pointHoverBorderWidth: 3,
+          shadowOffsetX: 0,
+          shadowOffsetY: 4,
+          shadowBlur: 8,
+          shadowColor: `${color}40`
         }]
       };
     }
@@ -1699,17 +1810,25 @@ const HomePage: React.FC = () => {
       datasets: [{
         label: chartConfig?.title || metric,
         data: values,
-        backgroundColor: analyticsChartType === 'line' ? 'rgba(0,0,0,0.05)' : 
-                         analyticsChartType === 'area' ? `${color}30` : color,
+        backgroundColor: analyticsChartType === 'line' || analyticsChartType === 'area'
+          ? (ctx: any) => createGradient(ctx.chart.ctx, color, 0.4)
+          : color,
         borderColor: color,
-        borderWidth: 2,
-        fill: analyticsChartType === 'area',
+        borderWidth: 3,
+        fill: analyticsChartType === 'area' || analyticsChartType === 'line',
         tension: 0.4,
-        pointBackgroundColor: color,
-        pointBorderColor: '#fff',
-        pointBorderWidth: 2,
-        pointRadius: 4,
-        pointHoverRadius: 6
+        pointBackgroundColor: 'rgba(255, 255, 255, 0.9)',
+        pointBorderColor: color,
+        pointBorderWidth: 3,
+        pointRadius: 6,
+        pointHoverRadius: 8,
+        pointHoverBackgroundColor: color,
+        pointHoverBorderColor: 'rgba(255, 255, 255, 1)',
+        pointHoverBorderWidth: 3,
+        shadowOffsetX: 0,
+        shadowOffsetY: 4,
+        shadowBlur: 8,
+        shadowColor: `${color}40`
       }]
     };
   };
@@ -1725,34 +1844,66 @@ const HomePage: React.FC = () => {
         mode: 'index' as const,
         intersect: false,
       },
+      animation: {
+        duration: 2000,
+        easing: 'easeInOutQuart' as const,
+        delay: (context: any) => {
+          let delay = 0;
+          if (context.type === 'data' && context.mode === 'default') {
+            delay = context.dataIndex * 50 + context.datasetIndex * 100;
+          }
+          return delay;
+        },
+      },
+      elements: {
+        line: {
+          tension: 0.4, // Smooth curves like the reference image
+          borderWidth: 3,
+          fill: true,
+        },
+        point: {
+          radius: 6,
+          hoverRadius: 8,
+          borderWidth: 2,
+          backgroundColor: 'rgba(255, 255, 255, 0.9)',
+        }
+      },
       plugins: {
         legend: {
           position: 'top' as const,
           labels: {
             usePointStyle: true,
             padding: 20,
+            color: 'rgba(255, 255, 255, 0.9)',
             font: {
-              size: 12
+              size: 13,
+              weight: 'bold' as const,
+              family: 'Inter, system-ui, sans-serif'
             }
           }
         },
         title: {
           display: true,
           text: `${chartConfig?.title || metric} - ${selectedTimeRangeLabel} Analysis`,
+          color: 'rgba(255, 255, 255, 0.95)',
           font: {
-            size: 16,
-            weight: 'bold' as const
+            size: 18,
+            weight: 'bold' as const,
+            family: 'Inter, system-ui, sans-serif'
           },
-          padding: 20
+          padding: 25
         },
         tooltip: {
-          backgroundColor: 'rgba(0,0,0,0.8)',
-          titleColor: '#fff',
-          bodyColor: '#fff',
-          borderColor: chartConfig?.color || '#45B7D1',
-          borderWidth: 1,
-          cornerRadius: 6,
+          backgroundColor: 'rgba(255, 255, 255, 0.95)',
+          titleColor: '#2d3748',
+          bodyColor: '#4a5568',
+          borderColor: chartConfig?.color || '#7c4dff',
+          borderWidth: 2,
+          cornerRadius: 12,
           displayColors: true,
+          padding: 12,
+          boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
+          backdropFilter: 'blur(20px)',
           callbacks: {
             label: function(context: any) {
               const label = context.dataset.label || '';
@@ -1793,7 +1944,8 @@ const HomePage: React.FC = () => {
             y: {
               beginAtZero: true,
               grid: {
-                color: 'rgba(0,0,0,0.1)',
+                color: 'rgba(255, 255, 255, 0.15)',
+                lineWidth: 1,
                 borderDash: [5, 5]
               },
               ticks: {
@@ -1819,22 +1971,26 @@ const HomePage: React.FC = () => {
                 color: 'rgba(0,0,0,0.1)',
                 borderDash: [5, 5]
               },
-              ticks: {
-                font: {
-                  size: 12
-                },
-                callback: function(value: any) {
-                  return `${value} kcal`;
-                }
+            ticks: {
+              color: 'rgba(255, 255, 255, 0.8)',
+              font: {
+                size: 12,
+                weight: 'normal' as const
               },
-              title: {
-                display: true,
-                text: 'Calories (kcal)',
-                font: {
-                  size: 14,
-                  weight: 'bold' as const
-                }
+              callback: function(value: any) {
+                return `${value} kcal`;
               }
+            },
+            title: {
+              display: true,
+              text: 'Calories (kcal)',
+              color: 'rgba(255, 255, 255, 0.9)',
+              font: {
+                size: 14,
+                weight: 'bold' as const,
+                family: 'Inter, system-ui, sans-serif'
+              }
+            }
             }
           }
         };
@@ -1847,34 +2003,42 @@ const HomePage: React.FC = () => {
           y: {
             beginAtZero: true,
             grid: {
-              color: 'rgba(0,0,0,0.1)',
+              color: 'rgba(255, 255, 255, 0.15)',
+              lineWidth: 1,
               borderDash: [5, 5]
             },
-            ticks: {
-              font: {
-                size: 12
+              ticks: {
+                color: 'rgba(255, 255, 255, 0.8)',
+                font: {
+                  size: 12,
+                  weight: 'normal' as const
+                },
+                callback: function(value: any) {
+                  return `${value} ${unit}`;
+                }
               },
-              callback: function(value: any) {
-                return `${value} ${unit}`;
+              title: {
+                display: true,
+                text: `${chartConfig?.title || metric} (${unit})`,
+                color: 'rgba(255, 255, 255, 0.9)',
+                font: {
+                  size: 14,
+                  weight: 'bold' as const,
+                  family: 'Inter, system-ui, sans-serif'
+                }
               }
             },
-            title: {
-              display: true,
-              text: `${chartConfig?.title || metric} (${unit})`,
-              font: {
-                size: 14,
-                weight: 'bold' as const
-              }
-            }
-          },
-          x: {
-            grid: {
-              color: 'rgba(0,0,0,0.1)',
+            x: {
+              grid: {
+                color: 'rgba(255, 255, 255, 0.1)',
+                lineWidth: 1,
               borderDash: [5, 5]
             },
             ticks: {
+              color: 'rgba(255, 255, 255, 0.8)',
               font: {
-                size: 12
+                size: 12,
+                weight: 'normal' as const
               },
               maxRotation: 45,
               minRotation: 0
@@ -1882,9 +2046,11 @@ const HomePage: React.FC = () => {
             title: {
               display: true,
               text: 'Time Period',
+              color: 'rgba(255, 255, 255, 0.9)',
               font: {
                 size: 14,
-                weight: 'bold' as const
+                weight: 'bold' as const,
+                family: 'Inter, system-ui, sans-serif'
               }
             }
           }
@@ -2018,12 +2184,12 @@ const HomePage: React.FC = () => {
 
   // Additional chart rendering functions
   const renderNutritionalSummaryChart = () => {
-    if (!consumptionAnalytics?.daily_nutrition_history) return <Typography>No data available</Typography>;
+    if (!consumptionAnalytics?.daily_nutrition_history) return <Typography sx={{ color: 'rgba(255, 255, 255, 0.8)', textAlign: 'center' }}>No data available</Typography>;
     
     const data = consumptionAnalytics.daily_nutrition_history;
     const latest = data[data.length - 1];
     
-    if (!latest) return <Typography>No data available</Typography>;
+    if (!latest) return <Typography sx={{ color: 'rgba(255, 255, 255, 0.8)', textAlign: 'center' }}>No data available</Typography>;
     
     // Normalize values for radar chart (scale to 0-100 range)
     const normalizeValue = (value: number, maxValue: number) => {
@@ -2065,9 +2231,14 @@ const HomePage: React.FC = () => {
           r: {
             beginAtZero: true,
             max: 100,
-            grid: { color: 'rgba(0,0,0,0.1)' },
-            pointLabels: { font: { size: 12 } },
+            grid: { color: 'rgba(255, 255, 255, 0.15)' },
+            pointLabels: { 
+              font: { size: 12, weight: 'bold' as const },
+              color: 'rgba(255, 255, 255, 0.9)'
+            },
             ticks: {
+              color: 'rgba(255, 255, 255, 0.8)',
+              font: { size: 10 },
               callback: function(value) {
                 return value + '%';
               }
@@ -2075,7 +2246,14 @@ const HomePage: React.FC = () => {
           }
         },
         plugins: {
-          legend: { display: true, position: 'bottom' },
+          legend: { 
+            display: true, 
+            position: 'bottom' as const,
+            labels: {
+              color: 'rgba(255, 255, 255, 0.9)',
+              font: { size: 12, weight: 'bold' as const }
+            }
+          },
           title: { display: false },
           tooltip: {
             callbacks: {
@@ -2092,12 +2270,12 @@ const HomePage: React.FC = () => {
   };
 
   const renderWeeklyPatternChart = () => {
-    if (!consumptionAnalytics?.daily_nutrition_history) return <Typography>No data available</Typography>;
+    if (!consumptionAnalytics?.daily_nutrition_history) return <Typography sx={{ color: 'rgba(255, 255, 255, 0.8)', textAlign: 'center' }}>No data available</Typography>;
     
     const data = consumptionAnalytics.daily_nutrition_history;
     const weeklyData = data.slice(-7);
     
-    if (weeklyData.length === 0) return <Typography>No data available</Typography>;
+    if (weeklyData.length === 0) return <Typography sx={{ color: 'rgba(255, 255, 255, 0.8)', textAlign: 'center' }}>No data available</Typography>;
     
     // Sort by date to ensure proper ordering
     const sortedData = [...weeklyData].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
@@ -2144,7 +2322,13 @@ const HomePage: React.FC = () => {
         responsive: true,
         maintainAspectRatio: false,
         plugins: {
-          legend: { position: 'top' },
+          legend: { 
+            position: 'top' as const,
+            labels: {
+              color: 'rgba(255, 255, 255, 0.9)',
+              font: { size: 12, weight: 'bold' as const }
+            }
+          },
           title: { display: false },
                       tooltip: {
               mode: 'index',
@@ -2173,10 +2357,26 @@ const HomePage: React.FC = () => {
         scales: {
           y: { 
             beginAtZero: true,
-            grid: { color: 'rgba(0,0,0,0.1)' }
+            grid: { color: 'rgba(255, 255, 255, 0.15)' },
+            ticks: {
+              color: 'rgba(255, 255, 255, 0.8)',
+              font: { size: 11 }
+            },
+            title: {
+              color: 'rgba(255, 255, 255, 0.9)',
+              font: { size: 12, weight: 'bold' as const }
+            }
           },
           x: {
-            grid: { color: 'rgba(0,0,0,0.1)' }
+            grid: { color: 'rgba(255, 255, 255, 0.1)' },
+            ticks: {
+              color: 'rgba(255, 255, 255, 0.8)',
+              font: { size: 11 }
+            },
+            title: {
+              color: 'rgba(255, 255, 255, 0.9)',
+              font: { size: 12, weight: 'bold' as const }
+            }
           }
         },
         interaction: {
@@ -2189,12 +2389,12 @@ const HomePage: React.FC = () => {
   };
 
   const renderMacroDistributionChart = () => {
-    if (!consumptionAnalytics?.daily_nutrition_history) return <Typography>No data available</Typography>;
+    if (!consumptionAnalytics?.daily_nutrition_history) return <Typography sx={{ color: 'rgba(255, 255, 255, 0.8)', textAlign: 'center' }}>No data available</Typography>;
     
     const data = consumptionAnalytics.daily_nutrition_history;
     const recentData = data.slice(-7);
     
-    if (recentData.length === 0) return <Typography>No data available</Typography>;
+    if (recentData.length === 0) return <Typography sx={{ color: 'rgba(255, 255, 255, 0.8)', textAlign: 'center' }}>No data available</Typography>;
     
     const avgData = recentData.reduce((acc: any, day: any) => ({
       protein: acc.protein + (day.protein || 0),
@@ -2209,7 +2409,7 @@ const HomePage: React.FC = () => {
     avgData.fat = avgData.fat / numDays;
     
     const total = avgData.protein + avgData.carbs + avgData.fat;
-    if (total === 0) return <Typography>No data available</Typography>;
+    if (total === 0) return <Typography sx={{ color: 'rgba(255, 255, 255, 0.8)', textAlign: 'center' }}>No data available</Typography>;
     
     const chartData = {
       labels: ['Protein', 'Carbohydrates', 'Fat'],
@@ -2232,10 +2432,12 @@ const HomePage: React.FC = () => {
         maintainAspectRatio: false,
         plugins: {
           legend: { 
-            position: 'bottom',
+            position: 'bottom' as const,
             labels: {
               padding: 20,
-              usePointStyle: true
+              usePointStyle: true,
+              color: 'rgba(255, 255, 255, 0.9)',
+              font: { size: 12, weight: 'bold' as const }
             }
           },
           title: { display: false },
@@ -2256,7 +2458,7 @@ const HomePage: React.FC = () => {
   };
 
   const renderAdherenceChart = () => {
-    if (!consumptionAnalytics?.adherence_stats) return <Typography>No data available</Typography>;
+    if (!consumptionAnalytics?.adherence_stats) return <Typography sx={{ color: 'rgba(255, 255, 255, 0.8)', textAlign: 'center' }}>No data available</Typography>;
     
     const adherenceData = consumptionAnalytics.adherence_stats;
     
@@ -2286,6 +2488,15 @@ const HomePage: React.FC = () => {
       options={{
         responsive: true,
         maintainAspectRatio: false,
+        color: '#ffffff',
+        layout: {
+          padding: {
+            bottom: 40,
+            left: 10,
+            right: 10,
+            top: 10
+          }
+        },
         plugins: {
           legend: { display: false },
           title: { display: false },
@@ -2304,15 +2515,42 @@ const HomePage: React.FC = () => {
           y: { 
             beginAtZero: true,
             max: 100,
-            grid: { color: 'rgba(0,0,0,0.1)' },
+            grid: { color: 'rgba(255, 255, 255, 0.15)' },
             ticks: {
+              color: '#ffffff',
+              font: { 
+                size: 12, 
+                weight: 'bold' as const,
+                family: 'Inter, system-ui, sans-serif'
+              },
               callback: function(value) {
                 return value + '%';
               }
+            },
+            title: {
+              color: '#ffffff',
+              font: { size: 12, weight: 'bold' as const }
             }
           },
           x: {
-            grid: { display: false }
+            grid: { display: false },
+            ticks: {
+              color: '#ffffff',
+              font: { 
+                size: 11, 
+                weight: 'bold' as const,
+                family: 'Inter, system-ui, sans-serif'
+              },
+              maxRotation: 45,
+              minRotation: 0,
+              padding: 5,
+              autoSkip: false,
+              maxTicksLimit: 4
+            },
+            title: {
+              color: '#ffffff',
+              font: { size: 12, weight: 'bold' as const }
+            }
           }
         }
       }} 
@@ -2595,12 +2833,153 @@ const HomePage: React.FC = () => {
 
   if (loading) {
     return (
-      <Container maxWidth="lg" sx={{ mt: 4, mb: 4, textAlign: 'center' }}>
-        <CircularProgress size={60} />
-        <Typography variant="h6" sx={{ mt: 2 }}>
-          Loading your personalized dashboard...
-        </Typography>
-      </Container>
+      <Box sx={{ 
+        minHeight: '100vh',
+        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 2
+      }}>
+        <Card sx={{ 
+          background: 'rgba(255, 255, 255, 0.08)',
+          backdropFilter: 'blur(20px)',
+          border: '1px solid rgba(255, 255, 255, 0.15)',
+          borderRadius: '24px',
+          boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.2)',
+          p: 4,
+          textAlign: 'center',
+          maxWidth: 400,
+          width: '100%',
+          '&::before': {
+            content: '""',
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            borderRadius: '24px',
+            background: 'linear-gradient(135deg, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0.05) 100%)',
+            zIndex: -1
+          }
+        }}>
+          <Box sx={{ mb: 3 }}>
+            <Box sx={{
+              position: 'relative',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center'
+            }}>
+              <CircularProgress 
+                size={80} 
+                thickness={3}
+                sx={{ 
+                  color: 'white',
+                  '& .MuiCircularProgress-circle': {
+                    strokeLinecap: 'round',
+                  }
+                }}
+              />
+              <Box sx={{
+                position: 'absolute',
+                top: '50%',
+                left: '50%',
+                transform: 'translate(-50%, -50%)',
+                background: 'linear-gradient(135deg, #7c4dff, #9c27b0)',
+                borderRadius: '50%',
+                p: 2,
+                boxShadow: '0 4px 16px rgba(124, 77, 255, 0.4)'
+              }}>
+                <Box sx={{ color: 'white', fontSize: '2rem' }}>🍎</Box>
+              </Box>
+            </Box>
+          </Box>
+          
+          <Typography 
+            variant="h5" 
+            sx={{ 
+              color: 'white',
+              fontWeight: 700,
+              mb: 2,
+              textShadow: '0 2px 4px rgba(0,0,0,0.3)'
+            }}
+          >
+            🍽️ AI Nutrition Coach
+          </Typography>
+          
+          <Typography 
+            variant="h6" 
+            sx={{ 
+              color: 'rgba(255, 255, 255, 0.9)',
+              mb: 3,
+              fontWeight: 500
+            }}
+          >
+            Loading your personalized dashboard...
+          </Typography>
+          
+          <Box sx={{ 
+            display: 'flex', 
+            flexDirection: 'column',
+            gap: 1,
+            mb: 3
+          }}>
+            <Typography 
+              variant="body2" 
+              sx={{ 
+                color: 'rgba(255, 255, 255, 0.7)',
+                fontSize: '0.9rem'
+              }}
+            >
+              ✨ Analyzing your nutrition data
+            </Typography>
+            <Typography 
+              variant="body2" 
+              sx={{ 
+                color: 'rgba(255, 255, 255, 0.7)',
+                fontSize: '0.9rem'
+              }}
+            >
+              📊 Preparing personalized insights
+            </Typography>
+            <Typography 
+              variant="body2" 
+              sx={{ 
+                color: 'rgba(255, 255, 255, 0.7)',
+                fontSize: '0.9rem'
+              }}
+            >
+              🎯 Calibrating your meal recommendations
+            </Typography>
+          </Box>
+          
+          <Box sx={{ 
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 1,
+            mt: 3,
+            p: 2,
+            borderRadius: '16px',
+            background: 'rgba(255, 255, 255, 0.05)',
+            border: '1px solid rgba(255, 255, 255, 0.1)'
+          }}>
+            <Box sx={{ color: '#4caf50', fontSize: '1.2rem' }}>🔒</Box>
+            <Typography 
+              variant="caption" 
+              sx={{ 
+                color: 'rgba(255, 255, 255, 0.8)',
+                fontSize: '0.75rem',
+                textAlign: 'center',
+                lineHeight: 1.3
+              }}
+            >
+              This tool complies with PHIPA (Canada) and HIPAA (United States)
+            </Typography>
+            <Box sx={{ color: '#4caf50', fontSize: '1.2rem' }}>✓</Box>
+          </Box>
+        </Card>
+      </Box>
     );
   }
 
@@ -2622,36 +3001,165 @@ const HomePage: React.FC = () => {
   }
 
   return (
-    <Container maxWidth="xl" sx={{ mt: 2, mb: 4 }}>
-      {/* Header Section */}
-      <Box sx={{ mb: 3 }}>
-        <Typography variant="h4" component="h1" gutterBottom sx={{ 
-          fontWeight: 'bold',
-          background: 'linear-gradient(45deg, #2E7D32, #4CAF50)',
-          backgroundClip: 'text',
-          WebkitBackgroundClip: 'text',
-          WebkitTextFillColor: 'transparent',
+    <Box sx={{ 
+      minHeight: '100vh',
+      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+      pb: 4
+    }}>
+      <Container maxWidth="lg" sx={{ pt: 3, px: { xs: 2, sm: 3 } }}>
+        {/* Header Section - Modern Purple Theme Design */}
+        <Box sx={{ 
+          mb: 4,
+          textAlign: 'center',
+          position: 'relative',
+          pt: 2
         }}>
-          🤖 AI Nutrition Coach Dashboard
-        </Typography>
-        <Typography variant="subtitle1" color="text.secondary">
-          Your intelligent health companion • Log food anytime, meal plans optional • Last updated: {new Date().toLocaleTimeString()}
-        </Typography>
-      </Box>
+          {/* Modern Glassmorphism Header Card */}
+          <Box sx={{
+            position: 'relative',
+            background: 'rgba(255, 255, 255, 0.08)',
+            backdropFilter: 'blur(20px)',
+            border: '1px solid rgba(255, 255, 255, 0.15)',
+            borderRadius: '24px',
+            padding: { xs: '24px 16px', sm: '32px 24px' },
+            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.2)',
+            zIndex: 1000,
+            isolation: 'isolate',
+            transform: 'translateZ(0)',
+            willChange: 'transform',
+            '&::before': {
+              content: '""',
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              borderRadius: '24px',
+              background: 'linear-gradient(135deg, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0.05) 100%)',
+              zIndex: -1
+            }
+          }}>
+            {/* Main Title with Modern Styling */}
+            <Box sx={{
+              position: 'relative',
+              zIndex: 1001,
+              mb: 2
+            }}>
+              <Typography 
+                variant="h3" 
+                component="h1" 
+                sx={{ 
+                  fontWeight: 800,
+                  background: 'linear-gradient(135deg, #ffffff 0%, #e8d5ff 50%, #d1c4e9 100%)',
+                  WebkitBackgroundClip: 'text',
+                  WebkitTextFillColor: 'transparent',
+                  backgroundClip: 'text',
+                  fontSize: { xs: '1.8rem', sm: '2.5rem', md: '3rem' },
+                  mb: 1,
+                  letterSpacing: '0.5px',
+                  filter: 'none !important',
+                  WebkitFontSmoothing: 'antialiased',
+                  MozOsxFontSmoothing: 'grayscale',
+                  fontFamily: '"Inter", "SF Pro Display", system-ui, -apple-system, sans-serif',
+                  lineHeight: 1.1,
+                  textRendering: 'optimizeLegibility',
+                  position: 'relative',
+                  textShadow: 'none',
+                  '&::after': {
+                    content: '""',
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    background: 'linear-gradient(135deg, rgba(255,255,255,0.9) 0%, rgba(232,213,255,0.8) 50%, rgba(209,196,233,0.7) 100%)',
+                    WebkitBackgroundClip: 'text',
+                    WebkitTextFillColor: 'transparent',
+                    backgroundClip: 'text',
+                    filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.1))',
+                    zIndex: 1
+                  }
+                }}
+              >
+                🍎 AI Nutrition Coach Dashboard
+              </Typography>
+            </Box>
 
-      {/* Profile Completion Alert */}
-      {showProfileAlert && (
-        <Alert 
-          severity="info" 
-          sx={{ 
-            mb: 3,
-            background: 'linear-gradient(135deg, #e3f2fd 0%, #f3e5f5 100%)',
-            border: '2px solid #2196f3',
-            borderRadius: 3,
-            '& .MuiAlert-icon': {
-              fontSize: '1.5rem',
-            },
-          }}
+            {/* Subtitle with Modern Styling */}
+            <Typography 
+              variant="h6" 
+              sx={{ 
+                color: 'rgba(255, 255, 255, 0.9)',
+                fontSize: { xs: '0.95rem', sm: '1.1rem' },
+                fontWeight: 500,
+                lineHeight: 1.4,
+                mb: 1.5,
+                fontFamily: '"Inter", system-ui, sans-serif',
+                textShadow: '0 1px 2px rgba(0,0,0,0.2)',
+                position: 'relative',
+                zIndex: 1001
+              }}
+            >
+              Your intelligent health companion • Log food anytime, meal plans optional
+            </Typography>
+
+            {/* Status Badge */}
+            <Box sx={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              background: 'rgba(255, 255, 255, 0.15)',
+              backdropFilter: 'blur(10px)',
+              border: '1px solid rgba(255, 255, 255, 0.2)',
+              borderRadius: '20px',
+              padding: '8px 16px',
+              position: 'relative',
+              zIndex: 1001
+            }}>
+              <Box sx={{
+                width: '8px',
+                height: '8px',
+                borderRadius: '50%',
+                background: 'linear-gradient(45deg, #4ade80, #22c55e)',
+                mr: 1,
+                animation: 'pulse 2s infinite',
+                '@keyframes pulse': {
+                  '0%': { opacity: 1 },
+                  '50%': { opacity: 0.5 },
+                  '100%': { opacity: 1 }
+                }
+              }} />
+              <Typography 
+                variant="caption" 
+                sx={{ 
+                  color: 'rgba(255, 255, 255, 0.85)',
+                  fontSize: { xs: '0.75rem', sm: '0.8rem' },
+                  fontWeight: 600,
+                  fontFamily: '"Inter", system-ui, sans-serif',
+                  textShadow: '0 1px 2px rgba(0,0,0,0.2)'
+                }}
+              >
+                Last updated: {new Date().toLocaleTimeString()}
+              </Typography>
+            </Box>
+          </Box>
+        </Box>
+
+        {/* Profile Completion Alert */}
+        {showProfileAlert && (
+          <Alert 
+            severity="info" 
+            sx={{ 
+              mb: 4,
+              background: 'rgba(255, 255, 255, 0.95)',
+              backdropFilter: 'blur(20px)',
+              border: '1px solid rgba(255, 255, 255, 0.3)',
+              borderRadius: '20px',
+              boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
+              '& .MuiAlert-icon': {
+                fontSize: '1.5rem',
+                color: '#7c4dff',
+              },
+            }}
           action={
             <Box sx={{ display: 'flex', gap: 1 }}>
               <Button 
@@ -2659,12 +3167,16 @@ const HomePage: React.FC = () => {
                 size="small"
                 onClick={() => navigate('/meal-plan')}
                 sx={{
-                  background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                  background: 'linear-gradient(135deg, #7c4dff 0%, #9c27b0 100%)',
                   color: 'white',
                   textTransform: 'none',
-                  fontWeight: 'bold',
+                  fontWeight: 600,
+                  borderRadius: '12px',
+                  px: 3,
                   '&:hover': {
-                    background: 'linear-gradient(135deg, #5a6fd8 0%, #6a4190 100%)',
+                    background: 'linear-gradient(135deg, #6a3de8 0%, #8e24aa 100%)',
+                    transform: 'translateY(-2px)',
+                    boxShadow: '0 4px 12px rgba(124, 77, 255, 0.3)',
                   }
                 }}
               >
@@ -2676,7 +3188,13 @@ const HomePage: React.FC = () => {
                   setShowProfileAlert(false);
                   localStorage.setItem('profileAlertDismissed', 'true');
                 }}
-                sx={{ color: '#666' }}
+                sx={{ 
+                  color: '#666',
+                  borderRadius: '12px',
+                  '&:hover': {
+                    backgroundColor: 'rgba(0, 0, 0, 0.04)'
+                  }
+                }}
               >
                 Dismiss
               </Button>
@@ -2686,7 +3204,7 @@ const HomePage: React.FC = () => {
           <Box>
             {userProfile && getProfileCompletionStatus(userProfile).percentage > 0 ? (
               <>
-                <Typography variant="h6" sx={{ fontWeight: 'bold', color: '#1976d2', mb: 1 }}>
+                <Typography variant="h6" sx={{ fontWeight: 'bold', color: '#7c4dff', mb: 1 }}>
                   🏥 Welcome! Your doctor's office has partially completed your profile
                 </Typography>
                 <Typography variant="body1" sx={{ lineHeight: 1.6 }}>
@@ -2697,7 +3215,7 @@ const HomePage: React.FC = () => {
               </>
             ) : (
               <>
-                <Typography variant="h6" sx={{ fontWeight: 'bold', color: '#1976d2', mb: 1 }}>
+                <Typography variant="h6" sx={{ fontWeight: 'bold', color: '#7c4dff', mb: 1 }}>
                   👋 Welcome! Let's complete your health profile
                 </Typography>
                 <Typography variant="body1" sx={{ lineHeight: 1.6 }}>
@@ -2713,29 +3231,59 @@ const HomePage: React.FC = () => {
                 Status: {getProfileCompletionStatus(userProfile).status}
               </Typography>
             )}
-          </Box>
-        </Alert>
-      )}
+            </Box>
+          </Alert>
+        )}
 
-      {/* Tabs Navigation */}
-      <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3, overflow: 'auto' }}>
-        <Tabs 
-          value={tabValue} 
-          onChange={(e, newValue) => setTabValue(newValue)} 
-          aria-label="dashboard tabs"
-          variant="scrollable"
-          scrollButtons="auto"
-          sx={{
-            '& .MuiTab-root': {
-              minWidth: { xs: 'auto', sm: 160 },
-              fontSize: { xs: '0.75rem', sm: '0.875rem' },
-              '@media (max-width: 600px)': {
-                '& .MuiSvgIcon-root': {
-                  fontSize: '1rem'
+        {/* Tabs Navigation - Mobile First Design */}
+        <Box sx={{ 
+          mb: 4, 
+          overflow: 'hidden',
+          borderRadius: '20px',
+          background: 'rgba(255, 255, 255, 0.15)',
+          backdropFilter: 'blur(20px)',
+          border: '1px solid rgba(255, 255, 255, 0.2)',
+          boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)'
+        }}>
+          <Tabs 
+            value={tabValue} 
+            onChange={(e, newValue) => setTabValue(newValue)} 
+            aria-label="dashboard tabs"
+            variant="scrollable"
+            scrollButtons="auto"
+            sx={{
+              '& .MuiTabs-indicator': {
+                backgroundColor: '#ffffff',
+                height: 3,
+                borderRadius: '2px'
+              },
+              '& .MuiTab-root': {
+                minWidth: { xs: 80, sm: 140 },
+                fontSize: { xs: '0.75rem', sm: '0.875rem' },
+                fontWeight: 600,
+                color: 'rgba(255, 255, 255, 0.7)',
+                textTransform: 'none',
+                borderRadius: '12px',
+                margin: '8px 4px',
+                transition: 'all 0.3s ease',
+                '&.Mui-selected': {
+                  color: 'white',
+                  background: 'rgba(255, 255, 255, 0.2)',
+                  fontWeight: 700,
+                },
+                '&:hover': {
+                  color: 'white',
+                  background: 'rgba(255, 255, 255, 0.1)',
+                },
+                '@media (max-width: 600px)': {
+                  minWidth: 70,
+                  fontSize: '0.7rem',
+                  '& .MuiSvgIcon-root': {
+                    fontSize: '1rem'
+                  }
                 }
               }
-            }
-          }}
+            }}
         >
           <Tab 
             icon={<AnalyticsIcon />} 
@@ -2761,145 +3309,335 @@ const HomePage: React.FC = () => {
             iconPosition="start"
           />
         </Tabs>
-      </Box>
+        </Box>
 
-      {/* Overview Tab */}
-      <CustomTabPanel value={tabValue} index={0}>
-        <Grid container spacing={{ xs: 2, md: 3 }}>
-          {/* Today's Summary Cards */}
-          <Grid item xs={12} sm={6} md={3}>
-            <Card sx={{ 
-              background: 'linear-gradient(135deg, #FF6B6B, #FF8E53)',
-              color: 'white',
-              height: '100%',
-              minHeight: { xs: '140px', sm: '160px' }
-            }}>
-              <CardContent sx={{ p: { xs: 2, sm: 3 } }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', mb: { xs: 1, sm: 2 } }}>
-                  <CaloriesIcon sx={{ mr: 1, fontSize: { xs: '1.2rem', sm: '1.5rem' } }} />
-                  <Typography variant="h6" sx={{ fontSize: { xs: '1rem', sm: '1.25rem' } }}>
-                    Calories Today
+        {/* Overview Tab */}
+        <CustomTabPanel value={tabValue} index={0}>
+          <Grid container spacing={{ xs: 2, md: 3 }}>
+            {/* Today's Summary Cards - Fitness Tracker Style */}
+            <Grid item xs={12} sm={6} md={3}>
+              <Card sx={{ 
+                background: 'rgba(255, 255, 255, 0.95)',
+                backdropFilter: 'blur(20px)',
+                border: '1px solid rgba(255, 255, 255, 0.3)',
+                borderRadius: '24px',
+                boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
+                height: '100%',
+                minHeight: { xs: '160px', sm: '180px' },
+                transition: 'all 0.3s ease',
+                '&:hover': {
+                  transform: 'translateY(-4px)',
+                  boxShadow: '0 12px 40px rgba(0, 0, 0, 0.15)',
+                }
+              }}>
+                <CardContent sx={{ p: { xs: 3, sm: 3.5 }, height: '100%', display: 'flex', flexDirection: 'column' }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                    <Box sx={{ 
+                      p: 1.5,
+                      borderRadius: '16px',
+                      background: 'linear-gradient(135deg, #FF6B6B, #FF8E53)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      mr: 2
+                    }}>
+                      <CaloriesIcon sx={{ color: 'white', fontSize: { xs: '1.2rem', sm: '1.4rem' } }} />
+                    </Box>
+                    <Typography variant="h6" sx={{ 
+                      fontSize: { xs: '0.95rem', sm: '1.1rem' },
+                      fontWeight: 600,
+                      color: '#2d3748'
+                    }}>
+                      Calories Today
+                    </Typography>
+                  </Box>
+                  <Box sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                    <Typography variant="h2" sx={{ 
+                      fontWeight: 800,
+                      fontSize: { xs: '2.5rem', sm: '3rem' },
+                      color: '#1a202c',
+                      lineHeight: 1,
+                      mb: 1
+                    }}>
+                      {dashboardData?.today_totals?.calories || 0}
+                    </Typography>
+                    <Typography variant="body2" sx={{ 
+                      color: '#718096',
+                      fontSize: { xs: '0.8rem', sm: '0.875rem' },
+                      fontWeight: 500,
+                      mb: 2
+                    }}>
+                      Goal: {dashboardData?.goals?.calories || 2000}
+                    </Typography>
+                    <LinearProgress 
+                      variant="determinate" 
+                      value={Math.min(((dashboardData?.today_totals?.calories || 0) / (dashboardData?.goals?.calories || 2000)) * 100, 100)}
+                      sx={{ 
+                        height: 8,
+                        borderRadius: '4px',
+                        bgcolor: '#e2e8f0',
+                        '& .MuiLinearProgress-bar': { 
+                          bgcolor: '#FF6B6B',
+                          borderRadius: '4px'
+                        }
+                      }}
+                    />
+                  </Box>
+                </CardContent>
+              </Card>
+            </Grid>
+
+            <Grid item xs={12} sm={6} md={3}>
+              <Card sx={{ 
+                background: 'rgba(255, 255, 255, 0.95)',
+                backdropFilter: 'blur(20px)',
+                border: '1px solid rgba(255, 255, 255, 0.3)',
+                borderRadius: '24px',
+                boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
+                height: '100%',
+                minHeight: { xs: '160px', sm: '180px' },
+                transition: 'all 0.3s ease',
+                '&:hover': {
+                  transform: 'translateY(-4px)',
+                  boxShadow: '0 12px 40px rgba(0, 0, 0, 0.15)',
+                }
+              }}>
+                <CardContent sx={{ p: { xs: 3, sm: 3.5 }, height: '100%', display: 'flex', flexDirection: 'column' }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                    <Box sx={{ 
+                      p: 1.5,
+                      borderRadius: '16px',
+                      background: 'linear-gradient(135deg, #4ECDC4, #44A08D)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      mr: 2
+                    }}>
+                      <ProteinIcon sx={{ color: 'white', fontSize: { xs: '1.2rem', sm: '1.4rem' } }} />
+                    </Box>
+                      <Typography variant="h6" sx={{ 
+                      fontSize: { xs: '0.95rem', sm: '1.1rem' },
+                      fontWeight: 600,
+                      color: '#2d3748'
+                    }}>
+                      Protein
+                    </Typography>
+                  </Box>
+                  <Box sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                    <Typography variant="h2" sx={{ 
+                      fontWeight: 800,
+                      fontSize: { xs: '2.5rem', sm: '3rem' },
+                      color: '#1a202c',
+                      lineHeight: 1,
+                      mb: 1
+                    }}>
+                      {dashboardData?.today_totals?.protein || 0}g
+                    </Typography>
+                    <Typography variant="body2" sx={{ 
+                      color: '#718096',
+                      fontSize: { xs: '0.8rem', sm: '0.875rem' },
+                      fontWeight: 500,
+                      mb: 2
+                    }}>
+                      Goal: {dashboardData?.goals?.protein || 150}g
+                    </Typography>
+                    <LinearProgress 
+                      variant="determinate" 
+                      value={Math.min(((dashboardData?.today_totals?.protein || 0) / (dashboardData?.goals?.protein || 150)) * 100, 100)}
+                      sx={{ 
+                        height: 8,
+                        borderRadius: '4px',
+                        bgcolor: '#e2e8f0',
+                        '& .MuiLinearProgress-bar': { 
+                          bgcolor: '#4ECDC4',
+                          borderRadius: '4px'
+                        }
+                      }}
+                    />
+                  </Box>
+                </CardContent>
+            </Card>
+          </Grid>
+
+            <Grid item xs={12} sm={6} md={3}>
+              <Card sx={{ 
+                background: 'rgba(255, 255, 255, 0.95)',
+                backdropFilter: 'blur(20px)',
+                border: '1px solid rgba(255, 255, 255, 0.3)',
+                borderRadius: '24px',
+                boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
+                height: '100%',
+                minHeight: { xs: '160px', sm: '180px' },
+                transition: 'all 0.3s ease',
+                '&:hover': {
+                  transform: 'translateY(-4px)',
+                  boxShadow: '0 12px 40px rgba(0, 0, 0, 0.15)',
+                }
+              }}>
+                <CardContent sx={{ p: { xs: 3, sm: 3.5 }, height: '100%', display: 'flex', flexDirection: 'column' }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                    <Box sx={{ 
+                      p: 1.5,
+                      borderRadius: '16px',
+                      background: 'linear-gradient(135deg, #A8EDEA, #FED6E3)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      mr: 2
+                    }}>
+                      <HeartIcon sx={{ color: '#e91e63', fontSize: { xs: '1.2rem', sm: '1.4rem' } }} />
+                    </Box>
+                    <Typography variant="h6" sx={{ 
+                      fontSize: { xs: '0.95rem', sm: '1.1rem' },
+                      fontWeight: 600,
+                      color: '#2d3748'
+                    }}>
+                      Nutrition Score
+                    </Typography>
+                  </Box>
+                  <Box sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                    <Typography variant="h2" sx={{ 
+                      fontWeight: 800,
+                      fontSize: { xs: '2.5rem', sm: '3rem' },
+                      color: '#1a202c',
+                      lineHeight: 1,
+                      mb: 1
+                    }}>
+                      {getScoreEmoji(dashboardData?.diabetes_adherence || 0)} {Math.round(dashboardData?.diabetes_adherence || 0)}%
+                    </Typography>
+                    <Typography variant="body2" sx={{ 
+                      color: '#718096',
+                      fontSize: { xs: '0.8rem', sm: '0.875rem' },
+                      fontWeight: 500,
+                      mb: 2
+                    }}>
+                      {dashboardData?.diabetes_adherence === 0 ? 'Start logging meals' :
+                       dashboardData?.diabetes_adherence >= 80 ? 'Excellent!' : 
+                       dashboardData?.diabetes_adherence >= 60 ? 'Good progress' : 'Keep improving'}
+                    </Typography>
+                    <LinearProgress 
+                      variant="determinate" 
+                      value={dashboardData?.diabetes_adherence || 0}
+                      sx={{ 
+                        height: 8,
+                        borderRadius: '4px',
+                        bgcolor: '#e2e8f0',
+                        '& .MuiLinearProgress-bar': { 
+                          bgcolor: '#e91e63',
+                          borderRadius: '4px'
+                        }
+                      }}
+                    />
+                  </Box>
+                </CardContent>
+              </Card>
+            </Grid>
+
+            <Grid item xs={12} sm={6} md={3}>
+              <Card sx={{ 
+                background: 'rgba(255, 255, 255, 0.95)',
+                backdropFilter: 'blur(20px)',
+                border: '1px solid rgba(255, 255, 255, 0.3)',
+                borderRadius: '24px',
+                boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
+                height: '100%',
+                minHeight: { xs: '160px', sm: '180px' },
+                transition: 'all 0.3s ease',
+                '&:hover': {
+                  transform: 'translateY(-4px)',
+                  boxShadow: '0 12px 40px rgba(0, 0, 0, 0.15)',
+                }
+              }}>
+                <CardContent sx={{ p: { xs: 3, sm: 3.5 }, height: '100%', display: 'flex', flexDirection: 'column' }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                    <Box sx={{ 
+                      p: 1.5,
+                      borderRadius: '16px',
+                      background: 'linear-gradient(135deg, #667eea, #764ba2)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      mr: 2
+                    }}>
+                      <TrophyIcon sx={{ color: 'white', fontSize: { xs: '1.2rem', sm: '1.4rem' } }} />
+                    </Box>
+                    <Typography variant="h6" sx={{ 
+                      fontSize: { xs: '0.95rem', sm: '1.1rem' },
+                      fontWeight: 600,
+                      color: '#2d3748'
+                    }}>
+                      Streak
+                    </Typography>
+                  </Box>
+                  <Box sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                    <Typography variant="h2" sx={{ 
+                      fontWeight: 800,
+                      fontSize: { xs: '2.5rem', sm: '3rem' },
+                      color: '#1a202c',
+                      lineHeight: 1,
+                      mb: 1
+                    }}>
+                      {dashboardData?.consistency_streak || 0}
+                    </Typography>
+                    <Typography variant="body2" sx={{ 
+                      color: '#718096',
+                      fontSize: { xs: '0.8rem', sm: '0.875rem' },
+                      fontWeight: 500,
+                      mb: 2
+                    }}>
+                      Days consistent
+                    </Typography>
+                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                      <StarIcon sx={{ mr: 0.5, fontSize: 16, color: '#fbbf24' }} />
+                      <Typography variant="body2" sx={{ 
+                        color: '#4a5568',
+                        fontSize: { xs: '0.75rem', sm: '0.875rem' },
+                        fontWeight: 500
+                      }}>
+                        {dashboardData?.consistency_streak >= 7 ? 'Amazing!' : 'Keep going!'}
+                      </Typography>
+                    </Box>
+                  </Box>
+                </CardContent>
+              </Card>
+            </Grid>
+
+            {/* Macro Distribution Chart */}
+            <Grid item xs={12} md={6}>
+              <Card sx={{ 
+                background: 'rgba(255, 255, 255, 0.95)',
+                backdropFilter: 'blur(20px)',
+                border: '1px solid rgba(255, 255, 255, 0.3)',
+                borderRadius: '24px',
+                boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
+                height: 400,
+                transition: 'all 0.3s ease',
+                '&:hover': {
+                  transform: 'translateY(-2px)',
+                  boxShadow: '0 12px 40px rgba(0, 0, 0, 0.15)',
+                }
+              }}>
+                <CardContent sx={{ p: 3, height: '100%', display: 'flex', flexDirection: 'column' }}>
+                  <Typography variant="h6" gutterBottom sx={{ 
+                    display: 'flex', 
+                    alignItems: 'center',
+                    fontWeight: 700,
+                    color: '#2d3748',
+                    fontSize: { xs: '1.1rem', sm: '1.25rem' }
+                  }}>
+                    <Box sx={{ 
+                      p: 1,
+                      borderRadius: '12px',
+                      background: 'linear-gradient(135deg, #7c4dff, #9c27b0)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      mr: 1.5
+                    }}>
+                      <AnalyticsIcon sx={{ color: 'white', fontSize: '1.2rem' }} />
+                    </Box>
+                    Macronutrients
                   </Typography>
-                </Box>
-                <Typography variant="h3" sx={{ 
-                  fontWeight: 'bold',
-                  fontSize: { xs: '1.8rem', sm: '2.5rem', md: '3rem' }
-                }}>
-                  {dashboardData?.today_totals?.calories || 0}
-                </Typography>
-                <Typography variant="body2" sx={{ 
-                  opacity: 0.8,
-                  fontSize: { xs: '0.75rem', sm: '0.875rem' }
-                }}>
-                  Goal: {dashboardData?.goals?.calories || 2000}
-                </Typography>
-                <LinearProgress 
-                  variant="determinate" 
-                  value={Math.min(((dashboardData?.today_totals?.calories || 0) / (dashboardData?.goals?.calories || 2000)) * 100, 100)}
-                  sx={{ 
-                    mt: 1, 
-                    bgcolor: alpha('#fff', 0.3), 
-                    '& .MuiLinearProgress-bar': { bgcolor: 'white' },
-                    height: { xs: 6, sm: 8 }
-                  }}
-                />
-              </CardContent>
-            </Card>
-          </Grid>
-
-          <Grid item xs={12} sm={6} md={3}>
-            <Card sx={{ 
-              background: 'linear-gradient(135deg, #4ECDC4, #44A08D)',
-              color: 'white',
-              height: '100%',
-              minHeight: { xs: '140px', sm: '160px' }
-            }}>
-              <CardContent>
-                <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                  <ProteinIcon sx={{ mr: 1 }} />
-                  <Typography variant="h6">Protein</Typography>
-                </Box>
-                <Typography variant="h3" sx={{ fontWeight: 'bold' }}>
-                  {dashboardData?.today_totals?.protein || 0}g
-                </Typography>
-                <Typography variant="body2" sx={{ opacity: 0.8 }}>
-                  Goal: {dashboardData?.goals?.protein || 150}g
-                </Typography>
-                <LinearProgress 
-                  variant="determinate" 
-                  value={Math.min(((dashboardData?.today_totals?.protein || 0) / (dashboardData?.goals?.protein || 150)) * 100, 100)}
-                  sx={{ mt: 1, bgcolor: alpha('#fff', 0.3), '& .MuiLinearProgress-bar': { bgcolor: 'white' } }}
-                />
-              </CardContent>
-            </Card>
-          </Grid>
-
-          <Grid item xs={12} sm={6} md={3}>
-            <Card sx={{ 
-              background: 'linear-gradient(135deg, #A8EDEA, #FED6E3)',
-              color: '#333',
-              height: '100%',
-              minHeight: { xs: '140px', sm: '160px' }
-            }}>
-              <CardContent>
-                <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                  <HeartIcon sx={{ mr: 1 }} />
-                  <Typography variant="h6">Nutrition Score</Typography>
-                </Box>
-                <Typography variant="h3" sx={{ fontWeight: 'bold' }}>
-                  {getScoreEmoji(dashboardData?.diabetes_adherence || 0)} {Math.round(dashboardData?.diabetes_adherence || 0)}%
-                </Typography>
-                <Typography variant="body2" sx={{ opacity: 0.8 }}>
-                  {dashboardData?.diabetes_adherence === 0 ? 'Start logging meals' :
-                   dashboardData?.diabetes_adherence >= 80 ? 'Excellent!' : 
-                   dashboardData?.diabetes_adherence >= 60 ? 'Good progress' : 'Keep improving'}
-                </Typography>
-                <LinearProgress 
-                  variant="determinate" 
-                  value={dashboardData?.diabetes_adherence || 0}
-                  color={getProgressColor(dashboardData?.diabetes_adherence || 0)}
-                  sx={{ mt: 1 }}
-                />
-              </CardContent>
-            </Card>
-          </Grid>
-
-          <Grid item xs={12} sm={6} md={3}>
-            <Card sx={{ 
-              background: 'linear-gradient(135deg, #667eea, #764ba2)',
-              color: 'white',
-              height: '100%',
-              minHeight: { xs: '140px', sm: '160px' }
-            }}>
-              <CardContent>
-                <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                  <TrophyIcon sx={{ mr: 1 }} />
-                  <Typography variant="h6">Streak</Typography>
-                </Box>
-                <Typography variant="h3" sx={{ fontWeight: 'bold' }}>
-                  {dashboardData?.consistency_streak || 0}
-                </Typography>
-                <Typography variant="body2" sx={{ opacity: 0.8 }}>
-                  Days consistent
-                </Typography>
-                <Box sx={{ mt: 1, display: 'flex', alignItems: 'center' }}>
-                  <StarIcon sx={{ mr: 0.5, fontSize: 16 }} />
-                  <Typography variant="body2">
-                    {dashboardData?.consistency_streak >= 7 ? 'Amazing!' : 'Keep going!'}
-                  </Typography>
-                </Box>
-              </CardContent>
-            </Card>
-          </Grid>
-
-          {/* Macro Distribution Chart */}
-          <Grid item xs={12} md={6}>
-            <Card sx={{ height: 400 }}>
-              <CardContent>
-                <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
-                  <AnalyticsIcon sx={{ mr: 1 }} />
-                  Macronutrients
-                </Typography>
                 <FormControl variant="outlined" size="small" sx={{ mb: 2, minWidth: 120 }}>
                   <InputLabel id="macro-time-range-label">Time Range</InputLabel>
                   <Select
@@ -2968,48 +3706,134 @@ const HomePage: React.FC = () => {
           <Grid item xs={12} md={6}>
             <Card sx={{ 
               height: 400,
-              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-              color: 'white'
+              background: 'rgba(255, 255, 255, 0.08)',
+              backdropFilter: 'blur(20px)',
+              border: '1px solid rgba(255, 255, 255, 0.15)',
+              borderRadius: '24px',
+              boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.2)',
+              transition: 'all 0.3s ease',
+              '&:hover': {
+                transform: 'translateY(-4px)',
+                boxShadow: '0 12px 40px rgba(0, 0, 0, 0.15)',
+                background: 'rgba(255, 255, 255, 0.12)',
+              },
+              '&::before': {
+                content: '""',
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                borderRadius: '24px',
+                background: 'linear-gradient(135deg, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0.05) 100%)',
+                zIndex: -1
+              }
             }}>
-              <CardContent>
-                <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', color: 'white' }}>
-                  <AIIcon sx={{ mr: 1 }} />
-                  AI Recommendations
+              <CardContent sx={{ p: 3 }}>
+                <Typography variant="h6" gutterBottom sx={{ 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  color: 'white',
+                  fontWeight: 700,
+                  textShadow: '0 2px 4px rgba(0,0,0,0.3)',
+                  mb: 2
+                }}>
+                  <Box sx={{ 
+                    p: 1,
+                    borderRadius: '12px',
+                    background: 'linear-gradient(135deg, #7c4dff, #9c27b0)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    mr: 1.5,
+                    boxShadow: '0 4px 12px rgba(124, 77, 255, 0.3)'
+                  }}>
+                    <AIIcon sx={{ color: 'white', fontSize: '1.5rem' }} />
+                  </Box>
+                  ✨ AI Recommendations
                 </Typography>
-                <List>
+                <List sx={{ maxHeight: 240, overflowY: 'auto' }}>
                   {dashboardData?.recommendations?.slice(0, 4).map((rec: any, index: number) => (
-                    <ListItem key={index} sx={{ px: 0 }}>
-                      <ListItemIcon sx={{ color: 'white' }}>
+                    <ListItem key={index} sx={{ 
+                      px: 0, 
+                      py: 1,
+                      borderRadius: '12px',
+                      mb: 1,
+                      background: 'rgba(255, 255, 255, 0.05)',
+                      border: '1px solid rgba(255, 255, 255, 0.1)',
+                      '&:hover': {
+                        background: 'rgba(255, 255, 255, 0.1)',
+                        transform: 'translateX(4px)',
+                      },
+                      transition: 'all 0.2s ease'
+                    }}>
+                      <ListItemIcon sx={{ 
+                        color: rec.priority === 'high' ? '#ff6b6b' : rec.priority === 'medium' ? '#ffa726' : '#66bb6a',
+                        minWidth: 40
+                      }}>
                         {getPriorityIcon(rec.priority)}
                       </ListItemIcon>
                       <ListItemText
                         primary={rec.message}
                         secondary={`Priority: ${rec.priority}`}
                         sx={{ 
-                          '& .MuiListItemText-primary': { color: 'white' },
-                          '& .MuiListItemText-secondary': { color: 'rgba(255,255,255,0.8)' }
+                          '& .MuiListItemText-primary': { 
+                            color: 'white', 
+                            fontSize: '0.9rem',
+                            fontWeight: 500,
+                            lineHeight: 1.3
+                          },
+                          '& .MuiListItemText-secondary': { 
+                            color: 'rgba(255,255,255,0.7)',
+                            fontSize: '0.75rem',
+                            fontWeight: 600,
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.5px'
+                          }
                         }}
                       />
                     </ListItem>
                   )) || (
-                    <ListItem>
+                    <ListItem sx={{ 
+                      borderRadius: '12px',
+                      background: 'rgba(255, 255, 255, 0.05)',
+                      border: '1px solid rgba(255, 255, 255, 0.1)'
+                    }}>
                       <ListItemText 
                         primary="No recommendations available. Keep logging your meals!" 
-                        sx={{ '& .MuiListItemText-primary': { color: 'white' } }}
+                        sx={{ 
+                          '& .MuiListItemText-primary': { 
+                            color: 'rgba(255, 255, 255, 0.8)',
+                            textAlign: 'center',
+                            fontStyle: 'italic'
+                          } 
+                        }}
                       />
                     </ListItem>
                   )}
                 </List>
-                <CardActions>
+                <CardActions sx={{ px: 0, pt: 2 }}>
                   <Button 
                     variant="contained" 
                     startIcon={<CoachIcon />}
                     onClick={() => setShowAICoachDialog(true)}
                     fullWidth
                     sx={{ 
-                      bgcolor: 'rgba(255,255,255,0.2)', 
+                      background: 'linear-gradient(135deg, #7c4dff 0%, #9c27b0 100%)',
                       color: 'white',
-                      '&:hover': { bgcolor: 'rgba(255,255,255,0.3)' }
+                      borderRadius: '16px',
+                      py: 1.5,
+                      fontWeight: 600,
+                      textTransform: 'none',
+                      fontSize: '1rem',
+                      boxShadow: '0 4px 16px rgba(124, 77, 255, 0.4)',
+                      border: '1px solid rgba(255, 255, 255, 0.2)',
+                      '&:hover': { 
+                        background: 'linear-gradient(135deg, #6a1b9a 0%, #8e24aa 100%)',
+                        boxShadow: '0 6px 20px rgba(124, 77, 255, 0.6)',
+                        transform: 'translateY(-2px)'
+                      },
+                      transition: 'all 0.3s ease'
                     }}
                   >
                     Ask AI Coach
@@ -3310,14 +4134,30 @@ const HomePage: React.FC = () => {
 
           {/* Quick Actions */}
           <Grid item xs={12}>
-            <Card 
-              elevation={8}
-              sx={{ 
-                background: 'linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)',
-                border: '1px solid rgba(0,0,0,0.08)',
-                borderRadius: 3
-              }}
-            >
+            <Card sx={{ 
+              background: 'rgba(255, 255, 255, 0.08)',
+              backdropFilter: 'blur(20px)',
+              border: '1px solid rgba(255, 255, 255, 0.15)',
+              borderRadius: '24px',
+              boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.2)',
+              transition: 'all 0.3s ease',
+              '&:hover': {
+                transform: 'translateY(-4px)',
+                boxShadow: '0 12px 40px rgba(0, 0, 0, 0.15)',
+                background: 'rgba(255, 255, 255, 0.12)',
+              },
+              '&::before': {
+                content: '""',
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                borderRadius: '24px',
+                background: 'linear-gradient(135deg, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0.05) 100%)',
+                zIndex: -1
+              }
+            }}>
               <CardContent sx={{ p: 4 }}>
                 <Box sx={{ textAlign: 'center', mb: 4 }}>
                   <Typography 
@@ -3328,18 +4168,33 @@ const HomePage: React.FC = () => {
                       display: 'flex', 
                       alignItems: 'center', 
                       justifyContent: 'center',
-                      fontWeight: 'bold',
-                      color: '#2c3e50',
+                      fontWeight: 700,
+                      color: 'white',
+                      textShadow: '0 2px 4px rgba(0,0,0,0.3)',
                       mb: 1
                     }}
                   >
-                    <SpeedIcon sx={{ mr: 2, fontSize: 28 }} />
-                    Quick Actions
+                    <Box sx={{ 
+                      p: 1,
+                      borderRadius: '12px',
+                      background: 'linear-gradient(135deg, #7c4dff, #9c27b0)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      mr: 1.5,
+                      boxShadow: '0 4px 12px rgba(124, 77, 255, 0.3)'
+                    }}>
+                      <SpeedIcon sx={{ color: 'white', fontSize: '1.8rem' }} />
+                    </Box>
+                    ⚡ Quick Actions
                   </Typography>
                   <Typography 
                     variant="body1" 
-                    color="text.secondary"
-                    sx={{ fontWeight: 300 }}
+                    sx={{ 
+                      color: 'rgba(255, 255, 255, 0.8)',
+                      fontWeight: 400,
+                      fontSize: '1.1rem'
+                    }}
                   >
                     Take action on your health journey with these essential tools
                   </Typography>
@@ -3348,28 +4203,44 @@ const HomePage: React.FC = () => {
                 <Grid container spacing={3} justifyContent="center">
                   <Grid item xs={12} sm={6} md={4}>
                     <Card 
-                      elevation={4}
                       sx={{ 
                         height: '100%',
                         cursor: 'pointer',
                         transition: 'all 0.3s ease-in-out',
-                        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                        background: 'linear-gradient(135deg, #7c4dff 0%, #9c27b0 100%)',
+                        borderRadius: '20px',
+                        border: '1px solid rgba(255, 255, 255, 0.2)',
+                        boxShadow: '0 8px 24px rgba(124, 77, 255, 0.3)',
                         '&:hover': {
-                          transform: 'translateY(-8px)',
-                          boxShadow: '0 12px 24px rgba(102, 126, 234, 0.3)',
+                          transform: 'translateY(-8px) scale(1.02)',
+                          boxShadow: '0 16px 40px rgba(124, 77, 255, 0.4)',
+                          background: 'linear-gradient(135deg, #6a1b9a 0%, #8e24aa 100%)',
                         }
                       }}
                       onClick={() => setShowQuickLogDialog(true)}
                     >
                       <CardContent sx={{ p: 3, textAlign: 'center', color: 'white' }}>
-                        <Box sx={{ mb: 2 }}>
+                        <Box sx={{ 
+                          mb: 3,
+                          p: 2,
+                          borderRadius: '16px',
+                          background: 'rgba(255, 255, 255, 0.15)',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          justifyContent: 'center'
+                        }}>
                           <AddIcon sx={{ fontSize: 48, color: 'white' }} />
                         </Box>
                         <Typography 
                           variant="h6" 
                           component="h3" 
                           gutterBottom
-                          sx={{ fontWeight: 'bold', mb: 1 }}
+                          sx={{ 
+                            fontWeight: 700, 
+                            mb: 2,
+                            textShadow: '0 2px 4px rgba(0,0,0,0.3)',
+                            letterSpacing: '0.5px'
+                          }}
                         >
                           LOG FOOD
                         </Typography>
@@ -3377,8 +4248,9 @@ const HomePage: React.FC = () => {
                           variant="body2" 
                           sx={{ 
                             color: 'rgba(255,255,255,0.9)',
-                            lineHeight: 1.4,
-                            fontSize: '0.9rem'
+                            lineHeight: 1.5,
+                            fontSize: '0.9rem',
+                            fontWeight: 400
                           }}
                         >
                           Start tracking immediately! No meal plan needed - just log your food and get instant nutrition insights
@@ -3389,28 +4261,44 @@ const HomePage: React.FC = () => {
                   
                   <Grid item xs={12} sm={6} md={4}>
                     <Card 
-                      elevation={4}
                       sx={{ 
                         height: '100%',
                         cursor: 'pointer',
                         transition: 'all 0.3s ease-in-out',
-                        background: 'linear-gradient(135deg, #11998e 0%, #38ef7d 100%)',
+                        background: 'linear-gradient(135deg, #4ecdc4 0%, #44a08d 100%)',
+                        borderRadius: '20px',
+                        border: '1px solid rgba(255, 255, 255, 0.2)',
+                        boxShadow: '0 8px 24px rgba(78, 205, 196, 0.3)',
                         '&:hover': {
-                          transform: 'translateY(-8px)',
-                          boxShadow: '0 12px 24px rgba(17, 153, 142, 0.3)',
+                          transform: 'translateY(-8px) scale(1.02)',
+                          boxShadow: '0 16px 40px rgba(78, 205, 196, 0.4)',
+                          background: 'linear-gradient(135deg, #26a69a 0%, #00695c 100%)',
                         }
                       }}
                       onClick={() => navigate('/chat')}
                     >
                       <CardContent sx={{ p: 3, textAlign: 'center', color: 'white' }}>
-                        <Box sx={{ mb: 2 }}>
+                        <Box sx={{ 
+                          mb: 3,
+                          p: 2,
+                          borderRadius: '16px',
+                          background: 'rgba(255, 255, 255, 0.15)',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          justifyContent: 'center'
+                        }}>
                           <ChatIcon sx={{ fontSize: 48, color: 'white' }} />
                         </Box>
                         <Typography 
                           variant="h6" 
                           component="h3" 
                           gutterBottom
-                          sx={{ fontWeight: 'bold', mb: 1 }}
+                          sx={{ 
+                            fontWeight: 700, 
+                            mb: 2,
+                            textShadow: '0 2px 4px rgba(0,0,0,0.3)',
+                            letterSpacing: '0.5px'
+                          }}
                         >
                           CHAT WITH AI
                         </Typography>
@@ -3418,8 +4306,9 @@ const HomePage: React.FC = () => {
                           variant="body2" 
                           sx={{ 
                             color: 'rgba(255,255,255,0.9)',
-                            lineHeight: 1.4,
-                            fontSize: '0.9rem'
+                            lineHeight: 1.5,
+                            fontSize: '0.9rem',
+                            fontWeight: 400
                           }}
                         >
                           Get personalized health advice from your AI nutrition coach
@@ -3430,28 +4319,44 @@ const HomePage: React.FC = () => {
                   
                   <Grid item xs={12} sm={6} md={4}>
                     <Card 
-                      elevation={4}
                       sx={{ 
                         height: '100%',
                         cursor: 'pointer',
                         transition: 'all 0.3s ease-in-out',
-                        background: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
+                        background: 'linear-gradient(135deg, #f093fb 0%, #c44569 100%)',
+                        borderRadius: '20px',
+                        border: '1px solid rgba(255, 255, 255, 0.2)',
+                        boxShadow: '0 8px 24px rgba(240, 147, 251, 0.3)',
                         '&:hover': {
-                          transform: 'translateY(-8px)',
-                          boxShadow: '0 12px 24px rgba(240, 147, 251, 0.3)',
+                          transform: 'translateY(-8px) scale(1.02)',
+                          boxShadow: '0 16px 40px rgba(240, 147, 251, 0.4)',
+                          background: 'linear-gradient(135deg, #ad5389 0%, #3c1053 100%)',
                         }
                       }}
                       onClick={() => navigate('/consumption-history')}
                     >
                       <CardContent sx={{ p: 3, textAlign: 'center', color: 'white' }}>
-                        <Box sx={{ mb: 2 }}>
+                        <Box sx={{ 
+                          mb: 3,
+                          p: 2,
+                          borderRadius: '16px',
+                          background: 'rgba(255, 255, 255, 0.15)',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          justifyContent: 'center'
+                        }}>
                           <HistoryIcon sx={{ fontSize: 48, color: 'white' }} />
                         </Box>
                         <Typography 
                           variant="h6" 
                           component="h3" 
                           gutterBottom
-                          sx={{ fontWeight: 'bold', mb: 1 }}
+                          sx={{ 
+                            fontWeight: 700, 
+                            mb: 2,
+                            textShadow: '0 2px 4px rgba(0,0,0,0.3)',
+                            letterSpacing: '0.5px'
+                          }}
                         >
                           VIEW HISTORY
                         </Typography>
@@ -3459,8 +4364,9 @@ const HomePage: React.FC = () => {
                           variant="body2" 
                           sx={{ 
                             color: 'rgba(255,255,255,0.9)',
-                            lineHeight: 1.4,
-                            fontSize: '0.9rem'
+                            lineHeight: 1.5,
+                            fontSize: '0.9rem',
+                            fontWeight: 400
                           }}
                         >
                           Track your progress and review your nutrition journey
@@ -3477,14 +4383,34 @@ const HomePage: React.FC = () => {
 
       {/* Analytics Tab */}
       <CustomTabPanel value={tabValue} index={1}>
-        <Box sx={{ mb: 3 }}>
-          <Typography variant="h5" component="h2" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
-            <AnalyticsIcon sx={{ mr: 1 }} />
-            Consumption Trends & Analysis
-          </Typography>
-          <Typography variant="subtitle1" color="text.secondary" sx={{ mb: 2 }}>
-            Visualize your dietary intake over different periods to identify patterns and progress.
-          </Typography>
+          <Box sx={{ mb: 3 }}>
+            <Typography variant="h5" component="h2" gutterBottom sx={{ 
+              display: 'flex', 
+              alignItems: 'center',
+              color: 'white',
+              fontWeight: 700,
+              textShadow: '0 2px 4px rgba(0,0,0,0.3)'
+            }}>
+              <Box sx={{ 
+                p: 1,
+                borderRadius: '12px',
+                background: 'rgba(255, 255, 255, 0.2)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                mr: 1.5
+              }}>
+                <AnalyticsIcon sx={{ color: 'white', fontSize: '1.5rem' }} />
+              </Box>
+              Consumption Trends & Analysis
+            </Typography>
+            <Typography variant="subtitle1" sx={{ 
+              mb: 2,
+              color: 'rgba(255, 255, 255, 0.9)',
+              fontWeight: 400
+            }}>
+              Visualize your dietary intake over different periods to identify patterns and progress.
+            </Typography>
           <Box sx={{ 
             display: 'flex', 
             flexDirection: { xs: 'column', sm: 'column', md: 'row' },
@@ -3493,7 +4419,11 @@ const HomePage: React.FC = () => {
             mb: 2 
           }}>
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-              <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
+              <Typography variant="caption" sx={{ 
+                fontWeight: 600,
+                color: 'rgba(255, 255, 255, 0.9)',
+                fontSize: '0.875rem'
+              }}>
                 Time Range
               </Typography>
               <ToggleButtonGroup
@@ -3513,7 +4443,22 @@ const HomePage: React.FC = () => {
                   flexWrap: { xs: 'wrap', sm: 'nowrap' },
                   '& .MuiToggleButton-root': {
                     fontSize: { xs: '0.75rem', sm: '0.875rem' },
-                    px: { xs: 1, sm: 2 }
+                    px: { xs: 1, sm: 2 },
+                    color: 'rgba(255, 255, 255, 0.8)',
+                    borderColor: 'rgba(255, 255, 255, 0.3)',
+                    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                    '&:hover': {
+                      backgroundColor: 'rgba(255, 255, 255, 0.2)',
+                      color: 'white',
+                    },
+                    '&.Mui-selected': {
+                      backgroundColor: 'rgba(255, 255, 255, 0.9)',
+                      color: '#7c4dff',
+                      fontWeight: 600,
+                      '&:hover': {
+                        backgroundColor: 'rgba(255, 255, 255, 1)',
+                      }
+                    }
                   }
                 }}
               >
@@ -3525,7 +4470,11 @@ const HomePage: React.FC = () => {
             </Box>
             
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-              <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
+              <Typography variant="caption" sx={{ 
+                fontWeight: 600,
+                color: 'rgba(255, 255, 255, 0.9)',
+                fontSize: '0.875rem'
+              }}>
                 Chart Type
               </Typography>
               <ToggleButtonGroup
@@ -3540,7 +4489,22 @@ const HomePage: React.FC = () => {
                   '& .MuiToggleButton-root': {
                     fontSize: { xs: '0.75rem', sm: '0.875rem' },
                     px: { xs: 1, sm: 1.5 },
-                    minWidth: { xs: 'auto', sm: 'auto' }
+                    minWidth: { xs: 'auto', sm: 'auto' },
+                    color: 'rgba(255, 255, 255, 0.8)',
+                    borderColor: 'rgba(255, 255, 255, 0.3)',
+                    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                    '&:hover': {
+                      backgroundColor: 'rgba(255, 255, 255, 0.2)',
+                      color: 'white',
+                    },
+                    '&.Mui-selected': {
+                      backgroundColor: 'rgba(255, 255, 255, 0.9)',
+                      color: '#7c4dff',
+                      fontWeight: 600,
+                      '&:hover': {
+                        backgroundColor: 'rgba(255, 255, 255, 1)',
+                      }
+                    }
                   }
                 }}
               >
@@ -3581,60 +4545,144 @@ const HomePage: React.FC = () => {
           </Box>
         </Box>
 
-        {loading ? (
-          <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 300 }}>
-            <CircularProgress />
-            <Typography variant="h6" sx={{ ml: 2 }}>Loading analytics...</Typography>
-          </Box>
+          {loading ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 300 }}>
+              <CircularProgress sx={{ color: 'white' }} />
+              <Typography variant="h6" sx={{ ml: 2, color: 'white' }}>Loading analytics...</Typography>
+            </Box>
         ) : error ? (
           <Alert severity="error">{error}</Alert>
         ) : consumptionAnalytics ? (
           <Grid container spacing={3}>
             <Grid item xs={12} md={6}>
-              <Card>
-                <CardContent>
+              <Card sx={{ 
+                background: 'rgba(255, 255, 255, 0.05)',
+                backdropFilter: 'blur(20px)',
+                border: '1px solid rgba(255, 255, 255, 0.1)',
+                borderRadius: '20px',
+                boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
+                transition: 'all 0.3s ease',
+                '&:hover': {
+                  transform: 'translateY(-4px)',
+                  boxShadow: '0 12px 40px rgba(0, 0, 0, 0.15)',
+                  background: 'rgba(255, 255, 255, 0.08)',
+                }
+              }}>
+                <CardContent sx={{ p: 3 }}>
                   {renderChart('calories')}
                 </CardContent>
               </Card>
             </Grid>
             <Grid item xs={12} md={6}>
-              <Card>
-                <CardContent>
+              <Card sx={{ 
+                background: 'rgba(255, 255, 255, 0.05)',
+                backdropFilter: 'blur(20px)',
+                border: '1px solid rgba(255, 255, 255, 0.1)',
+                borderRadius: '20px',
+                boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
+                transition: 'all 0.3s ease',
+                '&:hover': {
+                  transform: 'translateY(-4px)',
+                  boxShadow: '0 12px 40px rgba(0, 0, 0, 0.15)',
+                  background: 'rgba(255, 255, 255, 0.08)',
+                }
+              }}>
+                <CardContent sx={{ p: 3 }}>
                   {renderChart('protein')}
                 </CardContent>
               </Card>
             </Grid>
             <Grid item xs={12} md={6}>
-              <Card>
-                <CardContent>
+              <Card sx={{ 
+                background: 'rgba(255, 255, 255, 0.05)',
+                backdropFilter: 'blur(20px)',
+                border: '1px solid rgba(255, 255, 255, 0.1)',
+                borderRadius: '20px',
+                boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
+                transition: 'all 0.3s ease',
+                '&:hover': {
+                  transform: 'translateY(-4px)',
+                  boxShadow: '0 12px 40px rgba(0, 0, 0, 0.15)',
+                  background: 'rgba(255, 255, 255, 0.08)',
+                }
+              }}>
+                <CardContent sx={{ p: 3 }}>
                   {renderChart('carbohydrates')}
                 </CardContent>
               </Card>
             </Grid>
             <Grid item xs={12} md={6}>
-              <Card>
-                <CardContent>
+              <Card sx={{ 
+                background: 'rgba(255, 255, 255, 0.05)',
+                backdropFilter: 'blur(20px)',
+                border: '1px solid rgba(255, 255, 255, 0.1)',
+                borderRadius: '20px',
+                boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
+                transition: 'all 0.3s ease',
+                '&:hover': {
+                  transform: 'translateY(-4px)',
+                  boxShadow: '0 12px 40px rgba(0, 0, 0, 0.15)',
+                  background: 'rgba(255, 255, 255, 0.08)',
+                }
+              }}>
+                <CardContent sx={{ p: 3 }}>
                   {renderChart('fat')}
                 </CardContent>
               </Card>
             </Grid>
             <Grid item xs={12} md={6}>
-              <Card>
-                <CardContent>
+              <Card sx={{ 
+                background: 'rgba(255, 255, 255, 0.05)',
+                backdropFilter: 'blur(20px)',
+                border: '1px solid rgba(255, 255, 255, 0.1)',
+                borderRadius: '20px',
+                boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
+                transition: 'all 0.3s ease',
+                '&:hover': {
+                  transform: 'translateY(-4px)',
+                  boxShadow: '0 12px 40px rgba(0, 0, 0, 0.15)',
+                  background: 'rgba(255, 255, 255, 0.08)',
+                }
+              }}>
+                <CardContent sx={{ p: 3 }}>
                   {renderChart('fiber')}
                 </CardContent>
               </Card>
             </Grid>
             <Grid item xs={12} md={6}>
-              <Card>
-                <CardContent>
+              <Card sx={{ 
+                background: 'rgba(255, 255, 255, 0.05)',
+                backdropFilter: 'blur(20px)',
+                border: '1px solid rgba(255, 255, 255, 0.1)',
+                borderRadius: '20px',
+                boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
+                transition: 'all 0.3s ease',
+                '&:hover': {
+                  transform: 'translateY(-4px)',
+                  boxShadow: '0 12px 40px rgba(0, 0, 0, 0.15)',
+                  background: 'rgba(255, 255, 255, 0.08)',
+                }
+              }}>
+                <CardContent sx={{ p: 3 }}>
                   {renderChart('sugar')}
                 </CardContent>
               </Card>
             </Grid>
             <Grid item xs={12} md={6}>
-              <Card>
-                <CardContent>
+              <Card sx={{ 
+                background: 'rgba(255, 255, 255, 0.05)',
+                backdropFilter: 'blur(20px)',
+                border: '1px solid rgba(255, 255, 255, 0.1)',
+                borderRadius: '20px',
+                boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
+                transition: 'all 0.3s ease',
+                '&:hover': {
+                  transform: 'translateY(-4px)',
+                  boxShadow: '0 12px 40px rgba(0, 0, 0, 0.15)',
+                  background: 'rgba(255, 255, 255, 0.08)',
+                }
+              }}>
+                <CardContent sx={{ p: 3 }}>
                   {renderChart('sodium')}
                 </CardContent>
               </Card>
@@ -3647,16 +4695,49 @@ const HomePage: React.FC = () => {
         {/* Additional Analysis Charts */}
         {consumptionAnalytics && (
           <Box sx={{ mt: 4 }}>
-            <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
-              <AnalyticsIcon sx={{ mr: 1 }} />
+            <Typography variant="h6" gutterBottom sx={{ 
+              display: 'flex', 
+              alignItems: 'center',
+              color: 'white',
+              fontWeight: 700,
+              fontSize: { xs: '1.1rem', sm: '1.25rem' },
+              textShadow: '0 2px 4px rgba(0,0,0,0.3)'
+            }}>
+              <Box sx={{ 
+                p: 1,
+                borderRadius: '12px',
+                background: 'rgba(255, 255, 255, 0.2)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                mr: 1.5
+              }}>
+                <AnalyticsIcon sx={{ color: 'white', fontSize: '1.5rem' }} />
+              </Box>
               Advanced Nutritional Analysis
             </Typography>
             <Grid container spacing={3}>
               {/* Nutritional Summary Chart */}
               <Grid item xs={12} md={6}>
-                <Card>
-                  <CardContent>
-                    <Typography variant="h6" gutterBottom>
+                <Card sx={{ 
+                  background: 'rgba(255, 255, 255, 0.05)',
+                  backdropFilter: 'blur(20px)',
+                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  borderRadius: '20px',
+                  boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
+                  transition: 'all 0.3s ease',
+                  '&:hover': {
+                    transform: 'translateY(-4px)',
+                    boxShadow: '0 12px 40px rgba(0, 0, 0, 0.15)',
+                    background: 'rgba(255, 255, 255, 0.08)',
+                  }
+                }}>
+                  <CardContent sx={{ p: 3 }}>
+                    <Typography variant="h6" gutterBottom sx={{ 
+                      color: 'white',
+                      fontWeight: 600,
+                      textShadow: '0 1px 2px rgba(0,0,0,0.3)'
+                    }}>
                       Daily Nutritional Summary
                     </Typography>
                     <Box sx={{ height: 300, width: '100%' }}>
@@ -3668,9 +4749,25 @@ const HomePage: React.FC = () => {
               
               {/* Weekly Pattern Analysis */}
               <Grid item xs={12} md={6}>
-                <Card>
-                  <CardContent>
-                    <Typography variant="h6" gutterBottom>
+                <Card sx={{ 
+                  background: 'rgba(255, 255, 255, 0.05)',
+                  backdropFilter: 'blur(20px)',
+                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  borderRadius: '20px',
+                  boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
+                  transition: 'all 0.3s ease',
+                  '&:hover': {
+                    transform: 'translateY(-4px)',
+                    boxShadow: '0 12px 40px rgba(0, 0, 0, 0.15)',
+                    background: 'rgba(255, 255, 255, 0.08)',
+                  }
+                }}>
+                  <CardContent sx={{ p: 3 }}>
+                    <Typography variant="h6" gutterBottom sx={{ 
+                      color: 'white',
+                      fontWeight: 600,
+                      textShadow: '0 1px 2px rgba(0,0,0,0.3)'
+                    }}>
                       Weekly Intake Patterns
                     </Typography>
                     <Box sx={{ height: 300, width: '100%' }}>
@@ -3682,9 +4779,25 @@ const HomePage: React.FC = () => {
               
               {/* Macro Distribution Over Time */}
               <Grid item xs={12} md={6}>
-                <Card>
-                  <CardContent>
-                    <Typography variant="h6" gutterBottom>
+                <Card sx={{ 
+                  background: 'rgba(255, 255, 255, 0.05)',
+                  backdropFilter: 'blur(20px)',
+                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  borderRadius: '20px',
+                  boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
+                  transition: 'all 0.3s ease',
+                  '&:hover': {
+                    transform: 'translateY(-4px)',
+                    boxShadow: '0 12px 40px rgba(0, 0, 0, 0.15)',
+                    background: 'rgba(255, 255, 255, 0.08)',
+                  }
+                }}>
+                  <CardContent sx={{ p: 3 }}>
+                    <Typography variant="h6" gutterBottom sx={{ 
+                      color: 'white',
+                      fontWeight: 600,
+                      textShadow: '0 1px 2px rgba(0,0,0,0.3)'
+                    }}>
                       Macro Distribution Trends
                     </Typography>
                     <Box sx={{ height: 300, width: '100%' }}>
@@ -3696,12 +4809,28 @@ const HomePage: React.FC = () => {
               
               {/* Adherence Score Chart */}
               <Grid item xs={12} md={6}>
-                <Card>
-                  <CardContent>
-                    <Typography variant="h6" gutterBottom>
+                <Card sx={{ 
+                  background: 'rgba(255, 255, 255, 0.05)',
+                  backdropFilter: 'blur(20px)',
+                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  borderRadius: '20px',
+                  boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
+                  transition: 'all 0.3s ease',
+                  '&:hover': {
+                    transform: 'translateY(-4px)',
+                    boxShadow: '0 12px 40px rgba(0, 0, 0, 0.15)',
+                    background: 'rgba(255, 255, 255, 0.08)',
+                  }
+                }}>
+                  <CardContent sx={{ p: 3 }}>
+                    <Typography variant="h6" gutterBottom sx={{ 
+                      color: 'white',
+                      fontWeight: 600,
+                      textShadow: '0 1px 2px rgba(0,0,0,0.3)'
+                    }}>
                       Adherence Score Analysis
                     </Typography>
-                    <Box sx={{ height: 300, width: '100%' }}>
+                    <Box sx={{ height: 350, width: '100%' }}>
                       {renderAdherenceChart()}
                     </Box>
                   </CardContent>
@@ -3723,8 +4852,25 @@ const HomePage: React.FC = () => {
               minHeight: 600
             }}>
               <CardContent sx={{ p: 4 }}>
-                <Typography variant="h4" gutterBottom sx={{ display: 'flex', alignItems: 'center', color: 'white', mb: 3 }}>
-                  <CoachIcon sx={{ mr: 2, fontSize: 36 }} />
+                <Typography variant="h4" gutterBottom sx={{ 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  color: 'white', 
+                  mb: 3,
+                  textShadow: '0 2px 4px rgba(0,0,0,0.3)',
+                  fontWeight: 700
+                }}>
+                  <Box sx={{ 
+                    p: 1.5,
+                    borderRadius: '16px',
+                    background: 'rgba(255, 255, 255, 0.2)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    mr: 2
+                  }}>
+                    <CoachIcon sx={{ fontSize: 36, color: 'white' }} />
+                  </Box>
                   💬 AI Health Coach
                 </Typography>
                 <Typography variant="h6" sx={{ mb: 4, color: 'rgba(255,255,255,0.95)', lineHeight: 1.6 }}>
@@ -4086,7 +5232,8 @@ const HomePage: React.FC = () => {
         onAccept={handlePendingAccept}
         onDelete={handlePendingDelete}
       />
-    </Container>
+      </Container>
+    </Box>
   );
 };
 
