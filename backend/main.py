@@ -2135,7 +2135,7 @@ def analyze_meal_patterns(meal_history: list) -> dict:
 # Privacy data export functions moved to routers/privacy_data.py
 
 @app.get("/coach/smart-daily-meal-plan")
-async def get_smart_daily_meal_plan(current_user: User = Depends(get_current_user)):
+async def get_smart_daily_meal_plan(request: Request, current_user: User = Depends(get_current_user)):
     """
     Smart Daily Meal Plan - Completely rebuilt system that:
     
@@ -2147,10 +2147,19 @@ async def get_smart_daily_meal_plan(current_user: User = Depends(get_current_use
     6. Properly handles snacks from meal plan history (checks both "snack" and "snacks" keys)
     7. Formats multiple consumption display with comma and & separators
     8. Synchronizes macro data with homepage dashboard
+    9. Uses browser timezone for accurate midnight reset
     """
     try:
         user_email = current_user["email"]
         profile = current_user.get("profile", {})
+        
+        # Get timezone from frontend (browser timezone takes priority)
+        browser_timezone = request.headers.get("X-User-Timezone")
+        if browser_timezone:
+            profile["timezone"] = browser_timezone
+            print(f"[SmartDailyMealPlan] Using browser timezone: {browser_timezone}")
+        else:
+            print(f"[SmartDailyMealPlan] No browser timezone provided, using profile timezone: {profile.get('timezone', 'UTC')}")
         
         print(f"[SmartDailyMealPlan] Getting Smart Daily Meal Plan for {user_email}")
         
@@ -2198,13 +2207,21 @@ async def get_smart_daily_meal_plan(current_user: User = Depends(get_current_use
 
 
 @app.post("/coach/smart-daily-meal-plan/refresh")
-async def refresh_smart_daily_meal_plan(current_user: User = Depends(get_current_user)):
+async def refresh_smart_daily_meal_plan(request: Request, current_user: User = Depends(get_current_user)):
     """
     Force refresh the Smart Daily Meal Plan - clears cache and generates new plan
     """
     try:
         user_email = current_user["email"]
         profile = current_user.get("profile", {})
+        
+        # Get timezone from frontend (browser timezone takes priority)
+        browser_timezone = request.headers.get("X-User-Timezone")
+        if browser_timezone:
+            profile["timezone"] = browser_timezone
+            print(f"[SmartDailyMealPlan] Using browser timezone for refresh: {browser_timezone}")
+        else:
+            print(f"[SmartDailyMealPlan] No browser timezone provided for refresh, using profile timezone: {profile.get('timezone', 'UTC')}")
         
         print(f"[SmartDailyMealPlan] 🔄 Force refreshing meal plan for {user_email}")
         
@@ -2224,8 +2241,8 @@ async def refresh_smart_daily_meal_plan(current_user: User = Depends(get_current
         except Exception:
             today_date = datetime.utcnow().date().isoformat()
         
-        # Clear existing plan from database
-        await smart_daily_meal_plan_service._clear_daily_plan(user_email, today_date)
+        # Clear existing plan and cache from database  
+        await smart_daily_meal_plan_service.clear_smart_daily_meal_plan_cache(user_email)
         
         # Generate fresh plan
         comprehensive_plan = await smart_daily_meal_plan_service.get_smart_daily_meal_plan(

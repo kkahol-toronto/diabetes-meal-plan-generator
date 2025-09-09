@@ -709,7 +709,16 @@ const Settings: React.FC = () => {
                         <Switch 
                           checked={consentSettings.marketing_consent} 
                           size="small"
-                          disabled
+                          onChange={(e) => {
+                            setConsentSettings({
+                              ...consentSettings,
+                              marketing_consent: e.target.checked
+                            });
+                            showNotification(
+                              `Marketing Communications ${e.target.checked ? 'enabled' : 'disabled'}`,
+                              'success'
+                            );
+                          }}
                           sx={{
                             '& .MuiSwitch-thumb': {
                               backgroundColor: consentSettings.marketing_consent ? '#4CAF50' : '#f44336',
@@ -738,7 +747,16 @@ const Settings: React.FC = () => {
                         <Switch 
                           checked={consentSettings.analytics_consent} 
                           size="small"
-                          disabled
+                          onChange={(e) => {
+                            setConsentSettings({
+                              ...consentSettings,
+                              analytics_consent: e.target.checked
+                            });
+                            showNotification(
+                              `Analytics & Insights ${e.target.checked ? 'enabled' : 'disabled'}`,
+                              'success'
+                            );
+                          }}
                           sx={{
                             '& .MuiSwitch-thumb': {
                               backgroundColor: consentSettings.analytics_consent ? '#4CAF50' : '#f44336',

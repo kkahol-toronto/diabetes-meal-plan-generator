@@ -324,31 +324,27 @@ const SmartDailyMealPlan: React.FC<SmartDailyMealPlanProps> = ({ dashboardData }
   const [smartMealPlan, setSmartMealPlan] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [refreshing, setRefreshing] = useState(false);
 
-  const fetchSmartMealPlan = useCallback(async (forceRefresh = false) => {
+  const fetchSmartMealPlan = useCallback(async () => {
     const token = localStorage.getItem('token');
     if (!token) return;
 
     try {
-      if (forceRefresh) {
-        setRefreshing(true);
-      } else {
-        setLoading(true);
-      }
+      setLoading(true);
       setError(null);
       
-      const endpoint = forceRefresh 
-        ? `${config.API_URL}/coach/smart-daily-meal-plan/refresh`
-        : `${config.API_URL}/coach/smart-daily-meal-plan`;
+      const endpoint = `${config.API_URL}/coach/smart-daily-meal-plan`;
       
-      const method = forceRefresh ? 'POST' : 'GET';
+      // Get user's current browser timezone for accurate midnight reset
+      const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      console.log(`[SmartMealPlan] Using browser timezone: ${userTimezone}`);
       
       const response = await fetch(endpoint, {
-        method,
+        method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
+          'X-User-Timezone': userTimezone,
         },
       });
 
@@ -359,7 +355,7 @@ const SmartDailyMealPlan: React.FC<SmartDailyMealPlanProps> = ({ dashboardData }
       }
 
       if (!response.ok) {
-        throw new Error(`Failed to ${forceRefresh ? 'refresh' : 'fetch'} smart meal plan: ${response.statusText}`);
+        throw new Error(`Failed to fetch smart meal plan: ${response.statusText}`);
       }
 
       const data = await response.json();
@@ -372,11 +368,10 @@ const SmartDailyMealPlan: React.FC<SmartDailyMealPlanProps> = ({ dashboardData }
       setSmartMealPlan(data);
       
     } catch (err) {
-      console.error(`Error ${forceRefresh ? 'refreshing' : 'fetching'} smart meal plan:`, err);
-      setError(`Unable to ${forceRefresh ? 'refresh' : 'load'} meal plan. Please try again.`);
+      console.error('Error fetching smart meal plan:', err);
+      setError('Unable to load meal plan. Please try again.');
     } finally {
       setLoading(false);
-      setRefreshing(false);
     }
   }, []);
 
@@ -419,7 +414,7 @@ const SmartDailyMealPlan: React.FC<SmartDailyMealPlanProps> = ({ dashboardData }
             {error}
           </Typography>
           <Button
-            onClick={() => fetchSmartMealPlan(false)}
+            onClick={() => fetchSmartMealPlan()}
             sx={{
               mt: 2,
               backgroundColor: 'rgba(255, 255, 255, 0.2)',
@@ -499,49 +494,6 @@ const SmartDailyMealPlan: React.FC<SmartDailyMealPlanProps> = ({ dashboardData }
               </Typography>
             </Box>
           </Box>
-          
-          <Button
-            variant="contained"
-            size="small"
-            disabled={refreshing || loading}
-            onClick={() => fetchSmartMealPlan(true)}
-            sx={{
-              background: refreshing 
-                ? 'rgba(255, 255, 255, 0.1)' 
-                : 'linear-gradient(135deg, #4caf50, #2e7d32)',
-              color: 'white',
-              borderRadius: '12px',
-              px: 2,
-              py: 1,
-              fontSize: '0.8rem',
-              fontWeight: 600,
-              textTransform: 'none',
-              boxShadow: '0 4px 12px rgba(76, 175, 80, 0.3)',
-              border: '1px solid rgba(255, 255, 255, 0.2)',
-              minWidth: '100px',
-              '&:hover': {
-                background: refreshing 
-                  ? 'rgba(255, 255, 255, 0.1)' 
-                  : 'linear-gradient(135deg, #388e3c, #1b5e20)',
-                boxShadow: '0 6px 16px rgba(76, 175, 80, 0.4)',
-              },
-              '&:disabled': {
-                color: 'rgba(255, 255, 255, 0.5)',
-                background: 'rgba(255, 255, 255, 0.1)',
-              }
-            }}
-          >
-            {refreshing ? (
-              <>
-                <CircularProgress size={16} sx={{ color: 'white', mr: 1 }} />
-                Refreshing...
-              </>
-            ) : (
-              <>
-                🔄 REFRESH
-              </>
-            )}
-          </Button>
         </Box>
 
         {/* Macro Progress Display - Synchronized with Homepage Dashboard */}
@@ -582,7 +534,7 @@ const SmartDailyMealPlan: React.FC<SmartDailyMealPlanProps> = ({ dashboardData }
 
             // Safe meal name extraction
             const mealName = plannedMeal?.meal_name || plannedMeal?.name || `Planned ${mealType}`;
-            
+
             // Check if consumption matches the planned meal
             const isMatchingPlan = plannedMeal && isConsumed 
               ? isConsumptionMatchingPlan(mealName, consumptionText)
@@ -705,26 +657,26 @@ const SmartDailyMealPlan: React.FC<SmartDailyMealPlanProps> = ({ dashboardData }
           border: '1px solid rgba(255, 255, 255, 0.1)'
         }}>
           <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 2 }}>
-            <Box>
+          <Box>
               {smartMealPlan?.personalization_factors?.force_refreshed ? (
                 <Typography variant="body2" sx={{ color: 'rgba(76, 175, 80, 1)', fontSize: '0.8rem', fontWeight: 600 }}>
                   🔄 Freshly generated meal plan
                 </Typography>
               ) : smartMealPlan?.personalization_factors?.snack_history_support && (
-                <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.8)', fontSize: '0.8rem' }}>
-                  ✨ Enhanced snack history support enabled
-                </Typography>
-              )}
-              {smartMealPlan?.recalibration_history?.length > 0 ? (
+              <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.8)', fontSize: '0.8rem' }}>
+                ✨ Enhanced snack history support enabled
+              </Typography>
+            )}
+            {smartMealPlan?.recalibration_history?.length > 0 ? (
                 <Typography variant="body2" sx={{ color: 'rgba(255, 193, 7, 1)', fontSize: '0.8rem', mt: 0.5 }}>
-                  🔄 Plan recalibrated {smartMealPlan.recalibration_history.length} time(s) today
-                </Typography>
-              ) : (
+                🔄 Plan recalibrated {smartMealPlan.recalibration_history.length} time(s) today
+              </Typography>
+            ) : (
                 <Typography variant="body2" sx={{ color: 'rgba(76, 175, 80, 0.8)', fontSize: '0.8rem', mt: 0.5 }}>
-                  ✅ No recalibrations needed
-                </Typography>
-              )}
-            </Box>
+                ✅ No recalibrations needed
+              </Typography>
+            )}
+          </Box>
             
             {smartMealPlan?.plan_date && (
               <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.6)', fontSize: '0.75rem' }}>
@@ -759,6 +711,8 @@ const HomePage: React.FC = () => {
   const [tabValue, setTabValue] = useState(0);
   const [macroTimeRange, setMacroTimeRange] = useState<'daily' | 'weekly' | 'bi-weekly' | 'monthly'>('daily');
   const [macroConsumptionAnalytics, setMacroConsumptionAnalytics] = useState<any>(null);
+  const [chartType, setChartType] = useState<'macros' | 'micronutrients' | 'diabetic-metrics' | 'weight-loss'>('macros');
+  const [graphStyle, setGraphStyle] = useState<'pie' | 'bar' | 'line' | 'radar'>('pie');
 
   const [showAICoachDialog, setShowAICoachDialog] = useState(false);
   const [aiCoachQuery, setAICoachQuery] = useState('');
@@ -1971,26 +1925,26 @@ const HomePage: React.FC = () => {
                 color: 'rgba(0,0,0,0.1)',
                 borderDash: [5, 5]
               },
-            ticks: {
+              ticks: {
               color: 'rgba(255, 255, 255, 0.8)',
-              font: {
+                font: {
                 size: 12,
                 weight: 'normal' as const
+                },
+                callback: function(value: any) {
+                  return `${value} kcal`;
+                }
               },
-              callback: function(value: any) {
-                return `${value} kcal`;
-              }
-            },
-            title: {
-              display: true,
-              text: 'Calories (kcal)',
+              title: {
+                display: true,
+                text: 'Calories (kcal)',
               color: 'rgba(255, 255, 255, 0.9)',
-              font: {
-                size: 14,
+                font: {
+                  size: 14,
                 weight: 'bold' as const,
                 family: 'Inter, system-ui, sans-serif'
+                }
               }
-            }
             }
           }
         };
@@ -2007,29 +1961,29 @@ const HomePage: React.FC = () => {
               lineWidth: 1,
               borderDash: [5, 5]
             },
-              ticks: {
+            ticks: {
                 color: 'rgba(255, 255, 255, 0.8)',
-                font: {
+              font: {
                   size: 12,
                   weight: 'normal' as const
-                },
-                callback: function(value: any) {
-                  return `${value} ${unit}`;
-                }
               },
-              title: {
-                display: true,
-                text: `${chartConfig?.title || metric} (${unit})`,
-                color: 'rgba(255, 255, 255, 0.9)',
-                font: {
-                  size: 14,
-                  weight: 'bold' as const,
-                  family: 'Inter, system-ui, sans-serif'
-                }
+              callback: function(value: any) {
+                return `${value} ${unit}`;
               }
             },
-            x: {
-              grid: {
+            title: {
+              display: true,
+              text: `${chartConfig?.title || metric} (${unit})`,
+                color: 'rgba(255, 255, 255, 0.9)',
+              font: {
+                size: 14,
+                  weight: 'bold' as const,
+                  family: 'Inter, system-ui, sans-serif'
+              }
+            }
+          },
+          x: {
+            grid: {
                 color: 'rgba(255, 255, 255, 0.1)',
                 lineWidth: 1,
               borderDash: [5, 5]
@@ -2616,6 +2570,375 @@ const HomePage: React.FC = () => {
     };
   }, [macroTimeRange, dashboardData?.today_totals, macroConsumptionAnalytics, theme]);
 
+  // Enhanced chart data generators for different chart types
+  const createMicronutrientChart = useMemo(() => {
+    let fiber = 0;
+    let sodium = 0;
+    let sugar = 0;
+    let calcium = 0;
+    let iron = 0;
+    let vitaminC = 0;
+
+    if (macroTimeRange === 'daily') {
+      if (!dashboardData?.today_totals) return null;
+      fiber = dashboardData.today_totals.fiber || 0;
+      sodium = (dashboardData.today_totals.sodium || 0) / 1000; // Convert mg to g for better visualization
+      sugar = dashboardData.today_totals.sugar || 0;
+      calcium = (dashboardData.today_totals.calcium || 0) / 1000; // Convert mg to g
+      iron = dashboardData.today_totals.iron || 0;
+      vitaminC = dashboardData.today_totals.vitamin_c || 0;
+    } else {
+      if (!macroConsumptionAnalytics?.daily_nutrition_history) return null;
+      const history = macroConsumptionAnalytics.daily_nutrition_history;
+      const daysToAverage = macroTimeRange === 'weekly' ? 7 : macroTimeRange === 'bi-weekly' ? 14 : 30;
+      const relevantData = history.slice(-daysToAverage);
+      
+      if (relevantData.length === 0) return null;
+
+      fiber = relevantData.reduce((sum: number, day: any) => sum + (day.fiber || 0), 0) / relevantData.length;
+      sodium = relevantData.reduce((sum: number, day: any) => sum + ((day.sodium || 0) / 1000), 0) / relevantData.length;
+      sugar = relevantData.reduce((sum: number, day: any) => sum + (day.sugar || 0), 0) / relevantData.length;
+      calcium = relevantData.reduce((sum: number, day: any) => sum + ((day.calcium || 0) / 1000), 0) / relevantData.length;
+      iron = relevantData.reduce((sum: number, day: any) => sum + (day.iron || 0), 0) / relevantData.length;
+      vitaminC = relevantData.reduce((sum: number, day: any) => sum + (day.vitamin_c || 0), 0) / relevantData.length;
+    }
+
+    return {
+      labels: ['Fiber (g)', 'Sodium (g)', 'Sugar (g)', 'Calcium (g)', 'Iron (mg)', 'Vitamin C (mg)'],
+      datasets: [{
+        label: 'Micronutrients',
+        data: [fiber, sodium, sugar, calcium, iron, vitaminC],
+        backgroundColor: [
+          '#4CAF50', // Green for fiber
+          '#FF5722', // Red for sodium
+          '#FF9800', // Orange for sugar
+          '#2196F3', // Blue for calcium
+          '#9C27B0', // Purple for iron
+          '#FFC107'  // Yellow for vitamin C
+        ],
+        borderColor: '#fff',
+        borderWidth: 2,
+      }]
+    };
+  }, [macroTimeRange, dashboardData?.today_totals, macroConsumptionAnalytics]);
+
+  const createDiabeticMetricsChart = useMemo(() => {
+    let netCarbs = 0;
+    let glycemicLoad = 0;
+    let sugarIntake = 0;
+    let fiberIntake = 0;
+    let proteinRatio = 0;
+
+    if (macroTimeRange === 'daily') {
+      if (!dashboardData?.today_totals) return null;
+      const carbs = dashboardData.today_totals.carbohydrates || 0;
+      const fiber = dashboardData.today_totals.fiber || 0;
+      const protein = dashboardData.today_totals.protein || 0;
+      const totalCalories = dashboardData.today_totals.calories || 1;
+      
+      netCarbs = carbs - fiber;
+      glycemicLoad = netCarbs * 0.7; // Simplified GL calculation
+      sugarIntake = dashboardData.today_totals.sugar || 0;
+      fiberIntake = fiber;
+      proteinRatio = (protein * 4) / totalCalories * 100; // Protein as % of calories
+    } else {
+      if (!macroConsumptionAnalytics?.daily_nutrition_history) return null;
+      const history = macroConsumptionAnalytics.daily_nutrition_history;
+      const daysToAverage = macroTimeRange === 'weekly' ? 7 : macroTimeRange === 'bi-weekly' ? 14 : 30;
+      const relevantData = history.slice(-daysToAverage);
+      
+      if (relevantData.length === 0) return null;
+
+      const avgCarbs = relevantData.reduce((sum: number, day: any) => sum + (day.carbohydrates || 0), 0) / relevantData.length;
+      const avgFiber = relevantData.reduce((sum: number, day: any) => sum + (day.fiber || 0), 0) / relevantData.length;
+      const avgProtein = relevantData.reduce((sum: number, day: any) => sum + (day.protein || 0), 0) / relevantData.length;
+      const avgCalories = relevantData.reduce((sum: number, day: any) => sum + (day.calories || 0), 0) / relevantData.length;
+      
+      netCarbs = avgCarbs - avgFiber;
+      glycemicLoad = netCarbs * 0.7;
+      sugarIntake = relevantData.reduce((sum: number, day: any) => sum + (day.sugar || 0), 0) / relevantData.length;
+      fiberIntake = avgFiber;
+      proteinRatio = avgCalories > 0 ? (avgProtein * 4) / avgCalories * 100 : 0;
+    }
+
+    return {
+      labels: ['Net Carbs (g)', 'Glycemic Load', 'Sugar (g)', 'Fiber (g)', 'Protein Ratio (%)'],
+      datasets: [{
+        label: 'Diabetic Metrics',
+        data: [netCarbs, glycemicLoad, sugarIntake, fiberIntake, proteinRatio],
+        backgroundColor: [
+          '#FF6B6B', // Light red for net carbs
+          '#4ECDC4', // Teal for glycemic load
+          '#FF8E53', // Orange for sugar
+          '#45B7D1', // Blue for fiber
+          '#96CEB4'  // Green for protein ratio
+        ],
+        borderColor: '#fff',
+        borderWidth: 2,
+      }]
+    };
+  }, [macroTimeRange, dashboardData?.today_totals, macroConsumptionAnalytics]);
+
+  const createWeightLossChart = useMemo(() => {
+    let calorieDeficit = 0;
+    let proteinIntake = 0;
+    let fiberIntake = 0;
+    let waterEquivalent = 0; // Estimated from foods
+    let metabolicRate = 0; // Estimated
+
+    if (macroTimeRange === 'daily') {
+      if (!dashboardData?.today_totals) return null;
+      const calories = dashboardData.today_totals.calories || 0;
+      const targetCalories = 2000; // Default target, could be personalized
+      
+      calorieDeficit = Math.max(0, targetCalories - calories);
+      proteinIntake = dashboardData.today_totals.protein || 0;
+      fiberIntake = dashboardData.today_totals.fiber || 0;
+      waterEquivalent = (dashboardData.today_totals.carbohydrates || 0) * 0.1; // Rough estimate
+      metabolicRate = calories * 0.1; // Thermic effect of food
+    } else {
+      if (!macroConsumptionAnalytics?.daily_nutrition_history) return null;
+      const history = macroConsumptionAnalytics.daily_nutrition_history;
+      const daysToAverage = macroTimeRange === 'weekly' ? 7 : macroTimeRange === 'bi-weekly' ? 14 : 30;
+      const relevantData = history.slice(-daysToAverage);
+      
+      if (relevantData.length === 0) return null;
+
+      const avgCalories = relevantData.reduce((sum: number, day: any) => sum + (day.calories || 0), 0) / relevantData.length;
+      const targetCalories = 2000;
+      
+      calorieDeficit = Math.max(0, targetCalories - avgCalories);
+      proteinIntake = relevantData.reduce((sum: number, day: any) => sum + (day.protein || 0), 0) / relevantData.length;
+      fiberIntake = relevantData.reduce((sum: number, day: any) => sum + (day.fiber || 0), 0) / relevantData.length;
+      waterEquivalent = relevantData.reduce((sum: number, day: any) => sum + ((day.carbohydrates || 0) * 0.1), 0) / relevantData.length;
+      metabolicRate = avgCalories * 0.1;
+    }
+
+    return {
+      labels: ['Calorie Deficit', 'Protein (g)', 'Fiber (g)', 'Hydration Est.', 'Metabolic Boost'],
+      datasets: [{
+        label: 'Weight Loss Metrics',
+        data: [calorieDeficit, proteinIntake, fiberIntake, waterEquivalent, metabolicRate],
+        backgroundColor: [
+          '#E91E63', // Pink for calorie deficit
+          '#2196F3', // Blue for protein
+          '#4CAF50', // Green for fiber
+          '#00BCD4', // Cyan for hydration
+          '#FF9800'  // Orange for metabolic rate
+        ],
+        borderColor: '#fff',
+        borderWidth: 2,
+      }]
+    };
+  }, [macroTimeRange, dashboardData?.today_totals, macroConsumptionAnalytics]);
+
+  // Function to get current chart data based on selected type
+  const getCurrentChartData = () => {
+    switch (chartType) {
+      case 'macros':
+        return createMacroChart;
+      case 'micronutrients':
+        return createMicronutrientChart;
+      case 'diabetic-metrics':
+        return createDiabeticMetricsChart;
+      case 'weight-loss':
+        return createWeightLossChart;
+      default:
+        return createMacroChart;
+    }
+  };
+
+  // Function to render the appropriate nutrition analytics chart component
+  const renderNutritionChart = () => {
+    const chartData = getCurrentChartData();
+    if (!chartData) return null;
+
+    const commonOptions = {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          position: 'bottom' as const,
+          labels: {
+            padding: 15,
+            usePointStyle: true,
+            font: {
+              size: 11
+            },
+            boxWidth: 12
+          }
+        },
+        tooltip: {
+          callbacks: {
+            label: function(context: any) {
+              let label = context.label || '';
+              if (label) {
+                label += ': ';
+              }
+              if (context.parsed !== null) {
+                const value = context.parsed;
+                const numValue = typeof value === 'number' ? value : (value.y || 0);
+                
+                // Custom formatting based on chart type and metric
+                if (chartType === 'micronutrients') {
+                  if (label.includes('Sodium') || label.includes('Calcium')) {
+                    label += numValue.toFixed(2) + 'g';
+                  } else if (label.includes('Iron') || label.includes('Vitamin C')) {
+                    label += numValue.toFixed(1) + 'mg';
+                  } else {
+                    label += numValue.toFixed(1) + 'g';
+                  }
+                } else if (chartType === 'diabetic-metrics') {
+                  if (label.includes('Protein Ratio')) {
+                    label += numValue.toFixed(1) + '%';
+                  } else {
+                    label += numValue.toFixed(1) + (label.includes('Load') ? '' : 'g');
+                  }
+                } else if (chartType === 'weight-loss') {
+                  if (label.includes('Deficit') || label.includes('Boost')) {
+                    label += numValue.toFixed(0) + ' cal';
+                  } else if (label.includes('Hydration')) {
+                    label += numValue.toFixed(1) + ' L';
+                  } else {
+                    label += numValue.toFixed(1) + 'g';
+                  }
+                } else {
+                  label += numValue.toFixed(1) + 'g';
+                }
+              }
+              return label;
+            },
+            afterLabel: function(context: any) {
+              if (graphStyle === 'pie' || graphStyle === 'radar') {
+                const total = context.dataset.data.reduce((sum: number, value: number) => sum + value, 0);
+                const value = context.parsed;
+                const numValue = typeof value === 'number' ? value : (value.y || 0);
+                const percentage = total > 0 ? (numValue / total * 100) : 0;
+                return `(${percentage.toFixed(1)}%)`;
+              }
+              return '';
+            }
+          }
+        }
+      },
+    };
+
+    const radarOptions = {
+      ...commonOptions,
+      scales: {
+        r: {
+          beginAtZero: true,
+          grid: {
+            color: 'rgba(255, 255, 255, 0.1)',
+          },
+          pointLabels: {
+            color: '#666',
+            font: {
+              size: 12
+            }
+          },
+          ticks: {
+            color: '#666',
+            backdropColor: 'transparent'
+          }
+        }
+      }
+    };
+
+    const barOptions = {
+      ...commonOptions,
+      scales: {
+        x: {
+          ticks: {
+            color: '#666'
+          },
+          grid: {
+            color: 'rgba(0, 0, 0, 0.1)'
+          }
+        },
+        y: {
+          beginAtZero: true,
+          ticks: {
+            color: '#666'
+          },
+          grid: {
+            color: 'rgba(0, 0, 0, 0.1)'
+          }
+        }
+      }
+    };
+
+    const lineOptions = {
+      ...commonOptions,
+      interaction: {
+        intersect: false,
+        mode: 'index' as const,
+      },
+      scales: {
+        x: {
+          ticks: {
+            color: '#666',
+            maxRotation: 45
+          },
+          grid: {
+            color: 'rgba(0, 0, 0, 0.1)',
+            drawOnChartArea: true
+          }
+        },
+        y: {
+          beginAtZero: true,
+          ticks: {
+            color: '#666'
+          },
+          grid: {
+            color: 'rgba(0, 0, 0, 0.1)',
+            drawOnChartArea: true
+          }
+        }
+      },
+      elements: {
+        point: {
+          hoverRadius: 8
+        },
+        line: {
+          borderJoinStyle: 'round' as const,
+          borderCapStyle: 'round' as const
+        }
+      }
+    };
+
+    switch (graphStyle) {
+      case 'pie':
+        return <Pie key={`${chartType}-${graphStyle}-${macroTimeRange}`} data={chartData} options={commonOptions} />;
+      case 'bar':
+        return <Bar key={`${chartType}-${graphStyle}-${macroTimeRange}`} data={chartData} options={barOptions} />;
+      case 'line':
+        // Convert pie chart data to line chart format and enhance with colors
+        const convertedLineData = {
+          labels: chartData.labels,
+          datasets: [{
+            label: chartData.datasets[0].label,
+            data: chartData.datasets[0].data,
+            borderColor: '#9C27B0', // Purple theme primary color
+            backgroundColor: 'rgba(156, 39, 176, 0.1)',
+            pointBackgroundColor: '#9C27B0',
+            pointBorderColor: '#fff',
+            pointBorderWidth: 2,
+            pointRadius: 6,
+            pointHoverRadius: 8,
+            borderWidth: 3,
+            tension: 0.4,
+            fill: true,
+          }]
+        };
+        return <Line key={`${chartType}-${graphStyle}-${macroTimeRange}`} data={convertedLineData} options={lineOptions} />;
+      case 'radar':
+        return <Radar key={`${chartType}-${graphStyle}-${macroTimeRange}`} data={chartData} options={radarOptions} />;
+      default:
+        return <Doughnut key={`${chartType}-${graphStyle}-${macroTimeRange}`} data={chartData} options={commonOptions} />;
+    }
+  };
+
   const createWeeklyTrendChart = () => {
     if (!analyticsData?.daily_breakdown) return null;
 
@@ -2915,8 +3238,8 @@ const HomePage: React.FC = () => {
               fontWeight: 500
             }}
           >
-            Loading your personalized dashboard...
-          </Typography>
+          Loading your personalized dashboard...
+        </Typography>
           
           <Box sx={{ 
             display: 'flex', 
@@ -3053,7 +3376,7 @@ const HomePage: React.FC = () => {
                   background: 'linear-gradient(135deg, #ffffff 0%, #e8d5ff 50%, #d1c4e9 100%)',
                   WebkitBackgroundClip: 'text',
                   WebkitTextFillColor: 'transparent',
-                  backgroundClip: 'text',
+          backgroundClip: 'text',
                   fontSize: { xs: '1.8rem', sm: '2.5rem', md: '3rem' },
                   mb: 1,
                   letterSpacing: '0.5px',
@@ -3073,8 +3396,8 @@ const HomePage: React.FC = () => {
                     right: 0,
                     bottom: 0,
                     background: 'linear-gradient(135deg, rgba(255,255,255,0.9) 0%, rgba(232,213,255,0.8) 50%, rgba(209,196,233,0.7) 100%)',
-                    WebkitBackgroundClip: 'text',
-                    WebkitTextFillColor: 'transparent',
+          WebkitBackgroundClip: 'text',
+          WebkitTextFillColor: 'transparent',
                     backgroundClip: 'text',
                     filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.1))',
                     zIndex: 1
@@ -3082,7 +3405,7 @@ const HomePage: React.FC = () => {
                 }}
               >
                 🍎 AI Nutrition Coach Dashboard
-              </Typography>
+        </Typography>
             </Box>
 
             {/* Subtitle with Modern Styling */}
@@ -3139,27 +3462,27 @@ const HomePage: React.FC = () => {
                 }}
               >
                 Last updated: {new Date().toLocaleTimeString()}
-              </Typography>
+        </Typography>
             </Box>
           </Box>
-        </Box>
+      </Box>
 
-        {/* Profile Completion Alert */}
-        {showProfileAlert && (
-          <Alert 
-            severity="info" 
-            sx={{ 
+      {/* Profile Completion Alert */}
+      {showProfileAlert && (
+        <Alert 
+          severity="info" 
+          sx={{ 
               mb: 4,
               background: 'rgba(255, 255, 255, 0.95)',
               backdropFilter: 'blur(20px)',
               border: '1px solid rgba(255, 255, 255, 0.3)',
               borderRadius: '20px',
               boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
-              '& .MuiAlert-icon': {
-                fontSize: '1.5rem',
+            '& .MuiAlert-icon': {
+              fontSize: '1.5rem',
                 color: '#7c4dff',
-              },
-            }}
+            },
+          }}
           action={
             <Box sx={{ display: 'flex', gap: 1 }}>
               <Button 
@@ -3231,59 +3554,76 @@ const HomePage: React.FC = () => {
                 Status: {getProfileCompletionStatus(userProfile).status}
               </Typography>
             )}
-            </Box>
-          </Alert>
-        )}
+          </Box>
+        </Alert>
+      )}
 
         {/* Tabs Navigation - Mobile First Design */}
         <Box sx={{ 
           mb: 4, 
-          overflow: 'hidden',
+          overflow: 'visible',
           borderRadius: '20px',
           background: 'rgba(255, 255, 255, 0.15)',
           backdropFilter: 'blur(20px)',
           border: '1px solid rgba(255, 255, 255, 0.2)',
-          boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)'
+          boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
+          width: '100%',
+          maxWidth: '100%'
         }}>
-          <Tabs 
-            value={tabValue} 
-            onChange={(e, newValue) => setTabValue(newValue)} 
-            aria-label="dashboard tabs"
-            variant="scrollable"
-            scrollButtons="auto"
-            sx={{
-              '& .MuiTabs-indicator': {
-                backgroundColor: '#ffffff',
-                height: 3,
-                borderRadius: '2px'
+        <Tabs 
+          value={tabValue} 
+          onChange={(e, newValue) => setTabValue(newValue)} 
+          aria-label="dashboard tabs"
+          variant="fullWidth"
+          sx={{
+            width: '100%',
+            minHeight: 'auto',
+            '& .MuiTabs-flexContainer': {
+              width: '100%',
+              justifyContent: 'space-evenly',
+              display: 'flex'
+            },
+            '& .MuiTabs-indicator': {
+              backgroundColor: '#ffffff',
+              height: 3,
+              borderRadius: '2px'
+            },
+            '& .MuiTab-root': {
+              flex: '1 1 25%',
+              maxWidth: '25%',
+              minWidth: '22%',
+              width: '25%',
+              fontSize: { xs: '0.7rem', sm: '0.875rem' },
+              fontWeight: 600,
+              color: 'rgba(255, 255, 255, 0.7)',
+              textTransform: 'none',
+              borderRadius: '12px',
+              margin: '8px 2px',
+              padding: { xs: '8px 4px', sm: '12px 8px' },
+              transition: 'all 0.3s ease',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              '&.Mui-selected': {
+                color: 'white',
+                background: 'rgba(255, 255, 255, 0.2)',
+                fontWeight: 700,
               },
-              '& .MuiTab-root': {
-                minWidth: { xs: 80, sm: 140 },
-                fontSize: { xs: '0.75rem', sm: '0.875rem' },
-                fontWeight: 600,
-                color: 'rgba(255, 255, 255, 0.7)',
-                textTransform: 'none',
-                borderRadius: '12px',
-                margin: '8px 4px',
-                transition: 'all 0.3s ease',
-                '&.Mui-selected': {
-                  color: 'white',
-                  background: 'rgba(255, 255, 255, 0.2)',
-                  fontWeight: 700,
-                },
-                '&:hover': {
-                  color: 'white',
-                  background: 'rgba(255, 255, 255, 0.1)',
-                },
-                '@media (max-width: 600px)': {
-                  minWidth: 70,
-                  fontSize: '0.7rem',
-                  '& .MuiSvgIcon-root': {
-                    fontSize: '1rem'
-                  }
+              '&:hover': {
+                color: 'white',
+                background: 'rgba(255, 255, 255, 0.1)',
+              },
+              '@media (max-width: 600px)': {
+                fontSize: '0.65rem',
+                padding: '8px 2px',
+                margin: '6px 1px',
+                minWidth: '20%',
+                '& .MuiSvgIcon-root': {
+                  fontSize: '0.9rem'
                 }
               }
-            }}
+            }
+          }}
         >
           <Tab 
             icon={<AnalyticsIcon />} 
@@ -3309,20 +3649,20 @@ const HomePage: React.FC = () => {
             iconPosition="start"
           />
         </Tabs>
-        </Box>
+      </Box>
 
-        {/* Overview Tab */}
-        <CustomTabPanel value={tabValue} index={0}>
-          <Grid container spacing={{ xs: 2, md: 3 }}>
+      {/* Overview Tab */}
+      <CustomTabPanel value={tabValue} index={0}>
+        <Grid container spacing={{ xs: 2, md: 3 }}>
             {/* Today's Summary Cards - Fitness Tracker Style */}
-            <Grid item xs={12} sm={6} md={3}>
-              <Card sx={{ 
+          <Grid item xs={12} sm={6} md={3}>
+            <Card sx={{ 
                 background: 'rgba(255, 255, 255, 0.95)',
                 backdropFilter: 'blur(20px)',
                 border: '1px solid rgba(255, 255, 255, 0.3)',
                 borderRadius: '24px',
                 boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
-                height: '100%',
+              height: '100%',
                 minHeight: { xs: '160px', sm: '180px' },
                 transition: 'all 0.3s ease',
                 '&:hover': {
@@ -3348,9 +3688,9 @@ const HomePage: React.FC = () => {
                       fontWeight: 600,
                       color: '#2d3748'
                     }}>
-                      Calories Today
-                    </Typography>
-                  </Box>
+                    Calories Today
+                  </Typography>
+                </Box>
                   <Box sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
                     <Typography variant="h2" sx={{ 
                       fontWeight: 800,
@@ -3358,21 +3698,21 @@ const HomePage: React.FC = () => {
                       color: '#1a202c',
                       lineHeight: 1,
                       mb: 1
-                    }}>
-                      {dashboardData?.today_totals?.calories || 0}
-                    </Typography>
-                    <Typography variant="body2" sx={{ 
+                }}>
+                  {dashboardData?.today_totals?.calories || 0}
+                </Typography>
+                <Typography variant="body2" sx={{ 
                       color: '#718096',
                       fontSize: { xs: '0.8rem', sm: '0.875rem' },
                       fontWeight: 500,
                       mb: 2
-                    }}>
-                      Goal: {dashboardData?.goals?.calories || 2000}
-                    </Typography>
-                    <LinearProgress 
-                      variant="determinate" 
-                      value={Math.min(((dashboardData?.today_totals?.calories || 0) / (dashboardData?.goals?.calories || 2000)) * 100, 100)}
-                      sx={{ 
+                }}>
+                  Goal: {dashboardData?.goals?.calories || 2000}
+                </Typography>
+                <LinearProgress 
+                  variant="determinate" 
+                  value={Math.min(((dashboardData?.today_totals?.calories || 0) / (dashboardData?.goals?.calories || 2000)) * 100, 100)}
+                  sx={{ 
                         height: 8,
                         borderRadius: '4px',
                         bgcolor: '#e2e8f0',
@@ -3383,18 +3723,18 @@ const HomePage: React.FC = () => {
                       }}
                     />
                   </Box>
-                </CardContent>
-              </Card>
-            </Grid>
+              </CardContent>
+            </Card>
+          </Grid>
 
-            <Grid item xs={12} sm={6} md={3}>
-              <Card sx={{ 
+          <Grid item xs={12} sm={6} md={3}>
+            <Card sx={{ 
                 background: 'rgba(255, 255, 255, 0.95)',
                 backdropFilter: 'blur(20px)',
                 border: '1px solid rgba(255, 255, 255, 0.3)',
                 borderRadius: '24px',
                 boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
-                height: '100%',
+              height: '100%',
                 minHeight: { xs: '160px', sm: '180px' },
                 transition: 'all 0.3s ease',
                 '&:hover': {
@@ -3403,7 +3743,7 @@ const HomePage: React.FC = () => {
                 }
               }}>
                 <CardContent sx={{ p: { xs: 3, sm: 3.5 }, height: '100%', display: 'flex', flexDirection: 'column' }}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
                     <Box sx={{ 
                       p: 1.5,
                       borderRadius: '16px',
@@ -3414,7 +3754,7 @@ const HomePage: React.FC = () => {
                       mr: 2
                     }}>
                       <ProteinIcon sx={{ color: 'white', fontSize: { xs: '1.2rem', sm: '1.4rem' } }} />
-                    </Box>
+                </Box>
                       <Typography variant="h6" sx={{ 
                       fontSize: { xs: '0.95rem', sm: '1.1rem' },
                       fontWeight: 600,
@@ -3431,19 +3771,19 @@ const HomePage: React.FC = () => {
                       lineHeight: 1,
                       mb: 1
                     }}>
-                      {dashboardData?.today_totals?.protein || 0}g
-                    </Typography>
+                  {dashboardData?.today_totals?.protein || 0}g
+                </Typography>
                     <Typography variant="body2" sx={{ 
                       color: '#718096',
                       fontSize: { xs: '0.8rem', sm: '0.875rem' },
                       fontWeight: 500,
                       mb: 2
                     }}>
-                      Goal: {dashboardData?.goals?.protein || 150}g
-                    </Typography>
-                    <LinearProgress 
-                      variant="determinate" 
-                      value={Math.min(((dashboardData?.today_totals?.protein || 0) / (dashboardData?.goals?.protein || 150)) * 100, 100)}
+                  Goal: {dashboardData?.goals?.protein || 150}g
+                </Typography>
+                <LinearProgress 
+                  variant="determinate" 
+                  value={Math.min(((dashboardData?.today_totals?.protein || 0) / (dashboardData?.goals?.protein || 150)) * 100, 100)}
                       sx={{ 
                         height: 8,
                         borderRadius: '4px',
@@ -3455,18 +3795,18 @@ const HomePage: React.FC = () => {
                       }}
                     />
                   </Box>
-                </CardContent>
+              </CardContent>
             </Card>
           </Grid>
 
-            <Grid item xs={12} sm={6} md={3}>
-              <Card sx={{ 
+          <Grid item xs={12} sm={6} md={3}>
+            <Card sx={{ 
                 background: 'rgba(255, 255, 255, 0.95)',
                 backdropFilter: 'blur(20px)',
                 border: '1px solid rgba(255, 255, 255, 0.3)',
                 borderRadius: '24px',
                 boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
-                height: '100%',
+              height: '100%',
                 minHeight: { xs: '160px', sm: '180px' },
                 transition: 'all 0.3s ease',
                 '&:hover': {
@@ -3475,7 +3815,7 @@ const HomePage: React.FC = () => {
                 }
               }}>
                 <CardContent sx={{ p: { xs: 3, sm: 3.5 }, height: '100%', display: 'flex', flexDirection: 'column' }}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
                     <Box sx={{ 
                       p: 1.5,
                       borderRadius: '16px',
@@ -3486,7 +3826,7 @@ const HomePage: React.FC = () => {
                       mr: 2
                     }}>
                       <HeartIcon sx={{ color: '#e91e63', fontSize: { xs: '1.2rem', sm: '1.4rem' } }} />
-                    </Box>
+                </Box>
                     <Typography variant="h6" sx={{ 
                       fontSize: { xs: '0.95rem', sm: '1.1rem' },
                       fontWeight: 600,
@@ -3503,21 +3843,21 @@ const HomePage: React.FC = () => {
                       lineHeight: 1,
                       mb: 1
                     }}>
-                      {getScoreEmoji(dashboardData?.diabetes_adherence || 0)} {Math.round(dashboardData?.diabetes_adherence || 0)}%
-                    </Typography>
+                  {getScoreEmoji(dashboardData?.diabetes_adherence || 0)} {Math.round(dashboardData?.diabetes_adherence || 0)}%
+                </Typography>
                     <Typography variant="body2" sx={{ 
                       color: '#718096',
                       fontSize: { xs: '0.8rem', sm: '0.875rem' },
                       fontWeight: 500,
                       mb: 2
                     }}>
-                      {dashboardData?.diabetes_adherence === 0 ? 'Start logging meals' :
-                       dashboardData?.diabetes_adherence >= 80 ? 'Excellent!' : 
-                       dashboardData?.diabetes_adherence >= 60 ? 'Good progress' : 'Keep improving'}
-                    </Typography>
-                    <LinearProgress 
-                      variant="determinate" 
-                      value={dashboardData?.diabetes_adherence || 0}
+                  {dashboardData?.diabetes_adherence === 0 ? 'Start logging meals' :
+                   dashboardData?.diabetes_adherence >= 80 ? 'Excellent!' : 
+                   dashboardData?.diabetes_adherence >= 60 ? 'Good progress' : 'Keep improving'}
+                </Typography>
+                <LinearProgress 
+                  variant="determinate" 
+                  value={dashboardData?.diabetes_adherence || 0}
                       sx={{ 
                         height: 8,
                         borderRadius: '4px',
@@ -3529,18 +3869,18 @@ const HomePage: React.FC = () => {
                       }}
                     />
                   </Box>
-                </CardContent>
-              </Card>
-            </Grid>
+              </CardContent>
+            </Card>
+          </Grid>
 
-            <Grid item xs={12} sm={6} md={3}>
-              <Card sx={{ 
+          <Grid item xs={12} sm={6} md={3}>
+            <Card sx={{ 
                 background: 'rgba(255, 255, 255, 0.95)',
                 backdropFilter: 'blur(20px)',
                 border: '1px solid rgba(255, 255, 255, 0.3)',
                 borderRadius: '24px',
                 boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
-                height: '100%',
+              height: '100%',
                 minHeight: { xs: '160px', sm: '180px' },
                 transition: 'all 0.3s ease',
                 '&:hover': {
@@ -3549,7 +3889,7 @@ const HomePage: React.FC = () => {
                 }
               }}>
                 <CardContent sx={{ p: { xs: 3, sm: 3.5 }, height: '100%', display: 'flex', flexDirection: 'column' }}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
                     <Box sx={{ 
                       p: 1.5,
                       borderRadius: '16px',
@@ -3560,7 +3900,7 @@ const HomePage: React.FC = () => {
                       mr: 2
                     }}>
                       <TrophyIcon sx={{ color: 'white', fontSize: { xs: '1.2rem', sm: '1.4rem' } }} />
-                    </Box>
+                </Box>
                     <Typography variant="h6" sx={{ 
                       fontSize: { xs: '0.95rem', sm: '1.1rem' },
                       fontWeight: 600,
@@ -3577,16 +3917,16 @@ const HomePage: React.FC = () => {
                       lineHeight: 1,
                       mb: 1
                     }}>
-                      {dashboardData?.consistency_streak || 0}
-                    </Typography>
+                  {dashboardData?.consistency_streak || 0}
+                </Typography>
                     <Typography variant="body2" sx={{ 
                       color: '#718096',
                       fontSize: { xs: '0.8rem', sm: '0.875rem' },
                       fontWeight: 500,
                       mb: 2
                     }}>
-                      Days consistent
-                    </Typography>
+                  Days consistent
+                </Typography>
                     <Box sx={{ display: 'flex', alignItems: 'center' }}>
                       <StarIcon sx={{ mr: 0.5, fontSize: 16, color: '#fbbf24' }} />
                       <Typography variant="body2" sx={{ 
@@ -3594,23 +3934,22 @@ const HomePage: React.FC = () => {
                         fontSize: { xs: '0.75rem', sm: '0.875rem' },
                         fontWeight: 500
                       }}>
-                        {dashboardData?.consistency_streak >= 7 ? 'Amazing!' : 'Keep going!'}
-                      </Typography>
+                    {dashboardData?.consistency_streak >= 7 ? 'Amazing!' : 'Keep going!'}
+                  </Typography>
                     </Box>
-                  </Box>
-                </CardContent>
-              </Card>
-            </Grid>
+                </Box>
+              </CardContent>
+            </Card>
+          </Grid>
 
-            {/* Macro Distribution Chart */}
-            <Grid item xs={12} md={6}>
+          {/* Nutritional Analytics - Mobile First Design */}
+          <Grid item xs={12}>
               <Card sx={{ 
                 background: 'rgba(255, 255, 255, 0.95)',
                 backdropFilter: 'blur(20px)',
                 border: '1px solid rgba(255, 255, 255, 0.3)',
                 borderRadius: '24px',
                 boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
-                height: 400,
                 transition: 'all 0.3s ease',
                 '&:hover': {
                   transform: 'translateY(-2px)',
@@ -3636,76 +3975,136 @@ const HomePage: React.FC = () => {
                     }}>
                       <AnalyticsIcon sx={{ color: 'white', fontSize: '1.2rem' }} />
                     </Box>
-                    Macronutrients
-                  </Typography>
-                <FormControl variant="outlined" size="small" sx={{ mb: 2, minWidth: 120 }}>
-                  <InputLabel id="macro-time-range-label">Time Range</InputLabel>
-                  <Select
-                    labelId="macro-time-range-label"
-                    id="macro-time-range-select"
-                    value={macroTimeRange}
-                    onChange={(e) => {
-                      const newTimeRange = e.target.value as 'daily' | 'weekly' | 'bi-weekly' | 'monthly';
-                      setMacroTimeRange(newTimeRange);
-                      fetchMacroConsumptionAnalytics(newTimeRange); // Trigger fetch on change
-                      fetchMealAnalytics(newTimeRange); // ALSO FETCH MEAL ANALYTICS - FIXED
-                    }}
-                    label="Time Range"
-                  >
-                    <MenuItem value="daily">Daily</MenuItem>
-                    <MenuItem value="weekly">Weekly</MenuItem>
-                    <MenuItem value="bi-weekly">Bi-Weekly</MenuItem>
-                    <MenuItem value="monthly">Monthly</MenuItem>
-                  </Select>
-                </FormControl>
-                {createMacroChart && (
-                  <Box sx={{ height: 300 }}>
-                    <Doughnut 
-                      key={`macro-${macroTimeRange}`}
-                      data={createMacroChart} 
-                      options={{
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        plugins: {
-                          legend: {
-                            position: 'bottom',
-                          },
-                          tooltip: {
-                            callbacks: {
-                              label: function(context) {
-                                let label = context.label || '';
-                                if (label) {
-                                  label += ': ';
-                                }
-                                if (context.parsed !== null) {
-                                  const value = context.parsed;
-                                  const numValue = typeof value === 'number' ? value : 0;
-                                  label += numValue.toFixed(1) + 'g'; // Display actual value
-                                }
-                                return label;
-                              },
-                              afterLabel: function(context) {
-                                const total = context.dataset.data.reduce((sum: number, value: number) => sum + value, 0);
-                                const value = context.parsed;
-                                const numValue = typeof value === 'number' ? value : 0;
-                                const percentage = total > 0 ? (numValue / total * 100) : 0;
-                                return `(${percentage.toFixed(1)}%)`; // Display percentage
-                              }
-                            }
-                          }
-                        },
+                  📊 Nutritional Analytics
+                </Typography>
+                {/* Mobile-First Controls Layout */}
+                <Box sx={{ 
+                  display: 'flex', 
+                  flexDirection: { xs: 'column', sm: 'row' },
+                  gap: { xs: 1.5, sm: 2 }, 
+                  mb: 2 
+                }}>
+                  <FormControl variant="outlined" size="small" sx={{ 
+                    minWidth: { xs: '100%', sm: 120 },
+                    flex: { xs: 'none', sm: 1 }
+                  }}>
+                    <InputLabel id="macro-time-range-label">Time Range</InputLabel>
+                    <Select
+                      labelId="macro-time-range-label"
+                      id="macro-time-range-select"
+                      value={macroTimeRange}
+                      onChange={(e) => {
+                        const newTimeRange = e.target.value as 'daily' | 'weekly' | 'bi-weekly' | 'monthly';
+                        setMacroTimeRange(newTimeRange);
+                        fetchMacroConsumptionAnalytics(newTimeRange);
+                        fetchMealAnalytics(newTimeRange);
                       }}
-                    />
-                  </Box>
+                      label="Time Range"
+                    >
+                      <MenuItem value="daily">Daily</MenuItem>
+                      <MenuItem value="weekly">Weekly</MenuItem>
+                      <MenuItem value="bi-weekly">Bi-Weekly</MenuItem>
+                      <MenuItem value="monthly">Monthly</MenuItem>
+                    </Select>
+                  </FormControl>
+                  <FormControl variant="outlined" size="small" sx={{ 
+                    minWidth: { xs: '100%', sm: 140 },
+                    flex: { xs: 'none', sm: 1 }
+                  }}>
+                    <InputLabel id="chart-type-label">Chart Type</InputLabel>
+                    <Select
+                      labelId="chart-type-label"
+                      id="chart-type-select"
+                      value={chartType}
+                      onChange={(e) => setChartType(e.target.value as 'macros' | 'micronutrients' | 'diabetic-metrics' | 'weight-loss')}
+                      label="Chart Type"
+                    >
+                      <MenuItem value="macros">🥩 Macronutrients</MenuItem>
+                      <MenuItem value="micronutrients">🥗 Micronutrients</MenuItem>
+                      <MenuItem value="diabetic-metrics">🩺 Diabetic Metrics</MenuItem>
+                      <MenuItem value="weight-loss">⚖️ Weight Loss</MenuItem>
+                    </Select>
+                  </FormControl>
+                  <FormControl variant="outlined" size="small" sx={{ 
+                    minWidth: { xs: '100%', sm: 120 },
+                    flex: { xs: 'none', sm: 1 }
+                  }}>
+                    <InputLabel id="graph-style-label">Graph Style</InputLabel>
+                    <Select
+                      labelId="graph-style-label"
+                      id="graph-style-select"
+                      value={graphStyle}
+                      onChange={(e) => setGraphStyle(e.target.value as 'pie' | 'bar' | 'line' | 'radar')}
+                      label="Graph Style"
+                    >
+                      <MenuItem value="pie">🥧 Pie Chart</MenuItem>
+                      <MenuItem value="bar">📊 Bar Chart</MenuItem>
+                      <MenuItem value="line">📈 Line Chart</MenuItem>
+                      <MenuItem value="radar">🕸️ Radar Chart</MenuItem>
+                    </Select>
+                  </FormControl>
+                </Box>
+                
+                {/* Chart Type Description */}
+                {getCurrentChartData() && (
+                  <Typography variant="body2" sx={{ 
+                    mb: 2, 
+                    color: '#666', 
+                    fontStyle: 'italic',
+                    textAlign: 'center',
+                    px: 2
+                  }}>
+                    {chartType === 'macros' && '📊 Basic macronutrient distribution (Protein, Carbs, Fat)'}
+                    {chartType === 'micronutrients' && '🥗 Essential vitamins and minerals for optimal health'}
+                    {chartType === 'diabetic-metrics' && '🩺 Key metrics for diabetes management and blood sugar control'}
+                    {chartType === 'weight-loss' && '⚖️ Metrics focused on sustainable weight management'}
+                  </Typography>
                 )}
+                
+                {/* Mobile-Optimized Chart Display */}
+                <Box sx={{ 
+                  height: { xs: 350, sm: 400, md: 450 }, 
+                  mt: 1,
+                  width: '100%',
+                  position: 'relative'
+                }}>
+                  {getCurrentChartData() ? (
+                    <Box sx={{ 
+                      height: '100%', 
+                      width: '100%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      p: { xs: 1, sm: 2 }
+                    }}>
+                      {renderNutritionChart()}
+                    </Box>
+                  ) : (
+                    <Box sx={{ 
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      justifyContent: 'center', 
+                      height: '100%',
+                      flexDirection: 'column',
+                      color: '#999'
+                    }}>
+                      <Typography variant="h6" sx={{ mb: 1 }}>📊</Typography>
+                      <Typography variant="body2">No data available for this time range</Typography>
+                      <Typography variant="caption" sx={{ mt: 1, textAlign: 'center' }}>
+                        Try logging some meals or selecting a different time period
+                      </Typography>
+                    </Box>
+                  )}
+                </Box>
               </CardContent>
             </Card>
           </Grid>
 
-          {/* AI Recommendations */}
-          <Grid item xs={12} md={6}>
+          {/* AI Recommendations - Full Width on Mobile */}
+          <Grid item xs={12}>
             <Card sx={{ 
-              height: 400,
+              height: { xs: 'auto', sm: 450, md: 500 },
+              minHeight: { xs: 300, sm: 'auto' },
               background: 'rgba(255, 255, 255, 0.08)',
               backdropFilter: 'blur(20px)',
               border: '1px solid rgba(255, 255, 255, 0.15)',
@@ -3752,7 +4151,11 @@ const HomePage: React.FC = () => {
                   </Box>
                   ✨ AI Recommendations
                 </Typography>
-                <List sx={{ maxHeight: 240, overflowY: 'auto' }}>
+                <List sx={{ 
+                  maxHeight: { xs: 'none', sm: 350, md: 400 }, 
+                  overflowY: { xs: 'visible', sm: 'auto' },
+                  pb: { xs: 2, sm: 0 }
+                }}>
                   {dashboardData?.recommendations?.slice(0, 4).map((rec: any, index: number) => (
                     <ListItem key={index} sx={{ 
                       px: 0, 
@@ -4383,7 +4786,7 @@ const HomePage: React.FC = () => {
 
       {/* Analytics Tab */}
       <CustomTabPanel value={tabValue} index={1}>
-          <Box sx={{ mb: 3 }}>
+        <Box sx={{ mb: 3 }}>
             <Typography variant="h5" component="h2" gutterBottom sx={{ 
               display: 'flex', 
               alignItems: 'center',
@@ -4402,15 +4805,15 @@ const HomePage: React.FC = () => {
               }}>
                 <AnalyticsIcon sx={{ color: 'white', fontSize: '1.5rem' }} />
               </Box>
-              Consumption Trends & Analysis
-            </Typography>
+            Consumption Trends & Analysis
+          </Typography>
             <Typography variant="subtitle1" sx={{ 
               mb: 2,
               color: 'rgba(255, 255, 255, 0.9)',
               fontWeight: 400
             }}>
-              Visualize your dietary intake over different periods to identify patterns and progress.
-            </Typography>
+            Visualize your dietary intake over different periods to identify patterns and progress.
+          </Typography>
           <Box sx={{ 
             display: 'flex', 
             flexDirection: { xs: 'column', sm: 'column', md: 'row' },
@@ -4545,11 +4948,11 @@ const HomePage: React.FC = () => {
           </Box>
         </Box>
 
-          {loading ? (
-            <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 300 }}>
+        {loading ? (
+          <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 300 }}>
               <CircularProgress sx={{ color: 'white' }} />
               <Typography variant="h6" sx={{ ml: 2, color: 'white' }}>Loading analytics...</Typography>
-            </Box>
+          </Box>
         ) : error ? (
           <Alert severity="error">{error}</Alert>
         ) : consumptionAnalytics ? (
@@ -4843,36 +5246,60 @@ const HomePage: React.FC = () => {
 
       {/* AI Insights Tab */}
       <CustomTabPanel value={tabValue} index={2}>
+        {/* AI Coach Heading */}
+        <Box sx={{ 
+          mb: 3, 
+          display: 'flex', 
+          alignItems: 'center', 
+          justifyContent: 'center',
+          gap: 2,
+          p: 2,
+          borderRadius: '16px',
+          background: 'rgba(255, 255, 255, 0.15)',
+          backdropFilter: 'blur(20px)',
+          border: '1px solid rgba(255, 255, 255, 0.2)',
+          boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
+          maxWidth: 'fit-content',
+          mx: 'auto'
+        }}>
+          <Box sx={{
+            background: 'rgba(255, 255, 255, 0.25)',
+            backdropFilter: 'blur(10px)',
+            borderRadius: '50%',
+            p: 1.5,
+            border: '1px solid rgba(255, 255, 255, 0.3)',
+            boxShadow: '0 6px 16px rgba(255, 255, 255, 0.2)',
+            animation: 'pulse 2s ease-in-out infinite',
+            '@keyframes pulse': {
+              '0%': { transform: 'scale(1)', boxShadow: '0 6px 16px rgba(255, 255, 255, 0.2)' },
+              '50%': { transform: 'scale(1.05)', boxShadow: '0 8px 20px rgba(255, 255, 255, 0.3)' },
+              '100%': { transform: 'scale(1)', boxShadow: '0 6px 16px rgba(255, 255, 255, 0.2)' }
+            }
+          }}>
+            <CoachIcon sx={{ fontSize: 32, color: 'white' }} />
+          </Box>
+          <Typography variant="h4" sx={{
+            fontWeight: 700,
+            color: 'white',
+            textShadow: '0 2px 8px rgba(0,0,0,0.3)',
+            fontSize: { xs: '1.5rem', md: '2rem' },
+            letterSpacing: '0.02em',
+            whiteSpace: 'nowrap'
+          }}>
+            AI Coach
+          </Typography>
+        </Box>
+        
         <Grid container spacing={3}>
-          {/* AI Health Coach - Made Much Bigger */}
+          {/* Removed old blurred header card entirely */}
           <Grid item xs={12}>
+            {/* Intentionally left empty to avoid rendering blurred header */}
             <Card sx={{ 
               background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
               color: 'white',
               minHeight: 600
             }}>
-              <CardContent sx={{ p: 4 }}>
-                <Typography variant="h4" gutterBottom sx={{ 
-                  display: 'flex', 
-                  alignItems: 'center', 
-                  color: 'white', 
-                  mb: 3,
-                  textShadow: '0 2px 4px rgba(0,0,0,0.3)',
-                  fontWeight: 700
-                }}>
-                  <Box sx={{ 
-                    p: 1.5,
-                    borderRadius: '16px',
-                    background: 'rgba(255, 255, 255, 0.2)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    mr: 2
-                  }}>
-                    <CoachIcon sx={{ fontSize: 36, color: 'white' }} />
-                  </Box>
-                  💬 AI Health Coach
-                </Typography>
+              <CardContent sx={{ p: { xs: 4, md: 6 }, pt: { xs: 2, md: 3 } }}>
                 <Typography variant="h6" sx={{ mb: 4, color: 'rgba(255,255,255,0.95)', lineHeight: 1.6 }}>
                   Get instant personalized advice, meal suggestions, and health insights from your AI coach. Ask anything about your diabetes management, nutrition, meal planning, or health goals!
                 </Typography>
@@ -4974,14 +5401,23 @@ const HomePage: React.FC = () => {
                 </Button>
                 {aiCoachResponse && (
                   <Paper sx={{ 
-                    p: 3, 
-                    mt: 3, 
-                    bgcolor: 'rgba(255,255,255,0.15)', 
-                    backdropFilter: 'blur(10px)',
-                    borderRadius: 3,
-                    border: '1px solid rgba(255,255,255,0.2)'
+                    p: { xs: 3, md: 5 }, 
+                    mt: 4, 
+                    mx: { xs: 0, md: -6 }, // Extend beyond the increased card padding on larger screens
+                    bgcolor: 'rgba(255,255,255,0.12)', 
+                    backdropFilter: 'blur(15px)',
+                    borderRadius: { xs: 3, md: 4 },
+                    border: '1px solid rgba(255,255,255,0.25)',
+                    boxShadow: '0 8px 32px rgba(0,0,0,0.2)',
+                    maxWidth: 'none', // Remove any width constraints
+                    width: { xs: '100%', md: 'calc(100% + 96px)' } // Extend full width plus the increased negative margin
                   }}>
-                    <Typography variant="h6" sx={{ color: 'white', mb: 2, display: 'flex', alignItems: 'center' }}>
+                    <Typography variant="h6" sx={{ 
+                      color: 'white', 
+                      mb: 2, 
+                      display: 'flex', 
+                      alignItems: 'center'
+                    }}>
                       <CoachIcon sx={{ mr: 1 }} />
                       AI Coach Response:
                     </Typography>
@@ -4990,7 +5426,8 @@ const HomePage: React.FC = () => {
                       color: 'white', 
                       fontSize: '1.05rem',
                       lineHeight: 1.6,
-                      mb: 2
+                      mb: 2,
+                      maxWidth: 'none'
                     }}>
                       {aiCoachResponse}
                     </Typography>
@@ -5166,7 +5603,7 @@ const HomePage: React.FC = () => {
       <Dialog open={showAICoachDialog} onClose={() => setShowAICoachDialog(false)} maxWidth="md" fullWidth>
         <DialogTitle sx={{ display: 'flex', alignItems: 'center' }}>
           <CoachIcon sx={{ mr: 1 }} />
-          AI Health Coach
+          Coach
         </DialogTitle>
         <DialogContent>
           <TextField
@@ -5232,7 +5669,7 @@ const HomePage: React.FC = () => {
         onAccept={handlePendingAccept}
         onDelete={handlePendingDelete}
       />
-      </Container>
+    </Container>
     </Box>
   );
 };

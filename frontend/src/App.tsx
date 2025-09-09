@@ -20,6 +20,7 @@ import AllShoppingListsPage from './pages/AllShoppingListsPage';
 import MealPlanHistory from './components/MealPlanHistory';
 import MealPlanDetails from './components/MealPlanDetails';
 import Settings from './components/Settings';
+import ScrollToTop from './components/ScrollToTop';
 
 import ConsumptionHistory from './components/ConsumptionHistory';
 import NotificationSystem from './components/NotificationSystem';
@@ -269,6 +270,7 @@ function App() {
     <AppProvider>
       <ThemeProvider theme={theme}>
         <CssBaseline />
+        <ScrollToTop />
         <Box
           sx={{
             display: 'flex',

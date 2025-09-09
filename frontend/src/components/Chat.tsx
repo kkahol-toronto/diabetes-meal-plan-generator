@@ -902,8 +902,8 @@ const Chat = () => {
     <Box sx={{
       minHeight: '100vh',
       background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-      py: { xs: 1, sm: 2 },
-      px: { xs: 1, sm: 2 },
+      py: { xs: 0.5, sm: 2 },
+      px: { xs: 0.5, sm: 2 },
       position: 'relative',
       '&::before': {
         content: '""',
@@ -924,19 +924,20 @@ const Chat = () => {
         flexDirection: 'column',
         position: 'relative',
         zIndex: 1,
+        px: { xs: 0, sm: 3 }
       }}>
       {/* Header */}
       <Fade in={true} timeout={1000}>
         <Paper elevation={0} sx={{ 
           p: { xs: 2, sm: 3 }, 
-          mb: { xs: 1, sm: 2 }, 
+          mb: { xs: 1, sm: 2 },
           background: 'rgba(255, 255, 255, 0.25)',
           backdropFilter: 'blur(20px)',
           border: '1px solid rgba(255, 255, 255, 0.2)',
-          borderRadius: '24px',
+          borderRadius: { xs: '16px', sm: '24px' },
           boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
-          color: 'white',
           animation: `${fadeInScale} 0.8s ease-out`,
+          position: 'relative',
           '&::before': {
             content: '""',
             position: 'absolute',
@@ -945,65 +946,172 @@ const Chat = () => {
             right: 0,
             bottom: 0,
             background: 'linear-gradient(45deg, rgba(255,255,255,0.1), rgba(255,255,255,0.05))',
-            borderRadius: '24px',
+            borderRadius: { xs: '16px', sm: '24px' },
             animation: `${shimmer} 3s ease-in-out infinite`,
             backgroundImage: 'linear-gradient(45deg, transparent 30%, rgba(255,255,255,0.1) 50%, transparent 70%)',
             backgroundSize: '200px 100%',
             backgroundRepeat: 'no-repeat',
           }
         }}>
-        <Box sx={{ 
-          display: 'flex', 
-          alignItems: 'center', 
-          justifyContent: 'space-between', 
-          flexWrap: 'wrap', 
-          gap: { xs: 1, sm: 2 },
-          flexDirection: { xs: 'column', sm: 'row' }
-        }}>
-          <Slide direction="right" in={true} timeout={800}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-              <Box sx={{
-                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                borderRadius: '50%',
-                p: 1,
-                boxShadow: '0 4px 12px rgba(102, 126, 234, 0.4)',
-                animation: `${pulse} 2s ease-in-out infinite`,
-              }}>
-                <Avatar sx={{ bgcolor: 'rgba(255, 255, 255, 0.9)', color: '#667eea' }}>
-                  <SmartToyIcon />
-                </Avatar>
-              </Box>
-              <Box>
-                <Typography variant="h5" sx={{ 
-                  fontWeight: 'bold',
-                  textShadow: '0 2px 4px rgba(0,0,0,0.3)',
-                  animation: `${bounceIn} 1s ease-out 0.3s both`
+          <Box sx={{ position: 'relative', zIndex: 1 }}>
+            {/* Main header row */}
+            <Box sx={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              mb: { xs: 2, sm: 0 }
+            }}>
+              {/* Left side - Title */}
+              <Slide direction="right" in={true} timeout={800}>
+                <Box sx={{ 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  gap: { xs: 1.5, sm: 2 }
                 }}>
-                  🤖 AI Health Coach
-                </Typography>
-                <Typography variant="body2" sx={{ 
-                  color: 'rgba(255, 255, 255, 0.9)',
-                  textShadow: '0 1px 3px rgba(0,0,0,0.2)',
-                  animation: `${slideInUp} 0.8s ease-out 0.5s both`
-                }}>
-                  Your intelligent diabetes management companion
-                </Typography>
-              </Box>
+                  <Box sx={{
+                    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                    borderRadius: '50%',
+                    p: { xs: 0.75, sm: 1 },
+                    boxShadow: '0 4px 12px rgba(102, 126, 234, 0.4)',
+                    animation: `${pulse} 2s ease-in-out infinite`,
+                  }}>
+                    <Avatar sx={{ 
+                      bgcolor: 'rgba(255, 255, 255, 0.9)', 
+                      color: '#667eea',
+                      width: { xs: 32, sm: 40 },
+                      height: { xs: 32, sm: 40 }
+                    }}>
+                      <SmartToyIcon sx={{ fontSize: { xs: 18, sm: 24 } }} />
+                    </Avatar>
+                  </Box>
+                  <Box>
+                    <Typography variant="h6" sx={{ 
+                      fontSize: { xs: '1.1rem', sm: '1.5rem' },
+                      fontWeight: 'bold',
+                      color: 'white',
+                      textShadow: '0 2px 4px rgba(0,0,0,0.3)',
+                      animation: `${bounceIn} 1s ease-out 0.3s both`,
+                      lineHeight: 1.2
+                    }}>
+                      🤖 AI Health Coach
+                    </Typography>
+                    <Typography variant="body2" sx={{ 
+                      fontSize: { xs: '0.8rem', sm: '0.875rem' },
+                      color: 'rgba(255, 255, 255, 0.9)',
+                      textShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                      animation: `${slideInUp} 0.8s ease-out 0.5s both`,
+                      display: { xs: 'none', sm: 'block' }
+                    }}>
+                      Your intelligent diabetes management companion
+                    </Typography>
+                  </Box>
+                </Box>
+              </Slide>
+              
+              {/* Right side - Buttons */}
+              <Slide direction="left" in={true} timeout={1000}>
+                <Zoom in={true} timeout={1000} style={{ transitionDelay: '0.6s' }}>
+                  <Box sx={{ 
+                    display: 'flex',
+                    gap: { xs: 0.5, sm: 1 },
+                    background: 'rgba(255, 255, 255, 0.15)',
+                    backdropFilter: 'blur(10px)',
+                    border: '1px solid rgba(255, 255, 255, 0.25)',
+                    borderRadius: { xs: '12px', sm: '16px' }, 
+                    p: { xs: 0.5, sm: 0.75 },
+                    boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
+                  }}>
+                    <Button
+                      variant="contained"
+                      size="small"
+                      onClick={handleNewChat}
+                      sx={{
+                        background: 'rgba(255, 255, 255, 0.9)',
+                        color: '#333',
+                        fontWeight: 'bold',
+                        fontSize: { xs: '0.65rem', sm: '0.75rem' },
+                        px: { xs: 1.5, sm: 2 },
+                        py: { xs: 0.6, sm: 0.8 },
+                        minWidth: { xs: '70px', sm: '80px' },
+                        height: { xs: '28px', sm: '32px' },
+                        border: 'none',
+                        borderRadius: { xs: '8px', sm: '10px' },
+                        boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+                        textTransform: 'none',
+                        letterSpacing: '0.5px',
+                        '&:hover': {
+                          background: 'white',
+                          transform: 'translateY(-1px)',
+                          boxShadow: '0 4px 8px rgba(0,0,0,0.15)',
+                        },
+                        '&:active': {
+                          transform: 'translateY(0px)',
+                        },
+                        transition: 'all 0.2s ease',
+                      }}
+                    >
+                      NEW CHAT
+                    </Button>
+                    <Button
+                      variant="contained"
+                      size="small"
+                      onClick={handleClearHistory}
+                      sx={{
+                        background: 'rgba(255, 255, 255, 0.9)',
+                        color: '#333',
+                        fontWeight: 'bold',
+                        fontSize: { xs: '0.65rem', sm: '0.75rem' },
+                        px: { xs: 1.5, sm: 2 },
+                        py: { xs: 0.6, sm: 0.8 },
+                        minWidth: { xs: '60px', sm: '70px' },
+                        height: { xs: '28px', sm: '32px' },
+                        border: 'none',
+                        borderRadius: { xs: '8px', sm: '10px' },
+                        boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+                        textTransform: 'none',
+                        letterSpacing: '0.5px',
+                        '&:hover': {
+                          background: 'white',
+                          transform: 'translateY(-1px)',
+                          boxShadow: '0 4px 8px rgba(0,0,0,0.15)',
+                        },
+                        '&:active': {
+                          transform: 'translateY(0px)',
+                        },
+                        transition: 'all 0.2s ease',
+                      }}
+                    >
+                      CLEAR
+                    </Button>
+                  </Box>
+                </Zoom>
+              </Slide>
             </Box>
-          </Slide>
-          
-          <Slide direction="left" in={true} timeout={1000}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
-              {userStats && (
-                <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap' }}>
-                  <Zoom in={true} timeout={800} style={{ transitionDelay: '0.2s' }}>
+
+            {/* Stats chips row */}
+            {userStats && (
+              <Slide direction="up" in={true} timeout={1000} style={{ transitionDelay: '0.8s' }}>
+                <Box sx={{ 
+                  display: 'flex',
+                  gap: 1.5, 
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  mt: { xs: 0, sm: 2 }
+                }}>
+                  <Zoom in={true} timeout={800} style={{ transitionDelay: '1.0s' }}>
                     <Chip 
-                      icon={<LocalFireDepartmentIcon />} 
+                      icon={<LocalFireDepartmentIcon sx={{ fontSize: { xs: 14, sm: 16 } }} />} 
                       label={`${userStats.today_totals?.calories || 0} cal`}
+                      size="small"
                       sx={{ 
-                        background: 'linear-gradient(135deg, rgba(255,87,34,0.8) 0%, rgba(255,152,0,0.8) 100%)',
+                        background: 'linear-gradient(135deg, rgba(255,87,34,0.85) 0%, rgba(255,152,0,0.85) 100%)',
                         color: 'white',
                         fontWeight: 'bold',
+                        fontSize: { xs: '0.7rem', sm: '0.75rem' },
+                        height: { xs: 26, sm: 28 },
+                        '& .MuiChip-label': {
+                          px: { xs: 1.5, sm: 2 }
+                        },
                         boxShadow: '0 4px 12px rgba(255,87,34,0.3)',
                         border: '1px solid rgba(255,255,255,0.2)',
                         '&:hover': {
@@ -1014,14 +1122,20 @@ const Chat = () => {
                       }}
                     />
                   </Zoom>
-                  <Zoom in={true} timeout={800} style={{ transitionDelay: '0.4s' }}>
+                  <Zoom in={true} timeout={800} style={{ transitionDelay: '1.2s' }}>
                     <Chip 
-                      icon={<FavoriteIcon />} 
+                      icon={<FavoriteIcon sx={{ fontSize: { xs: 14, sm: 16 } }} />} 
                       label={`${Math.round(userStats.diabetes_adherence || 0)}% score`}
+                      size="small"
                       sx={{ 
-                        background: 'linear-gradient(135deg, rgba(233,30,99,0.8) 0%, rgba(156,39,176,0.8) 100%)',
+                        background: 'linear-gradient(135deg, rgba(233,30,99,0.85) 0%, rgba(156,39,176,0.85) 100%)',
                         color: 'white',
                         fontWeight: 'bold',
+                        fontSize: { xs: '0.7rem', sm: '0.75rem' },
+                        height: { xs: 26, sm: 28 },
+                        '& .MuiChip-label': {
+                          px: { xs: 1.5, sm: 2 }
+                        },
                         boxShadow: '0 4px 12px rgba(233,30,99,0.3)',
                         border: '1px solid rgba(255,255,255,0.2)',
                         '&:hover': {
@@ -1033,53 +1147,10 @@ const Chat = () => {
                     />
                   </Zoom>
                 </Box>
-              )}
-              
-              <Zoom in={true} timeout={1000} style={{ transitionDelay: '0.6s' }}>
-                <Box sx={{ 
-                  background: 'rgba(255, 255, 255, 0.2)',
-                  backdropFilter: 'blur(10px)',
-                  border: '1px solid rgba(255, 255, 255, 0.3)',
-                  borderRadius: '16px', 
-                  p: 0.5,
-                  boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
-                }}>
-                  <ButtonGroup 
-                    variant="contained" 
-                    size="small" 
-                    sx={{ 
-                      '& .MuiButton-root': { 
-                        background: 'rgba(255, 255, 255, 0.9)',
-                        color: '#333', 
-                        fontWeight: 'bold',
-                        border: 'none',
-                        borderRadius: '12px',
-                        boxShadow: 'none',
-                        '&:hover': { 
-                          background: 'white',
-                          transform: 'translateY(-1px)',
-                          boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
-                        },
-                        '&:not(:last-child)': {
-                          marginRight: '4px'
-                        },
-                        transition: 'all 0.3s ease',
-                      } 
-                    }}
-                  >
-                <Button startIcon={<AddCommentIcon />} onClick={handleNewChat}>
-                  New Chat
-                </Button>
-                <Button startIcon={<CloseIcon />} onClick={handleClearHistory}>
-                  Clear
-                </Button>
-                  </ButtonGroup>
-                </Box>
-              </Zoom>
-            </Box>
-          </Slide>
-        </Box>
-      </Paper>
+              </Slide>
+            )}
+          </Box>
+        </Paper>
       </Fade>
 
 
@@ -1088,9 +1159,9 @@ const Chat = () => {
       {showQuickActions && messages.length === 0 && (
         <Fade in={showQuickActions} timeout={1200}>
           <Paper elevation={0} sx={{ 
-            p: { xs: 2, sm: 3 },
-            mb: 2,
-            borderRadius: '24px',
+            p: { xs: 1.5, sm: 3 },
+            mb: { xs: 1, sm: 2 },
+            borderRadius: { xs: '16px', sm: '24px' },
             background: 'rgba(255, 255, 255, 0.25)',
             backdropFilter: 'blur(20px)',
             border: '1px solid rgba(255, 255, 255, 0.2)',
@@ -1105,7 +1176,7 @@ const Chat = () => {
               right: 0,
               bottom: 0,
               background: 'linear-gradient(45deg, rgba(255,255,255,0.1), rgba(255,255,255,0.05))',
-              borderRadius: '24px',
+              borderRadius: { xs: '16px', sm: '24px' },
               animation: `${shimmer} 3s ease-in-out infinite`,
               backgroundImage: 'linear-gradient(45deg, transparent 30%, rgba(255,255,255,0.1) 50%, transparent 70%)',
               backgroundSize: '200px 100%',
@@ -1142,9 +1213,9 @@ const Chat = () => {
                 Get started with these common requests:
               </Typography>
             </Box>
-            <Grid container spacing={2} sx={{ position: 'relative', zIndex: 1 }}>
+            <Grid container spacing={{ xs: 1.5, sm: 2 }} sx={{ position: 'relative', zIndex: 1 }}>
               {quickActions.map((action, index) => (
-                <Grid item xs={12} sm={6} md={4} key={index}>
+                <Grid item xs={6} sm={6} md={4} key={index}>
                   <Zoom in={true} timeout={600} style={{ transitionDelay: `${0.9 + index * 0.1}s` }}>
                     <Button
                       variant="contained"
@@ -1152,16 +1223,23 @@ const Chat = () => {
                       startIcon={action.icon}
                       onClick={() => handleQuickAction(action)}
                       sx={{ 
-                        py: 2,
-                        px: 2,
-                        borderRadius: '16px',
+                        py: { xs: 1.5, sm: 2 },
+                        px: { xs: 1, sm: 2 },
+                        borderRadius: { xs: '12px', sm: '16px' },
                         background: `linear-gradient(135deg, ${getActionColor(action.color).gradient})`,
                         color: 'white',
                         border: '1px solid rgba(255, 255, 255, 0.2)',
                         boxShadow: `0 4px 12px ${getActionColor(action.color).shadow}`,
                         fontWeight: 600,
+                        fontSize: { xs: '0.8rem', sm: '0.875rem' },
                         textTransform: 'none',
                         justifyContent: 'flex-start',
+                        '& .MuiButton-startIcon': {
+                          marginRight: { xs: 0.5, sm: 1 },
+                          '& > *:nth-of-type(1)': {
+                            fontSize: { xs: 16, sm: 20 }
+                          }
+                        },
                         '&:hover': {
                           transform: 'translateY(-3px) scale(1.02)',
                           boxShadow: `0 8px 20px ${getActionColor(action.color).shadow}`,
@@ -1192,8 +1270,8 @@ const Chat = () => {
             display: 'flex', 
             flexDirection: 'column', 
             overflow: 'hidden',
-            mb: 2,
-            borderRadius: '24px',
+            mb: { xs: 1, sm: 2 },
+            borderRadius: { xs: '16px', sm: '24px' },
             background: 'rgba(255, 255, 255, 0.25)',
             backdropFilter: 'blur(20px)',
             border: '1px solid rgba(255, 255, 255, 0.2)',
@@ -1208,7 +1286,7 @@ const Chat = () => {
               right: 0,
               bottom: 0,
               background: 'linear-gradient(45deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02))',
-              borderRadius: '24px',
+              borderRadius: { xs: '16px', sm: '24px' },
               animation: `${shimmer} 4s ease-in-out infinite`,
               backgroundImage: 'linear-gradient(45deg, transparent 30%, rgba(255,255,255,0.08) 50%, transparent 70%)',
               backgroundSize: '200px 100%',
@@ -1221,10 +1299,10 @@ const Chat = () => {
           sx={{
             flex: 1,
             overflowY: 'auto',
-            p: { xs: 2, sm: 3 },
+            p: { xs: 1.5, sm: 3 },
             display: 'flex',
             flexDirection: 'column',
-            gap: 2,
+            gap: { xs: 1.5, sm: 2 },
             position: 'relative',
             zIndex: 1,
           }}
@@ -1278,30 +1356,30 @@ const Chat = () => {
               >
                 <Box
                   sx={{
-                    maxWidth: '70%',
+                    maxWidth: { xs: '85%', sm: '70%' },
                     display: 'flex',
                     alignItems: 'flex-start',
-                    gap: 1,
+                    gap: { xs: 0.75, sm: 1 },
                     flexDirection: message.is_user ? 'row-reverse' : 'row',
                   }}
                 >
                   <Avatar
                     sx={{
                       bgcolor: message.is_user ? 'primary.main' : 'secondary.main',
-                      width: 32,
-                      height: 32,
+                      width: { xs: 28, sm: 32 },
+                      height: { xs: 28, sm: 32 },
                     }}
                   >
-                    {message.is_user ? <PersonIcon /> : <SmartToyIcon />}
+                    {message.is_user ? <PersonIcon sx={{ fontSize: { xs: 16, sm: 20 } }} /> : <SmartToyIcon sx={{ fontSize: { xs: 16, sm: 20 } }} />}
                   </Avatar>
                   
                   <Paper
                     elevation={1}
                     sx={{
-                      p: 2,
+                      p: { xs: 1.5, sm: 2 },
                       bgcolor: message.is_user ? 'primary.main' : 'grey.100',
                       color: message.is_user ? 'white' : 'text.primary',
-                      borderRadius: 2,
+                      borderRadius: { xs: 1.5, sm: 2 },
                       position: 'relative',
                       animation: message.metadata?.type === 'food_analysis' || message.metadata?.type === 'fridge_analysis' ? `${pulse} 2s ease-in-out` : 'none',
                       border: message.metadata?.type === 'food_analysis' || message.metadata?.type === 'fridge_analysis' ? '2px solid' : 'none',
@@ -1395,8 +1473,8 @@ const Chat = () => {
       {/* Input Area */}
       <Fade in={true} timeout={1800}>
         <Paper elevation={0} sx={{ 
-          p: { xs: 2, sm: 3 },
-          borderRadius: '24px',
+          p: { xs: 1.5, sm: 3 },
+          borderRadius: { xs: '16px', sm: '24px' },
           background: 'rgba(255, 255, 255, 0.25)',
           backdropFilter: 'blur(20px)',
           border: '1px solid rgba(255, 255, 255, 0.2)',
@@ -1411,7 +1489,7 @@ const Chat = () => {
             right: 0,
             bottom: 0,
             background: 'linear-gradient(45deg, rgba(255,255,255,0.08), rgba(255,255,255,0.04))',
-            borderRadius: '24px',
+            borderRadius: { xs: '16px', sm: '24px' },
             animation: `${shimmer} 4s ease-in-out infinite`,
             backgroundImage: 'linear-gradient(45deg, transparent 30%, rgba(255,255,255,0.1) 50%, transparent 70%)',
             backgroundSize: '200px 100%',
@@ -1495,7 +1573,13 @@ const Chat = () => {
           </Box>
         )}
 
-        <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-end', position: 'relative', zIndex: 1 }}>
+        <Box sx={{ 
+          display: 'flex', 
+          gap: { xs: 1, sm: 2 }, 
+          alignItems: 'flex-end', 
+          position: 'relative', 
+          zIndex: 1 
+        }}>
           <TextField
             fullWidth
             multiline
@@ -1522,11 +1606,12 @@ const Chat = () => {
             }}
             sx={{
               '& .MuiOutlinedInput-root': {
-                borderRadius: '20px',
+                borderRadius: { xs: '16px', sm: '20px' },
                 background: 'rgba(255, 255, 255, 0.9)',
                 backdropFilter: 'blur(10px)',
                 border: '1px solid rgba(255, 255, 255, 0.3)',
                 boxShadow: '0 4px 12px rgba(0, 0, 0, 0.05)',
+                fontSize: { xs: '0.9rem', sm: '1rem' },
                 '&:hover': {
                   boxShadow: '0 6px 16px rgba(0, 0, 0, 0.1)',
                   transform: 'translateY(-1px)',
@@ -1540,10 +1625,13 @@ const Chat = () => {
               '& .MuiOutlinedInput-input': {
                 color: '#333',
                 fontWeight: 500,
+                fontSize: { xs: '0.9rem', sm: '1rem' },
+                padding: { xs: '12px 14px', sm: '16.5px 14px' },
               },
               '& .MuiInputBase-input::placeholder': {
                 color: 'rgba(0, 0, 0, 0.6)',
                 fontWeight: 400,
+                fontSize: { xs: '0.85rem', sm: '1rem' },
               }
             }}
           />
@@ -1553,8 +1641,8 @@ const Chat = () => {
                 sx={{
                   background: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
                   color: 'white',
-                  width: 52,
-                  height: 52,
+                  width: { xs: 44, sm: 52 },
+                  height: { xs: 44, sm: 52 },
                   borderRadius: '50%',
                   boxShadow: '0 4px 12px rgba(240, 147, 251, 0.4)',
                   border: '1px solid rgba(255, 255, 255, 0.3)',
@@ -1569,7 +1657,7 @@ const Chat = () => {
                   transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
                 }}
               >
-                <PhotoCameraIcon sx={{ fontSize: 24 }} />
+                <PhotoCameraIcon sx={{ fontSize: { xs: 20, sm: 24 } }} />
               </IconButton>
             </Tooltip>
           </Zoom>
@@ -1584,8 +1672,8 @@ const Chat = () => {
                       ? 'rgba(0, 0, 0, 0.12)'
                       : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
                     color: 'white',
-                    width: 52,
-                    height: 52,
+                    width: { xs: 44, sm: 52 },
+                    height: { xs: 44, sm: 52 },
                     borderRadius: '50%',
                     boxShadow: (!input.trim() && !selectedImage) || isLoading 
                       ? 'none'
@@ -1609,9 +1697,9 @@ const Chat = () => {
                   }}
                 >
                   {isLoading ? (
-                    <CircularProgress size={24} sx={{ color: 'white' }} />
+                    <CircularProgress size={20} sx={{ color: 'white' }} />
                   ) : (
-                    <SendIcon sx={{ fontSize: 24 }} />
+                    <SendIcon sx={{ fontSize: { xs: 20, sm: 24 } }} />
                   )}
                 </IconButton>
               </span>

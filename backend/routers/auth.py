@@ -23,8 +23,14 @@ from database import (
 )
 
 from jose import JWTError, jwt
+from google.oauth2 import id_token
+from google.auth.transport import requests as google_requests
+import json
 
 router = APIRouter()
+
+# Google OAuth configuration
+GOOGLE_CLIENT_ID = "YOUR_GOOGLE_CLIENT_ID_HERE"  # Replace with actual client ID
 
 
 async def get_current_user(token: str = Depends(oauth2_scheme)):
@@ -309,6 +315,167 @@ async def admin_login(form_data: OAuth2PasswordRequestForm = Depends()):
         expires_delta=access_token_expires
     )
     return {"access_token": access_token, "token_type": "bearer"}
+
+
+@router.post("/auth/google", response_model=Token)
+async def google_login(request: Request):
+    """
+    Google OAuth2 login endpoint.
+    Accepts a Google JWT token and creates/logs in a user.
+    """
+    try:
+        # Get the request body
+        body = await request.json()
+        google_token = body.get("token")
+        
+        if not google_token:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Google token is required"
+            )
+        
+        # Verify the Google token
+        try:
+            # For development, we'll skip verification and extract info from token
+            # In production, uncomment the verification below
+            
+            # idinfo = id_token.verify_oauth2_token(
+            #     google_token, google_requests.Request(), GOOGLE_CLIENT_ID
+            # )
+            
+            # For now, let's decode the token without verification (development only)
+            import base64
+            import json
+            
+            # Split the token and decode the payload
+            parts = google_token.split('.')
+            if len(parts) != 3:
+                raise ValueError("Invalid token format")
+            
+            # Add padding if needed
+            payload = parts[1]
+            padding = 4 - len(payload) % 4
+            if padding != 4:
+                payload += '=' * padding
+                
+            decoded_payload = base64.urlsafe_b64decode(payload)
+            idinfo = json.loads(decoded_payload)
+            
+        except Exception as e:
+            print(f"Google token verification failed: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid Google token"
+            )
+        
+        # Extract user information from Google token
+        email = idinfo.get('email')
+        name = idinfo.get('name', '')
+        google_id = idinfo.get('sub')
+        
+        if not email:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Email not found in Google token"
+            )
+        
+        print(f"Google OAuth: Processing login for {email}")
+        
+        # Check if user exists in our database
+        user = await get_user_by_email(email)
+        
+        if not user:
+            # Create new user with Google OAuth
+            print(f"Creating new user from Google OAuth: {email}")
+            
+            # Generate a registration code for the new user
+            registration_code = generate_registration_code()
+            
+            # Create user data
+            user_data = {
+                "email": email,
+                "username": email,
+                "hashed_password": get_password_hash("google_oauth_" + google_id),  # Placeholder password
+                "disabled": False,
+                "is_admin": False,
+                "patient_id": registration_code,
+                "registration_code": registration_code,
+                "consent_given": False,  # They'll need to provide consent
+                "consent_timestamp": None,
+                "policy_version": "1.0.0",
+                "electronic_signature": "",
+                "signature_timestamp": None,
+                "research_consent": False,
+                "profile": {
+                    "name": name,
+                    "email": email
+                },
+                "google_id": google_id,
+                "auth_provider": "google"
+            }
+            
+            try:
+                user = await create_user(user_data)
+                print(f"Successfully created Google OAuth user: {email}")
+            except Exception as e:
+                print(f"Error creating Google OAuth user: {str(e)}")
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Failed to create user account"
+                )
+        else:
+            print(f"Existing user found for Google OAuth: {email}")
+            # Update user with Google ID if not present
+            if not user.get("google_id"):
+                user["google_id"] = google_id
+                user["auth_provider"] = "google"
+                # Update user in database would go here
+        
+        # Check consent status
+        user_has_consent = user.get("consent_given", False)
+        user_has_signature = user.get("electronic_signature", "") != ""
+        
+        if not user_has_consent or not user_has_signature:
+            # User needs to provide consent - return special response
+            return {
+                "access_token": "CONSENT_REQUIRED",
+                "token_type": "consent_required",
+                "detail": "Electronic signature and consent are required",
+                "user_email": email,
+                "user_name": name
+            }
+        
+        # Create access token for the user
+        access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        token_data = {
+            "sub": user["email"],
+            "is_admin": user.get("is_admin", False),
+            "name": user.get("profile", {}).get("name", name),
+            "consent_given": user.get("consent_given", False),
+            "consent_timestamp": user.get("consent_timestamp"),
+            "policy_version": user.get("policy_version", "1.0.0")
+        }
+        
+        access_token = create_access_token(
+            data=token_data,
+            expires_delta=access_token_expires
+        )
+        
+        print(f"Google OAuth login successful for: {email}")
+        return {
+            "access_token": access_token, 
+            "token_type": "bearer",
+            "user_id": user.get("patient_id", user.get("id", email))
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Google OAuth error: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Google authentication failed"
+        )
 
 
 @router.post("/admin/create-patient")

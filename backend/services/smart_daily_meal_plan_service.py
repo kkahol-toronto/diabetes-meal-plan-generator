@@ -526,13 +526,16 @@ class SmartDailyMealPlanService:
             return {}
     
     async def _generate_from_health_profile(self, missing_meals: List[str], user_profile: Dict) -> Dict:
-        """Generate meals based on user's comprehensive health profile and cuisine preferences"""
+        """Generate specific meals using AI based on user's comprehensive health profile and cuisine preferences"""
         generated_meals = {}
         
         try:
             # Get user's dietary preferences and restrictions from profile
             dietary_restrictions = user_profile.get("dietaryRestrictions", [])
+            dietary_features = user_profile.get("dietaryFeatures", [])
             food_preferences = user_profile.get("foodPreferences", [])
+            allergies = user_profile.get("allergies", [])
+            strong_dislikes = user_profile.get("strongDislikes", [])
             calorie_target = int(user_profile.get("calorieTarget", "2000"))
             
             # Get cuisine preferences
@@ -543,6 +546,11 @@ class SmartDailyMealPlanService:
             elif isinstance(diet_type, list):
                 cuisine_prefs = [dt.lower() for dt in diet_type if isinstance(dt, str)]
 
+            # Check if user is vegetarian
+            all_dietary_info = dietary_restrictions + dietary_features
+            is_vegetarian = any('vegetarian' in str(item).lower() for item in all_dietary_info)
+            no_eggs = any('no eggs' in str(item).lower() or 'egg-free' in str(item).lower() for item in all_dietary_info)
+
             # Calorie distribution that sums to 100% of target
             # breakfast 25%, lunch 35%, dinner 35%, snack 5%
             b_cal = max(200, int(round(calorie_target * 0.25)))
@@ -550,7 +558,19 @@ class SmartDailyMealPlanService:
             d_cal = max(250, int(round(calorie_target * 0.35)))
             s_cal = max(50, int(round(calorie_target * 0.05)))
             
-            # Cuisine-specific meal templates based on health profile
+            # Try AI generation first for specific meals
+            try:
+                ai_meals = await self._generate_ai_specific_meals(
+                    missing_meals, user_profile, cuisine_prefs, 
+                    is_vegetarian, no_eggs, calorie_target
+                )
+                if ai_meals:
+                    print(f"[{self.service_name}] Successfully generated AI meals: {list(ai_meals.keys())}")
+                    return ai_meals
+            except Exception as ai_error:
+                print(f"[{self.service_name}] AI generation failed: {ai_error}")
+            
+            # Fallback to cuisine-specific meal templates based on health profile
             def get_cuisine_specific_meals():
                 if 'korean' in cuisine_prefs or 'east asian' in cuisine_prefs:
                     return {
@@ -623,41 +643,77 @@ class SmartDailyMealPlanService:
                         }
                     }
                 else:
-                    # Default healthy meals
-                    return {
-                        "breakfast": {
-                            "meal_name": "Balanced Breakfast",
-                            "description": "Protein-rich breakfast with complex carbohydrates for sustained energy",
-                            "ingredients": ["oats", "berries", "nuts", "protein source"],
-                            "nutritional_info": {"calories": b_cal, "protein": 20, "carbohydrates": 45, "fat": 12},
-                            "preparation_time": "10 minutes",
-                            "source": "generated_from_profile"
-                        },
-                        "lunch": {
-                            "meal_name": "Nutritious Lunch",
-                            "description": "Balanced lunch with lean protein and vegetables",
-                            "ingredients": ["lean protein", "vegetables", "healthy grains"],
-                            "nutritional_info": {"calories": l_cal, "protein": 25, "carbohydrates": 40, "fat": 15},
-                            "preparation_time": "20 minutes",
-                            "source": "generated_from_profile"
-                        },
-                        "dinner": {
-                            "meal_name": "Healthy Dinner",
-                            "description": "Well-balanced dinner with protein, vegetables, and healthy carbs",
-                            "ingredients": ["protein", "vegetables", "complex carbs"],
-                            "nutritional_info": {"calories": d_cal, "protein": 30, "carbohydrates": 35, "fat": 18},
-                            "preparation_time": "25 minutes",
-                            "source": "generated_from_profile"
-                        },
-                        "snack": {
-                            "meal_name": "Healthy Snack",
-                            "description": "Nutritious snack to bridge meal gaps",
-                            "ingredients": ["nuts", "fruit"],
-                            "nutritional_info": {"calories": s_cal, "protein": 5, "carbohydrates": 15, "fat": 8},
-                            "preparation_time": "5 minutes",
-                            "source": "generated_from_profile"
+                    # Specific healthy meals based on dietary needs
+                    if is_vegetarian:
+                        return {
+                            "breakfast": {
+                                "meal_name": "Greek Yogurt Bowl with Mixed Berries and Almonds",
+                                "description": "Protein-rich breakfast with antioxidant-rich berries and healthy fats",
+                                "ingredients": ["Greek yogurt", "mixed berries", "sliced almonds", "chia seeds"],
+                                "nutritional_info": {"calories": b_cal, "protein": 20, "carbohydrates": 35, "fat": 12},
+                                "preparation_time": "5 minutes",
+                                "source": "generated_from_profile"
+                            },
+                            "lunch": {
+                                "meal_name": "Quinoa Buddha Bowl with Roasted Vegetables",
+                                "description": "Complete protein quinoa with colorful roasted vegetables and tahini dressing",
+                                "ingredients": ["quinoa", "roasted bell peppers", "zucchini", "chickpeas", "tahini dressing"],
+                                "nutritional_info": {"calories": l_cal, "protein": 18, "carbohydrates": 45, "fat": 15},
+                                "preparation_time": "25 minutes",
+                                "source": "generated_from_profile"
+                            },
+                            "dinner": {
+                                "meal_name": "Lentil and Vegetable Curry with Brown Rice",
+                                "description": "Protein-rich lentil curry with diabetes-friendly spices and fiber-rich brown rice",
+                                "ingredients": ["red lentils", "spinach", "tomatoes", "onions", "brown rice", "turmeric"],
+                                "nutritional_info": {"calories": d_cal, "protein": 22, "carbohydrates": 40, "fat": 12},
+                                "preparation_time": "30 minutes",
+                                "source": "generated_from_profile"
+                            },
+                            "snack": {
+                                "meal_name": "Apple Slices with Almond Butter",
+                                "description": "Fiber-rich apple with protein and healthy fats from almond butter",
+                                "ingredients": ["medium apple", "almond butter"],
+                                "nutritional_info": {"calories": s_cal, "protein": 6, "carbohydrates": 20, "fat": 8},
+                                "preparation_time": "2 minutes",
+                                "source": "generated_from_profile"
+                            }
                         }
-                    }
+                    else:
+                        return {
+                            "breakfast": {
+                                "meal_name": "Vegetable Omelet with Whole Grain Toast",
+                                "description": "Protein-rich eggs with colorful vegetables and fiber-rich whole grain bread",
+                                "ingredients": ["eggs", "bell peppers", "spinach", "mushrooms", "whole grain bread"],
+                                "nutritional_info": {"calories": b_cal, "protein": 22, "carbohydrates": 30, "fat": 14},
+                                "preparation_time": "10 minutes",
+                                "source": "generated_from_profile"
+                            },
+                            "lunch": {
+                                "meal_name": "Grilled Chicken Salad with Quinoa",
+                                "description": "Lean protein with mixed greens, quinoa, and olive oil vinaigrette",
+                                "ingredients": ["grilled chicken breast", "mixed greens", "quinoa", "cherry tomatoes", "cucumber", "olive oil vinaigrette"],
+                                "nutritional_info": {"calories": l_cal, "protein": 30, "carbohydrates": 35, "fat": 12},
+                                "preparation_time": "15 minutes",
+                                "source": "generated_from_profile"
+                            },
+                            "dinner": {
+                                "meal_name": "Baked Salmon with Roasted Sweet Potato and Broccoli",
+                                "description": "Omega-3 rich salmon with nutrient-dense sweet potato and fiber-rich broccoli",
+                                "ingredients": ["salmon fillet", "sweet potato", "broccoli", "olive oil", "herbs"],
+                                "nutritional_info": {"calories": d_cal, "protein": 32, "carbohydrates": 35, "fat": 16},
+                                "preparation_time": "25 minutes",
+                                "source": "generated_from_profile"
+                            },
+                            "snack": {
+                                "meal_name": "Greek Yogurt with Walnuts and Cinnamon",
+                                "description": "High-protein yogurt with healthy fats and blood sugar-friendly cinnamon",
+                                "ingredients": ["Greek yogurt", "chopped walnuts", "cinnamon"],
+                                "nutritional_info": {"calories": s_cal, "protein": 8, "carbohydrates": 12, "fat": 10},
+                                "preparation_time": "2 minutes",
+                                "source": "generated_from_profile"
+                            }
+                        }
             
             meal_templates = get_cuisine_specific_meals()
             
@@ -689,6 +745,213 @@ class SmartDailyMealPlanService:
         }
         
         return nutrition_estimates.get(meal_type, {"calories": 300, "protein": 15, "carbohydrates": 30, "fat": 10})
+    
+    async def _generate_ai_specific_meals(self, missing_meals: List[str], user_profile: Dict, 
+                                        cuisine_prefs: List[str], is_vegetarian: bool, 
+                                        no_eggs: bool, calorie_target: int) -> Dict:
+        """Generate specific meal names using AI instead of generic descriptions"""
+        from services.openai_service import robust_openai_call
+        import json
+        
+        try:
+            # Get user's health information
+            medical_conditions = user_profile.get("medicalConditions", [])
+            dietary_restrictions = user_profile.get("dietaryRestrictions", [])
+            dietary_features = user_profile.get("dietaryFeatures", [])
+            food_preferences = user_profile.get("foodPreferences", [])
+            allergies = user_profile.get("allergies", [])
+            strong_dislikes = user_profile.get("strongDislikes", [])
+            
+            # Calorie distribution
+            meal_calories = {
+                "breakfast": max(200, int(round(calorie_target * 0.25))),
+                "lunch": max(250, int(round(calorie_target * 0.35))), 
+                "dinner": max(250, int(round(calorie_target * 0.35))),
+                "snack": max(50, int(round(calorie_target * 0.05)))
+            }
+            
+            # Build dietary restrictions text
+            dietary_text = ""
+            if is_vegetarian:
+                dietary_text += "VEGETARIAN - No meat, poultry, fish, or seafood. Plant-based proteins only.\n"
+            if no_eggs:
+                dietary_text += "EGG-FREE - No eggs, omelets, quiche, or egg-based dishes.\n"
+            if allergies:
+                dietary_text += f"ALLERGIES - Avoid: {', '.join(allergies)}\n"
+            if strong_dislikes:
+                dietary_text += f"DISLIKES - Avoid: {', '.join(strong_dislikes)}\n"
+            
+            # Build cuisine preference text
+            cuisine_text = ""
+            if cuisine_prefs:
+                cuisine_text = f"Preferred cuisines: {', '.join(cuisine_prefs)}"
+            else:
+                cuisine_text = "Any healthy cuisine style"
+            
+            prompt = f"""You are an expert nutritionist creating a Smart Daily Meal Plan. Generate SPECIFIC, DETAILED meal names (not generic descriptions) for today's meals.
+
+USER HEALTH PROFILE:
+- Medical Conditions: {medical_conditions}
+- Target Daily Calories: {calorie_target}
+- {dietary_text}
+- Food Preferences: {food_preferences}
+- {cuisine_text}
+
+MEALS TO GENERATE: {missing_meals}
+
+CALORIE TARGETS:
+{chr(10).join([f"- {meal.title()}: {meal_calories.get(meal, 300)} calories" for meal in missing_meals])}
+
+REQUIREMENTS:
+1. Generate SPECIFIC dish names (e.g., "Vegetable Quinoa Bowl with Tahini Dressing" NOT "Balanced Breakfast")
+2. Each meal must be diabetes-friendly (low glycemic index)
+3. Respect ALL dietary restrictions and allergies
+4. Include appropriate portions and cooking methods
+5. Make meals appealing and varied
+6. Consider the user's cuisine preferences
+
+Return JSON with this EXACT structure:
+{{
+{chr(10).join([f'    "{meal}": {{"meal_name": "Specific dish name", "description": "Brief description", "ingredients": ["ingredient1", "ingredient2"], "nutritional_info": {{"calories": {meal_calories.get(meal, 300)}, "protein": 20, "carbohydrates": 40, "fat": 15}}, "preparation_time": "15 minutes", "source": "ai_generated"}},' for meal in missing_meals])}
+}}
+
+Make each meal unique, specific, and appetizing!"""
+
+            print(f"[{self.service_name}] Generating AI meals with prompt length: {len(prompt)}")
+            
+            # Call OpenAI API
+            api_result = await robust_openai_call(
+                messages=[
+                    {"role": "system", "content": "You are a creative nutritionist specializing in diabetes-friendly meal planning. Always respond with valid JSON containing specific meal names."},
+                    {"role": "user", "content": prompt}
+                ],
+                max_tokens=1500,
+                temperature=0.7,  # Some creativity for variety
+                max_retries=2,
+                timeout=45,
+                context="smart_daily_meal_plan_generation"
+            )
+            
+            if api_result["success"]:
+                # Extract JSON from response
+                content = api_result["content"].strip()
+                start_idx = content.find('{')
+                end_idx = content.rfind('}') + 1
+                
+                if start_idx != -1 and end_idx != -1:
+                    json_str = content[start_idx:end_idx]
+                    ai_meals = json.loads(json_str)
+                    
+                    # Validate the response has the expected meals
+                    valid_meals = {}
+                    for meal_type in missing_meals:
+                        if meal_type in ai_meals and isinstance(ai_meals[meal_type], dict):
+                            meal_data = ai_meals[meal_type]
+                            if "meal_name" in meal_data and meal_data["meal_name"]:
+                                valid_meals[meal_type] = meal_data
+                                print(f"[{self.service_name}] AI generated {meal_type}: {meal_data['meal_name']}")
+                    
+                    if valid_meals:
+                        return valid_meals
+                    else:
+                        print(f"[{self.service_name}] AI response didn't contain valid meals")
+                else:
+                    print(f"[{self.service_name}] No JSON found in AI response")
+            else:
+                print(f"[{self.service_name}] AI API call failed: {api_result.get('error', 'Unknown error')}")
+                
+        except Exception as e:
+            print(f"[{self.service_name}] Error in AI meal generation: {e}")
+            import traceback
+            traceback.print_exc()
+        
+        return {}
+    
+    async def _generate_recalibrated_meal(self, meal_type: str, target_calories: int, 
+                                        target_protein: int, user_profile: Dict, reason: str) -> Dict:
+        """Generate a specific recalibrated meal based on new calorie/protein targets"""
+        from services.openai_service import robust_openai_call
+        import json
+        
+        try:
+            # Get user's dietary info
+            dietary_restrictions = user_profile.get("dietaryRestrictions", [])
+            dietary_features = user_profile.get("dietaryFeatures", [])
+            food_preferences = user_profile.get("foodPreferences", [])
+            allergies = user_profile.get("allergies", [])
+            strong_dislikes = user_profile.get("strongDislikes", [])
+            
+            # Check dietary restrictions
+            all_dietary_info = dietary_restrictions + dietary_features
+            is_vegetarian = any('vegetarian' in str(item).lower() for item in all_dietary_info)
+            no_eggs = any('no eggs' in str(item).lower() or 'egg-free' in str(item).lower() for item in all_dietary_info)
+            
+            # Build dietary text
+            dietary_text = ""
+            if is_vegetarian:
+                dietary_text += "VEGETARIAN - No meat, poultry, fish, or seafood.\n"
+            if no_eggs:
+                dietary_text += "EGG-FREE - No eggs or egg-based dishes.\n"
+            if allergies:
+                dietary_text += f"ALLERGIES - Avoid: {', '.join(allergies)}\n"
+            
+            prompt = f"""You are a nutrition expert helping recalibrate a meal plan. Generate a SPECIFIC meal for {meal_type} that fits the adjusted nutritional targets.
+
+SITUATION: {reason}
+
+TARGET NUTRITION:
+- Calories: {target_calories}
+- Protein: {target_protein}g
+
+DIETARY REQUIREMENTS:
+{dietary_text}
+- Food Preferences: {food_preferences}
+- Avoid: {strong_dislikes}
+
+Generate a SPECIFIC, appealing {meal_type} that:
+1. Fits exactly within the calorie and protein targets
+2. Is diabetes-friendly (low glycemic index)
+3. Respects all dietary restrictions
+4. Is practical and appetizing
+
+Return JSON with this structure:
+{{
+    "meal_name": "Specific dish name",
+    "description": "Brief appealing description",
+    "ingredients": ["ingredient1", "ingredient2", "ingredient3"],
+    "preparation_time": "X minutes"
+}}
+
+Make it specific and appetizing!"""
+
+            api_result = await robust_openai_call(
+                messages=[
+                    {"role": "system", "content": "You are a creative nutritionist specializing in meal recalibration. Always respond with valid JSON."},
+                    {"role": "user", "content": prompt}
+                ],
+                max_tokens=500,
+                temperature=0.6,
+                max_retries=1,
+                timeout=30,
+                context="meal_recalibration"
+            )
+            
+            if api_result["success"]:
+                content = api_result["content"].strip()
+                start_idx = content.find('{')
+                end_idx = content.rfind('}') + 1
+                
+                if start_idx != -1 and end_idx != -1:
+                    json_str = content[start_idx:end_idx]
+                    recalibrated_meal = json.loads(json_str)
+                    
+                    if "meal_name" in recalibrated_meal and recalibrated_meal["meal_name"]:
+                        return recalibrated_meal
+                        
+        except Exception as e:
+            print(f"[{self.service_name}] Error generating recalibrated meal: {e}")
+        
+        return {}
     
     def _check_plan_matches_consumption(self, smart_meal_plan: Dict, today_consumption: List[Dict]) -> bool:
         """Check if user consumed what was planned using robust meal matching"""
@@ -855,6 +1118,19 @@ class SmartDailyMealPlanService:
                             new_pro = max(5 if meal_type == "snack" else 12, int(round(old_pro * scale)))
                             info["calories"] = new_cal
                             info["protein"] = new_pro
+                            # Try to generate a better meal suggestion if calories were significantly reduced
+                            if new_cal < old_cal * 0.7:  # If reduced by more than 30%
+                                try:
+                                    better_meal = await self._generate_recalibrated_meal(
+                                        meal_type, new_cal, new_pro, user_profile, 
+                                        f"Adjusted for {total_consumed_calories} calories already consumed"
+                                    )
+                                    if better_meal:
+                                        meals[meal_type].update(better_meal)
+                                        print(f"[{self.service_name}] Generated better {meal_type} suggestion: {better_meal.get('meal_name', 'Unknown')}")
+                                except Exception as recal_error:
+                                    print(f"[{self.service_name}] Could not generate better meal for {meal_type}: {recal_error}")
+                            
                             recalibrations.append({
                                 "meal_type": meal_type,
                                 "reason": "scaled_to_remaining_calories",
@@ -1200,6 +1476,30 @@ class SmartDailyMealPlanService:
             "source": "emergency_fallback",
             "ingredients": ["Healthy ingredients"]
         }
+    
+    async def clear_smart_daily_meal_plan_cache(self, user_email: str) -> bool:
+        """Clear the Smart Daily Meal Plan cache to force regeneration with new improvements"""
+        try:
+            from datetime import datetime
+            today_date = datetime.utcnow().date().isoformat()
+            
+            # Clear today's plan from database
+            result = await self._clear_daily_plan(user_email, today_date)
+            
+            # Also clear any caching
+            try:
+                from services.cache_service import invalidate_all_meal_plan_caches
+                invalidate_all_meal_plan_caches(user_email)
+                print(f"[{self.service_name}] Cleared all caches for {user_email}")
+            except Exception as cache_error:
+                print(f"[{self.service_name}] Cache clearing warning: {cache_error}")
+            
+            print(f"[{self.service_name}] Smart Daily Meal Plan cache cleared for {user_email}")
+            return result
+            
+        except Exception as e:
+            print(f"[{self.service_name}] Error clearing cache: {e}")
+            return False
     
     async def _clear_daily_plan(self, user_email: str, date: str) -> bool:
         """Clear existing Smart Daily Meal Plan for force refresh"""
